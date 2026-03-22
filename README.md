@@ -25,6 +25,12 @@
 - `GaltranslJsonFileHandler`
 - `PlainTextFileHandler`
 
+以及 `utils/text_align`：
+
+- `DefaultTextAligner`
+- `DynamicTextAligner`
+- `SimplifiedDynamicTextAligner`
+
 ## 安装依赖
 
 ```bash
@@ -143,4 +149,19 @@ const project = new TranslationProject(
 );
 
 await project.initialize();
+```
+
+## 文本对齐示例
+
+```ts
+import { DefaultTextAligner } from "./index.ts";
+
+const aligner = new DefaultTextAligner(embeddingClient);
+const aligned = await aligner.alignTexts(
+  ["原文一", "原文二", "原文三"],
+  ["译文一", "译文三"],
+);
+
+console.log(aligned);
+// ["译文一", "<Omission/>", "译文三"]
 ```

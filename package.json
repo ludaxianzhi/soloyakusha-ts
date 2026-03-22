@@ -8,5 +8,8 @@
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@stdlib/blas-base-ddot": "^0.4.1"
   }
 }
