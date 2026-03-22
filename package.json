@@ -10,6 +10,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@stdlib/blas-base-ddot": "^0.4.1"
+    "@stdlib/blas-base-ddot": "^0.4.1",
+    "yaml": "^2.8.3"
   }
 }

@@ -1,9 +1,11 @@
+import type { Glossary } from "../glossary/glossary.ts";
 import { TranslationDocumentManager } from "./translation-document-manager.ts";
 import { PrebuiltContextRetriever } from "./context-index.ts";
 import { TranslationTopology } from "./topology.ts";
 import type {
   ContextPair,
   ContextSettings,
+  GlossarySettings,
   ProjectCursor,
   TranslationContextEntry,
   TranslationContextType,
@@ -18,6 +20,8 @@ export class TranslationContextView {
       topology?: TranslationTopology;
       contextRetriever?: PrebuiltContextRetriever;
       context?: ContextSettings;
+      glossary?: Glossary;
+      glossaryConfig?: GlossarySettings;
     },
   ) {}
 
@@ -30,6 +34,11 @@ export class TranslationContextView {
 
   getContexts(): TranslationContextEntry[] {
     const contexts: TranslationContextEntry[] = [];
+
+    const glossaryContext = this.getGlossaryContext();
+    if (glossaryContext) {
+      contexts.push(glossaryContext);
+    }
 
     const precedingContext = this.getPrecedingContext();
     if (precedingContext) {
@@ -45,6 +54,10 @@ export class TranslationContextView {
   }
 
   getContext(type: TranslationContextType): TranslationContextEntry | undefined {
+    if (type === "glossary") {
+      return this.getGlossaryContext();
+    }
+
     if (type === "precedingTranslation") {
       return this.getPrecedingContext();
     }
@@ -54,6 +67,29 @@ export class TranslationContextView {
     }
 
     return undefined;
+  }
+
+  getGlossaryContext(): TranslationContextEntry | undefined {
+    if (!this.options.glossary) {
+      return undefined;
+    }
+
+    const autoFilter = this.options.glossaryConfig?.autoFilter ?? true;
+    const content = autoFilter
+      ? this.options.glossary.filterAndRenderAsCsv(this.sourceText)
+      : this.options.glossary.renderAsCsv();
+
+    const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (lines.length <= 1) {
+      return undefined;
+    }
+
+    return {
+      type: "glossary",
+      description: "项目术语表",
+      priority: 100,
+      content,
+    };
   }
 
   getPrecedingContext(): TranslationContextEntry | undefined {

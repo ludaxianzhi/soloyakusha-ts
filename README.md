@@ -31,6 +31,12 @@
 - `DynamicTextAligner`
 - `SimplifiedDynamicTextAligner`
 
+以及术语表管理：
+
+- `Glossary`
+- `GlossaryPersisterFactory`
+- JSON / CSV / TSV / YAML / XML 术语表持久化
+
 ## 安装依赖
 
 ```bash
@@ -101,6 +107,10 @@ const project = new TranslationProject({
   context: {
     includeEarlierFragments: 2,
     includeEarlierChapters: true,
+  },
+  glossary: {
+    path: "glossary.csv",
+    autoFilter: true,
   },
 });
 

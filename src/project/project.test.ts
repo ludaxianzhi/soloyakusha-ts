@@ -86,14 +86,20 @@ describe("TranslationProject", () => {
       translatedText: "Line 1",
     });
 
-    expect(secondTaskView.getContexts()[0]?.type).toBe("precedingTranslation");
-    expect(secondTaskView.getContexts()[0]?.pairs[0]?.translatedText).toBe("Line 1");
+    const precedingFromView = secondTaskView.getContext("precedingTranslation");
+    expect(precedingFromView?.type).toBe("precedingTranslation");
+    if (precedingFromView?.type === "precedingTranslation") {
+      expect(precedingFromView.pairs[0]?.translatedText).toBe("Line 1");
+    }
 
     const secondTask = await project.getNextTask();
     expect(secondTask?.chapterId).toBe(1);
     expect(secondTask?.fragmentIndex).toBe(1);
-    expect(secondTask?.contextView.getContexts()[0]?.type).toBe("precedingTranslation");
-    expect(secondTask?.contextView.getContexts()[0]?.pairs[0]?.translatedText).toBe("Line 1");
+    const precedingFromTask = secondTask?.contextView.getContext("precedingTranslation");
+    expect(precedingFromTask?.type).toBe("precedingTranslation");
+    if (precedingFromTask?.type === "precedingTranslation") {
+      expect(precedingFromTask.pairs[0]?.translatedText).toBe("Line 1");
+    }
 
     await project.submitResult({
       chapterId: 1,
@@ -103,7 +109,12 @@ describe("TranslationProject", () => {
 
     const thirdTask = await project.getNextTask();
     expect(thirdTask?.chapterId).toBe(2);
-    expect(thirdTask?.contextView.getContexts()[0]?.pairs).toHaveLength(2);
+    const precedingFromThirdTask =
+      thirdTask?.contextView.getContext("precedingTranslation");
+    expect(precedingFromThirdTask?.type).toBe("precedingTranslation");
+    if (precedingFromThirdTask?.type === "precedingTranslation") {
+      expect(precedingFromThirdTask.pairs).toHaveLength(2);
+    }
 
     const progress = project.getProgress();
     expect(progress.totalChapters).toBe(2);

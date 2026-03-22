@@ -65,12 +65,18 @@ export type ContextSettings = {
   includeEarlierFragments?: number;
 };
 
+export type GlossarySettings = {
+  path?: string;
+  autoFilter?: boolean;
+};
+
 export type TranslationProjectConfig = {
   projectName: string;
   projectDir: string;
   topologyPath?: string;
   topology?: TopologyConfig;
   context?: ContextSettings;
+  glossary?: GlossarySettings;
   customRequirements?: string[];
 };
 
@@ -96,14 +102,26 @@ export type ContextPair = {
   translatedText: string;
 };
 
-export type TranslationContextType = "precedingTranslation" | "semanticSimilar";
+export type TranslationContextType =
+  | "glossary"
+  | "precedingTranslation"
+  | "semanticSimilar";
 
-export type TranslationContextEntry = {
-  type: TranslationContextType;
+export type GlossaryContextEntry = {
+  type: "glossary";
+  description: string;
+  priority: number;
+  content: string;
+};
+
+export type PairContextEntry = {
+  type: "precedingTranslation" | "semanticSimilar";
   description: string;
   priority: number;
   pairs: ContextPair[];
 };
+
+export type TranslationContextEntry = GlossaryContextEntry | PairContextEntry;
 
 export type TranslationTask = {
   chapterId: number;

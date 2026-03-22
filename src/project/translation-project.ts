@@ -1,4 +1,5 @@
 import type { TranslationFileHandlerResolver } from "../file-handlers/base.ts";
+import { Glossary, GlossaryPersisterFactory } from "../glossary/index.ts";
 import { resolve } from "node:path";
 import { PrebuiltContextRetriever } from "./context-index.ts";
 import { TranslationContextView } from "./context-view.ts";
@@ -21,6 +22,7 @@ export class TranslationProject {
   private readonly topologyPersister: TopologyPersister;
   private topology?: TranslationTopology;
   private contextRetriever?: PrebuiltContextRetriever;
+  private glossary?: Glossary;
   private initialized = false;
   private currentCursor: ProjectCursor = {};
 
@@ -33,6 +35,7 @@ export class TranslationProject {
       documentManager?: TranslationDocumentManager;
       topologyPersister?: TopologyPersister;
       contextRetriever?: PrebuiltContextRetriever;
+      glossary?: Glossary;
     } = {},
   ) {
     this.projectDir = resolve(config.projectDir);
@@ -45,6 +48,7 @@ export class TranslationProject {
       });
     this.topologyPersister = options.topologyPersister ?? new TopologyPersister();
     this.contextRetriever = options.contextRetriever;
+    this.glossary = options.glossary;
   }
 
   async initialize(): Promise<void> {
@@ -69,6 +73,13 @@ export class TranslationProject {
 
     if (this.contextRetriever) {
       await this.contextRetriever.load();
+    }
+
+    if (!this.glossary && this.config.glossary?.path) {
+      const glossaryPath = resolveChapterPath(this.projectDir, this.config.glossary.path);
+      this.glossary = await GlossaryPersisterFactory.getPersister(
+        glossaryPath,
+      ).loadGlossary(glossaryPath);
     }
 
     this.initialized = true;
@@ -143,6 +154,8 @@ export class TranslationProject {
       topology: this.topology,
       contextRetriever: this.contextRetriever,
       context: this.config.context,
+      glossary: this.glossary,
+      glossaryConfig: this.config.glossary,
     });
   }
 
@@ -202,6 +215,10 @@ export class TranslationProject {
 
   getTopology(): TranslationTopology | undefined {
     return this.topology;
+  }
+
+  getGlossary(): Glossary | undefined {
+    return this.glossary;
   }
 
   private async loadTopology(): Promise<TranslationTopology> {
