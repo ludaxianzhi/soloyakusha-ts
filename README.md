@@ -12,9 +12,7 @@
 同时也补上了翻译工程骨架的基础层：
 
 - `TranslationDocumentManager`：章节/片段持久化、全文管理、翻译进度更新
-- `TranslationTopology` / `TopologyScanner` / `TopologyPersister`：章节路线与遍历顺序管理
-- `ContextIndexBuilder` / `PrebuiltContextRetriever`：基于 embedding 的预构建上下文索引
-- `TranslationProject`：面向任务的项目骨架，负责待翻译任务遍历、进度统计和结构化上下文收集
+- `TranslationProject`：面向任务的项目骨架，负责按线性章节顺序遍历任务、统计进度、动态收集 glossary 和前序译文上下文
 
 另外已迁移文件解析模块：
 
@@ -92,21 +90,12 @@ import { TranslationProject } from "./index.ts";
 const project = new TranslationProject({
   projectName: "demo",
   projectDir: "./workspace",
-  topology: {
-    routes: [
-      {
-        name: "main",
-        chapters: [
-          { id: 1, filePath: "sources\\01.txt" },
-          { id: 2, filePath: "sources\\02.txt" },
-        ],
-      },
-    ],
-    links: [{ fromChapter: 0, toRoute: "main" }],
-  },
+  chapters: [
+    { id: 1, filePath: "sources\\01.txt" },
+    { id: 2, filePath: "sources\\02.txt" },
+  ],
   context: {
     includeEarlierFragments: 2,
-    includeEarlierChapters: true,
   },
   glossary: {
     path: "glossary.csv",
@@ -143,15 +132,7 @@ const project = new TranslationProject(
   {
     projectName: "demo",
     projectDir: "./workspace",
-    topology: {
-      routes: [
-        {
-          name: "main",
-          chapters: [{ id: 1, filePath: "sources\\scene.txt" }],
-        },
-      ],
-      links: [{ fromChapter: 0, toRoute: "main" }],
-    },
+    chapters: [{ id: 1, filePath: "sources\\scene.txt" }],
   },
   {
     fileHandlerResolver: resolver,
@@ -160,6 +141,8 @@ const project = new TranslationProject(
 
 await project.initialize();
 ```
+
+当前项目层的上下文策略是完全线性的：只会按照 `chapters` 中给定的顺序回看已完成翻译的前序片段，不再使用章节拓扑和预构建语义索引。
 
 ## 文本对齐示例
 

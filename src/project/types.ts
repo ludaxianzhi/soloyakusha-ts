@@ -37,31 +37,7 @@ export type Chapter = {
   filePath: string;
 };
 
-export type Route = {
-  name: string;
-  chapters: Chapter[];
-};
-
-export type Link = {
-  fromChapter: number;
-  toRoute: string;
-};
-
-export type TopologyConfig = {
-  routes: Route[];
-  links: Link[];
-};
-
-export type ScanConfig = {
-  rootPath: string;
-  fileExtensions?: string[];
-  recursive?: boolean;
-};
-
 export type ContextSettings = {
-  indexPath?: string;
-  retrieveK?: number;
-  includeEarlierChapters?: boolean;
   includeEarlierFragments?: number;
 };
 
@@ -73,8 +49,7 @@ export type GlossarySettings = {
 export type TranslationProjectConfig = {
   projectName: string;
   projectDir: string;
-  topologyPath?: string;
-  topology?: TopologyConfig;
+  chapters: Chapter[];
   context?: ContextSettings;
   glossary?: GlossarySettings;
   customRequirements?: string[];
@@ -102,10 +77,7 @@ export type ContextPair = {
   translatedText: string;
 };
 
-export type TranslationContextType =
-  | "glossary"
-  | "precedingTranslation"
-  | "semanticSimilar";
+export type TranslationContextType = "glossary" | "precedingTranslation";
 
 export type GlossaryContextEntry = {
   type: "glossary";
@@ -115,7 +87,7 @@ export type GlossaryContextEntry = {
 };
 
 export type PairContextEntry = {
-  type: "precedingTranslation" | "semanticSimilar";
+  type: "precedingTranslation";
   description: string;
   priority: number;
   pairs: ContextPair[];
@@ -162,15 +134,6 @@ export class ProjectProgress {
     return this.translatedChapters / this.totalChapters;
   }
 }
-
-export type ContextIndexNeighbor = {
-  hash: string;
-  distance: number;
-  chapterId: number;
-  fragmentIndex: number;
-};
-
-export type ContextIndexData = Record<string, ContextIndexNeighbor[]>;
 
 export function createTextFragment(input: string | string[]): TextFragment {
   return {

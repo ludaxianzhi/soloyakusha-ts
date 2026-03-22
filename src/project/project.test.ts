@@ -2,25 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EmbeddingClient } from "../llm/base.ts";
-import type { LlmClientConfig } from "../llm/types.ts";
-import { ContextIndexBuilder, PrebuiltContextRetriever } from "./context-index.ts";
 import { TranslationProject } from "./translation-project.ts";
-
-class FakeEmbeddingClient extends EmbeddingClient {
-  constructor(config: LlmClientConfig) {
-    super(config);
-  }
-
-  override async getEmbedding(text: string): Promise<number[]> {
-    const base = text.includes("Hello") ? [1, 0] : [0, 1];
-    return base;
-  }
-
-  override async getEmbeddings(texts: string[]): Promise<number[][]> {
-    return Promise.all(texts.map((text) => this.getEmbedding(text)));
-  }
-}
 
 const cleanupTargets: string[] = [];
 
@@ -45,21 +27,12 @@ describe("TranslationProject", () => {
     const project = new TranslationProject({
       projectName: "demo",
       projectDir: workspaceDir,
-      topology: {
-        routes: [
-          {
-            name: "main",
-            chapters: [
-              { id: 1, filePath: "sources\\chapter-1.txt" },
-              { id: 2, filePath: "sources\\chapter-2.txt" },
-            ],
-          },
-        ],
-        links: [{ fromChapter: 0, toRoute: "main" }],
-      },
+      chapters: [
+        { id: 1, filePath: "sources\\chapter-1.txt" },
+        { id: 2, filePath: "sources\\chapter-2.txt" },
+      ],
       context: {
         includeEarlierFragments: 2,
-        includeEarlierChapters: true,
       },
       customRequirements: ["保持称谓一致"],
     }, {
@@ -124,29 +97,24 @@ describe("TranslationProject", () => {
     expect(progress.fragmentProgressRatio).toBeCloseTo(2 / 3);
   });
 
-  test("builds and reuses semantic context indexes", async () => {
-    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-context-"));
+  test("traverses chapters and preceding context in configured linear order", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-linear-"));
     cleanupTargets.push(workspaceDir);
 
     const sourceDir = join(workspaceDir, "sources");
     await mkdir(sourceDir, { recursive: true });
-    await writeFile(join(sourceDir, "chapter-1.txt"), "Hello there\n", "utf8");
-    await writeFile(join(sourceDir, "chapter-2.txt"), "Hello again\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-a.txt"), "第一章第一句\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-b.txt"), "第二章第一句\n", "utf8");
 
     const project = new TranslationProject({
-      projectName: "semantic",
+      projectName: "linear",
       projectDir: workspaceDir,
-      topology: {
-        routes: [
-          {
-            name: "main",
-            chapters: [
-              { id: 1, filePath: "sources\\chapter-1.txt" },
-              { id: 2, filePath: "sources\\chapter-2.txt" },
-            ],
-          },
-        ],
-        links: [{ fromChapter: 0, toRoute: "main" }],
+      chapters: [
+        { id: 20, filePath: "sources\\chapter-b.txt" },
+        { id: 10, filePath: "sources\\chapter-a.txt" },
+      ],
+      context: {
+        includeEarlierFragments: 1,
       },
     }, {
       textSplitter: {
@@ -157,67 +125,27 @@ describe("TranslationProject", () => {
     });
     await project.initialize();
 
+    const firstTask = await project.getNextTask();
+    expect(firstTask?.chapterId).toBe(20);
+
     await project.submitResult({
-      chapterId: 1,
+      chapterId: 20,
       fragmentIndex: 0,
-      translatedText: "你好，那里",
+      translatedText: "Chapter B Line 1",
     });
 
-    const builder = new ContextIndexBuilder(
-      new FakeEmbeddingClient({
-        provider: "openai",
-        modelName: "fake-embedding",
-        apiKey: "fake",
-        endpoint: "https://example.com",
-        modelType: "embedding",
-        retries: 1,
-      }),
-    );
+    const secondTask = await project.getNextTask();
+    expect(secondTask?.chapterId).toBe(10);
+    expect(secondTask?.contextView.getContexts().map((context) => context.type)).toEqual([
+      "precedingTranslation",
+    ]);
 
-    const index = await builder.buildIndex(
-      project.getDocumentManager(),
-      project.getTopology(),
-    );
-
-    const retriever = new PrebuiltContextRetriever({
-      indexData: index,
-      retrieveK: 1,
-    });
-    await retriever.load();
-
-    const semanticProject = new TranslationProject(
-      {
-        projectName: "semantic",
-        projectDir: workspaceDir,
-        topology: {
-          routes: [
-            {
-              name: "main",
-              chapters: [
-                { id: 1, filePath: "sources\\chapter-1.txt" },
-                { id: 2, filePath: "sources\\chapter-2.txt" },
-              ],
-            },
-          ],
-          links: [{ fromChapter: 0, toRoute: "main" }],
-        },
-      },
-      {
-        contextRetriever: retriever,
-        textSplitter: {
-          split(units) {
-            return units.map((unit) => [unit]);
-          },
-        },
-      },
-    );
-    await semanticProject.initialize();
-
-    const task = await semanticProject.buildTask(2, 0);
-    expect(
-      task.contextView
-        .getContexts()
-        .some((context) => context.type === "semanticSimilar"),
-    ).toBe(true);
+    const precedingContext = secondTask?.contextView.getContext("precedingTranslation");
+    expect(precedingContext?.type).toBe("precedingTranslation");
+    if (precedingContext?.type === "precedingTranslation") {
+      expect(precedingContext.pairs).toHaveLength(1);
+      expect(precedingContext.pairs[0]?.chapterId).toBe(20);
+      expect(precedingContext.pairs[0]?.translatedText).toBe("Chapter B Line 1");
+    }
   });
 });

@@ -63,15 +63,7 @@ describe("glossary", () => {
       {
         projectName: "demo",
         projectDir: workspaceDir,
-        topology: {
-          routes: [
-            {
-              name: "main",
-              chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
-            },
-          ],
-          links: [{ fromChapter: 0, toRoute: "main" }],
-        },
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
         glossary: {
           path: "glossary.csv",
           autoFilter: true,

@@ -1,27 +1,23 @@
 import type { TranslationFileHandlerResolver } from "../file-handlers/base.ts";
 import { Glossary, GlossaryPersisterFactory } from "../glossary/index.ts";
 import { resolve } from "node:path";
-import { PrebuiltContextRetriever } from "./context-index.ts";
 import { TranslationContextView } from "./context-view.ts";
 import { TranslationDocumentManager } from "./translation-document-manager.ts";
-import { TopologyPersister } from "./topology-persister.ts";
-import { TranslationTopology } from "./topology.ts";
 import type {
+  Chapter,
   ProjectCursor,
+  TranslationResult,
   TranslationProjectConfig,
   TranslationTask,
   TranslationUnitParser,
   TranslationUnitSplitter,
-  TranslationResult,
 } from "./types.ts";
 import { ProjectProgress } from "./types.ts";
 
 export class TranslationProject {
   private readonly projectDir: string;
+  private readonly chapters: Chapter[];
   private readonly documentManager: TranslationDocumentManager;
-  private readonly topologyPersister: TopologyPersister;
-  private topology?: TranslationTopology;
-  private contextRetriever?: PrebuiltContextRetriever;
   private glossary?: Glossary;
   private initialized = false;
   private currentCursor: ProjectCursor = {};
@@ -33,12 +29,11 @@ export class TranslationProject {
       parseUnits?: TranslationUnitParser;
       fileHandlerResolver?: TranslationFileHandlerResolver;
       documentManager?: TranslationDocumentManager;
-      topologyPersister?: TopologyPersister;
-      contextRetriever?: PrebuiltContextRetriever;
       glossary?: Glossary;
     } = {},
   ) {
     this.projectDir = resolve(config.projectDir);
+    this.chapters = [...config.chapters];
     this.documentManager =
       options.documentManager ??
       new TranslationDocumentManager(this.projectDir, {
@@ -46,8 +41,6 @@ export class TranslationProject {
         parseUnits: options.parseUnits,
         fileHandlerResolver: options.fileHandlerResolver,
       });
-    this.topologyPersister = options.topologyPersister ?? new TopologyPersister();
-    this.contextRetriever = options.contextRetriever;
     this.glossary = options.glossary;
   }
 
@@ -56,24 +49,16 @@ export class TranslationProject {
       return;
     }
 
-    this.topology = await this.loadTopology();
+    if (this.chapters.length === 0) {
+      throw new Error("必须通过 chapters 提供线性章节列表");
+    }
+
     await this.documentManager.loadChapters(
-      this.topology.getAllChapters().map((chapter) => ({
+      this.chapters.map((chapter) => ({
         chapterId: chapter.id,
         filePath: resolveChapterPath(this.projectDir, chapter.filePath),
       })),
     );
-
-    if (!this.contextRetriever && this.config.context?.indexPath) {
-      this.contextRetriever = new PrebuiltContextRetriever({
-        indexPath: resolveChapterPath(this.projectDir, this.config.context.indexPath),
-        retrieveK: this.config.context.retrieveK ?? 5,
-      });
-    }
-
-    if (this.contextRetriever) {
-      await this.contextRetriever.load();
-    }
 
     if (!this.glossary && this.config.glossary?.path) {
       const glossaryPath = resolveChapterPath(this.projectDir, this.config.glossary.path);
@@ -151,8 +136,6 @@ export class TranslationProject {
     this.ensureInitialized();
     return new TranslationContextView(chapterId, fragmentIndex, {
       documentManager: this.documentManager,
-      topology: this.topology,
-      contextRetriever: this.contextRetriever,
       context: this.config.context,
       glossary: this.glossary,
       glossaryConfig: this.config.glossary,
@@ -174,7 +157,7 @@ export class TranslationProject {
   }
 
   getProgress(): ProjectProgress {
-    if (!this.initialized || !this.topology) {
+    if (!this.initialized) {
       return new ProjectProgress();
     }
 
@@ -213,32 +196,12 @@ export class TranslationProject {
     return this.documentManager;
   }
 
-  getTopology(): TranslationTopology | undefined {
-    return this.topology;
-  }
-
   getGlossary(): Glossary | undefined {
     return this.glossary;
   }
 
-  private async loadTopology(): Promise<TranslationTopology> {
-    if (this.config.topology) {
-      const topology = new TranslationTopology();
-      topology.loadFromConfig(this.config.topology);
-      return topology;
-    }
-
-    if (!this.config.topologyPath) {
-      throw new Error("必须通过 topology 或 topologyPath 提供项目拓扑");
-    }
-
-    return this.topologyPersister.loadTopology(
-      resolveChapterPath(this.projectDir, this.config.topologyPath),
-    );
-  }
-
   private getTraversalChapters() {
-    return this.topology?.getDfsOrderedChapters() ?? [];
+    return [...this.chapters];
   }
 
   private ensureInitialized(): void {

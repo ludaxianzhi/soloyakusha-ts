@@ -158,7 +158,7 @@ export class TranslationDocumentManager {
   }
 
   getAllChapters(): ChapterEntry[] {
-    return Array.from(this.chapters.values()).sort((left, right) => left.id - right.id);
+    return Array.from(this.chapters.values());
   }
 
   getTranslationProgress(): {
