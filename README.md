@@ -32,8 +32,10 @@
 以及术语表管理：
 
 - `Glossary`
+- `FullTextGlossaryScanner`
 - `GlossaryPersisterFactory`
 - JSON / CSV / TSV / YAML / XML 术语表持久化
+- 术语状态（已翻译 / 未翻译）与出现统计（总出现次数 / 出现文本块数）
 
 ## 安装依赖
 
@@ -140,6 +142,49 @@ const project = new TranslationProject(
 );
 
 await project.initialize();
+```
+
+## 全文级术语扫描示例
+
+```ts
+import {
+  FullTextGlossaryScanner,
+  GlossaryPersisterFactory,
+  LlmClientProvider,
+  TranslationProject,
+} from "./index.ts";
+
+const provider = new LlmClientProvider();
+provider.register("scanner", {
+  provider: "openai",
+  modelType: "chat",
+  modelName: "gpt-4.1",
+  endpoint: "https://api.openai.com/v1",
+  apiKeyEnv: "OPENAI_API_KEY",
+  defaultRequestConfig: {
+    temperature: 0,
+  },
+});
+
+const project = new TranslationProject({
+  projectName: "demo",
+  projectDir: "./workspace",
+  chapters: [{ id: 1, filePath: "sources\\scene.txt" }],
+});
+
+await project.initialize();
+
+const scanner = new FullTextGlossaryScanner(provider.getChatClient("scanner"));
+const result = await scanner.scanDocumentManager(project.getDocumentManager(), {
+  maxCharsPerBatch: 8192,
+});
+
+console.log(scanner.formatResult(result));
+
+await GlossaryPersisterFactory.getPersister("glossary.yaml").saveGlossary(
+  result.glossary,
+  "glossary.yaml",
+);
 ```
 
 当前项目层的上下文策略是完全线性的：只会按照 `chapters` 中给定的顺序回看已完成翻译的前序片段，不再使用章节拓扑和预构建语义索引。
