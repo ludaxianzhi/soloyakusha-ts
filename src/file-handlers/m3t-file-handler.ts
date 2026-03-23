@@ -1,3 +1,7 @@
+/**
+ * 实现 M3T 对话格式的读写，处理角色名、正文与多种翻译状态的序列化。
+ */
+
 import { readFile, writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
 import {
@@ -6,6 +10,9 @@ import {
   stripBom,
 } from "./base.ts";
 
+/**
+ * M3T 格式处理器，负责在名称字段、正文和翻译状态之间做转换。
+ */
 export class M3TFileHandler extends TranslationFileHandler {
   readonly formatName = "m3t";
   readonly supportsComparable = true;

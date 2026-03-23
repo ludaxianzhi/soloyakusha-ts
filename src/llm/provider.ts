@@ -1,3 +1,7 @@
+/**
+ * 集中管理多个 LLM 客户端配置与实例生命周期，并向外提供统一访问入口。
+ */
+
 import { ChatClient, EmbeddingClient, ManagedLlmClient } from "./base.ts";
 import { AnthropicChatClient } from "./anthropic-chat-client.ts";
 import { OpenAIEmbeddingClient } from "./openai-embedding-client.ts";
@@ -10,6 +14,9 @@ import type {
 import { createLlmClientConfig } from "./types.ts";
 import { stableStringify } from "./utils.ts";
 
+/**
+ * LLM 客户端提供器，集中管理命名配置、实例缓存和请求观测挂钩。
+ */
 export class LlmClientProvider {
   private readonly registry = new Map<string, LlmClientConfig>();
   private readonly instances = new Map<string, ManagedLlmClient>();

@@ -1,3 +1,7 @@
+/**
+ * 定义 LLM 子系统共享的配置、请求结果、日志结构与校验错误类型。
+ */
+
 export type LlmProvider = "openai" | "anthropic";
 
 export type LlmModelType = "chat" | "embedding";
@@ -60,6 +64,9 @@ export type LlmOutputValidationContext = {
   modelName?: string;
 };
 
+/**
+ * 输出校验错误，附带阶段标签与统计信息，便于定位 LLM 返回结果的问题。
+ */
 export class LlmOutputValidationError extends Error {
   readonly stageLabel?: string;
   readonly sourceLineCount?: number;

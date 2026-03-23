@@ -1,3 +1,7 @@
+/**
+ * 实现基于文件的请求历史记录器，用于落盘保存补全与错误日志。
+ */
+
 import {
   appendFile,
   mkdir,
@@ -13,6 +17,9 @@ import type {
   RequestHistoryLogger,
 } from "./types.ts";
 
+/**
+ * 基于文件的请求历史记录器，负责追加入盘与日志轮转。
+ */
 export class FileRequestHistoryLogger implements RequestHistoryLogger {
   static readonly MAX_FILE_SIZE = 10 * 1024 * 1024;
 

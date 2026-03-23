@@ -1,3 +1,7 @@
+/**
+ * 汇总导出所有翻译文件处理器相关的公共接口与实现。
+ */
+
 export * from "./base.ts";
 export * from "./factory.ts";
 export * from "./galtransl-json-file-handler.ts";

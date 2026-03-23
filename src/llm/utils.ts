@@ -1,5 +1,12 @@
+/**
+ * 提供 LLM 网络访问相关的通用错误类型、重试、SSE 解析和辅助工具函数。
+ */
+
 import type { JsonObject, JsonValue } from "./types.ts";
 
+/**
+ * HTTP 请求错误，包含状态码与响应体，便于上层判断是否需要重试。
+ */
 export class ApiHttpError extends Error {
   readonly status: number;
   readonly responseText: string;
@@ -12,6 +19,9 @@ export class ApiHttpError extends Error {
   }
 }
 
+/**
+ * 网络连接错误，表示请求尚未获得有效的 HTTP 响应。
+ */
 export class ApiConnectionError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);

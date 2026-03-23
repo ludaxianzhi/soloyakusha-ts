@@ -1,8 +1,15 @@
+/**
+ * 提供基于嵌入向量的文本对齐算法，用于把原文片段与译文片段进行匹配。
+ */
+
 import ddot from "@stdlib/blas-base-ddot";
 import type { EmbeddingClient } from "../llm/base.ts";
 
 const PLACEHOLDER = "<Omission/>";
 
+/**
+ * 文本对齐器抽象基类，定义原文与译文序列对齐的统一接口。
+ */
 export abstract class TextAligner {
   constructor(protected readonly embeddingClient: EmbeddingClient) {}
 
@@ -12,6 +19,9 @@ export abstract class TextAligner {
   ): Promise<string[]>;
 }
 
+/**
+ * 文本对齐基础实现，封装嵌入计算与对齐算法共享的辅助逻辑。
+ */
 abstract class BaseTextAligner extends TextAligner {
   protected readonly placeholder = PLACEHOLDER;
 
@@ -88,6 +98,9 @@ abstract class BaseTextAligner extends TextAligner {
   }
 }
 
+/**
+ * 默认文本对齐器，采用启发式策略匹配原文与译文片段。
+ */
 export class DefaultTextAligner extends BaseTextAligner {
   override async alignTexts(
     sourceTexts: string[],
@@ -249,6 +262,9 @@ export class DefaultTextAligner extends BaseTextAligner {
   }
 }
 
+/**
+ * 动态规划文本对齐器，通过全局搜索求解更稳健的片段匹配路径。
+ */
 export class DynamicTextAligner extends BaseTextAligner {
   private static readonly MATCH_SCORE = 1.0;
   private static readonly SKIP_PENALTY = -0.5;
@@ -371,6 +387,9 @@ export class DynamicTextAligner extends BaseTextAligner {
   }
 }
 
+/**
+ * 简化版动态规划对齐器，针对常见场景提供更轻量的匹配策略。
+ */
 export class SimplifiedDynamicTextAligner extends BaseTextAligner {
   override async alignTexts(
     sourceTexts: string[],

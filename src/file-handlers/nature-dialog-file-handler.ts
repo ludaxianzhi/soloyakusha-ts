@@ -1,3 +1,7 @@
+/**
+ * 实现 Nature Dialog 风格文本的读写，支持源文、译文和角色名保留等规则。
+ */
+
 import { readFile, writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
 import {
@@ -6,6 +10,9 @@ import {
   stripBom,
 } from "./base.ts";
 
+/**
+ * Nature Dialog 处理器，负责解析和生成带有对话标记的文本格式。
+ */
 export class NatureDialogFileHandler extends TranslationFileHandler {
   readonly formatName: string = "naturedialog";
   readonly supportsComparable = true;
@@ -85,6 +92,9 @@ export class NatureDialogFileHandler extends TranslationFileHandler {
   }
 }
 
+/**
+ * 保留原始角色名的 Nature Dialog 处理器，用于只替换正文而不改写称谓。
+ */
 export class NatureDialogKeepNameFileHandler extends NatureDialogFileHandler {
   override readonly formatName: string = "naturedialog_keepname";
 

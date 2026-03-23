@@ -1,3 +1,7 @@
+/**
+ * 实现基于 OpenAI 兼容接口的聊天补全客户端，负责流式响应解析与重试控制。
+ */
+
 import { ChatClient } from "./base.ts";
 import { RateLimiter } from "./rate-limiter.ts";
 import type {
@@ -28,6 +32,9 @@ class OpenAIEmptyResponseError extends Error {
   }
 }
 
+/**
+ * OpenAI 聊天客户端实现，负责请求构造、流式响应解析、重试与速率控制。
+ */
 export class OpenAIChatClient extends ChatClient {
   private readonly rateLimiter: RateLimiter;
 

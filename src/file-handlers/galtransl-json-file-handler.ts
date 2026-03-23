@@ -1,3 +1,7 @@
+/**
+ * 实现 Galtransl JSON 格式的读写，在结构化字段与内部翻译单元之间做转换。
+ */
+
 import { readFile, writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
 import {
@@ -5,6 +9,9 @@ import {
   extractBracketNameAndText,
 } from "./base.ts";
 
+/**
+ * Galtransl JSON 处理器，把结构化消息对象转换为内部翻译单元。
+ */
 export class GaltranslJsonFileHandler extends TranslationFileHandler {
   readonly formatName = "galtransl_json";
   readonly supportsComparable = false;

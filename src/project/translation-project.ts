@@ -1,3 +1,7 @@
+/**
+ * 负责翻译项目初始化、任务遍历、上下文构建接入与结果提交协调。
+ */
+
 import type { TranslationFileHandlerResolver } from "../file-handlers/base.ts";
 import { Glossary, GlossaryPersisterFactory } from "../glossary/index.ts";
 import { resolve } from "node:path";
@@ -14,6 +18,9 @@ import type {
 } from "./types.ts";
 import { ProjectProgress } from "./types.ts";
 
+/**
+ * 翻译项目协调器，串联章节初始化、任务遍历、上下文构建与结果提交。
+ */
 export class TranslationProject {
   private readonly projectDir: string;
   private readonly chapters: Chapter[];

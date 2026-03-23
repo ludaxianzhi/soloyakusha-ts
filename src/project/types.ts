@@ -1,3 +1,7 @@
+/**
+ * 定义翻译项目域模型中的核心类型、上下文结构、切分结果与进度对象。
+ */
+
 import type { TranslationContextView } from "./context-view.ts";
 
 export type TranslationUnitMetadata = Record<string, string> | string | null;
@@ -8,6 +12,13 @@ export type TranslationUnit = {
   metadata?: TranslationUnitMetadata;
 };
 
+export type TranslationUnitWindow = {
+  units: TranslationUnit[];
+  originalUnitIndexes?: number[];
+  windowStartUnitIndex?: number;
+  windowEndUnitIndex?: number;
+};
+
 export type TextFragment = {
   lines: string[];
 };
@@ -15,6 +26,9 @@ export type TextFragment = {
 export type FragmentMeta = {
   metadataList: TranslationUnitMetadata[];
   targetGroups?: string[][];
+  originalUnitIndexes?: number[];
+  windowStartUnitIndex?: number;
+  windowEndUnitIndex?: number;
 };
 
 export type FragmentEntry = {
@@ -58,7 +72,7 @@ export type TranslationProjectConfig = {
 export type TranslationUnitParser = (content: string) => TranslationUnit[];
 
 export type TranslationUnitSplitter = {
-  split(units: TranslationUnit[]): TranslationUnit[][];
+  split(units: TranslationUnit[]): Array<TranslationUnit[] | TranslationUnitWindow>;
 };
 
 export type TranslationResult = {
@@ -108,6 +122,9 @@ export type ProjectCursor = {
   fragmentIndex?: number;
 };
 
+/**
+ * 项目进度对象，提供章节与片段级别的翻译完成度统计。
+ */
 export class ProjectProgress {
   constructor(
     readonly totalChapters = 0,

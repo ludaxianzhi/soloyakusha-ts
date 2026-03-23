@@ -1,13 +1,23 @@
+/**
+ * 提供术语表的多格式持久化实现，并按扩展名选择合适的读写器。
+ */
+
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname } from "node:path";
 import YAML from "yaml";
 import { Glossary, type GlossaryTerm } from "./glossary.ts";
 
+/**
+ * 术语表持久化抽象基类，定义不同文件格式共享的读写接口。
+ */
 export abstract class GlossaryPersister {
   abstract loadGlossary(filePath: string): Promise<Glossary>;
   abstract saveGlossary(glossary: Glossary, filePath: string): Promise<void>;
 }
 
+/**
+ * JSON 术语表持久化实现。
+ */
 export class JsonGlossaryPersister extends GlossaryPersister {
   override async loadGlossary(filePath: string): Promise<Glossary> {
     const data = JSON.parse(await readFile(filePath, "utf8")) as GlossaryTerm[];
@@ -24,6 +34,9 @@ export class JsonGlossaryPersister extends GlossaryPersister {
   }
 }
 
+/**
+ * CSV 术语表持久化实现，同时封装通用的分隔符解析逻辑。
+ */
 export class CsvGlossaryPersister extends GlossaryPersister {
   constructor(private readonly delimiter = ",") {
     super();
@@ -56,12 +69,18 @@ export class CsvGlossaryPersister extends GlossaryPersister {
   }
 }
 
+/**
+ * TSV 术语表持久化实现，复用 CSV 逻辑并切换为制表符分隔。
+ */
 export class TsvGlossaryPersister extends CsvGlossaryPersister {
   constructor() {
     super("\t");
   }
 }
 
+/**
+ * YAML 术语表持久化实现。
+ */
 export class YamlGlossaryPersister extends GlossaryPersister {
   override async loadGlossary(filePath: string): Promise<Glossary> {
     const data = YAML.parse(await readFile(filePath, "utf8")) as GlossaryTerm[] | null;
@@ -74,6 +93,9 @@ export class YamlGlossaryPersister extends GlossaryPersister {
   }
 }
 
+/**
+ * XML 术语表持久化实现，负责在 XML 属性与术语项之间转换。
+ */
 export class XmlGlossaryPersister extends GlossaryPersister {
   override async loadGlossary(filePath: string): Promise<Glossary> {
     const content = await readFile(filePath, "utf8");
@@ -113,6 +135,9 @@ export class XmlGlossaryPersister extends GlossaryPersister {
   }
 }
 
+/**
+ * 术语表持久化工厂，按文件扩展名选择对应的持久化实现。
+ */
 export class GlossaryPersisterFactory {
   static getPersister(filePath: string): GlossaryPersister {
     const suffix = extname(filePath).toLowerCase();

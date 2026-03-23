@@ -1,9 +1,16 @@
+/**
+ * 提供内存中的术语表模型，负责术语增删查改、筛选与渲染。
+ */
+
 export type GlossaryTerm = {
   term: string;
   translation: string;
   description?: string;
 };
 
+/**
+ * 术语表模型，负责维护术语集合并按上下文筛选、渲染可用条目。
+ */
 export class Glossary {
   private readonly terms = new Map<string, GlossaryTerm>();
 

@@ -1,3 +1,7 @@
+/**
+ * 实现 OpenAI 兼容嵌入客户端，支持批量请求与可选缓存。
+ */
+
 import { EmbeddingClient } from "./base.ts";
 import { RateLimiter } from "./rate-limiter.ts";
 import type { ClientHooks, LlmClientConfig } from "./types.ts";
@@ -17,6 +21,9 @@ type CacheEntry = {
   timestamp: number;
 };
 
+/**
+ * OpenAI 嵌入客户端实现，支持批量向量化与内存缓存。
+ */
 export class OpenAIEmbeddingClient extends EmbeddingClient {
   private readonly rateLimiter: RateLimiter;
   private readonly batchSize: number;

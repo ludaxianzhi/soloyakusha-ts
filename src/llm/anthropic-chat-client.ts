@@ -1,3 +1,7 @@
+/**
+ * 实现 Anthropic Claude 聊天客户端，负责消息构造、流式解析与错误处理。
+ */
+
 import { ChatClient } from "./base.ts";
 import { RateLimiter } from "./rate-limiter.ts";
 import type {
@@ -27,6 +31,9 @@ class AnthropicEmptyResponseError extends Error {
   }
 }
 
+/**
+ * Anthropic 聊天客户端实现，负责消息协议适配、流式事件解析与错误处理。
+ */
 export class AnthropicChatClient extends ChatClient {
   private readonly rateLimiter: RateLimiter;
 

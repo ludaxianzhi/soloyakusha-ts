@@ -1,5 +1,12 @@
+/**
+ * 提供同时约束 QPS 与并发数的速率限制器，实现对外部模型接口的节流。
+ */
+
 import { sleep } from "./utils.ts";
 
+/**
+ * 组合 QPS 与并发约束的速率限制器，用于保护外部模型接口。
+ */
 export class RateLimiter {
   private readonly qps?: number;
   private readonly maxParallel?: number;

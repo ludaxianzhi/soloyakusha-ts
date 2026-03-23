@@ -1,3 +1,7 @@
+/**
+ * 集中注册并创建不同翻译文件格式的处理器，同时提供按文件扩展名解析处理器的辅助能力。
+ */
+
 import { extname } from "node:path";
 import type { TranslationFileHandlerResolver } from "./base.ts";
 import { TranslationFileHandler } from "./base.ts";
@@ -11,6 +15,9 @@ import { PlainTextFileHandler } from "./plain-text-file-handler.ts";
 
 type TranslationFileHandlerConstructor = new () => TranslationFileHandler;
 
+/**
+ * 翻译文件处理器工厂，负责按格式名或扩展名返回匹配的处理器实例。
+ */
 export class TranslationFileHandlerFactory {
   private static readonly handlers = new Map<string, TranslationFileHandlerConstructor>([
     ["plain_text", PlainTextFileHandler],

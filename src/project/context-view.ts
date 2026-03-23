@@ -1,3 +1,7 @@
+/**
+ * 根据章节与片段位置构建翻译上下文视图，聚合术语表与前序翻译参考。
+ */
+
 import type { Glossary } from "../glossary/glossary.ts";
 import { TranslationDocumentManager } from "./translation-document-manager.ts";
 import type {
@@ -8,6 +12,9 @@ import type {
   TranslationContextType,
 } from "./types.ts";
 
+/**
+ * 翻译上下文视图，按当前片段汇总术语表与前序翻译参考。
+ */
 export class TranslationContextView {
   constructor(
     readonly chapterId: number,
