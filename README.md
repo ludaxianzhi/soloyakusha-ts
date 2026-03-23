@@ -32,6 +32,7 @@
 - `DefaultTextAligner`
 - `DynamicTextAligner`
 - `SimplifiedDynamicTextAligner`
+- `AlignmentRepairTool`
 
 以及术语表管理：
 
@@ -194,6 +195,46 @@ console.log(project.getProjectSnapshot());
 console.log(project.getQueueSnapshot("translation"));
 console.log(project.getReadyWorkItemSnapshots());
 console.log(project.getActiveWorkItems());
+```
+
+## 对齐检查 + 补充翻译示例
+
+```ts
+import {
+  AlignmentRepairTool,
+  DefaultTextAligner,
+  LlmClientProvider,
+  OpenAIEmbeddingClient,
+} from "./index.ts";
+
+const provider = new LlmClientProvider();
+provider.register("repair", {
+  provider: "openai",
+  modelType: "chat",
+  modelName: "gpt-4.1",
+  endpoint: "https://api.openai.com/v1",
+  apiKeyEnv: "OPENAI_API_KEY",
+});
+
+const aligner = new DefaultTextAligner(
+  new OpenAIEmbeddingClient({
+    provider: "openai",
+    modelName: "text-embedding-3-small",
+    apiKey: process.env.OPENAI_API_KEY!,
+    endpoint: "https://api.openai.com/v1",
+    modelType: "embedding",
+    retries: 3,
+  }),
+);
+
+const tool = new AlignmentRepairTool(aligner, provider.getChatClient("repair"));
+const result = await tool.repairMissingTranslations(
+  ["原文一", "原文二", "原文三"],
+  ["译文一", "译文三"],
+);
+
+console.log(result.analysis.missingUnitIds);
+console.log(result.repairs);
 ```
 
 ## 文件格式处理示例

@@ -9,8 +9,10 @@
  * - {@link DefaultTextAligner}: 默认对齐器，采用贪心启发式策略
  * - {@link DynamicTextAligner}: 动态规划对齐器，通过全局优化求解
  * - {@link SimplifiedDynamicTextAligner}: 简化版动态规划对齐器，适合常见场景
+ * - {@link AlignmentRepairTool}: 对齐检查与漏翻补全工具
  *
  * @module utils
  */
 
+export * from "./alignment-repair.ts";
 export * from "./text-align.ts";
