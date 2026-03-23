@@ -272,4 +272,56 @@ describe("TranslationProject", () => {
     const secondBatch = await translationQueue.dispatchReadyItems();
     expect(secondBatch).toHaveLength(1);
   });
+
+  test("provides structured project and queue snapshots for UI display", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-info-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n第二句\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "info",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    const initialSnapshot = project.getProjectSnapshot();
+    expect(initialSnapshot.projectName).toBe("info");
+    expect(initialSnapshot.pipeline.stepCount).toBe(1);
+    expect(initialSnapshot.queueSnapshots[0]?.progress.readyFragments).toBe(1);
+    expect(initialSnapshot.queueSnapshots[0]?.progress.waitingFragments).toBe(1);
+    expect(initialSnapshot.queueSnapshots[0]?.entries[0]?.readyToDispatch).toBe(true);
+    expect(initialSnapshot.queueSnapshots[0]?.entries[1]?.blockedReason).toBe(
+      "waiting_for_previous_fragments",
+    );
+
+    await project.getWorkQueue("translation").dispatchReadyItems();
+
+    const runningItems = project.getActiveWorkItems();
+    expect(runningItems).toHaveLength(1);
+    expect(runningItems[0]?.status).toBe("running");
+
+    await project.submitWorkResult({
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Line 1",
+    });
+
+    const readyItems = project.getReadyWorkItemSnapshots();
+    expect(readyItems).toHaveLength(1);
+    expect(readyItems[0]?.fragmentIndex).toBe(1);
+  });
 });

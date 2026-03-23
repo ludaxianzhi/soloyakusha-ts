@@ -19,7 +19,6 @@ import {
   TranslationStepWorkQueue,
   type OrderedFragmentSnapshot,
   type PipelineDependencyResolution,
-  type PipelineWorkItemMetadata,
   type TranslationPipelineDefinition,
   type TranslationPipelineRuntime,
   type TranslationStepQueueEntry,
@@ -31,14 +30,20 @@ import { TranslationDocumentManager } from "./translation-document-manager.ts";
 import type {
   Chapter,
   FragmentEntry,
+  GlossaryProgressSnapshot,
+  ProjectProgressSnapshot,
   ProjectCursor,
   TextFragment,
+  TranslationProjectSnapshot,
+  TranslationStepProgressSnapshot,
+  TranslationStepQueueSnapshot,
   TranslationDependencyMode,
   TranslationProjectConfig,
   TranslationUnitParser,
   TranslationUnitSplitter,
+  TranslationStepQueueEntrySnapshot,
 } from "./types.ts";
-import { ProjectProgress, createTextFragment } from "./types.ts";
+import { ProjectProgress, createTextFragment, fragmentToText } from "./types.ts";
 
 export class TranslationProject
   implements TranslationPipelineRuntime, TranslationWorkQueueRuntime
@@ -147,18 +152,11 @@ export class TranslationProject
 
   listReadyWorkItems(stepId: string): TranslationWorkItem[] {
     this.ensureInitialized();
-    const step = this.pipeline.getStep(stepId);
 
     return this.listStepQueueEntries(stepId)
       .filter((entry) => entry.status === "queued")
       .flatMap((entry) => {
-        const resolution = step.resolveDependencies?.({
-          chapterId: entry.chapterId,
-          fragmentIndex: entry.fragmentIndex,
-          stepId,
-          runtime: this,
-          previousStepId: this.pipeline.getPreviousStepId(stepId),
-        }) ?? { ready: true, metadata: {} };
+        const resolution = this.resolveStepDependencies(stepId, entry);
         if (!resolution.ready) {
           return [];
         }
@@ -272,6 +270,116 @@ export class TranslationProject
       cursor.chapterId,
       cursor.fragmentIndex,
     );
+  }
+
+  getProgressSnapshot(): ProjectProgressSnapshot {
+    const progress = this.getProgress();
+    return {
+      totalChapters: progress.totalChapters,
+      translatedChapters: progress.translatedChapters,
+      totalFragments: progress.totalFragments,
+      translatedFragments: progress.translatedFragments,
+      currentChapterId: progress.currentChapterId,
+      currentFragmentIndex: progress.currentFragmentIndex,
+      fragmentProgressRatio: progress.fragmentProgressRatio,
+      chapterProgressRatio: progress.chapterProgressRatio,
+    };
+  }
+
+  getGlossaryProgress(): GlossaryProgressSnapshot | undefined {
+    if (!this.glossary) {
+      return undefined;
+    }
+
+    const terms = this.glossary.getAllTerms();
+    const translatedTerms = terms.filter((term) => term.status === "translated").length;
+    return {
+      totalTerms: terms.length,
+      translatedTerms,
+      untranslatedTerms: terms.length - translatedTerms,
+    };
+  }
+
+  getStepProgress(stepId: string): TranslationStepProgressSnapshot {
+    const step = this.pipeline.getStep(stepId);
+    const entries = this.listStepQueueEntries(stepId);
+    const readyEntries = entries.filter((entry) => entry.status === "queued").filter((entry) =>
+      this.resolveStepDependencies(stepId, entry).ready,
+    );
+    const queuedFragments = entries.filter((entry) => entry.status === "queued").length;
+    const runningFragments = entries.filter((entry) => entry.status === "running").length;
+    const completedFragments = entries.filter((entry) => entry.status === "completed").length;
+    const totalFragments = this.getOrderedFragments().length;
+
+    return {
+      stepId,
+      description: step.description,
+      isFinalStep: stepId === this.pipeline.finalStepId,
+      totalFragments,
+      queuedFragments,
+      runningFragments,
+      completedFragments,
+      readyFragments: readyEntries.length,
+      waitingFragments: queuedFragments - readyEntries.length,
+      completionRatio: totalFragments === 0 ? 0 : completedFragments / totalFragments,
+    };
+  }
+
+  getQueueSnapshot(stepId: string): TranslationStepQueueSnapshot {
+    const step = this.pipeline.getStep(stepId);
+    return {
+      stepId,
+      description: step.description,
+      isFinalStep: stepId === this.pipeline.finalStepId,
+      progress: this.getStepProgress(stepId),
+      entries: this.listStepQueueEntries(stepId).map((entry) =>
+        this.buildQueueEntrySnapshot(stepId, entry),
+      ),
+    };
+  }
+
+  getQueueSnapshots(): TranslationStepQueueSnapshot[] {
+    return this.pipeline.steps.map((step) => this.getQueueSnapshot(step.id));
+  }
+
+  getActiveWorkItems(stepId?: string): TranslationStepQueueEntrySnapshot[] {
+    const stepIds = stepId ? [stepId] : this.pipeline.steps.map((step) => step.id);
+    return stepIds.flatMap((currentStepId) =>
+      this.listStepQueueEntries(currentStepId)
+        .filter((entry) => entry.status === "running")
+        .map((entry) => this.buildQueueEntrySnapshot(currentStepId, entry)),
+    );
+  }
+
+  getReadyWorkItemSnapshots(stepId?: string): TranslationStepQueueEntrySnapshot[] {
+    const stepIds = stepId ? [stepId] : this.pipeline.steps.map((step) => step.id);
+    return stepIds.flatMap((currentStepId) =>
+      this.listStepQueueEntries(currentStepId)
+        .filter((entry) => entry.status === "queued")
+        .map((entry) => this.buildQueueEntrySnapshot(currentStepId, entry))
+        .filter((entry) => entry.readyToDispatch),
+    );
+  }
+
+  getProjectSnapshot(): TranslationProjectSnapshot {
+    return {
+      projectName: this.config.projectName,
+      currentCursor: this.getCurrentCursor(),
+      progress: this.getProgressSnapshot(),
+      glossary: this.getGlossaryProgress(),
+      pipeline: {
+        stepCount: this.pipeline.steps.length,
+        finalStepId: this.pipeline.finalStepId,
+        steps: this.pipeline.steps.map((step) => ({
+          id: step.id,
+          description: step.description,
+          isFinalStep: step.id === this.pipeline.finalStepId,
+        })),
+      },
+      queueSnapshots: this.getQueueSnapshots(),
+      activeWorkItems: this.getActiveWorkItems(),
+      readyWorkItems: this.getReadyWorkItemSnapshots(),
+    };
   }
 
   scanGlobalAssociationPatterns(
@@ -468,6 +576,84 @@ export class TranslationProject
     };
   }
 
+  private buildQueueEntrySnapshot(
+    stepId: string,
+    entry: TranslationStepQueueEntry,
+  ): TranslationStepQueueEntrySnapshot {
+    const stepState = this.documentManager.getPipelineStepState(
+      entry.chapterId,
+      entry.fragmentIndex,
+      stepId,
+    );
+    const resolution =
+      entry.status === "queued" ? this.resolveStepDependencies(stepId, entry) : undefined;
+    const workItem =
+      entry.status === "queued" && resolution?.ready
+        ? this.buildWorkItem(stepId, entry, resolution)
+        : undefined;
+
+    return {
+      stepId,
+      chapterId: entry.chapterId,
+      fragmentIndex: entry.fragmentIndex,
+      queueSequence: entry.queueSequence,
+      status: entry.status,
+      sourceText: this.documentManager.getSourceText(entry.chapterId, entry.fragmentIndex),
+      translatedText: this.documentManager.getTranslatedText(entry.chapterId, entry.fragmentIndex),
+      inputText:
+        workItem?.inputText ??
+        this.buildInputPreview(stepId, entry.chapterId, entry.fragmentIndex),
+      outputText: stepState?.output ? fragmentToText(stepState.output) : undefined,
+      dependencyMode:
+        workItem?.metadata.dependencyMode === "previousTranslations" ||
+        workItem?.metadata.dependencyMode === "glossaryTerms"
+          ? workItem.metadata.dependencyMode
+          : undefined,
+      readyToDispatch: entry.status === "queued" ? Boolean(resolution?.ready) : false,
+      blockedReason:
+        entry.status === "queued" && !resolution?.ready ? resolution?.reason : undefined,
+      errorMessage: entry.errorMessage,
+      metadata: workItem?.metadata ?? (resolution?.metadata ?? {}),
+    };
+  }
+
+  private buildInputPreview(
+    stepId: string,
+    chapterId: number,
+    fragmentIndex: number,
+  ): string {
+    const step = this.pipeline.getStep(stepId);
+    const previousStepId = this.pipeline.getPreviousStepId(stepId);
+    const previousStepOutput = previousStepId
+      ? this.documentManager.getPipelineStepState(chapterId, fragmentIndex, previousStepId)?.output
+      : undefined;
+    return step.buildInput({
+      chapterId,
+      fragmentIndex,
+      runtime: this,
+      previousStepOutput,
+    });
+  }
+
+  private resolveStepDependencies(
+    stepId: string,
+    entry: TranslationStepQueueEntry,
+  ): PipelineDependencyResolution {
+    const step = this.pipeline.getStep(stepId);
+    return (
+      step.resolveDependencies?.({
+        chapterId: entry.chapterId,
+        fragmentIndex: entry.fragmentIndex,
+        stepId,
+        runtime: this,
+        previousStepId: this.pipeline.getPreviousStepId(stepId),
+      }) ?? {
+        ready: true,
+        metadata: {},
+      }
+    );
+  }
+
   private async enqueueStepIfNeeded(
     chapterId: number,
     fragmentIndex: number,
@@ -545,7 +731,15 @@ export class TranslationProject
                   ready: true,
                   metadata: { dependencyMode },
                 }
-              : { ready: false };
+              : {
+                  ready: false,
+                  reason: this.getTranslationDependencyBlockedReason(
+                    chapterId,
+                    fragmentIndex,
+                    stepId,
+                    runtime.getOrderedFragments(),
+                  ),
+                };
           },
           buildContextView: ({ chapterId, fragmentIndex, metadata }) => {
             const dependencyMode = metadata.dependencyMode;
@@ -612,6 +806,56 @@ export class TranslationProject
     }
 
     return undefined;
+  }
+
+  private getTranslationDependencyBlockedReason(
+    chapterId: number,
+    fragmentIndex: number,
+    stepId: string,
+    orderedFragments: OrderedFragmentSnapshot[],
+  ): string {
+    const currentIndex = orderedFragments.findIndex(
+      (fragment) =>
+        fragment.chapterId === chapterId &&
+        fragment.fragmentIndex === fragmentIndex,
+    );
+    if (currentIndex === -1) {
+      return "fragment_not_found";
+    }
+
+    const hasUnfinishedPreviousFragments = orderedFragments
+      .slice(0, currentIndex)
+      .some((fragment) => !this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, stepId));
+    if (!this.glossary) {
+      return hasUnfinishedPreviousFragments
+        ? "waiting_for_previous_fragments"
+        : "waiting_for_glossary";
+    }
+
+    const matchedGlossaryTerms = this.glossary.filterTerms(
+      this.documentManager.getSourceText(chapterId, fragmentIndex),
+    );
+    if (matchedGlossaryTerms.length === 0) {
+      return hasUnfinishedPreviousFragments
+        ? "waiting_for_previous_fragments"
+        : "waiting_for_glossary_terms";
+    }
+
+    const untranslatedTerms = matchedGlossaryTerms.filter((term) => term.status !== "translated");
+    if (untranslatedTerms.length > 0) {
+      return "waiting_for_translated_glossary_terms";
+    }
+
+    const hasCompletedPeer = orderedFragments.some(
+      (fragment) =>
+        !(fragment.chapterId === chapterId && fragment.fragmentIndex === fragmentIndex) &&
+        this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, stepId),
+    );
+    if (!hasCompletedPeer) {
+      return "waiting_for_completed_peer";
+    }
+
+    return "waiting_for_step_dependencies";
   }
 
   private ensureInitialized(): void {

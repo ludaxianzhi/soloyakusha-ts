@@ -27,6 +27,10 @@ export type TextFragment = {
   lines: string[];
 };
 
+export type WorkItemMetadataValue = string | number | boolean;
+
+export type WorkItemMetadata = Record<string, WorkItemMetadataValue>;
+
 export type FragmentMeta = {
   metadataList: TranslationUnitMetadata[];
   targetGroups?: string[][];
@@ -113,6 +117,80 @@ export type TranslationContextEntry = GlossaryContextEntry | DependencyPairConte
 export type ProjectCursor = {
   chapterId?: number;
   fragmentIndex?: number;
+};
+
+export type TranslationStepQueueEntrySnapshot = {
+  stepId: string;
+  chapterId: number;
+  fragmentIndex: number;
+  queueSequence: number;
+  status: PipelineStepStatus;
+  sourceText: string;
+  translatedText: string;
+  inputText: string;
+  outputText?: string;
+  dependencyMode?: TranslationDependencyMode;
+  readyToDispatch: boolean;
+  blockedReason?: string;
+  errorMessage?: string;
+  metadata: WorkItemMetadata;
+};
+
+export type TranslationStepProgressSnapshot = {
+  stepId: string;
+  description: string;
+  isFinalStep: boolean;
+  totalFragments: number;
+  queuedFragments: number;
+  runningFragments: number;
+  completedFragments: number;
+  readyFragments: number;
+  waitingFragments: number;
+  completionRatio: number;
+};
+
+export type TranslationStepQueueSnapshot = {
+  stepId: string;
+  description: string;
+  isFinalStep: boolean;
+  progress: TranslationStepProgressSnapshot;
+  entries: TranslationStepQueueEntrySnapshot[];
+};
+
+export type GlossaryProgressSnapshot = {
+  totalTerms: number;
+  translatedTerms: number;
+  untranslatedTerms: number;
+};
+
+export type ProjectProgressSnapshot = {
+  totalChapters: number;
+  translatedChapters: number;
+  totalFragments: number;
+  translatedFragments: number;
+  currentChapterId?: number;
+  currentFragmentIndex?: number;
+  fragmentProgressRatio: number;
+  chapterProgressRatio: number;
+};
+
+export type TranslationProjectSnapshot = {
+  projectName: string;
+  currentCursor: ProjectCursor;
+  progress: ProjectProgressSnapshot;
+  glossary?: GlossaryProgressSnapshot;
+  pipeline: {
+    stepCount: number;
+    finalStepId: string;
+    steps: Array<{
+      id: string;
+      description: string;
+      isFinalStep: boolean;
+    }>;
+  };
+  queueSnapshots: TranslationStepQueueSnapshot[];
+  activeWorkItems: TranslationStepQueueEntrySnapshot[];
+  readyWorkItems: TranslationStepQueueEntrySnapshot[];
 };
 
 /**

@@ -15,6 +15,7 @@
 - `TranslationProject`：面向任务的项目骨架，负责按 Pipeline / Work Queue 并发分发任务、统计进度、动态收集 glossary 和依赖译文上下文
 - `TranslationPipeline` / `TranslationStepWorkQueue`：步骤定义与步骤级调度队列
 - `GlobalAssociationPatternScanner`：原文全文重复模式扫描（默认至少出现 3 次且长度至少 8）
+- `getProjectSnapshot()` / `getQueueSnapshot()`：项目状态、队列状态与当前工作项快照
 
 另外已迁移文件解析模块：
 
@@ -168,6 +169,25 @@ await project.submitWorkResult({
 const polishQueue = project.getWorkQueue("polish");
 const polishItems = await polishQueue.dispatchReadyItems();
 console.log(polishItems[0]?.inputText);
+```
+
+## 项目状态快照示例
+
+```ts
+import { TranslationProject } from "./index.ts";
+
+const project = new TranslationProject({
+  projectName: "demo",
+  projectDir: "./workspace",
+  chapters: [{ id: 1, filePath: "sources\\scene.txt" }],
+});
+
+await project.initialize();
+
+console.log(project.getProjectSnapshot());
+console.log(project.getQueueSnapshot("translation"));
+console.log(project.getReadyWorkItemSnapshots());
+console.log(project.getActiveWorkItems());
 ```
 
 ## 文件格式处理示例

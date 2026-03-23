@@ -19,9 +19,8 @@ import type {
   PipelineStepStatus,
   ProjectCursor,
   TextFragment,
+  WorkItemMetadata,
 } from "./types.ts";
-
-export type PipelineWorkItemMetadata = Record<string, string | number | boolean>;
 
 export type OrderedFragmentSnapshot = {
   chapterId: number;
@@ -41,7 +40,8 @@ export type TranslationPipelineRuntime = {
 
 export type PipelineDependencyResolution = {
   ready: boolean;
-  metadata?: PipelineWorkItemMetadata;
+  metadata?: WorkItemMetadata;
+  reason?: string;
 };
 
 export type TranslationPipelineStepDefinition = {
@@ -64,7 +64,7 @@ export type TranslationPipelineStepDefinition = {
     chapterId: number;
     fragmentIndex: number;
     runtime: TranslationPipelineRuntime;
-    metadata: PipelineWorkItemMetadata;
+    metadata: WorkItemMetadata;
   }): TranslationContextView | undefined;
   requirements?: string[];
 };
@@ -87,7 +87,7 @@ export type TranslationWorkItem = TranslationStepQueueEntry & {
   inputText: string;
   contextView?: TranslationContextView;
   requirements: string[];
-  metadata: PipelineWorkItemMetadata;
+  metadata: WorkItemMetadata;
 };
 
 export type TranslationWorkResult = {
