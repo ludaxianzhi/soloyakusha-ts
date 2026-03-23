@@ -1,5 +1,23 @@
 /**
  * 实现 Nature Dialog 风格文本的读写，支持源文、译文和角色名保留等规则。
+ *
+ * 文件格式示例：
+ * ```
+ * ○ 原文第一句
+ * ○ 译文候选1
+ * ● 最终译文
+ *
+ * ○ 原文第二句
+ * ● 译文
+ * ```
+ *
+ * 格式说明：
+ * - ○ 标记原文或译文候选
+ * - ● 标记最终采用的译文（最后一个译文条目）
+ * - 空行分隔不同的翻译单元
+ * - 支持【角色名】正文格式
+ *
+ * @module file-handlers/nature-dialog-file-handler
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -12,6 +30,13 @@ import {
 
 /**
  * Nature Dialog 处理器，负责解析和生成带有对话标记的文本格式。
+ *
+ * 解析规则：
+ * - ○ 开头的行：首行为原文，后续为译文候选
+ * - ● 开头的行：标记最后一个译文，表示该单元结束
+ * - 空行：分隔翻译单元
+ *
+ * 输出格式：每个翻译单元原文用 ○，译文用 ○/●（最后一项用 ●）
  */
 export class NatureDialogFileHandler extends TranslationFileHandler {
   readonly formatName: string = "naturedialog";
@@ -93,7 +118,16 @@ export class NatureDialogFileHandler extends TranslationFileHandler {
 }
 
 /**
- * 保留原始角色名的 Nature Dialog 处理器，用于只替换正文而不改写称谓。
+ * 保留原始角色名的 Nature Dialog 处理器。
+ *
+ * 与普通 Nature Dialog 处理器的区别：
+ * - 读取时：保留原文的角色名信息
+ * - 写入时：确保译文的角色名与原文一致
+ *
+ * 角色名处理规则：
+ * - 原文有角色名，译文无：从原文复制角色名到译文
+ * - 原文无角色名，译文有：移除译文的角色名
+ * - 两者都有角色名：保留原文角色名，使用译文内容
  */
 export class NatureDialogKeepNameFileHandler extends NatureDialogFileHandler {
   override readonly formatName: string = "naturedialog_keepname";

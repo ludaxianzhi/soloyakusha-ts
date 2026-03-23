@@ -1,5 +1,17 @@
 /**
  * 实现基于 OpenAI 兼容接口的聊天补全客户端，负责流式响应解析与重试控制。
+ *
+ * 本模块实现 {@link ChatClient} 的 OpenAI 兼容版本，支持：
+ * - OpenAI 官方 API
+ * - 兼容 OpenAI 协议的第三方服务（如 DeepSeek、Moonshot 等）
+ *
+ * 核心特性：
+ * - 流式响应处理：实时解析 SSE 事件，支持进度回调
+ * - 智能重试：对 429 限流和 5xx 错误自动退避重试
+ * - 速率限制：支持 QPS 和并发双重限制
+ * - 推理内容提取：支持解析 reasoning_content 等推理过程字段
+ *
+ * @module llm/openai-chat-client
  */
 
 import { ChatClient } from "./base.ts";
@@ -34,6 +46,17 @@ class OpenAIEmptyResponseError extends Error {
 
 /**
  * OpenAI 聊天客户端实现，负责请求构造、流式响应解析、重试与速率控制。
+ *
+ * 请求流程：
+ * 1. 获取速率限制令牌
+ * 2. 构造请求体（包含 messages、temperature 等参数）
+ * 3. 发送 POST 请求到 /chat/completions 端点
+ * 4. 流式读取 SSE 响应，解析补全内容与 usage 信息
+ * 5. 失败时按策略重试
+ *
+ * 支持的响应字段：
+ * - delta.content: 标准补全内容
+ * - delta.reasoning_content / reasoning_text: 推理过程（用于 o1 类模型）
  */
 export class OpenAIChatClient extends ChatClient {
   private readonly rateLimiter: RateLimiter;

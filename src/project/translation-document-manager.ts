@@ -1,5 +1,16 @@
 /**
  * 负责章节加载、文本切分、片段持久化、滑动窗口合并与翻译文档访问。
+ *
+ * 本模块是翻译项目的数据存储层核心，提供：
+ * - 多格式文件的翻译单元解析
+ * - 基于字符限制的文本切分策略
+ * - 片段状态的内存索引与磁盘持久化
+ * - 翻译结果合并导出
+ *
+ * 数据流向：
+ * 原始文件 → TranslationUnit[] → FragmentEntry[] → JSON 持久化
+ *
+ * @module project/translation-document-manager
  */
 
 import {
@@ -28,6 +39,14 @@ import {
 
 /**
  * 默认文本切分器，按字符上限把翻译单元划分为互不重叠的片段。
+ *
+ * 该切分器按顺序遍历翻译单元，累积字符数，当超过 maxChars 时开始新片段。
+ * 每个片段包含连续的翻译单元，无重叠区间。
+ *
+ * 适用场景：
+ * - 原文长度相对均匀
+ * - 无需上下文重叠
+ * - 简单的分批翻译处理
  */
 export class DefaultTextSplitter implements TranslationUnitSplitter {
   constructor(private readonly maxChars = 2000) {}
@@ -63,6 +82,18 @@ export class DefaultTextSplitter implements TranslationUnitSplitter {
 
 /**
  * 滑动窗口切分器，按字符长度生成带重叠区间的翻译窗口。
+ *
+ * 每个窗口包含不超过 maxChars 字符的翻译单元，相邻窗口之间有 overlapChars 的重叠。
+ * 重叠区域用于提供上下文信息，帮助翻译模型理解衔接关系。
+ *
+ * 适用场景：
+ * - 需要保持翻译上下文连贯性
+ * - 处理长文本章节
+ * - 翻译模型需要更多上下文信息
+ *
+ * 窗口元数据：
+ * - originalUnitIndexes: 窗口内翻译单元在原文中的索引
+ * - windowStartUnitIndex / windowEndUnitIndex: 窗口边界
  */
 export class SlidingWindowTextSplitter implements TranslationUnitSplitter {
   constructor(
@@ -151,6 +182,17 @@ type NormalizedSplitFragment = {
 
 /**
  * 翻译文档管理器，负责章节读写、片段持久化、哈希索引与导出合并。
+ *
+ * 核心职责：
+ * - 章节加载：从原始文件读取翻译单元，应用切分策略，生成片段条目
+ * - 持久化：将章节状态保存为 JSON 文件，支持断点恢复
+ * - 翻译更新：接收翻译结果，更新片段状态，触发落盘
+ * - 导出合并：将所有片段的翻译结果按原顺序合并为完整译文
+ *
+ * 哈希索引用于快速定位片段，支持跨章节引用（如上下文构建）。
+ *
+ * 数据目录结构：
+ * projectDir/Data/Chapters/{chapterId}.json
  */
 export class TranslationDocumentManager {
   readonly projectDir: string;

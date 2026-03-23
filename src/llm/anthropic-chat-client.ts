@@ -1,5 +1,17 @@
 /**
  * 实现 Anthropic Claude 聊天客户端，负责消息构造、流式解析与错误处理。
+ *
+ * 本模块实现 {@link ChatClient} 的 Anthropic Claude 版本，支持：
+ * - Claude 系列模型的 Messages API
+ * - 流式响应处理
+ * - 自动重试与速率限制
+ *
+ * 核心特性：
+ * - Claude 特有的消息格式（system 参数与 messages 数组分离）
+ * - content_block_delta 事件解析
+ * - usage 统计聚合（input_tokens + output_tokens）
+ *
+ * @module llm/anthropic-chat-client
  */
 
 import { ChatClient } from "./base.ts";
@@ -33,6 +45,17 @@ class AnthropicEmptyResponseError extends Error {
 
 /**
  * Anthropic 聊天客户端实现，负责消息协议适配、流式事件解析与错误处理。
+ *
+ * 请求流程：
+ * 1. 获取速率限制令牌
+ * 2. 构造请求体（system 与 messages 分离）
+ * 3. 发送 POST 请求到 /messages 端点
+ * 4. 流式读取 SSE 响应，解析 content_block_delta 事件
+ * 5. 失败时按策略重试
+ *
+ * 与 OpenAI 的主要差异：
+ * - system prompt 作为独立参数而非 messages 中的首条
+ * - 响应事件类型为 content_block_delta / message_delta / message_start
  */
 export class AnthropicChatClient extends ChatClient {
   private readonly rateLimiter: RateLimiter;

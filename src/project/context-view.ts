@@ -1,5 +1,13 @@
 /**
  * 根据章节与片段位置构建翻译上下文视图，聚合术语表与前序翻译参考。
+ *
+ * 本模块提供翻译上下文的动态构建能力，为当前待翻译片段准备：
+ * - 相关术语表条目（基于原文内容自动筛选或全量渲染）
+ * - 前序已翻译片段（按配置数量取最近的翻译结果）
+ *
+ * 上下文视图用于辅助 LLM 理解翻译语境，提高翻译一致性。
+ *
+ * @module project/context-view
  */
 
 import type { Glossary } from "../glossary/glossary.ts";
@@ -14,6 +22,17 @@ import type {
 
 /**
  * 翻译上下文视图，按当前片段汇总术语表与前序翻译参考。
+ *
+ * 该类以章节 ID 和片段索引为定位，从 {@link TranslationDocumentManager} 中提取：
+ * - 当前片段的原文内容
+ * - 与原文相关的术语表条目
+ * - 指定数量的前序翻译对
+ *
+ * 术语表筛选：
+ * - 当 glossaryConfig.autoFilter 为 true（默认）时，仅返回原文中出现的术语
+ * - 否则返回全部术语表内容
+ *
+ * 前序翻译数量由 context.includeEarlierFragments 控制（默认 2 条）。
  */
 export class TranslationContextView {
   constructor(

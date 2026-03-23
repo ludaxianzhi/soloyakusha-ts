@@ -1,5 +1,14 @@
 /**
- * 定义翻译项目域模型中的核心类型、上下文结构、切分结果与进度对象。
+ * 定义翻译项目域模型中的核心类型与数据结构。
+ *
+ * 本模块包含：
+ * - 翻译单元与片段的层级结构定义
+ * - 章节与项目的配置接口
+ * - 上下文与任务的数据结构
+ * - 进度统计类
+ *
+ * 类型层次：
+ * TranslationProject → Chapter → Fragment → TranslationUnit
  */
 
 import type { TranslationContextView } from "./context-view.ts";
@@ -123,7 +132,9 @@ export type ProjectCursor = {
 };
 
 /**
- * 项目进度对象，提供章节与片段级别的翻译完成度统计。
+ * 项目进度对象，统计翻译完成度。
+ *
+ * 提供章节级与片段级的完成比例计算，用于进度展示与断点恢复。
  */
 export class ProjectProgress {
   constructor(

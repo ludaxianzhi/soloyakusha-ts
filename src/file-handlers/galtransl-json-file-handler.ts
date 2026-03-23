@@ -1,5 +1,19 @@
 /**
  * 实现 Galtransl JSON 格式的读写，在结构化字段与内部翻译单元之间做转换。
+ *
+ * 文件格式示例：
+ * ```json
+ * [
+ *   { "name": "角色名", "message": "对话内容" },
+ *   { "message": "无角色名的文本" }
+ * ]
+ * ```
+ *
+ * 格式说明：
+ * - name 字段：可选的角色名，会组合为【角色名】前缀
+ * - message 字段：正文内容
+ *
+ * @module file-handlers/galtransl-json-file-handler
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -11,6 +25,14 @@ import {
 
 /**
  * Galtransl JSON 处理器，把结构化消息对象转换为内部翻译单元。
+ *
+ * 解析逻辑：
+ * - 有 name 字段：组合为【name】message 格式
+ * - 无 name 字段：直接使用 message
+ *
+ * 输出逻辑：
+ * - 【角色名】正文格式：拆分为 name + message 字段
+ * - 普通正文：只输出 message 字段
  */
 export class GaltranslJsonFileHandler extends TranslationFileHandler {
   readonly formatName = "galtransl_json";

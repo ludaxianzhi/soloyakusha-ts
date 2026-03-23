@@ -1,5 +1,15 @@
 /**
  * 集中管理多个 LLM 客户端配置与实例生命周期，并向外提供统一访问入口。
+ *
+ * 本模块提供 {@link LlmClientProvider} 类，用于：
+ * - 注册命名配置（支持批量注册）
+ * - 按名称获取客户端实例（自动缓存）
+ * - 统一设置日志记录器与请求观测器
+ *
+ * 配置注册后可通过 getChatClient / getEmbeddingClient 获取对应类型客户端。
+ * 相同配置的多次获取会返回同一实例。
+ *
+ * @module llm/provider
  */
 
 import { ChatClient, EmbeddingClient, ManagedLlmClient } from "./base.ts";
@@ -16,6 +26,14 @@ import { stableStringify } from "./utils.ts";
 
 /**
  * LLM 客户端提供器，集中管理命名配置、实例缓存和请求观测挂钩。
+ *
+ * 使用方式：
+ * 1. 创建提供器实例（可选传入钩子）
+ * 2. 注册客户端配置（register 或 registerMany）
+ * 3. 按名称获取客户端（getClient、getChatClient、getEmbeddingClient）
+ *
+ * 客户端实例按配置内容缓存，相同配置的多次获取返回同一实例。
+ * 钩子可通过 setHistoryLogger / setRequestObserver 动态更新，已创建的客户端会同步更新。
  */
 export class LlmClientProvider {
   private readonly registry = new Map<string, LlmClientConfig>();

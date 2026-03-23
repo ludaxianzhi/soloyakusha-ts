@@ -1,5 +1,19 @@
 /**
  * 负责翻译项目初始化、任务遍历、上下文构建接入与结果提交协调。
+ *
+ * 本模块是翻译项目的核心协调器，串联以下组件：
+ * - {@link TranslationDocumentManager}: 章节加载、片段切分、持久化
+ * - {@link Glossary}: 术语表加载与筛选
+ * - {@link TranslationContextView}: 上下文视图构建
+ *
+ * 典型使用流程：
+ * 1. 创建项目实例，传入配置与可选的自定义组件
+ * 2. 调用 initialize() 加载章节和术语表
+ * 3. 通过 iterTasks() 或 getNextTask() 获取待翻译任务
+ * 4. 将翻译结果通过 submitResult() 提交
+ * 5. 定期调用 saveProgress() 保存进度
+ *
+ * @module project/translation-project
  */
 
 import type { TranslationFileHandlerResolver } from "../file-handlers/base.ts";
@@ -20,6 +34,29 @@ import { ProjectProgress } from "./types.ts";
 
 /**
  * 翻译项目协调器，串联章节初始化、任务遍历、上下文构建与结果提交。
+ *
+ * 该类是翻译项目的顶级入口，负责：
+ * - 管理章节列表的遍历顺序
+ * - 维护当前翻译位置游标
+ * - 协调文档管理器与术语表的交互
+ * - 提供翻译任务的上下文视图构建
+ *
+ * 支持两种任务获取方式：
+ * - {@link getNextTask}: 每次返回下一个待翻译任务，适合手动控制流程
+ * - {@link iterTasks}: 异步迭代器，适合 for-await-of 循环处理
+ *
+ * @example
+ * ```typescript
+ * const project = new TranslationProject(config);
+ * await project.initialize();
+ *
+ * for await (const task of project.iterTasks()) {
+ *   const result = await translate(task);
+ *   await project.submitResult(result);
+ * }
+ *
+ * await project.saveProgress();
+ * ```
  */
 export class TranslationProject {
   private readonly projectDir: string;

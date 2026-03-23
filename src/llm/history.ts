@@ -1,5 +1,14 @@
 /**
  * 实现基于文件的请求历史记录器，用于落盘保存补全与错误日志。
+ *
+ * 本模块提供 {@link FileRequestHistoryLogger} 类，用于：
+ * - 记录每次 LLM 请求的 prompt、response 和统计信息
+ * - 记录失败请求的错误信息
+ * - 日志文件自动轮转（超过 10MB 时备份）
+ *
+ * 日志格式为分隔线标注的文本格式，便于人工阅读和问题排查。
+ *
+ * @module llm/history
  */
 
 import {
@@ -19,6 +28,15 @@ import type {
 
 /**
  * 基于文件的请求历史记录器，负责追加入盘与日志轮转。
+ *
+ * 日志文件格式：
+ * - 补全日志：包含 REQUEST_ID、TIMESTAMP、MODEL、CONFIG、PROMPT、RESPONSE、STATS
+ * - 错误日志：包含 REQUEST_ID、TIMESTAMP、ERROR、RESPONSE BODY（如有）
+ *
+ * 日志轮转：
+ * - 当日志文件超过 MAX_FILE_SIZE（10MB）时
+ * - 将当前文件重命名为 .txt.bak
+ * - 新日志写入空文件
  */
 export class FileRequestHistoryLogger implements RequestHistoryLogger {
   static readonly MAX_FILE_SIZE = 10 * 1024 * 1024;

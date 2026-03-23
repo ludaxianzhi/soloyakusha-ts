@@ -1,5 +1,16 @@
 /**
  * 实现 OpenAI 兼容嵌入客户端，支持批量请求与可选缓存。
+ *
+ * 本模块实现 {@link EmbeddingClient} 的 OpenAI 兼容版本，支持：
+ * - OpenAI text-embedding-* 系列模型
+ * - 兼容 OpenAI 协议的第三方嵌入服务
+ *
+ * 核心特性：
+ * - 批量请求：将多个文本合并为单次 API 调用
+ * - 内存缓存：基于文本哈希的嵌入结果缓存，支持 TTL 过期
+ * - 速率限制：支持 QPS 和并发双重限制
+ *
+ * @module llm/openai-embedding-client
  */
 
 import { EmbeddingClient } from "./base.ts";
@@ -23,6 +34,16 @@ type CacheEntry = {
 
 /**
  * OpenAI 嵌入客户端实现，支持批量向量化与内存缓存。
+ *
+ * 批量处理策略：
+ * - getEmbedding: 单文本请求，优先从缓存获取
+ * - getEmbeddings: 批量请求，先缓存命中再批量 API 调用
+ *
+ * 缓存配置：
+ * - 默认缓存时长 1 小时，可通过 cacheTtlMs 配置
+ * - 设为 0 或 undefined 禁用缓存
+ *
+ * 批次大小由 batchSize 控制（默认 50），避免单次请求过大。
  */
 export class OpenAIEmbeddingClient extends EmbeddingClient {
   private readonly rateLimiter: RateLimiter;

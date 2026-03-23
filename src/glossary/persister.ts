@@ -1,5 +1,16 @@
 /**
  * 提供术语表的多格式持久化实现，并按扩展名选择合适的读写器。
+ *
+ * 本模块实现术语表的文件存储能力：
+ * - {@link GlossaryPersister}: 抽象持久化接口
+ * - {@link JsonGlossaryPersister}: JSON 格式
+ * - {@link CsvGlossaryPersister}: CSV 格式（可配置分隔符）
+ * - {@link TsvGlossaryPersister}: TSV 格式
+ * - {@link YamlGlossaryPersister}: YAML 格式
+ * - {@link XmlGlossaryPersister}: XML 格式
+ * - {@link GlossaryPersisterFactory}: 按扩展名自动选择
+ *
+ * @module glossary/persister
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -9,6 +20,10 @@ import { Glossary, type GlossaryTerm } from "./glossary.ts";
 
 /**
  * 术语表持久化抽象基类，定义不同文件格式共享的读写接口。
+ *
+ * 子类需要实现：
+ * - loadGlossary: 从文件加载术语表
+ * - saveGlossary: 将术语表保存到文件
  */
 export abstract class GlossaryPersister {
   abstract loadGlossary(filePath: string): Promise<Glossary>;
@@ -17,6 +32,8 @@ export abstract class GlossaryPersister {
 
 /**
  * JSON 术语表持久化实现。
+ *
+ * 文件格式：GlossaryTerm[] 的 JSON 数组
  */
 export class JsonGlossaryPersister extends GlossaryPersister {
   override async loadGlossary(filePath: string): Promise<Glossary> {
@@ -35,7 +52,10 @@ export class JsonGlossaryPersister extends GlossaryPersister {
 }
 
 /**
- * CSV 术语表持久化实现，同时封装通用的分隔符解析逻辑。
+ * CSV 术语表持久化实现。
+ *
+ * 文件格式：首行为表头（term, translation, description），后续为数据行
+ * 支持自定义分隔符，引号内的分隔符和换行符会被正确处理。
  */
 export class CsvGlossaryPersister extends GlossaryPersister {
   constructor(private readonly delimiter = ",") {
@@ -70,7 +90,7 @@ export class CsvGlossaryPersister extends GlossaryPersister {
 }
 
 /**
- * TSV 术语表持久化实现，复用 CSV 逻辑并切换为制表符分隔。
+ * TSV 术语表持久化实现，使用制表符分隔。
  */
 export class TsvGlossaryPersister extends CsvGlossaryPersister {
   constructor() {
@@ -80,6 +100,8 @@ export class TsvGlossaryPersister extends CsvGlossaryPersister {
 
 /**
  * YAML 术语表持久化实现。
+ *
+ * 文件格式：GlossaryTerm[] 序列化为 YAML
  */
 export class YamlGlossaryPersister extends GlossaryPersister {
   override async loadGlossary(filePath: string): Promise<Glossary> {
@@ -94,7 +116,15 @@ export class YamlGlossaryPersister extends GlossaryPersister {
 }
 
 /**
- * XML 术语表持久化实现，负责在 XML 属性与术语项之间转换。
+ * XML 术语表持久化实现。
+ *
+ * 文件格式：
+ * ```xml
+ * <?xml version="1.0" encoding="utf-8"?>
+ * <glossary>
+ *   <entry term="原文" translation="译文" description="说明" />
+ * </glossary>
+ * ```
  */
 export class XmlGlossaryPersister extends GlossaryPersister {
   override async loadGlossary(filePath: string): Promise<Glossary> {
@@ -137,6 +167,8 @@ export class XmlGlossaryPersister extends GlossaryPersister {
 
 /**
  * 术语表持久化工厂，按文件扩展名选择对应的持久化实现。
+ *
+ * 支持的扩展名：.json、.csv、.tsv、.yaml、.yml、.xml
  */
 export class GlossaryPersisterFactory {
   static getPersister(filePath: string): GlossaryPersister {

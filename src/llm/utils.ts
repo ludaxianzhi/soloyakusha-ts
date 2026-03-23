@@ -1,11 +1,21 @@
 /**
  * 提供 LLM 网络访问相关的通用错误类型、重试、SSE 解析和辅助工具函数。
+ *
+ * 本模块提供 LLM 客户端共用的基础能力：
+ * - 错误类型：ApiHttpError、ApiConnectionError
+ * - 重试策略：retryAsync 函数，支持指数退避
+ * - 流式解析：collectJsonSse 函数，解析 SSE JSON 事件流
+ * - 辅助函数：URL拼接、JSON 序列化、Duration 计算
+ *
+ * @module llm/utils
  */
 
 import type { JsonObject, JsonValue } from "./types.ts";
 
 /**
- * HTTP 请求错误，包含状态码与响应体，便于上层判断是否需要重试。
+ * HTTP 请求错误，包含状态码与响应体。
+ *
+ * 用于服务端返回非 2xx 响应时抛出，上层可据此判断是否重试。
  */
 export class ApiHttpError extends Error {
   readonly status: number;
@@ -20,7 +30,9 @@ export class ApiHttpError extends Error {
 }
 
 /**
- * 网络连接错误，表示请求尚未获得有效的 HTTP 响应。
+ * 网络连接错误，表示请求未能获得有效的 HTTP 响应。
+ *
+ * 触发场景：DNS 解析失败、连接超时、网络中断等。
  */
 export class ApiConnectionError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {

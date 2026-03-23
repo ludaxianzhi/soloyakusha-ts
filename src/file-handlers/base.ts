@@ -1,11 +1,25 @@
 /**
- * 定义翻译文件处理器的抽象契约，以及多种文件格式共用的文本解析辅助函数。
+ * 定义翻译文件处理器的抽象契约与共用辅助函数。
+ *
+ * 本模块提供：
+ * - {@link TranslationFileHandler}: 抽象基类，定义读写接口
+ * - {@link TranslationFileHandlerResolver}: 按文件路径解析处理器的函数类型
+ * - stripBom: 移除 UTF-8 BOM 的辅助函数
+ * - extractBracketNameAndText: 解析【角色名】正文格式的辅助函数
+ *
+ * @module file-handlers/base
  */
 
 import type { TranslationUnit } from "../project/types.ts";
 
 /**
  * 翻译文件处理器的抽象基类，约定具体格式实现必须提供的读写能力。
+ *
+ * 子类需要实现：
+ * - formatName: 格式名称标识
+ * - supportsComparable: 是否支持显示对照（原文译文并行显示）
+ * - readTranslationUnits: 从文件读取翻译单元列表
+ * - writeTranslationUnits: 将翻译单元列表写入文件
  */
 export abstract class TranslationFileHandler {
   abstract readonly formatName: string;

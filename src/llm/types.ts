@@ -1,5 +1,11 @@
 /**
- * 定义 LLM 子系统共享的配置、请求结果、日志结构与校验错误类型。
+ * 定义 LLM 子系统共享的配置、请求结果与错误类型。
+ *
+ * 类型分类：
+ * - 配置类：LlmClientConfig、LlmRequestConfig
+ * - 响应类：CompletionResponseStatistics
+ * - 日志类：CompletionLogEntry、ErrorLogEntry
+ * - 钩子类：RequestObserver、ClientHooks
  */
 
 export type LlmProvider = "openai" | "anthropic";
@@ -65,7 +71,7 @@ export type LlmOutputValidationContext = {
 };
 
 /**
- * 输出校验错误，附带阶段标签与统计信息，便于定位 LLM 返回结果的问题。
+ * 输出校验错误，用于 LLM 返回结果不符合预期时报错。
  */
 export class LlmOutputValidationError extends Error {
   readonly stageLabel?: string;

@@ -1,5 +1,21 @@
 /**
  * 实现 M3T 对话格式的读写，处理角色名、正文与多种翻译状态的序列化。
+ *
+ * 文件格式示例：
+ * ```
+ * ○ NAME: 角色名
+ *
+ * ○ 正文内容
+ * ○ 译文候选
+ * ● 最终译文
+ * ```
+ *
+ * 格式说明：
+ * - NAME 行指定角色名，与下一行的正文组合为【角色名】正文格式
+ * - 无 NAME 的按普通文本处理
+ * - 译文同样支持多个候选，最后一个用 ● 标记
+ *
+ * @module file-handlers/m3t-file-handler
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -12,6 +28,15 @@ import {
 
 /**
  * M3T 格式处理器，负责在名称字段、正文和翻译状态之间做转换。
+ *
+ * 解析逻辑：
+ * - ○ NAME: xxx 行识别角色名
+ * - 下一行 ○ 开头为正文，组合为【角色名】正文
+ * - 后续 ○/● 行为译文，最后一项用 ● 标记
+ *
+ * 输出逻辑：
+ * - 有角色名：生成 NAME 行 + 正文行 + 译文行
+ * - 无角色名：直接输出正文 + 译文
  */
 export class M3TFileHandler extends TranslationFileHandler {
   readonly formatName = "m3t";
