@@ -3,15 +3,10 @@
  *
  * 本模块包含：
  * - 翻译单元与片段的层级结构定义
+ * - Pipeline 步骤状态
  * - 章节与项目的配置接口
- * - 上下文与任务的数据结构
- * - 进度统计类
- *
- * 类型层次：
- * TranslationProject → Chapter → Fragment → TranslationUnit
+ * - 上下文与进度统计类
  */
-
-import type { TranslationContextView } from "./context-view.ts";
 
 export type TranslationUnitMetadata = Record<string, string> | string | null;
 
@@ -40,12 +35,20 @@ export type FragmentMeta = {
   windowEndUnitIndex?: number;
 };
 
+export type PipelineStepStatus = "queued" | "running" | "completed";
+
+export type FragmentPipelineStepState = {
+  status: PipelineStepStatus;
+  queueSequence: number;
+  output?: TextFragment;
+  errorMessage?: string;
+};
+
 export type FragmentEntry = {
   source: TextFragment;
   translation: TextFragment;
-  stageValues: Record<string, TextFragment>;
+  pipelineStates: Record<string, FragmentPipelineStepState>;
   meta?: FragmentMeta;
-  isTranslated: boolean;
   hash: string;
 };
 
@@ -60,10 +63,6 @@ export type Chapter = {
   filePath: string;
 };
 
-export type ContextSettings = {
-  includeEarlierFragments?: number;
-};
-
 export type GlossarySettings = {
   path?: string;
   autoFilter?: boolean;
@@ -73,7 +72,6 @@ export type TranslationProjectConfig = {
   projectName: string;
   projectDir: string;
   chapters: Chapter[];
-  context?: ContextSettings;
   glossary?: GlossarySettings;
   customRequirements?: string[];
 };
@@ -84,14 +82,6 @@ export type TranslationUnitSplitter = {
   split(units: TranslationUnit[]): Array<TranslationUnit[] | TranslationUnitWindow>;
 };
 
-export type TranslationResult = {
-  chapterId: number;
-  fragmentIndex: number;
-  translatedText?: string;
-  success?: boolean;
-  errorMessage?: string;
-};
-
 export type ContextPair = {
   chapterId: number;
   fragmentIndex: number;
@@ -100,7 +90,9 @@ export type ContextPair = {
   translatedText: string;
 };
 
-export type TranslationContextType = "glossary" | "precedingTranslation";
+export type TranslationDependencyMode = "previousTranslations" | "glossaryTerms";
+
+export type TranslationContextType = "glossary" | "dependencyTranslation";
 
 export type GlossaryContextEntry = {
   type: "glossary";
@@ -109,22 +101,14 @@ export type GlossaryContextEntry = {
   content: string;
 };
 
-export type PairContextEntry = {
-  type: "precedingTranslation";
+export type DependencyPairContextEntry = {
+  type: "dependencyTranslation";
   description: string;
   priority: number;
   pairs: ContextPair[];
 };
 
-export type TranslationContextEntry = GlossaryContextEntry | PairContextEntry;
-
-export type TranslationTask = {
-  chapterId: number;
-  fragmentIndex: number;
-  sourceText: string;
-  contextView: TranslationContextView;
-  requirements: string[];
-};
+export type TranslationContextEntry = GlossaryContextEntry | DependencyPairContextEntry;
 
 export type ProjectCursor = {
   chapterId?: number;
@@ -132,9 +116,7 @@ export type ProjectCursor = {
 };
 
 /**
- * 项目进度对象，统计翻译完成度。
- *
- * 提供章节级与片段级的完成比例计算，用于进度展示与断点恢复。
+ * 项目进度对象，统计最终翻译步骤的完成度。
  */
 export class ProjectProgress {
   constructor(

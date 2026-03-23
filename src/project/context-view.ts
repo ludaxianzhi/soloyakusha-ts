@@ -1,46 +1,34 @@
 /**
- * 根据章节与片段位置构建翻译上下文视图，聚合术语表与前序翻译参考。
- *
- * 本模块提供翻译上下文的动态构建能力，为当前待翻译片段准备：
- * - 相关术语表条目（基于原文内容自动筛选或全量渲染）
- * - 前序已翻译片段（按配置数量取最近的翻译结果）
- *
- * 上下文视图用于辅助 LLM 理解翻译语境，提高翻译一致性。
+ * 根据 Pipeline 步骤的依赖满足方式构建翻译上下文视图。
  *
  * @module project/context-view
  */
 
-import type { Glossary } from "../glossary/glossary.ts";
+import type { Glossary, ResolvedGlossaryTerm } from "../glossary/glossary.ts";
 import { TranslationDocumentManager } from "./translation-document-manager.ts";
 import type {
+  Chapter,
   ContextPair,
-  ContextSettings,
   GlossarySettings,
   TranslationContextEntry,
   TranslationContextType,
+  TranslationDependencyMode,
 } from "./types.ts";
 
-/**
- * 翻译上下文视图，按当前片段汇总术语表与前序翻译参考。
- *
- * 该类以章节 ID 和片段索引为定位，从 {@link TranslationDocumentManager} 中提取：
- * - 当前片段的原文内容
- * - 与原文相关的术语表条目
- * - 指定数量的前序翻译对
- *
- * 术语表筛选：
- * - 当 glossaryConfig.autoFilter 为 true（默认）时，仅返回原文中出现的术语
- * - 否则返回全部术语表内容
- *
- * 前序翻译数量由 context.includeEarlierFragments 控制（默认 2 条）。
- */
+type OrderedFragmentRef = {
+  chapterId: number;
+  fragmentIndex: number;
+};
+
 export class TranslationContextView {
   constructor(
     readonly chapterId: number,
     readonly fragmentIndex: number,
     private readonly options: {
       documentManager: TranslationDocumentManager;
-      context?: ContextSettings;
+      stepId: string;
+      dependencyMode: TranslationDependencyMode;
+      traversalChapters: Chapter[];
       glossary?: Glossary;
       glossaryConfig?: GlossarySettings;
     },
@@ -61,9 +49,9 @@ export class TranslationContextView {
       contexts.push(glossaryContext);
     }
 
-    const precedingContext = this.getPrecedingContext();
-    if (precedingContext) {
-      contexts.push(precedingContext);
+    const dependencyContext = this.getDependencyContext();
+    if (dependencyContext) {
+      contexts.push(dependencyContext);
     }
 
     return contexts.sort((left, right) => right.priority - left.priority);
@@ -74,8 +62,8 @@ export class TranslationContextView {
       return this.getGlossaryContext();
     }
 
-    if (type === "precedingTranslation") {
-      return this.getPrecedingContext();
+    if (type === "dependencyTranslation") {
+      return this.getDependencyContext();
     }
 
     return undefined;
@@ -104,69 +92,227 @@ export class TranslationContextView {
     };
   }
 
-  getPrecedingContext(): TranslationContextEntry | undefined {
-    const pairs = this.buildPrecedingContextPairs();
+  getDependencyContext(): TranslationContextEntry | undefined {
+    const pairs =
+      this.options.dependencyMode === "previousTranslations"
+        ? this.buildPreviousStepPairs()
+        : this.buildGlossaryDependencyPairs();
     if (pairs.length === 0) {
       return undefined;
     }
 
     return {
-      type: "precedingTranslation",
-      description: "前序翻译参考",
+      type: "dependencyTranslation",
+      description:
+        this.options.dependencyMode === "previousTranslations"
+          ? "前序步骤参考"
+          : "词汇依赖步骤参考",
       priority: 60,
       pairs,
     };
   }
 
-  private buildPrecedingContextPairs(): ContextPair[] {
-    const maxFragments = this.options.context?.includeEarlierFragments ?? 2;
-    if (maxFragments <= 0) {
+  private buildPreviousStepPairs(): ContextPair[] {
+    const orderedFragments = this.getOrderedFragments();
+    const currentIndex = orderedFragments.findIndex(
+      (fragment) =>
+        fragment.chapterId === this.chapterId &&
+        fragment.fragmentIndex === this.fragmentIndex,
+    );
+    if (currentIndex <= 0) {
       return [];
     }
 
     const pairs: ContextPair[] = [];
-    for (const chapterEntry of this.options.documentManager.getAllChapters()) {
-      const limit =
-        chapterEntry.id === this.chapterId
-          ? Math.min(this.fragmentIndex, chapterEntry.fragments.length)
-          : chapterEntry.fragments.length;
-
-      for (let currentIndex = 0; currentIndex < limit; currentIndex += 1) {
-        const fragment = chapterEntry.fragments[currentIndex];
-        if (!fragment?.isTranslated || fragment.translation.lines.length === 0) {
-          continue;
-        }
-
-        pairs.push(
-          createContextPair(
-            chapterEntry.id,
-            currentIndex,
-            fragment.hash,
-            this.options.documentManager,
-          ),
-        );
+    for (let offset = 1; offset <= 2; offset += 1) {
+      const ref = orderedFragments[currentIndex - offset];
+      if (!ref || !this.isStepCompleted(ref.chapterId, ref.fragmentIndex)) {
+        continue;
       }
 
-      if (chapterEntry.id === this.chapterId) {
-        break;
+      pairs.push(
+        createContextPair(
+          ref.chapterId,
+          ref.fragmentIndex,
+          this.options.documentManager,
+        ),
+      );
+    }
+
+    return pairs;
+  }
+
+  private buildGlossaryDependencyPairs(): ContextPair[] {
+    const orderedFragments = this.getOrderedFragments();
+    const translatedRefs = orderedFragments.filter((fragment) =>
+      this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex),
+    );
+    if (translatedRefs.length === 0) {
+      return [];
+    }
+
+    const currentIndex = orderedFragments.findIndex(
+      (fragment) =>
+        fragment.chapterId === this.chapterId &&
+        fragment.fragmentIndex === this.fragmentIndex,
+    );
+    if (currentIndex === -1) {
+      return [];
+    }
+
+    const nearest = [...translatedRefs].sort((left, right) =>
+      compareByDistance(left, right, currentIndex, orderedFragments),
+    )[0];
+    const pairs: ContextPair[] = [];
+
+    if (nearest) {
+      pairs.push(
+        createContextPair(
+          nearest.chapterId,
+          nearest.fragmentIndex,
+          this.options.documentManager,
+        ),
+      );
+    }
+
+    const overlapRef = this.getHighestGlossaryOverlapRef(translatedRefs, nearest);
+    if (
+      overlapRef &&
+      !pairs.some(
+        (pair) =>
+          pair.chapterId === overlapRef.chapterId &&
+          pair.fragmentIndex === overlapRef.fragmentIndex,
+      )
+    ) {
+      pairs.push(
+        createContextPair(
+          overlapRef.chapterId,
+          overlapRef.fragmentIndex,
+          this.options.documentManager,
+        ),
+      );
+    }
+
+    return pairs;
+  }
+
+  private getHighestGlossaryOverlapRef(
+    translatedRefs: OrderedFragmentRef[],
+    nearest?: OrderedFragmentRef,
+  ): OrderedFragmentRef | undefined {
+    if (!this.options.glossary) {
+      return undefined;
+    }
+
+    const currentTerms = new Set(
+      this.options.glossary
+        .filterTerms(this.sourceText)
+        .filter((term) => term.status === "translated")
+        .map((term) => term.term),
+    );
+    if (currentTerms.size === 0) {
+      return undefined;
+    }
+
+    let bestScore = 0;
+    let bestRef: OrderedFragmentRef | undefined;
+
+    for (const ref of translatedRefs) {
+      if (
+        nearest &&
+        ref.chapterId === nearest.chapterId &&
+        ref.fragmentIndex === nearest.fragmentIndex
+      ) {
+        continue;
+      }
+
+      const candidateTerms = this.options.glossary.filterTerms(
+        this.options.documentManager.getSourceText(ref.chapterId, ref.fragmentIndex),
+      );
+      const score = countGlossaryOverlap(currentTerms, candidateTerms);
+      if (score > bestScore) {
+        bestScore = score;
+        bestRef = ref;
       }
     }
 
-    return pairs.slice(-maxFragments);
+    return bestScore > 0 ? bestRef : undefined;
+  }
+
+  private getOrderedFragments(): OrderedFragmentRef[] {
+    return this.options.traversalChapters.flatMap((chapter) =>
+      (this.options.documentManager.getChapterById(chapter.id)?.fragments ?? []).map(
+        (_fragment, fragmentIndex) => ({
+          chapterId: chapter.id,
+          fragmentIndex,
+        }),
+      ),
+    );
+  }
+
+  private isStepCompleted(chapterId: number, fragmentIndex: number): boolean {
+    return (
+      this.options.documentManager.getPipelineStepState(
+        chapterId,
+        fragmentIndex,
+        this.options.stepId,
+      )?.status === "completed"
+    );
   }
 }
 
 function createContextPair(
   chapterId: number,
   fragmentIndex: number,
-  fragmentHash: string,
   documentManager: TranslationDocumentManager,
 ): ContextPair {
+  const fragment = documentManager.getFragmentById(chapterId, fragmentIndex);
+  if (!fragment) {
+    throw new Error(`文本块不存在: chapter=${chapterId}, fragment=${fragmentIndex}`);
+  }
+
   return {
     chapterId,
     fragmentIndex,
-    fragmentHash,
+    fragmentHash: fragment.hash,
     sourceText: documentManager.getSourceText(chapterId, fragmentIndex),
     translatedText: documentManager.getTranslatedText(chapterId, fragmentIndex),
   };
+}
+
+function countGlossaryOverlap(
+  currentTerms: Set<string>,
+  candidateTerms: ReadonlyArray<ResolvedGlossaryTerm>,
+): number {
+  let score = 0;
+  for (const term of candidateTerms) {
+    if (term.status === "translated" && currentTerms.has(term.term)) {
+      score += 1;
+    }
+  }
+
+  return score;
+}
+
+function compareByDistance(
+  left: OrderedFragmentRef,
+  right: OrderedFragmentRef,
+  currentIndex: number,
+  orderedFragments: OrderedFragmentRef[],
+): number {
+  const leftIndex = orderedFragments.findIndex(
+    (fragment) =>
+      fragment.chapterId === left.chapterId &&
+      fragment.fragmentIndex === left.fragmentIndex,
+  );
+  const rightIndex = orderedFragments.findIndex(
+    (fragment) =>
+      fragment.chapterId === right.chapterId &&
+      fragment.fragmentIndex === right.fragmentIndex,
+  );
+
+  return (
+    Math.abs(leftIndex - currentIndex) - Math.abs(rightIndex - currentIndex) ||
+    leftIndex - rightIndex
+  );
 }

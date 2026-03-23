@@ -140,8 +140,8 @@ describe("glossary", () => {
     );
 
     await project.initialize();
-    const task = await project.getNextTask();
-    const glossaryContext = task?.contextView.getContext("glossary");
+    const tasks = await project.getWorkQueue("translation").dispatchReadyItems();
+    const glossaryContext = tasks[0]?.contextView?.getContext("glossary");
 
     expect(glossaryContext?.type).toBe("glossary");
     if (glossaryContext?.type === "glossary") {

@@ -12,7 +12,8 @@
 同时也补上了翻译工程骨架的基础层：
 
 - `TranslationDocumentManager`：章节/片段持久化、全文管理、翻译进度更新
-- `TranslationProject`：面向任务的项目骨架，负责按线性章节顺序遍历任务、统计进度、动态收集 glossary 和前序译文上下文
+- `TranslationProject`：面向任务的项目骨架，负责按 Pipeline / Work Queue 并发分发任务、统计进度、动态收集 glossary 和依赖译文上下文
+- `TranslationPipeline` / `TranslationStepWorkQueue`：步骤定义与步骤级调度队列
 - `GlobalAssociationPatternScanner`：原文全文重复模式扫描（默认至少出现 3 次且长度至少 8）
 
 另外已迁移文件解析模块：
@@ -97,9 +98,6 @@ const project = new TranslationProject({
     { id: 1, filePath: "sources\\01.txt" },
     { id: 2, filePath: "sources\\02.txt" },
   ],
-  context: {
-    includeEarlierFragments: 2,
-  },
   glossary: {
     path: "glossary.csv",
     autoFilter: true,
@@ -108,14 +106,68 @@ const project = new TranslationProject({
 
 await project.initialize();
 
-const task = await project.getNextTask();
-console.log(task?.sourceText, task?.contextView.getContexts());
+const translationQueue = project.getWorkQueue("translation");
+const workItems = await translationQueue.dispatchReadyItems();
+console.log(workItems.map((item) => ({
+  inputText: item.inputText,
+  dependencyMode: item.metadata.dependencyMode,
+  contexts: item.contextView?.getContexts(),
+})));
 
-await project.submitResult({
-  chapterId: task!.chapterId,
-  fragmentIndex: task!.fragmentIndex,
-  translatedText: "这里写入译文",
+await project.submitWorkResult({
+  stepId: "translation",
+  chapterId: workItems[0]!.chapterId,
+  fragmentIndex: workItems[0]!.fragmentIndex,
+  outputText: "这里写入译文",
 });
+```
+
+## 多步骤 Pipeline 示例
+
+```ts
+import type { TranslationPipelineDefinition } from "./index.ts";
+import { TranslationProject } from "./index.ts";
+
+const pipeline: TranslationPipelineDefinition = {
+  steps: [
+    {
+      id: "draft",
+      description: "草稿翻译",
+      buildInput: ({ chapterId, fragmentIndex, runtime }) =>
+        runtime.getSourceText(chapterId, fragmentIndex),
+    },
+    {
+      id: "polish",
+      description: "润色定稿",
+      buildInput: ({ previousStepOutput }) => previousStepOutput?.lines.join("\n") ?? "",
+    },
+  ],
+  finalStepId: "polish",
+};
+
+const project = new TranslationProject({
+  projectName: "demo",
+  projectDir: "./workspace",
+  chapters: [{ id: 1, filePath: "sources\\scene.txt" }],
+}, {
+  pipeline,
+});
+
+await project.initialize();
+
+const draftQueue = project.getWorkQueue("draft");
+const draftItems = await draftQueue.dispatchReadyItems();
+
+await project.submitWorkResult({
+  stepId: "draft",
+  chapterId: draftItems[0]!.chapterId,
+  fragmentIndex: draftItems[0]!.fragmentIndex,
+  outputText: "草稿结果",
+});
+
+const polishQueue = project.getWorkQueue("polish");
+const polishItems = await polishQueue.dispatchReadyItems();
+console.log(polishItems[0]?.inputText);
 ```
 
 ## 文件格式处理示例
@@ -212,7 +264,7 @@ console.log(result.patterns);
 console.log(project.getGlossary()?.getAllTerms());
 ```
 
-当前项目层的上下文策略是完全线性的：只会按照 `chapters` 中给定的顺序回看已完成翻译的前序片段，不再使用章节拓扑和预构建语义索引。
+当前项目层的默认 `translation` 步骤会按 `chapters` 中给定的顺序建立队列，并在“前序步骤已完成”或“词汇依赖已满足”两种条件下调度工作项。
 
 ## 文本对齐示例
 

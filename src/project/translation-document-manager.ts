@@ -26,6 +26,7 @@ import type {
 import type {
   ChapterEntry,
   FragmentEntry,
+  FragmentPipelineStepState,
   TextFragment,
   TranslationUnit,
   TranslationUnitParser,
@@ -252,18 +253,46 @@ export class TranslationDocumentManager {
   ): Promise<void> {
     const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
     fragment.translation = normalizeFragment(translation);
-    fragment.isTranslated = true;
     await this.saveChapterById(chapterId);
   }
 
-  updateStageValue(
+  async updatePipelineStepState(
     chapterId: number,
     fragmentIndex: number,
-    key: string,
-    value: TextFragment | string | string[],
-  ): void {
+    stepId: string,
+    state: FragmentPipelineStepState,
+  ): Promise<void> {
     const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
-    fragment.stageValues[key] = normalizeFragment(value);
+    fragment.pipelineStates[stepId] = state;
+    await this.saveChapterById(chapterId);
+  }
+
+  async updatePipelineStepStates(
+    steps: Array<{
+      chapterId: number;
+      fragmentIndex: number;
+      stepId: string;
+      state: FragmentPipelineStepState;
+    }>,
+  ): Promise<void> {
+    const affectedChapterIds = new Set<number>();
+    for (const stepRef of steps) {
+      const fragment = this.getRequiredFragment(stepRef.chapterId, stepRef.fragmentIndex);
+      fragment.pipelineStates[stepRef.stepId] = stepRef.state;
+      affectedChapterIds.add(stepRef.chapterId);
+    }
+
+    await Promise.all(
+      [...affectedChapterIds].map((chapterId) => this.saveChapterById(chapterId)),
+    );
+  }
+
+  getPipelineStepState(
+    chapterId: number,
+    fragmentIndex: number,
+    stepId: string,
+  ): FragmentPipelineStepState | undefined {
+    return this.getRequiredFragment(chapterId, fragmentIndex).pipelineStates[stepId];
   }
 
   getFragmentById(
@@ -302,28 +331,6 @@ export class TranslationDocumentManager {
     return Array.from(this.chapters.values());
   }
 
-  getTranslationProgress(): {
-    translatedFragments: number;
-    totalFragments: number;
-  } {
-    let translatedFragments = 0;
-    let totalFragments = 0;
-
-    for (const chapter of this.chapters.values()) {
-      for (const fragment of chapter.fragments) {
-        totalFragments += 1;
-        if (fragment.isTranslated) {
-          translatedFragments += 1;
-        }
-      }
-    }
-
-    return {
-      translatedFragments,
-      totalFragments,
-    };
-  }
-
   getSourceText(chapterId: number, fragmentIndex: number): string {
     return fragmentToText(this.getRequiredFragment(chapterId, fragmentIndex).source);
   }
@@ -340,12 +347,6 @@ export class TranslationDocumentManager {
     return this.getChapterTranslationUnits(chapterId)
       .map((unit) => unit.target.at(-1) ?? "")
       .join("\n");
-  }
-
-  exportTranslatedChapters(): ChapterEntry[] {
-    return this.getAllChapters().filter((chapter) =>
-      chapter.fragments.every((fragment) => fragment.isTranslated),
-    );
   }
 
   getChapterTranslationUnits(chapterId: number): TranslationUnit[] {
@@ -384,23 +385,20 @@ export class TranslationDocumentManager {
         fragmentUnits.map((unit) => unit.target.at(-1) ?? ""),
       );
 
-      return {
-        source,
-        translation,
-        stageValues: {},
-        meta: {
-          metadataList,
-          targetGroups,
-          originalUnitIndexes: [...fragmentGroup.originalUnitIndexes],
-          windowStartUnitIndex: fragmentGroup.windowStartUnitIndex,
-          windowEndUnitIndex: fragmentGroup.windowEndUnitIndex,
-        },
-        isTranslated:
-          translation.lines.length > 0 &&
-          translation.lines.every((line) => line.length > 0),
-        hash: computeHash(source),
-      };
-    });
+        return {
+          source,
+          translation,
+          pipelineStates: {},
+          meta: {
+            metadataList,
+            targetGroups,
+            originalUnitIndexes: [...fragmentGroup.originalUnitIndexes],
+            windowStartUnitIndex: fragmentGroup.windowStartUnitIndex,
+            windowEndUnitIndex: fragmentGroup.windowEndUnitIndex,
+          },
+          hash: computeHash(source),
+        };
+      });
 
     const chapter: ChapterEntry = {
       id: chapterId,
@@ -517,7 +515,7 @@ function normalizePersistedChapter(chapter: ChapterEntry): ChapterEntry {
       return {
         source: fragment.source,
         translation: fragment.translation,
-        stageValues: fragment.stageValues ?? {},
+        pipelineStates: fragment.pipelineStates ?? {},
         meta: {
           metadataList: fragment.meta?.metadataList ?? [],
           targetGroups: (fragment.meta?.targetGroups ?? []).map((group) => [...group]),
@@ -525,7 +523,6 @@ function normalizePersistedChapter(chapter: ChapterEntry): ChapterEntry {
           windowStartUnitIndex,
           windowEndUnitIndex,
         },
-        isTranslated: fragment.isTranslated,
         hash: fragment.hash,
       };
     }),

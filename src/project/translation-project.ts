@@ -1,17 +1,5 @@
 /**
- * 负责翻译项目初始化、任务遍历、上下文构建接入与结果提交协调。
- *
- * 本模块是翻译项目的核心协调器，串联以下组件：
- * - {@link TranslationDocumentManager}: 章节加载、片段切分、持久化
- * - {@link Glossary}: 术语表加载与筛选
- * - {@link TranslationContextView}: 上下文视图构建
- *
- * 典型使用流程：
- * 1. 创建项目实例，传入配置与可选的自定义组件
- * 2. 调用 initialize() 加载章节和术语表
- * 3. 通过 iterTasks() 或 getNextTask() 获取待翻译任务
- * 4. 将翻译结果通过 submitResult() 提交
- * 5. 定期调用 saveProgress() 保存进度
+ * 负责翻译项目初始化、Pipeline 调度、步骤工作队列接入与结果提交协调。
  *
  * @module project/translation-project
  */
@@ -26,51 +14,43 @@ import type {
   GlobalAssociationPatternScanResult,
 } from "./global-pattern-scanner.ts";
 import { GlobalAssociationPatternScanner } from "./global-pattern-scanner.ts";
+import {
+  TranslationPipeline,
+  TranslationStepWorkQueue,
+  type OrderedFragmentSnapshot,
+  type PipelineDependencyResolution,
+  type PipelineWorkItemMetadata,
+  type TranslationPipelineDefinition,
+  type TranslationPipelineRuntime,
+  type TranslationStepQueueEntry,
+  type TranslationWorkItem,
+  type TranslationWorkQueueRuntime,
+  type TranslationWorkResult,
+} from "./pipeline.ts";
 import { TranslationDocumentManager } from "./translation-document-manager.ts";
 import type {
   Chapter,
+  FragmentEntry,
   ProjectCursor,
-  TranslationResult,
+  TextFragment,
+  TranslationDependencyMode,
   TranslationProjectConfig,
-  TranslationTask,
   TranslationUnitParser,
   TranslationUnitSplitter,
 } from "./types.ts";
-import { ProjectProgress } from "./types.ts";
+import { ProjectProgress, createTextFragment } from "./types.ts";
 
-/**
- * 翻译项目协调器，串联章节初始化、任务遍历、上下文构建与结果提交。
- *
- * 该类是翻译项目的顶级入口，负责：
- * - 管理章节列表的遍历顺序
- * - 维护当前翻译位置游标
- * - 协调文档管理器与术语表的交互
- * - 提供翻译任务的上下文视图构建
- *
- * 支持两种任务获取方式：
- * - {@link getNextTask}: 每次返回下一个待翻译任务，适合手动控制流程
- * - {@link iterTasks}: 异步迭代器，适合 for-await-of 循环处理
- *
- * @example
- * ```typescript
- * const project = new TranslationProject(config);
- * await project.initialize();
- *
- * for await (const task of project.iterTasks()) {
- *   const result = await translate(task);
- *   await project.submitResult(result);
- * }
- *
- * await project.saveProgress();
- * ```
- */
-export class TranslationProject {
+export class TranslationProject
+  implements TranslationPipelineRuntime, TranslationWorkQueueRuntime
+{
   private readonly projectDir: string;
   private readonly chapters: Chapter[];
   private readonly documentManager: TranslationDocumentManager;
+  private readonly pipeline: TranslationPipeline;
+  private readonly queueCache = new Map<string, TranslationStepWorkQueue>();
+  private readonly nextQueueSequenceByStep = new Map<string, number>();
   private glossary?: Glossary;
   private initialized = false;
-  private currentCursor: ProjectCursor = {};
 
   constructor(
     private readonly config: TranslationProjectConfig,
@@ -80,6 +60,7 @@ export class TranslationProject {
       fileHandlerResolver?: TranslationFileHandlerResolver;
       documentManager?: TranslationDocumentManager;
       glossary?: Glossary;
+      pipeline?: TranslationPipelineDefinition | TranslationPipeline;
     } = {},
   ) {
     this.projectDir = resolve(config.projectDir);
@@ -92,6 +73,10 @@ export class TranslationProject {
         fileHandlerResolver: options.fileHandlerResolver,
       });
     this.glossary = options.glossary;
+    this.pipeline =
+      options.pipeline instanceof TranslationPipeline
+        ? options.pipeline
+        : new TranslationPipeline(options.pipeline ?? this.createDefaultPipelineDefinition());
   }
 
   async initialize(): Promise<void> {
@@ -118,92 +103,137 @@ export class TranslationProject {
     }
 
     this.initialized = true;
+    await this.initializePipelineQueues();
   }
 
-  async getNextTask(): Promise<TranslationTask | undefined> {
-    this.ensureInitialized();
-    for (const chapter of this.getTraversalChapters()) {
-      const chapterEntry = this.documentManager.getChapterById(chapter.id);
-      if (!chapterEntry) {
-        continue;
-      }
+  getPipeline(): TranslationPipeline {
+    return this.pipeline;
+  }
 
-      for (const [fragmentIndex, fragment] of chapterEntry.fragments.entries()) {
-        if (fragment.isTranslated) {
-          continue;
-        }
-
-        this.currentCursor = {
-          chapterId: chapter.id,
-          fragmentIndex,
-        };
-        return this.buildTask(chapter.id, fragmentIndex);
-      }
+  getWorkQueue(stepId: string): TranslationStepWorkQueue {
+    let queue = this.queueCache.get(stepId);
+    if (!queue) {
+      queue = new TranslationStepWorkQueue(stepId, this);
+      this.queueCache.set(stepId, queue);
     }
 
-    return undefined;
+    return queue;
   }
 
-  async *iterTasks(): AsyncGenerator<TranslationTask, void, undefined> {
+  listStepQueueEntries(stepId: string): TranslationStepQueueEntry[] {
     this.ensureInitialized();
-    for (const chapter of this.getTraversalChapters()) {
-      const chapterEntry = this.documentManager.getChapterById(chapter.id);
-      if (!chapterEntry) {
-        continue;
-      }
+    this.pipeline.getStep(stepId);
 
-      for (const [fragmentIndex, fragment] of chapterEntry.fragments.entries()) {
-        if (fragment.isTranslated) {
-          continue;
+    return this.getOrderedFragments()
+      .flatMap((fragment) => {
+        const stepState = fragment.fragment.pipelineStates[stepId];
+        if (!stepState) {
+          return [];
         }
 
-        this.currentCursor = {
-          chapterId: chapter.id,
-          fragmentIndex,
-        };
-        yield this.buildTask(chapter.id, fragmentIndex);
-      }
+        return [
+          {
+            stepId,
+            chapterId: fragment.chapterId,
+            fragmentIndex: fragment.fragmentIndex,
+            queueSequence: stepState.queueSequence,
+            status: stepState.status,
+            errorMessage: stepState.errorMessage,
+          },
+        ];
+      })
+      .sort((left, right) => left.queueSequence - right.queueSequence);
+  }
+
+  listReadyWorkItems(stepId: string): TranslationWorkItem[] {
+    this.ensureInitialized();
+    const step = this.pipeline.getStep(stepId);
+
+    return this.listStepQueueEntries(stepId)
+      .filter((entry) => entry.status === "queued")
+      .flatMap((entry) => {
+        const resolution = step.resolveDependencies?.({
+          chapterId: entry.chapterId,
+          fragmentIndex: entry.fragmentIndex,
+          stepId,
+          runtime: this,
+          previousStepId: this.pipeline.getPreviousStepId(stepId),
+        }) ?? { ready: true, metadata: {} };
+        if (!resolution.ready) {
+          return [];
+        }
+
+        return [this.buildWorkItem(stepId, entry, resolution)];
+      });
+  }
+
+  async dispatchReadyWorkItems(stepId?: string): Promise<TranslationWorkItem[]> {
+    this.ensureInitialized();
+
+    if (stepId) {
+      return this.dispatchReadyWorkItemsForStep(stepId);
     }
+
+    const results: TranslationWorkItem[] = [];
+    for (const step of this.pipeline.steps) {
+      results.push(...(await this.dispatchReadyWorkItemsForStep(step.id)));
+    }
+    return results;
   }
 
-  async buildTask(chapterId: number, fragmentIndex: number): Promise<TranslationTask> {
+  async submitWorkResult(result: TranslationWorkResult): Promise<void> {
     this.ensureInitialized();
-    const contextView = this.getContextView(chapterId, fragmentIndex);
 
-    return {
-      chapterId,
-      fragmentIndex,
-      sourceText: contextView.sourceText,
-      contextView,
-      requirements: [...(this.config.customRequirements ?? [])],
-    };
-  }
-
-  getContextView(
-    chapterId: number,
-    fragmentIndex: number,
-  ): TranslationContextView {
-    this.ensureInitialized();
-    return new TranslationContextView(chapterId, fragmentIndex, {
-      documentManager: this.documentManager,
-      context: this.config.context,
-      glossary: this.glossary,
-      glossaryConfig: this.config.glossary,
-    });
-  }
-
-  async submitResult(result: TranslationResult): Promise<void> {
-    this.ensureInitialized();
+    const stepState = this.documentManager.getPipelineStepState(
+      result.chapterId,
+      result.fragmentIndex,
+      result.stepId,
+    );
+    if (!stepState) {
+      throw new Error(
+        `步骤状态不存在: step=${result.stepId}, chapter=${result.chapterId}, fragment=${result.fragmentIndex}`,
+      );
+    }
 
     if (result.success === false) {
+      await this.documentManager.updatePipelineStepState(
+        result.chapterId,
+        result.fragmentIndex,
+        result.stepId,
+        {
+          ...stepState,
+          status: "queued",
+          errorMessage: result.errorMessage,
+        },
+      );
       return;
     }
 
-    await this.documentManager.updateTranslation(
+    const output = createTextFragment(result.outputText ?? "");
+    await this.documentManager.updatePipelineStepState(
       result.chapterId,
       result.fragmentIndex,
-      result.translatedText ?? "",
+      result.stepId,
+      {
+        ...stepState,
+        status: "completed",
+        output,
+        errorMessage: undefined,
+      },
     );
+
+    if (result.stepId === this.pipeline.finalStepId) {
+      await this.documentManager.updateTranslation(
+        result.chapterId,
+        result.fragmentIndex,
+        output,
+      );
+    }
+
+    const nextStepId = this.pipeline.getNextStepId(result.stepId);
+    if (nextStepId) {
+      await this.enqueueStepIfNeeded(result.chapterId, result.fragmentIndex, nextStepId);
+    }
   }
 
   getProgress(): ProjectProgress {
@@ -211,29 +241,36 @@ export class TranslationProject {
       return new ProjectProgress();
     }
 
-    const traversalChapters = this.getTraversalChapters();
-    const { translatedFragments, totalFragments } =
-      this.documentManager.getTranslationProgress();
+    const orderedFragments = this.getOrderedFragments();
+    const translatedFragments = orderedFragments.filter((fragment) =>
+      this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, this.pipeline.finalStepId),
+    ).length;
+    const totalFragments = orderedFragments.length;
 
     let translatedChapters = 0;
-    for (const chapter of traversalChapters) {
+    for (const chapter of this.getTraversalChapters()) {
       const chapterEntry = this.documentManager.getChapterById(chapter.id);
       if (!chapterEntry) {
         continue;
       }
 
-      if (chapterEntry.fragments.every((fragment) => fragment.isTranslated)) {
+      if (
+        chapterEntry.fragments.every((_, fragmentIndex) =>
+          this.isStepCompleted(chapter.id, fragmentIndex, this.pipeline.finalStepId),
+        )
+      ) {
         translatedChapters += 1;
       }
     }
 
+    const cursor = this.getCurrentCursor();
     return new ProjectProgress(
-      traversalChapters.length,
+      this.getTraversalChapters().length,
       translatedChapters,
       totalFragments,
       translatedFragments,
-      this.currentCursor.chapterId,
-      this.currentCursor.fragmentIndex,
+      cursor.chapterId,
+      cursor.fragmentIndex,
     );
   }
 
@@ -272,8 +309,309 @@ export class TranslationProject {
     return this.glossary;
   }
 
-  private getTraversalChapters() {
+  getSourceText(chapterId: number, fragmentIndex: number): string {
+    return this.documentManager.getSourceText(chapterId, fragmentIndex);
+  }
+
+  getTranslatedText(chapterId: number, fragmentIndex: number): string {
+    return this.documentManager.getTranslatedText(chapterId, fragmentIndex);
+  }
+
+  getFragment(chapterId: number, fragmentIndex: number): FragmentEntry | undefined {
+    return this.documentManager.getFragmentById(chapterId, fragmentIndex);
+  }
+
+  getOrderedFragments(): OrderedFragmentSnapshot[] {
+    return this.getTraversalChapters().flatMap((chapter) =>
+      (this.documentManager.getChapterById(chapter.id)?.fragments ?? []).map(
+        (fragment, fragmentIndex) => ({
+          chapterId: chapter.id,
+          fragmentIndex,
+          fragment,
+        }),
+      ),
+    );
+  }
+
+  getRequirements(): string[] {
+    return [...(this.config.customRequirements ?? [])];
+  }
+
+  getCurrentCursor(): ProjectCursor {
+    const activeEntry =
+      this.listAllQueueEntries().find((entry) => entry.status === "running") ??
+      this.listAllQueueEntries().find((entry) => entry.status === "queued");
+
+    return activeEntry
+      ? {
+          chapterId: activeEntry.chapterId,
+          fragmentIndex: activeEntry.fragmentIndex,
+        }
+      : {};
+  }
+
+  private async initializePipelineQueues(): Promise<void> {
+    this.rebuildNextQueueSequences();
+
+    const updates: Array<{
+      chapterId: number;
+      fragmentIndex: number;
+      stepId: string;
+      state: {
+        status: "queued";
+        queueSequence: number;
+        output?: TextFragment;
+        errorMessage?: string;
+      };
+    }> = [];
+
+    for (const fragment of this.getOrderedFragments()) {
+      const firstStepId = this.pipeline.steps[0]!.id;
+      if (!fragment.fragment.pipelineStates[firstStepId]) {
+        updates.push({
+          chapterId: fragment.chapterId,
+          fragmentIndex: fragment.fragmentIndex,
+          stepId: firstStepId,
+          state: {
+            status: "queued",
+            queueSequence: this.allocateQueueSequence(firstStepId),
+          },
+        });
+      }
+
+      for (const step of this.pipeline.steps.slice(1)) {
+        const previousStepId = this.pipeline.getPreviousStepId(step.id);
+        if (
+          previousStepId &&
+          this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, previousStepId) &&
+          !fragment.fragment.pipelineStates[step.id]
+        ) {
+          updates.push({
+            chapterId: fragment.chapterId,
+            fragmentIndex: fragment.fragmentIndex,
+            stepId: step.id,
+            state: {
+              status: "queued",
+              queueSequence: this.allocateQueueSequence(step.id),
+            },
+          });
+        }
+      }
+    }
+
+    if (updates.length > 0) {
+      await this.documentManager.updatePipelineStepStates(updates);
+    }
+  }
+
+  private async dispatchReadyWorkItemsForStep(stepId: string): Promise<TranslationWorkItem[]> {
+    const readyItems = this.listReadyWorkItems(stepId);
+    if (readyItems.length === 0) {
+      return [];
+    }
+
+    await this.documentManager.updatePipelineStepStates(
+      readyItems.map((item) => ({
+        chapterId: item.chapterId,
+        fragmentIndex: item.fragmentIndex,
+        stepId: item.stepId,
+        state: {
+          ...this.documentManager.getPipelineStepState(
+            item.chapterId,
+            item.fragmentIndex,
+            item.stepId,
+          )!,
+          status: "running",
+          errorMessage: undefined,
+        },
+      })),
+    );
+
+    return readyItems;
+  }
+
+  private buildWorkItem(
+    stepId: string,
+    entry: TranslationStepQueueEntry,
+    resolution: PipelineDependencyResolution,
+  ): TranslationWorkItem {
+    const step = this.pipeline.getStep(stepId);
+    const previousStepId = this.pipeline.getPreviousStepId(stepId);
+    const previousStepOutput = previousStepId
+      ? this.documentManager.getPipelineStepState(
+          entry.chapterId,
+          entry.fragmentIndex,
+          previousStepId,
+        )?.output
+      : undefined;
+    const metadata = resolution.metadata ?? {};
+
+    return {
+      ...entry,
+      inputText: step.buildInput({
+        chapterId: entry.chapterId,
+        fragmentIndex: entry.fragmentIndex,
+        runtime: this,
+        previousStepOutput,
+      }),
+      contextView: step.buildContextView?.({
+        chapterId: entry.chapterId,
+        fragmentIndex: entry.fragmentIndex,
+        runtime: this,
+        metadata,
+      }),
+      requirements: [
+        ...this.getRequirements(),
+        ...(step.requirements ?? []),
+      ],
+      metadata,
+    };
+  }
+
+  private async enqueueStepIfNeeded(
+    chapterId: number,
+    fragmentIndex: number,
+    stepId: string,
+  ): Promise<void> {
+    if (this.documentManager.getPipelineStepState(chapterId, fragmentIndex, stepId)) {
+      return;
+    }
+
+    await this.documentManager.updatePipelineStepState(
+      chapterId,
+      fragmentIndex,
+      stepId,
+      {
+        status: "queued",
+        queueSequence: this.allocateQueueSequence(stepId),
+      },
+    );
+  }
+
+  private listAllQueueEntries(): TranslationStepQueueEntry[] {
+    return this.pipeline.steps.flatMap((step) => this.listStepQueueEntries(step.id));
+  }
+
+  private isStepCompleted(
+    chapterId: number,
+    fragmentIndex: number,
+    stepId: string,
+  ): boolean {
+    return (
+      this.documentManager.getPipelineStepState(chapterId, fragmentIndex, stepId)?.status ===
+      "completed"
+    );
+  }
+
+  private rebuildNextQueueSequences(): void {
+    this.nextQueueSequenceByStep.clear();
+    for (const step of this.pipeline.steps) {
+      const maxSequence = this.listStepQueueEntries(step.id).reduce(
+        (currentMax, entry) => Math.max(currentMax, entry.queueSequence),
+        0,
+      );
+      this.nextQueueSequenceByStep.set(step.id, maxSequence + 1);
+    }
+  }
+
+  private allocateQueueSequence(stepId: string): number {
+    const next = this.nextQueueSequenceByStep.get(stepId) ?? 1;
+    this.nextQueueSequenceByStep.set(stepId, next + 1);
+    return next;
+  }
+
+  private getTraversalChapters(): Chapter[] {
     return [...this.chapters];
+  }
+
+  private createDefaultPipelineDefinition(): TranslationPipelineDefinition {
+    return {
+      steps: [
+        {
+          id: "translation",
+          description: "最终翻译",
+          buildInput: ({ chapterId, fragmentIndex, runtime }) =>
+            runtime.getSourceText(chapterId, fragmentIndex),
+          resolveDependencies: ({ chapterId, fragmentIndex, stepId, runtime }) => {
+            const dependencyMode = this.resolveTranslationDependencyMode(
+              chapterId,
+              fragmentIndex,
+              stepId,
+              runtime.getOrderedFragments(),
+            );
+
+            return dependencyMode
+              ? {
+                  ready: true,
+                  metadata: { dependencyMode },
+                }
+              : { ready: false };
+          },
+          buildContextView: ({ chapterId, fragmentIndex, metadata }) => {
+            const dependencyMode = metadata.dependencyMode;
+            if (
+              dependencyMode !== "previousTranslations" &&
+              dependencyMode !== "glossaryTerms"
+            ) {
+              return undefined;
+            }
+
+            return new TranslationContextView(chapterId, fragmentIndex, {
+              documentManager: this.documentManager,
+              stepId: "translation",
+              dependencyMode,
+              traversalChapters: this.getTraversalChapters(),
+              glossary: this.glossary,
+              glossaryConfig: this.config.glossary,
+            });
+          },
+        },
+      ],
+    };
+  }
+
+  private resolveTranslationDependencyMode(
+    chapterId: number,
+    fragmentIndex: number,
+    stepId: string,
+    orderedFragments: OrderedFragmentSnapshot[],
+  ): TranslationDependencyMode | undefined {
+    const currentIndex = orderedFragments.findIndex(
+      (fragment) =>
+        fragment.chapterId === chapterId &&
+        fragment.fragmentIndex === fragmentIndex,
+    );
+    if (currentIndex === -1) {
+      throw new Error(`文本块不存在: chapter=${chapterId}, fragment=${fragmentIndex}`);
+    }
+
+    if (
+      orderedFragments
+        .slice(0, currentIndex)
+        .every((fragment) =>
+          this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, stepId),
+        )
+    ) {
+      return "previousTranslations";
+    }
+
+    const matchedGlossaryTerms = this.glossary?.filterTerms(
+      this.documentManager.getSourceText(chapterId, fragmentIndex),
+    ) ?? [];
+    const hasCompletedPeer = orderedFragments.some(
+      (fragment) =>
+        !(fragment.chapterId === chapterId && fragment.fragmentIndex === fragmentIndex) &&
+        this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, stepId),
+    );
+    if (
+      hasCompletedPeer &&
+      matchedGlossaryTerms.length > 0 &&
+      matchedGlossaryTerms.every((term) => term.status === "translated")
+    ) {
+      return "glossaryTerms";
+    }
+
+    return undefined;
   }
 
   private ensureInitialized(): void {

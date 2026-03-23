@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Glossary } from "../glossary/glossary.ts";
+import type { TranslationPipelineDefinition } from "./pipeline.ts";
 import { TranslationProject } from "./translation-project.ts";
 
 const cleanupTargets: string[] = [];
@@ -16,142 +17,72 @@ afterEach(async () => {
 });
 
 describe("TranslationProject", () => {
-  test("tracks progress and preceding contexts across chapters", async () => {
+  test("dispatches sequential translation queue items with N-1 and N-2 contexts", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-"));
     cleanupTargets.push(workspaceDir);
 
     const sourceDir = join(workspaceDir, "sources");
     await mkdir(sourceDir, { recursive: true });
-    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n第二句\n", "utf8");
-    await writeFile(join(sourceDir, "chapter-2.txt"), "第三句\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n第二句\n第三句\n", "utf8");
 
-    const project = new TranslationProject({
-      projectName: "demo",
-      projectDir: workspaceDir,
-      chapters: [
-        { id: 1, filePath: "sources\\chapter-1.txt" },
-        { id: 2, filePath: "sources\\chapter-2.txt" },
-      ],
-      context: {
-        includeEarlierFragments: 2,
+    const project = new TranslationProject(
+      {
+        projectName: "demo",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+        customRequirements: ["保持称谓一致"],
       },
-      customRequirements: ["保持称谓一致"],
-    }, {
-      textSplitter: {
-        split(units) {
-          return units.map((unit) => [unit]);
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
         },
       },
-    });
-
+    );
     await project.initialize();
 
-    const firstTask = await project.getNextTask();
-    expect(firstTask?.chapterId).toBe(1);
-    expect(firstTask?.fragmentIndex).toBe(0);
-    expect(firstTask?.contextView.getContexts()).toEqual([]);
+    const translationQueue = project.getWorkQueue("translation");
+    const firstBatch = await translationQueue.dispatchReadyItems();
+    expect(firstBatch).toHaveLength(1);
+    expect(firstBatch[0]?.metadata.dependencyMode).toBe("previousTranslations");
+    expect(firstBatch[0]?.contextView?.getContexts()).toEqual([]);
 
-    const secondTaskView = project.getContextView(1, 1);
-    expect(secondTaskView.getContexts()).toEqual([]);
-
-    await project.submitResult({
+    await project.submitWorkResult({
+      stepId: "translation",
       chapterId: 1,
       fragmentIndex: 0,
-      translatedText: "Line 1",
+      outputText: "Line 1",
     });
 
-    const precedingFromView = secondTaskView.getContext("precedingTranslation");
-    expect(precedingFromView?.type).toBe("precedingTranslation");
-    if (precedingFromView?.type === "precedingTranslation") {
-      expect(precedingFromView.pairs[0]?.translatedText).toBe("Line 1");
+    const secondBatch = await translationQueue.dispatchReadyItems();
+    expect(secondBatch).toHaveLength(1);
+    const secondContext = secondBatch[0]?.contextView?.getContext("dependencyTranslation");
+    expect(secondContext?.type).toBe("dependencyTranslation");
+    if (secondContext?.type === "dependencyTranslation") {
+      expect(secondContext.pairs).toHaveLength(1);
+      expect(secondContext.pairs[0]?.translatedText).toBe("Line 1");
     }
 
-    const secondTask = await project.getNextTask();
-    expect(secondTask?.chapterId).toBe(1);
-    expect(secondTask?.fragmentIndex).toBe(1);
-    const precedingFromTask = secondTask?.contextView.getContext("precedingTranslation");
-    expect(precedingFromTask?.type).toBe("precedingTranslation");
-    if (precedingFromTask?.type === "precedingTranslation") {
-      expect(precedingFromTask.pairs[0]?.translatedText).toBe("Line 1");
-    }
-
-    await project.submitResult({
+    await project.submitWorkResult({
+      stepId: "translation",
       chapterId: 1,
       fragmentIndex: 1,
-      translatedText: "Line 2",
+      outputText: "Line 2",
     });
 
-    const thirdTask = await project.getNextTask();
-    expect(thirdTask?.chapterId).toBe(2);
-    const precedingFromThirdTask =
-      thirdTask?.contextView.getContext("precedingTranslation");
-    expect(precedingFromThirdTask?.type).toBe("precedingTranslation");
-    if (precedingFromThirdTask?.type === "precedingTranslation") {
-      expect(precedingFromThirdTask.pairs).toHaveLength(2);
-    }
-
-    const progress = project.getProgress();
-    expect(progress.totalChapters).toBe(2);
-    expect(progress.totalFragments).toBe(3);
-    expect(progress.translatedFragments).toBe(2);
-    expect(progress.translatedChapters).toBe(1);
-    expect(progress.fragmentProgressRatio).toBeCloseTo(2 / 3);
-  });
-
-  test("traverses chapters and preceding context in configured linear order", async () => {
-    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-linear-"));
-    cleanupTargets.push(workspaceDir);
-
-    const sourceDir = join(workspaceDir, "sources");
-    await mkdir(sourceDir, { recursive: true });
-    await writeFile(join(sourceDir, "chapter-a.txt"), "第一章第一句\n", "utf8");
-    await writeFile(join(sourceDir, "chapter-b.txt"), "第二章第一句\n", "utf8");
-
-    const project = new TranslationProject({
-      projectName: "linear",
-      projectDir: workspaceDir,
-      chapters: [
-        { id: 20, filePath: "sources\\chapter-b.txt" },
-        { id: 10, filePath: "sources\\chapter-a.txt" },
-      ],
-      context: {
-        includeEarlierFragments: 1,
-      },
-    }, {
-      textSplitter: {
-        split(units) {
-          return units.map((unit) => [unit]);
-        },
-      },
-    });
-    await project.initialize();
-
-    const firstTask = await project.getNextTask();
-    expect(firstTask?.chapterId).toBe(20);
-
-    await project.submitResult({
-      chapterId: 20,
-      fragmentIndex: 0,
-      translatedText: "Chapter B Line 1",
-    });
-
-    const secondTask = await project.getNextTask();
-    expect(secondTask?.chapterId).toBe(10);
-    expect(secondTask?.contextView.getContexts().map((context) => context.type)).toEqual([
-      "precedingTranslation",
-    ]);
-
-    const precedingContext = secondTask?.contextView.getContext("precedingTranslation");
-    expect(precedingContext?.type).toBe("precedingTranslation");
-    if (precedingContext?.type === "precedingTranslation") {
-      expect(precedingContext.pairs).toHaveLength(1);
-      expect(precedingContext.pairs[0]?.chapterId).toBe(20);
-      expect(precedingContext.pairs[0]?.translatedText).toBe("Chapter B Line 1");
+    const thirdBatch = await translationQueue.dispatchReadyItems();
+    const thirdContext = thirdBatch[0]?.contextView?.getContext("dependencyTranslation");
+    expect(thirdContext?.type).toBe("dependencyTranslation");
+    if (thirdContext?.type === "dependencyTranslation") {
+      expect(thirdContext.pairs).toHaveLength(2);
+      expect(thirdContext.pairs[0]?.translatedText).toBe("Line 2");
+      expect(thirdContext.pairs[1]?.translatedText).toBe("Line 1");
     }
   });
 
-  test("scans source-only global patterns and merges them into glossary", async () => {
-    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-patterns-"));
+  test("dispatches glossary-satisfied translation items concurrently", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-glossary-deps-"));
     cleanupTargets.push(workspaceDir);
 
     const sourceDir = join(workspaceDir, "sources");
@@ -159,24 +90,25 @@ describe("TranslationProject", () => {
     await writeFile(
       join(sourceDir, "chapter-1.txt"),
       [
-        "王都中央广场入口今天开放",
-        "王都中央广场入口正在排队",
-        "王都中央广场入口夜间关闭",
+        "王都公告正式发布",
+        "王都教会钟声回荡",
+        "没有词汇表支持的等待片段",
+        "王都广场开始集合",
       ].join("\n"),
       "utf8",
     );
 
     const glossary = new Glossary([
       {
-        term: "王都中央广场入口",
-        translation: "Royal Plaza Gate",
-        status: "translated",
+        term: "王都",
+        translation: "",
+        status: "untranslated",
       },
     ]);
 
     const project = new TranslationProject(
       {
-        projectName: "patterns",
+        projectName: "glossary-deps",
         projectDir: workspaceDir,
         chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
       },
@@ -191,24 +123,153 @@ describe("TranslationProject", () => {
     );
     await project.initialize();
 
-    await project.submitResult({
+    const translationQueue = project.getWorkQueue("translation");
+    const firstBatch = await translationQueue.dispatchReadyItems();
+    expect(firstBatch.map((item) => item.fragmentIndex)).toEqual([0]);
+
+    await project.submitWorkResult({
+      stepId: "translation",
       chapterId: 1,
       fragmentIndex: 0,
-      translatedText: "This translation should not affect source scanning.",
+      outputText: "Royal capital bulletin",
     });
 
-    const result = project.scanGlobalAssociationPatterns();
+    const secondBatch = await translationQueue.dispatchReadyItems();
+    expect(secondBatch.map((item) => item.fragmentIndex)).toEqual([1]);
 
-    expect(result.patterns[0]).toMatchObject({
-      text: "王都中央广场入口",
-      occurrenceCount: 3,
+    await project.submitWorkResult({
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 1,
+      outputText: "Church bells of the royal capital",
     });
-    expect(project.getGlossary()?.getTerm("王都中央广场入口")).toMatchObject({
-      translation: "Royal Plaza Gate",
+
+    glossary.updateTerm("王都", {
+      term: "王都",
+      translation: "Royal Capital",
       status: "translated",
       totalOccurrenceCount: 3,
       textBlockOccurrenceCount: 3,
     });
-    expect(project.getGlossary()?.getTerm("This translation should not affect source scanning.")).toBeUndefined();
+
+    const thirdBatch = await translationQueue.dispatchReadyItems();
+    expect(thirdBatch.map((item) => [item.fragmentIndex, item.metadata.dependencyMode])).toEqual([
+      [2, "previousTranslations"],
+      [3, "glossaryTerms"],
+    ]);
+
+    const glossaryItem = thirdBatch.find((item) => item.fragmentIndex === 3);
+    const glossaryContext = glossaryItem?.contextView?.getContext("dependencyTranslation");
+    expect(glossaryContext?.type).toBe("dependencyTranslation");
+    if (glossaryContext?.type === "dependencyTranslation") {
+      expect(glossaryContext.pairs).toHaveLength(2);
+      expect(glossaryContext.pairs[0]?.sourceText).toBe("王都教会钟声回荡");
+      expect(glossaryContext.pairs[1]?.sourceText).toBe("王都公告正式发布");
+    }
+  });
+
+  test("allows different fragments to run at different pipeline steps asynchronously", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-pipeline-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n第二句\n", "utf8");
+
+    const pipeline: TranslationPipelineDefinition = {
+      steps: [
+        {
+          id: "draft",
+          description: "草稿",
+          buildInput: ({ chapterId, fragmentIndex, runtime }) =>
+            runtime.getSourceText(chapterId, fragmentIndex),
+        },
+        {
+          id: "polish",
+          description: "润色",
+          buildInput: ({ previousStepOutput }) => previousStepOutput?.lines.join("\n") ?? "",
+        },
+      ],
+      finalStepId: "polish",
+    };
+
+    const project = new TranslationProject(
+      {
+        projectName: "pipeline",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        pipeline,
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    const draftQueue = project.getWorkQueue("draft");
+    const draftBatch = await draftQueue.dispatchReadyItems();
+    expect(draftBatch.map((item) => item.fragmentIndex)).toEqual([0, 1]);
+
+    await project.submitWorkResult({
+      stepId: "draft",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Draft 1",
+    });
+
+    const polishQueue = project.getWorkQueue("polish");
+    const polishBatch = await polishQueue.dispatchReadyItems();
+    expect(polishBatch.map((item) => item.fragmentIndex)).toEqual([0]);
+    expect(project.getDocumentManager().getPipelineStepState(1, 1, "draft")?.status).toBe("running");
+  });
+
+  test("requeues failed work items inside the same step queue", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-work-queue-status-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "status",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    const translationQueue = project.getWorkQueue("translation");
+    const firstBatch = await translationQueue.dispatchReadyItems();
+    expect(firstBatch).toHaveLength(1);
+    expect(project.getDocumentManager().getPipelineStepState(1, 0, "translation")?.status).toBe(
+      "running",
+    );
+
+    await project.submitWorkResult({
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      success: false,
+      errorMessage: "mock failure",
+    });
+
+    expect(project.getDocumentManager().getPipelineStepState(1, 0, "translation")?.status).toBe(
+      "queued",
+    );
+    const secondBatch = await translationQueue.dispatchReadyItems();
+    expect(secondBatch).toHaveLength(1);
   });
 });

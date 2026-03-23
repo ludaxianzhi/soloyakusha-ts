@@ -4,8 +4,9 @@
  * 本模块提供翻译项目的完整生命周期管理，包括：
  * - 项目初始化与配置解析
  * - 章节加载与文本切分
- * - 翻译任务遍历与分发
- * - 上下文视图构建（术语表、前序翻译参考）
+ * - 基于 Pipeline 的并发任务分发
+ * - 上下文视图构建（术语表、依赖链翻译参考）
+ * - 步骤工作队列
  * - 翻译结果提交与持久化
  * - 进度统计与保存点
  *
@@ -22,6 +23,7 @@
 
 export * from "./context-view.ts";
 export * from "./global-pattern-scanner.ts";
+export * from "./pipeline.ts";
 export * from "./translation-document-manager.ts";
 export * from "./translation-project.ts";
 export * from "./types.ts";
