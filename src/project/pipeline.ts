@@ -84,6 +84,7 @@ export type TranslationStepQueueEntry = {
 };
 
 export type TranslationWorkItem = TranslationStepQueueEntry & {
+  runId: string;
   inputText: string;
   contextView?: TranslationContextView;
   requirements: string[];
@@ -91,6 +92,7 @@ export type TranslationWorkItem = TranslationStepQueueEntry & {
 };
 
 export type TranslationWorkResult = {
+  runId: string;
   stepId: string;
   chapterId: number;
   fragmentIndex: number;

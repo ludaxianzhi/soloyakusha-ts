@@ -28,6 +28,7 @@ import type {
   FragmentEntry,
   FragmentPipelineStepState,
   TextFragment,
+  TranslationProjectState,
   TranslationUnit,
   TranslationUnitParser,
   TranslationUnitSplitter,
@@ -198,6 +199,7 @@ type NormalizedSplitFragment = {
 export class TranslationDocumentManager {
   readonly projectDir: string;
   readonly dataDir: string;
+  readonly projectStatePath: string;
   private readonly textSplitter: TranslationUnitSplitter;
   private readonly parseUnits: TranslationUnitParser;
   private readonly chapters = new Map<number, ChapterEntry>();
@@ -213,9 +215,9 @@ export class TranslationDocumentManager {
     } = {},
   ) {
     this.projectDir = resolve(projectDir);
-    this.dataDir = resolve(
-      options.chapterDataDir ?? join(this.projectDir, "Data", "Chapters"),
-    );
+    const dataRootDir = resolve(this.projectDir, "Data");
+    this.dataDir = resolve(options.chapterDataDir ?? join(dataRootDir, "Chapters"));
+    this.projectStatePath = resolve(join(dataRootDir, "project-state.json"));
     this.textSplitter = options.textSplitter ?? new DefaultTextSplitter();
     this.parseUnits = options.parseUnits ?? defaultUnitParser;
     this.fileHandlerResolver = options.fileHandlerResolver;
@@ -244,6 +246,23 @@ export class TranslationDocumentManager {
     await Promise.all(
       this.getAllChapters().map((chapter) => this.saveChapterToDisk(chapter)),
     );
+  }
+
+  async loadProjectState(): Promise<TranslationProjectState | undefined> {
+    try {
+      const content = await readFile(this.projectStatePath, "utf8");
+      return normalizePersistedProjectState(JSON.parse(content) as TranslationProjectState);
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  async saveProjectState(state: TranslationProjectState): Promise<void> {
+    await mkdir(dirname(this.projectStatePath), { recursive: true });
+    await writeFile(this.projectStatePath, JSON.stringify(state, null, 2), "utf8");
   }
 
   async updateTranslation(
@@ -515,7 +534,12 @@ function normalizePersistedChapter(chapter: ChapterEntry): ChapterEntry {
       return {
         source: fragment.source,
         translation: fragment.translation,
-        pipelineStates: fragment.pipelineStates ?? {},
+        pipelineStates: Object.fromEntries(
+          Object.entries(fragment.pipelineStates ?? {}).map(([stepId, state]) => [
+            stepId,
+            normalizePersistedPipelineStepState(state),
+          ]),
+        ),
         meta: {
           metadataList: fragment.meta?.metadataList ?? [],
           targetGroups: (fragment.meta?.targetGroups ?? []).map((group) => [...group]),
@@ -526,6 +550,37 @@ function normalizePersistedChapter(chapter: ChapterEntry): ChapterEntry {
         hash: fragment.hash,
       };
     }),
+  };
+}
+
+function normalizePersistedPipelineStepState(
+  state: FragmentPipelineStepState,
+): FragmentPipelineStepState {
+  return {
+    ...state,
+    attemptCount: typeof state.attemptCount === "number" ? state.attemptCount : 0,
+  };
+}
+
+function normalizePersistedProjectState(
+  state: TranslationProjectState,
+): TranslationProjectState {
+  return {
+    schemaVersion: 1,
+    pipeline: {
+      stepIds: [...(state.pipeline?.stepIds ?? [])],
+      finalStepId: state.pipeline?.finalStepId ?? "",
+    },
+    lifecycle: {
+      status: state.lifecycle?.status ?? "idle",
+      currentRunId: state.lifecycle?.currentRunId,
+      startedAt: state.lifecycle?.startedAt,
+      stopRequestedAt: state.lifecycle?.stopRequestedAt,
+      stoppedAt: state.lifecycle?.stoppedAt,
+      completedAt: state.lifecycle?.completedAt,
+      interruptedAt: state.lifecycle?.interruptedAt,
+      updatedAt: state.lifecycle?.updatedAt,
+    },
   };
 }
 

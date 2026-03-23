@@ -41,6 +41,7 @@ describe("TranslationProject", () => {
       },
     );
     await project.initialize();
+    await project.startTranslation();
 
     const translationQueue = project.getWorkQueue("translation");
     const firstBatch = await translationQueue.dispatchReadyItems();
@@ -49,6 +50,7 @@ describe("TranslationProject", () => {
     expect(firstBatch[0]?.contextView?.getContexts()).toEqual([]);
 
     await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
       stepId: "translation",
       chapterId: 1,
       fragmentIndex: 0,
@@ -65,6 +67,7 @@ describe("TranslationProject", () => {
     }
 
     await project.submitWorkResult({
+      runId: secondBatch[0]!.runId,
       stepId: "translation",
       chapterId: 1,
       fragmentIndex: 1,
@@ -122,12 +125,14 @@ describe("TranslationProject", () => {
       },
     );
     await project.initialize();
+    await project.startTranslation();
 
     const translationQueue = project.getWorkQueue("translation");
     const firstBatch = await translationQueue.dispatchReadyItems();
     expect(firstBatch.map((item) => item.fragmentIndex)).toEqual([0]);
 
     await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
       stepId: "translation",
       chapterId: 1,
       fragmentIndex: 0,
@@ -138,6 +143,7 @@ describe("TranslationProject", () => {
     expect(secondBatch.map((item) => item.fragmentIndex)).toEqual([1]);
 
     await project.submitWorkResult({
+      runId: secondBatch[0]!.runId,
       stepId: "translation",
       chapterId: 1,
       fragmentIndex: 1,
@@ -209,12 +215,14 @@ describe("TranslationProject", () => {
       },
     );
     await project.initialize();
+    await project.startTranslation();
 
     const draftQueue = project.getWorkQueue("draft");
     const draftBatch = await draftQueue.dispatchReadyItems();
     expect(draftBatch.map((item) => item.fragmentIndex)).toEqual([0, 1]);
 
     await project.submitWorkResult({
+      runId: draftBatch[0]!.runId,
       stepId: "draft",
       chapterId: 1,
       fragmentIndex: 0,
@@ -250,6 +258,7 @@ describe("TranslationProject", () => {
       },
     );
     await project.initialize();
+    await project.startTranslation();
 
     const translationQueue = project.getWorkQueue("translation");
     const firstBatch = await translationQueue.dispatchReadyItems();
@@ -259,6 +268,7 @@ describe("TranslationProject", () => {
     );
 
     await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
       stepId: "translation",
       chapterId: 1,
       fragmentIndex: 0,
@@ -299,6 +309,8 @@ describe("TranslationProject", () => {
 
     const initialSnapshot = project.getProjectSnapshot();
     expect(initialSnapshot.projectName).toBe("info");
+    expect(initialSnapshot.lifecycle.status).toBe("idle");
+    expect(initialSnapshot.lifecycle.canStart).toBe(true);
     expect(initialSnapshot.pipeline.stepCount).toBe(1);
     expect(initialSnapshot.queueSnapshots[0]?.progress.readyFragments).toBe(1);
     expect(initialSnapshot.queueSnapshots[0]?.progress.waitingFragments).toBe(1);
@@ -307,13 +319,15 @@ describe("TranslationProject", () => {
       "waiting_for_previous_fragments",
     );
 
-    await project.getWorkQueue("translation").dispatchReadyItems();
+    await project.startTranslation();
+    const runningBatch = await project.getWorkQueue("translation").dispatchReadyItems();
 
     const runningItems = project.getActiveWorkItems();
     expect(runningItems).toHaveLength(1);
     expect(runningItems[0]?.status).toBe("running");
 
     await project.submitWorkResult({
+      runId: runningBatch[0]!.runId,
       stepId: "translation",
       chapterId: 1,
       fragmentIndex: 0,
@@ -323,5 +337,158 @@ describe("TranslationProject", () => {
     const readyItems = project.getReadyWorkItemSnapshots();
     expect(readyItems).toHaveLength(1);
     expect(readyItems[0]?.fragmentIndex).toBe(1);
+  });
+
+  test("resumes from persisted intermediate pipeline steps after interruption", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-resume-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n第二句\n", "utf8");
+
+    const pipeline: TranslationPipelineDefinition = {
+      steps: [
+        {
+          id: "draft",
+          description: "草稿",
+          buildInput: ({ chapterId, fragmentIndex, runtime }) =>
+            runtime.getSourceText(chapterId, fragmentIndex),
+        },
+        {
+          id: "polish",
+          description: "润色",
+          buildInput: ({ previousStepOutput }) => previousStepOutput?.lines.join("\n") ?? "",
+        },
+      ],
+      finalStepId: "polish",
+    };
+
+    const firstProject = new TranslationProject(
+      {
+        projectName: "resume",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        pipeline,
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await firstProject.initialize();
+    await firstProject.startTranslation();
+
+    const draftBatch = await firstProject.getWorkQueue("draft").dispatchReadyItems();
+    expect(draftBatch.map((item) => item.fragmentIndex)).toEqual([0, 1]);
+
+    await firstProject.submitWorkResult({
+      runId: draftBatch[0]!.runId,
+      stepId: "draft",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Draft 1",
+    });
+
+    const resumedProject = new TranslationProject(
+      {
+        projectName: "resume",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        pipeline,
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await resumedProject.initialize();
+
+    const lifecycleAfterReload = resumedProject.getLifecycleSnapshot();
+    expect(lifecycleAfterReload.status).toBe("interrupted");
+    expect(resumedProject.getDocumentManager().getPipelineStepState(1, 1, "draft")?.status).toBe(
+      "queued",
+    );
+    expect(resumedProject.getDocumentManager().getPipelineStepState(1, 0, "polish")?.status).toBe(
+      "queued",
+    );
+
+    await resumedProject.startTranslation();
+    const resumedDraftBatch = await resumedProject.getWorkQueue("draft").dispatchReadyItems();
+    const resumedPolishBatch = await resumedProject.getWorkQueue("polish").dispatchReadyItems();
+    expect(resumedDraftBatch.map((item) => item.fragmentIndex)).toEqual([1]);
+    expect(resumedPolishBatch.map((item) => item.fragmentIndex)).toEqual([0]);
+  });
+
+  test("manages translation start and stop lifecycle explicitly", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-lifecycle-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n第二句\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "lifecycle",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    await expect(project.getWorkQueue("translation").dispatchReadyItems()).rejects.toThrow();
+
+    const started = await project.startTranslation();
+    expect(started.status).toBe("running");
+
+    const firstBatch = await project.getWorkQueue("translation").dispatchReadyItems();
+    expect(firstBatch).toHaveLength(1);
+
+    const stopping = await project.stopTranslation();
+    expect(stopping.status).toBe("stopping");
+    await expect(project.getWorkQueue("translation").dispatchReadyItems()).rejects.toThrow();
+
+    await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Line 1",
+    });
+    expect(project.getLifecycleSnapshot().status).toBe("stopped");
+
+    await project.startTranslation();
+    const secondBatch = await project.getWorkQueue("translation").dispatchReadyItems();
+    expect(secondBatch).toHaveLength(1);
+
+    const stopped = await project.stopTranslation({ mode: "immediate" });
+    expect(stopped.status).toBe("stopped");
+    expect(project.getDocumentManager().getPipelineStepState(1, 1, "translation")?.status).toBe(
+      "queued",
+    );
+
+    await expect(
+      project.submitWorkResult({
+        runId: secondBatch[0]!.runId,
+        stepId: "translation",
+        chapterId: 1,
+        fragmentIndex: 1,
+        outputText: "Line 2",
+      }),
+    ).rejects.toThrow("当前项目不接受翻译结果");
   });
 });

@@ -140,6 +140,7 @@ describe("glossary", () => {
     );
 
     await project.initialize();
+    await project.startTranslation();
     const tasks = await project.getWorkQueue("translation").dispatchReadyItems();
     const glossaryContext = tasks[0]?.contextView?.getContext("glossary");
 

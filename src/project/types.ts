@@ -40,10 +40,24 @@ export type FragmentMeta = {
 };
 
 export type PipelineStepStatus = "queued" | "running" | "completed";
+export type TranslationRunStatus =
+  | "idle"
+  | "running"
+  | "stopping"
+  | "stopped"
+  | "completed"
+  | "interrupted";
+export type TranslationStopMode = "graceful" | "immediate";
 
 export type FragmentPipelineStepState = {
   status: PipelineStepStatus;
   queueSequence: number;
+  attemptCount: number;
+  queuedAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  updatedAt?: string;
+  lastRunId?: string;
   output?: TextFragment;
   errorMessage?: string;
 };
@@ -119,12 +133,46 @@ export type ProjectCursor = {
   fragmentIndex?: number;
 };
 
+export type TranslationProjectLifecycleState = {
+  status: TranslationRunStatus;
+  currentRunId?: string;
+  startedAt?: string;
+  stopRequestedAt?: string;
+  stoppedAt?: string;
+  completedAt?: string;
+  interruptedAt?: string;
+  updatedAt?: string;
+};
+
+export type TranslationProjectState = {
+  schemaVersion: 1;
+  pipeline: {
+    stepIds: string[];
+    finalStepId: string;
+  };
+  lifecycle: TranslationProjectLifecycleState;
+};
+
+export type TranslationProjectLifecycleSnapshot = TranslationProjectLifecycleState & {
+  hasPendingWork: boolean;
+  queuedWorkItems: number;
+  activeWorkItems: number;
+  canStart: boolean;
+  canStop: boolean;
+};
+
 export type TranslationStepQueueEntrySnapshot = {
   stepId: string;
   chapterId: number;
   fragmentIndex: number;
   queueSequence: number;
   status: PipelineStepStatus;
+  attemptCount: number;
+  queuedAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  updatedAt?: string;
+  runId?: string;
   sourceText: string;
   translatedText: string;
   inputText: string;
@@ -177,6 +225,7 @@ export type ProjectProgressSnapshot = {
 export type TranslationProjectSnapshot = {
   projectName: string;
   currentCursor: ProjectCursor;
+  lifecycle: TranslationProjectLifecycleSnapshot;
   progress: ProjectProgressSnapshot;
   glossary?: GlossaryProgressSnapshot;
   pipeline: {

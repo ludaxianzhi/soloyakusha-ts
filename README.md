@@ -14,6 +14,7 @@
 - `TranslationDocumentManager`：章节/片段持久化、全文管理、翻译进度更新
 - `TranslationProject`：面向任务的项目骨架，负责按 Pipeline / Work Queue 并发分发任务、统计进度、动态收集 glossary 和依赖译文上下文
 - `TranslationPipeline` / `TranslationStepWorkQueue`：步骤定义与步骤级调度队列
+- `startTranslation()` / `stopTranslation()`：翻译开始、停止与断点续跑生命周期控制
 - `GlobalAssociationPatternScanner`：原文全文重复模式扫描（默认至少出现 3 次且长度至少 8）
 - `getProjectSnapshot()` / `getQueueSnapshot()`：项目状态、队列状态与当前工作项快照
 
@@ -106,6 +107,7 @@ const project = new TranslationProject({
 });
 
 await project.initialize();
+await project.startTranslation();
 
 const translationQueue = project.getWorkQueue("translation");
 const workItems = await translationQueue.dispatchReadyItems();
@@ -116,6 +118,7 @@ console.log(workItems.map((item) => ({
 })));
 
 await project.submitWorkResult({
+  runId: workItems[0]!.runId,
   stepId: "translation",
   chapterId: workItems[0]!.chapterId,
   fragmentIndex: workItems[0]!.fragmentIndex,
@@ -155,11 +158,13 @@ const project = new TranslationProject({
 });
 
 await project.initialize();
+await project.startTranslation();
 
 const draftQueue = project.getWorkQueue("draft");
 const draftItems = await draftQueue.dispatchReadyItems();
 
 await project.submitWorkResult({
+  runId: draftItems[0]!.runId,
   stepId: "draft",
   chapterId: draftItems[0]!.chapterId,
   fragmentIndex: draftItems[0]!.fragmentIndex,
@@ -184,6 +189,7 @@ const project = new TranslationProject({
 
 await project.initialize();
 
+console.log(project.getLifecycleSnapshot());
 console.log(project.getProjectSnapshot());
 console.log(project.getQueueSnapshot("translation"));
 console.log(project.getReadyWorkItemSnapshots());
