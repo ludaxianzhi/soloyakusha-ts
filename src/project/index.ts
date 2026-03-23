@@ -15,11 +15,13 @@
  * - {@link TranslationContextView}: 上下文视图，聚合当前片段的翻译参考
  * - {@link DefaultTextSplitter}: 默认文本切分器，按字符上限划分片段
  * - {@link SlidingWindowTextSplitter}: 滑动窗口切分器，生成带重叠的翻译窗口
+ * - {@link GlobalAssociationPatternScanner}: 全局关联模式扫描器
  *
  * @module project
  */
 
 export * from "./context-view.ts";
+export * from "./global-pattern-scanner.ts";
 export * from "./translation-document-manager.ts";
 export * from "./translation-project.ts";
 export * from "./types.ts";

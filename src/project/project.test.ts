@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Glossary } from "../glossary/glossary.ts";
 import { TranslationProject } from "./translation-project.ts";
 
 const cleanupTargets: string[] = [];
@@ -147,5 +148,67 @@ describe("TranslationProject", () => {
       expect(precedingContext.pairs[0]?.chapterId).toBe(20);
       expect(precedingContext.pairs[0]?.translatedText).toBe("Chapter B Line 1");
     }
+  });
+
+  test("scans source-only global patterns and merges them into glossary", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-patterns-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(
+      join(sourceDir, "chapter-1.txt"),
+      [
+        "王都中央广场入口今天开放",
+        "王都中央广场入口正在排队",
+        "王都中央广场入口夜间关闭",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const glossary = new Glossary([
+      {
+        term: "王都中央广场入口",
+        translation: "Royal Plaza Gate",
+        status: "translated",
+      },
+    ]);
+
+    const project = new TranslationProject(
+      {
+        projectName: "patterns",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        glossary,
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    await project.submitResult({
+      chapterId: 1,
+      fragmentIndex: 0,
+      translatedText: "This translation should not affect source scanning.",
+    });
+
+    const result = project.scanGlobalAssociationPatterns();
+
+    expect(result.patterns[0]).toMatchObject({
+      text: "王都中央广场入口",
+      occurrenceCount: 3,
+    });
+    expect(project.getGlossary()?.getTerm("王都中央广场入口")).toMatchObject({
+      translation: "Royal Plaza Gate",
+      status: "translated",
+      totalOccurrenceCount: 3,
+      textBlockOccurrenceCount: 3,
+    });
+    expect(project.getGlossary()?.getTerm("This translation should not affect source scanning.")).toBeUndefined();
   });
 });

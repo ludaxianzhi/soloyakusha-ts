@@ -20,6 +20,12 @@ import type { TranslationFileHandlerResolver } from "../file-handlers/base.ts";
 import { Glossary, GlossaryPersisterFactory } from "../glossary/index.ts";
 import { resolve } from "node:path";
 import { TranslationContextView } from "./context-view.ts";
+import type {
+  GlobalAssociationPattern,
+  GlobalAssociationPatternScanOptions,
+  GlobalAssociationPatternScanResult,
+} from "./global-pattern-scanner.ts";
+import { GlobalAssociationPatternScanner } from "./global-pattern-scanner.ts";
 import { TranslationDocumentManager } from "./translation-document-manager.ts";
 import type {
   Chapter,
@@ -231,6 +237,28 @@ export class TranslationProject {
     );
   }
 
+  scanGlobalAssociationPatterns(
+    options: GlobalAssociationPatternScanOptions = {},
+  ): GlobalAssociationPatternScanResult {
+    this.ensureInitialized();
+
+    const scanner = new GlobalAssociationPatternScanner();
+    const sourceText = this.getTraversalChapters()
+      .map((chapter) => this.documentManager.getChapterSourceText(chapter.id))
+      .join("\n");
+    const result = scanner.scanText(sourceText, options);
+
+    this.glossary ??= new Glossary();
+    for (const pattern of result.patterns) {
+      upsertGlobalPatternTerm(this.glossary, pattern);
+    }
+    this.glossary.updateOccurrenceStats(
+      collectSourceTextBlocks(this.documentManager, this.getTraversalChapters()),
+    );
+
+    return result;
+  }
+
   async saveProgress(): Promise<void> {
     this.ensureInitialized();
     await this.documentManager.saveChapters();
@@ -257,4 +285,39 @@ export class TranslationProject {
 
 function resolveChapterPath(projectDir: string, path: string): string {
   return resolve(projectDir, path);
+}
+
+function upsertGlobalPatternTerm(
+  glossary: Glossary,
+  pattern: GlobalAssociationPattern,
+): void {
+  const existing = glossary.getTerm(pattern.text);
+  if (!existing) {
+    glossary.addTerm({
+      term: pattern.text,
+      translation: "",
+      status: "untranslated",
+      totalOccurrenceCount: pattern.occurrenceCount,
+      description: "全局关联模式",
+    });
+    return;
+  }
+
+  glossary.updateTerm(pattern.text, {
+    ...existing,
+    description: existing.description ?? "全局关联模式",
+    totalOccurrenceCount: pattern.occurrenceCount,
+  });
+}
+
+function collectSourceTextBlocks(
+  documentManager: TranslationDocumentManager,
+  chapters: Chapter[],
+): Array<{ blockId: string; text: string }> {
+  return chapters.flatMap((chapter) =>
+    (documentManager.getChapterById(chapter.id)?.fragments ?? []).map((fragment, fragmentIndex) => ({
+      blockId: `chapter:${chapter.id}:fragment:${fragmentIndex}`,
+      text: fragment.source.lines.join("\n"),
+    })),
+  );
 }

@@ -13,6 +13,7 @@
 
 - `TranslationDocumentManager`：章节/片段持久化、全文管理、翻译进度更新
 - `TranslationProject`：面向任务的项目骨架，负责按线性章节顺序遍历任务、统计进度、动态收集 glossary 和前序译文上下文
+- `GlobalAssociationPatternScanner`：原文全文重复模式扫描（默认至少出现 3 次且长度至少 8）
 
 另外已迁移文件解析模块：
 
@@ -185,6 +186,30 @@ await GlossaryPersisterFactory.getPersister("glossary.yaml").saveGlossary(
   result.glossary,
   "glossary.yaml",
 );
+```
+
+## 全局关联模式扫描示例
+
+```ts
+import {
+  TranslationProject,
+} from "./index.ts";
+
+const project = new TranslationProject({
+  projectName: "demo",
+  projectDir: "./workspace",
+  chapters: [{ id: 1, filePath: "sources\\scene.txt" }],
+});
+
+await project.initialize();
+
+const result = project.scanGlobalAssociationPatterns({
+  minOccurrences: 3,
+  minLength: 8,
+});
+
+console.log(result.patterns);
+console.log(project.getGlossary()?.getAllTerms());
 ```
 
 当前项目层的上下文策略是完全线性的：只会按照 `chapters` 中给定的顺序回看已完成翻译的前序片段，不再使用章节拓扑和预构建语义索引。
