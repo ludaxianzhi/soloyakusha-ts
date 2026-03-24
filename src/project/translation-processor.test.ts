@@ -7,9 +7,9 @@ import { ChatClient } from "../llm/base.ts";
 import { LlmClientProvider } from "../llm/provider.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "../llm/types.ts";
 import { TranslationGlobalConfig } from "./config.ts";
+import { DefaultTranslationProcessor } from "./default-translation-processor.ts";
 import { DefaultTextSplitter } from "./translation-document-manager.ts";
 import type { Logger, LoggerMetadata } from "./logger.ts";
-import { TranslationProcessor } from "./translation-processor.ts";
 import { TranslationProject } from "./translation-project.ts";
 
 const cleanupTargets: string[] = [];
@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 describe("TranslationProcessor", () => {
-  test("renders prompt from context-view and updates glossary in the same step", async () => {
+  test("renders translation and glossary update prompts with separate LLM requests", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-translation-processor-"));
     cleanupTargets.push(workspaceDir);
 
@@ -85,10 +85,12 @@ describe("TranslationProcessor", () => {
     const client = new FakeChatClient([
       JSON.stringify({
         translations: [{ id: "1", translation: "Hero gazed at the Royal Capital" }],
+      }),
+      JSON.stringify({
         glossaryUpdates: [{ term: "王都", translation: "Royal Capital" }],
       }),
     ]);
-    const processor = new TranslationProcessor(client);
+    const processor = new DefaultTranslationProcessor(client);
 
     const result = await processor.processWorkItem(secondItem, { glossary });
 
@@ -104,7 +106,7 @@ describe("TranslationProcessor", () => {
     expect(client.requests[0]?.prompt).toContain("Previous translated line");
     expect(client.requests[0]?.prompt).not.toContain("前文原文标记");
     expect(client.requests[0]?.prompt).toContain("Hero");
-    expect(client.requests[0]?.prompt).toContain("term: 王都");
+    expect(client.requests[0]?.prompt).not.toContain("term: 王都");
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("JSON Schema");
     expect(client.requests[0]?.options?.requestConfig?.extraBody).toEqual({
       response_format: {
@@ -115,6 +117,33 @@ describe("TranslationProcessor", () => {
           schema: result.responseSchema,
         },
       },
+    });
+    expect(client.requests[1]?.prompt).toContain("term: 王都");
+    expect(client.requests[1]?.prompt).toContain("translatedText: Hero gazed at the Royal Capital");
+    expect(result.glossaryUpdateResult?.responseSchema).toEqual({
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        glossaryUpdates: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              term: {
+                type: "string",
+                enum: ["王都"],
+              },
+              translation: {
+                type: "string",
+                minLength: 1,
+              },
+            },
+            required: ["term", "translation"],
+          },
+        },
+      },
+      required: ["glossaryUpdates"],
     });
 
     await project.submitWorkResult({
@@ -170,12 +199,11 @@ describe("TranslationProcessor", () => {
           { id: "2", translation: "B1" },
           { id: "3", translation: "C_ctx" },
         ],
-        glossaryUpdates: [],
       }),
     ]);
     const provider = new FakeLlmClientProvider({ "window-model": client });
     const logger = new MemoryLogger();
-    const processor = new TranslationProcessor(
+    const processor = new DefaultTranslationProcessor(
       {
         provider,
         modelName: "window-model",
@@ -189,7 +217,7 @@ describe("TranslationProcessor", () => {
           },
         },
         logger,
-        translatorName: "window-translator",
+        processorName: "window-translator",
       },
     );
 
@@ -208,7 +236,7 @@ describe("TranslationProcessor", () => {
     expect(logger.entries.some((entry) => entry.message === "翻译处理完成")).toBe(true);
   });
 
-  test("loads named translators from global config and merges request parameters", async () => {
+  test("creates processor from global config and merges processor/updater request parameters", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-"));
     cleanupTargets.push(workspaceDir);
 
@@ -216,7 +244,6 @@ describe("TranslationProcessor", () => {
     await writeFile(
       configPath,
       [
-        "defaultTranslator: novel",
         "llm:",
         "  shared-chat:",
         '    provider: "openai"',
@@ -224,39 +251,57 @@ describe("TranslationProcessor", () => {
         '    modelName: "gpt-4.1"',
         '    endpoint: "https://example.com/v1"',
         '    apiKey: "test-key"',
-        "translators:",
-        "  novel:",
-        '    modelName: "shared-chat"',
-        "    slidingWindow:",
-        "      overlapChars: 8",
-        "    requestOptions:",
-        "      requestConfig:",
-        "        temperature: 0.1",
-        "        maxTokens: 222",
+        "  glossary-chat:",
+        '    provider: "openai"',
+        '    modelType: "chat"',
+        '    modelName: "gpt-4.1-mini"',
+        '    endpoint: "https://example.com/v1"',
+        '    apiKey: "test-key"',
+        "translationProcessor:",
+        '  modelName: "shared-chat"',
+        "  slidingWindow:",
+        "    overlapChars: 8",
+        "  requestOptions:",
+        "    requestConfig:",
+        "      temperature: 0.1",
+        "      maxTokens: 222",
+        "glossaryUpdater:",
+        '  modelName: "glossary-chat"',
+        "  requestOptions:",
+        "    requestConfig:",
+        "      topP: 0.4",
       ].join("\n"),
       "utf8",
     );
 
     const config = await TranslationGlobalConfig.loadFromFile(configPath);
-    expect(config.getTranslatorConfig().modelName).toBe("shared-chat");
+    expect(config.getTranslationProcessorConfig().modelName).toBe("shared-chat");
     const providerFromConfig = config.createProvider();
     expect(providerFromConfig).toBeInstanceOf(LlmClientProvider);
 
-    const client = new FakeChatClient([
+    const translationClient = new FakeChatClient([
       JSON.stringify({
         translations: [{ id: "1", translation: "Line 1" }],
-        glossaryUpdates: [],
       }),
     ]);
-    const fakeProvider = new FakeLlmClientProvider({ "shared-chat": client });
+    const glossaryClient = new FakeChatClient([
+      JSON.stringify({
+        glossaryUpdates: [{ term: "第一行", translation: "Line 1" }],
+      }),
+    ]);
+    const fakeProvider = new FakeLlmClientProvider({
+      "shared-chat": translationClient,
+      "glossary-chat": glossaryClient,
+    });
     const logger = new MemoryLogger();
-    const registry = config.createTranslatorRegistry({
+    const translator = config.createTranslationProcessor({
       provider: fakeProvider,
       logger,
     });
-    const translator = registry.getTranslator("novel");
+    const glossary = new Glossary([{ term: "第一行", translation: "", status: "untranslated" }]);
     const result = await translator.process({
       sourceText: "第一行",
+      glossary,
       requestOptions: {
         requestConfig: {
           topP: 0.5,
@@ -265,12 +310,17 @@ describe("TranslationProcessor", () => {
     });
 
     expect(result.outputText).toBe("Line 1");
-    expect(client.requests[0]?.options?.requestConfig?.temperature).toBe(0.1);
-    expect(client.requests[0]?.options?.requestConfig?.maxTokens).toBe(222);
-    expect(client.requests[0]?.options?.requestConfig?.topP).toBe(0.5);
-    expect(
-      logger.entries.some((entry) => entry.message === "创建命名翻译器"),
-    ).toBe(true);
+    expect(translationClient.requests[0]?.options?.requestConfig?.temperature).toBe(0.1);
+    expect(translationClient.requests[0]?.options?.requestConfig?.maxTokens).toBe(222);
+    expect(translationClient.requests[0]?.options?.requestConfig?.topP).toBe(0.5);
+    expect(glossaryClient.requests[0]?.options?.requestConfig?.topP).toBe(0.5);
+    expect(glossaryClient.requests[0]?.options?.requestConfig?.temperature).toBe(0.7);
+    expect(glossaryClient.requests[0]?.options?.requestConfig?.maxTokens).toBe(4096);
+    expect(glossaryClient.requests[0]?.options?.requestConfig?.topP).toBe(0.5);
+    expect(glossary.getTerm("第一行")).toMatchObject({
+      translation: "Line 1",
+      status: "translated",
+    });
   });
 });
 

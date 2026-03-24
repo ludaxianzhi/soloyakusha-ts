@@ -24,11 +24,13 @@
 
 export * from "./context-view.ts";
 export * from "./config.ts";
+export * from "./default-translation-processor.ts";
 export * from "./global-pattern-scanner.ts";
 export * from "./logger.ts";
 export * from "./pipeline.ts";
 export * from "./prompt-manager.ts";
 export * from "./translation-document-manager.ts";
 export * from "./translation-processor.ts";
+export * from "./translation-processor-factory.ts";
 export * from "./translation-project.ts";
 export * from "./types.ts";

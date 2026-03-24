@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { FullTextGlossaryScanner } from "./scanner.ts";
 import { Glossary } from "./glossary.ts";
 import { GlossaryPersisterFactory } from "./persister.ts";
+import { DefaultGlossaryUpdater } from "./updater.ts";
 import { ChatClient } from "../llm/base.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "../llm/types.ts";
 import { TranslationDocumentManager } from "../project/translation-document-manager.ts";
@@ -76,6 +77,45 @@ describe("glossary", () => {
       translation: "Royal Capital",
       status: "translated",
     });
+  });
+
+  test("updates glossary translations via dedicated updater request", async () => {
+    const glossary = new Glossary([
+      { term: "勇者", translation: "Hero", status: "translated" },
+      { term: "王都", translation: "", status: "untranslated", description: "城市名" },
+    ]);
+    const client = new FakeChatClient([
+      JSON.stringify({
+        glossaryUpdates: [{ term: "王都", translation: "Royal Capital" }],
+      }),
+    ]);
+    const updater = new DefaultGlossaryUpdater(client);
+
+    const result = await updater.updateGlossary({
+      glossary,
+      untranslatedTerms: glossary.getUntranslatedTermsForText("勇者来到王都"),
+      translationUnits: [
+        {
+          id: "1",
+          sourceText: "勇者来到王都",
+          translatedText: "Hero arrived at the Royal Capital",
+        },
+      ],
+      requirements: ["保持术语一致"],
+    });
+
+    expect(result.updates).toEqual([{ term: "王都", translation: "Royal Capital" }]);
+    expect(result.appliedTerms[0]).toMatchObject({
+      term: "王都",
+      translation: "Royal Capital",
+      status: "translated",
+    });
+    expect(glossary.getTerm("王都")).toMatchObject({
+      translation: "Royal Capital",
+      status: "translated",
+    });
+    expect(client.requests[0]?.prompt).toContain("translatedText: Hero arrived at the Royal Capital");
+    expect(client.requests[0]?.prompt).toContain("term: 王都");
   });
 
   test("persists extended glossary fields as csv", async () => {
