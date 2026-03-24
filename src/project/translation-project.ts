@@ -519,6 +519,7 @@ export class TranslationProject
   async saveProgress(): Promise<void> {
     this.ensureInitialized();
     await this.documentManager.saveChapters();
+    await this.saveGlossaryIfNeeded();
     await this.persistProjectState();
   }
 
@@ -973,6 +974,18 @@ export class TranslationProject
 
   private async persistProjectState(): Promise<void> {
     await this.documentManager.saveProjectState(this.projectState);
+  }
+
+  private async saveGlossaryIfNeeded(): Promise<void> {
+    if (!this.glossary || !this.config.glossary?.path) {
+      return;
+    }
+
+    const glossaryPath = resolveChapterPath(this.projectDir, this.config.glossary.path);
+    await GlossaryPersisterFactory.getPersister(glossaryPath).saveGlossary(
+      this.glossary,
+      glossaryPath,
+    );
   }
 
   private getCurrentRunIdOrThrow(): string {

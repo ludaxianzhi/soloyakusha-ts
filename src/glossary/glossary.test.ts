@@ -56,6 +56,28 @@ describe("glossary", () => {
     });
   });
 
+  test("supports on-demand translated term lookup and incremental updates", () => {
+    const glossary = new Glossary([
+      { term: "勇者", translation: "Hero", status: "translated" },
+      { term: "王都", translation: "", status: "untranslated" },
+      { term: "魔王", translation: "Demon Lord", status: "translated" },
+    ]);
+
+    expect(glossary.getTranslatedTermsForText("勇者来到王都")).toMatchObject([
+      { term: "勇者", translation: "Hero", status: "translated" },
+    ]);
+    expect(glossary.getUntranslatedTermsForText("勇者来到王都")).toMatchObject([
+      { term: "王都", translation: "", status: "untranslated" },
+    ]);
+
+    glossary.applyTranslations([{ term: "王都", translation: "Royal Capital" }]);
+
+    expect(glossary.getTerm("王都")).toMatchObject({
+      translation: "Royal Capital",
+      status: "translated",
+    });
+  });
+
   test("persists extended glossary fields as csv", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-glossary-"));
     cleanupTargets.push(workspaceDir);
@@ -112,7 +134,7 @@ describe("glossary", () => {
     const glossaryPath = join(workspaceDir, "glossary.csv");
     await writeFile(
       glossaryPath,
-      "term,translation,description\n勇者,Hero,主角职业\n",
+      "term,translation,status,description\n勇者,Hero,translated,主角职业\n王都,,untranslated,城市名\n",
       "utf8",
     );
 
@@ -147,6 +169,7 @@ describe("glossary", () => {
     expect(glossaryContext?.type).toBe("glossary");
     if (glossaryContext?.type === "glossary") {
       expect(glossaryContext.content).toContain("Hero");
+      expect(glossaryContext.content).not.toContain("王都");
     }
 
     expect(await readFile(glossaryPath, "utf8")).toContain("勇者");

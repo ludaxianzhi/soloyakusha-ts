@@ -70,14 +70,12 @@ export class TranslationContextView {
   }
 
   getGlossaryContext(): TranslationContextEntry | undefined {
-    if (!this.options.glossary) {
+    const glossaryTerms = this.getTranslatedGlossaryTerms();
+    if (glossaryTerms.length === 0) {
       return undefined;
     }
 
-    const autoFilter = this.options.glossaryConfig?.autoFilter ?? true;
-    const content = autoFilter
-      ? this.options.glossary.filterAndRenderAsCsv(this.sourceText)
-      : this.options.glossary.renderAsCsv();
+    const content = this.options.glossary!.renderAsCsv(glossaryTerms);
 
     const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
     if (lines.length <= 1) {
@@ -92,11 +90,27 @@ export class TranslationContextView {
     };
   }
 
+  getMatchedGlossaryTerms(): ResolvedGlossaryTerm[] {
+    if (!this.options.glossary) {
+      return [];
+    }
+
+    const autoFilter = this.options.glossaryConfig?.autoFilter ?? true;
+    return autoFilter
+      ? this.options.glossary.filterTerms(this.sourceText)
+      : this.options.glossary.getAllTerms();
+  }
+
+  getTranslatedGlossaryTerms(): ResolvedGlossaryTerm[] {
+    return this.getMatchedGlossaryTerms().filter((term) => term.status === "translated");
+  }
+
+  getUntranslatedGlossaryTerms(): ResolvedGlossaryTerm[] {
+    return this.getMatchedGlossaryTerms().filter((term) => term.status === "untranslated");
+  }
+
   getDependencyContext(): TranslationContextEntry | undefined {
-    const pairs =
-      this.options.dependencyMode === "previousTranslations"
-        ? this.buildPreviousStepPairs()
-        : this.buildGlossaryDependencyPairs();
+    const pairs = this.getDependencyPairs();
     if (pairs.length === 0) {
       return undefined;
     }
@@ -110,6 +124,18 @@ export class TranslationContextView {
       priority: 60,
       pairs,
     };
+  }
+
+  getDependencyPairs(): ContextPair[] {
+    return this.options.dependencyMode === "previousTranslations"
+      ? this.buildPreviousStepPairs()
+      : this.buildGlossaryDependencyPairs();
+  }
+
+  getDependencyTranslatedTexts(): string[] {
+    return this.getDependencyPairs()
+      .map((pair) => pair.translatedText.trim())
+      .filter((value) => value.length > 0);
   }
 
   private buildPreviousStepPairs(): ContextPair[] {

@@ -48,6 +48,15 @@ export type GlossaryTextBlock = {
   text: string;
 };
 
+export type GlossaryTermFilterOptions = {
+  status?: GlossaryTermStatus | ReadonlyArray<GlossaryTermStatus>;
+};
+
+export type GlossaryTranslationUpdate = {
+  term: string;
+  translation: string;
+};
+
 /**
  * 术语表模型，负责维护术语集合并按上下文筛选、渲染可用条目。
  *
@@ -94,8 +103,64 @@ export class Glossary {
     this.terms.set(normalized.term, normalized);
   }
 
-  filterTerms(text: string): ResolvedGlossaryTerm[] {
-    return this.getAllTerms().filter((term) => text.includes(term.term));
+  filterTerms(
+    text: string,
+    options: GlossaryTermFilterOptions = {},
+  ): ResolvedGlossaryTerm[] {
+    const allowedStatuses = normalizeGlossaryStatusFilter(options.status);
+    return this.getAllTerms().filter(
+      (term) =>
+        text.includes(term.term) &&
+        (!allowedStatuses || allowedStatuses.has(term.status)),
+    );
+  }
+
+  getTranslatedTermsForText(text: string): ResolvedGlossaryTerm[] {
+    return this.filterTerms(text, { status: "translated" });
+  }
+
+  getUntranslatedTermsForText(text: string): ResolvedGlossaryTerm[] {
+    return this.filterTerms(text, { status: "untranslated" });
+  }
+
+  applyTranslations(
+    updates: ReadonlyArray<GlossaryTranslationUpdate>,
+  ): ResolvedGlossaryTerm[] {
+    const appliedTerms: ResolvedGlossaryTerm[] = [];
+    for (const update of updates) {
+      const termText = update.term.trim();
+      const translation = update.translation.trim();
+      if (!termText) {
+        throw new Error("术语更新的 term 不能为空");
+      }
+      if (!translation) {
+        throw new Error(`术语 ${termText} 的 translation 不能为空`);
+      }
+
+      const existing = this.terms.get(termText);
+      if (!existing) {
+        throw new Error(`术语不存在，无法更新译文: ${termText}`);
+      }
+      if (
+        existing.status === "translated" &&
+        existing.translation.length > 0 &&
+        existing.translation !== translation
+      ) {
+        throw new Error(
+          `术语 ${termText} 已有不同译文，拒绝覆盖: ${existing.translation} -> ${translation}`,
+        );
+      }
+
+      const nextTerm: ResolvedGlossaryTerm = {
+        ...existing,
+        translation,
+        status: "translated",
+      };
+      this.terms.set(termText, nextTerm);
+      appliedTerms.push(cloneResolvedGlossaryTerm(nextTerm));
+    }
+
+    return appliedTerms;
   }
 
   updateOccurrenceStats(
@@ -273,6 +338,17 @@ function cloneResolvedGlossaryTerm(term: ResolvedGlossaryTerm): ResolvedGlossary
   return {
     ...term,
   };
+}
+
+function normalizeGlossaryStatusFilter(
+  status: GlossaryTermFilterOptions["status"],
+): ReadonlySet<GlossaryTermStatus> | undefined {
+  if (!status) {
+    return undefined;
+  }
+
+  const values = Array.isArray(status) ? status : [status];
+  return new Set(values.map((value) => resolveGlossaryTermStatus(value, "")));
 }
 
 function escapeCsvCell(value: string): string {

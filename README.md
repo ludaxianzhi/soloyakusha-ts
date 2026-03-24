@@ -14,6 +14,10 @@
 - `TranslationDocumentManager`：章节/片段持久化、全文管理、翻译进度更新
 - `TranslationProject`：面向任务的项目骨架，负责按 Pipeline / Work Queue 并发分发任务、统计进度、动态收集 glossary 和依赖译文上下文
 - `TranslationPipeline` / `TranslationStepWorkQueue`：步骤定义与步骤级调度队列
+- `TranslationProcessor`：接受 `contextView` 的基础翻译/文本处理接口，同步完成“翻译 + 词汇表增量更新”
+- `PromptManager`：集中管理翻译提示词，使用 Liquid 模板渲染用户提示词，并用 JSON Schema 约束输出
+- `TranslationGlobalConfig` / `TranslationProcessorRegistry`：加载全局配置、创建 Provider，并按名称获取不同参数的翻译器
+- `ConsoleLogger` / `Logger`：为翻译处理与配置注册表提供基础日志接口
 - `startTranslation()` / `stopTranslation()`：翻译开始、停止与断点续跑生命周期控制
 - `GlobalAssociationPatternScanner`：原文全文重复模式扫描（默认至少出现 3 次且长度至少 8）
 - `getProjectSnapshot()` / `getQueueSnapshot()`：项目状态、队列状态与当前工作项快照
@@ -125,6 +129,118 @@ await project.submitWorkResult({
   fragmentIndex: workItems[0]!.fragmentIndex,
   outputText: "这里写入译文",
 });
+```
+
+## 基础翻译处理接口示例
+
+```ts
+import {
+  Glossary,
+  LlmClientProvider,
+  TranslationProcessor,
+  TranslationProject,
+} from "./index.ts";
+
+const provider = new LlmClientProvider();
+provider.register("translator", {
+  provider: "openai",
+  modelType: "chat",
+  modelName: "gpt-4.1",
+  endpoint: "https://api.openai.com/v1",
+  apiKeyEnv: "OPENAI_API_KEY",
+});
+
+const glossary = new Glossary([
+  { term: "勇者", translation: "Hero", status: "translated" },
+  { term: "王都", translation: "", status: "untranslated" },
+]);
+
+const project = new TranslationProject({
+  projectName: "demo",
+  projectDir: "./workspace",
+  chapters: [{ id: 1, filePath: "sources\\scene.txt" }],
+  glossary: { path: "glossary.csv", autoFilter: true },
+}, {
+  glossary,
+});
+
+await project.initialize();
+await project.startTranslation();
+
+const workItem = (await project.getWorkQueue("translation").dispatchReadyItems())[0]!;
+const processor = new TranslationProcessor(provider.getChatClient("translator"));
+const result = await processor.processWorkItem(workItem, { glossary });
+
+await project.submitWorkResult({
+  runId: workItem.runId,
+  stepId: workItem.stepId,
+  chapterId: workItem.chapterId,
+  fragmentIndex: workItem.fragmentIndex,
+  outputText: result.outputText,
+});
+
+await project.saveProgress();
+console.log(result.glossaryUpdates);
+```
+
+## 命名翻译器 + 滑动窗口配置示例
+
+```ts
+import {
+  ConsoleLogger,
+  TranslationGlobalConfig,
+  TranslationProject,
+} from "./index.ts";
+
+const globalConfig = await TranslationGlobalConfig.loadFromFile("./translation.config.yaml");
+const logger = new ConsoleLogger();
+const translatorRegistry = globalConfig.createTranslatorRegistry({ logger });
+const translator = translatorRegistry.getTranslator("novel-window");
+
+const project = new TranslationProject({
+  projectName: "demo",
+  projectDir: "./workspace",
+  chapters: [{ id: 1, filePath: "sources\\scene.txt" }],
+});
+
+await project.initialize();
+await project.startTranslation();
+
+const workItem = (await project.getWorkQueue("translation").dispatchReadyItems())[0]!;
+const result = await translator.processWorkItem(workItem, {
+  documentManager: project.getDocumentManager(),
+  glossary: project.getGlossary(),
+});
+
+await project.submitWorkResult({
+  runId: workItem.runId,
+  stepId: workItem.stepId,
+  chapterId: workItem.chapterId,
+  fragmentIndex: workItem.fragmentIndex,
+  outputText: result.outputText,
+});
+```
+
+对应配置文件示例：
+
+```yaml
+defaultTranslator: novel-window
+llm:
+  shared-chat:
+    provider: openai
+    modelType: chat
+    modelName: gpt-4.1
+    endpoint: https://api.openai.com/v1
+    apiKeyEnv: OPENAI_API_KEY
+translators:
+  novel-window:
+    modelName: shared-chat
+    slidingWindow:
+      overlapChars: 400
+    requestOptions:
+      requestConfig:
+        temperature: 0.2
+        maxTokens: 4096
 ```
 
 ## 多步骤 Pipeline 示例
