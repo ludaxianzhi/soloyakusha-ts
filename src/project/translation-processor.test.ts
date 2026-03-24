@@ -6,6 +6,7 @@ import { Glossary } from "../glossary/glossary.ts";
 import { ChatClient } from "../llm/base.ts";
 import { LlmClientProvider } from "../llm/provider.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "../llm/types.ts";
+import { GlobalConfigManager } from "../config/manager.ts";
 import { TranslationGlobalConfig } from "./config.ts";
 import { DefaultTranslationProcessor } from "./default-translation-processor.ts";
 import { DefaultTextSplitter } from "./translation-document-manager.ts";
@@ -236,45 +237,50 @@ describe("TranslationProcessor", () => {
     expect(logger.entries.some((entry) => entry.message === "翻译处理完成")).toBe(true);
   });
 
-  test("creates processor from global config and merges processor/updater request parameters", async () => {
+  test("creates processor from user global config and merges processor/updater request parameters", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-"));
     cleanupTargets.push(workspaceDir);
 
-    const configPath = join(workspaceDir, "translation-config.yaml");
-    await writeFile(
-      configPath,
-      [
-        "llm:",
-        "  shared-chat:",
-        '    provider: "openai"',
-        '    modelType: "chat"',
-        '    modelName: "gpt-4.1"',
-        '    endpoint: "https://example.com/v1"',
-        '    apiKey: "test-key"',
-        "  glossary-chat:",
-        '    provider: "openai"',
-        '    modelType: "chat"',
-        '    modelName: "gpt-4.1-mini"',
-        '    endpoint: "https://example.com/v1"',
-        '    apiKey: "test-key"',
-        "translationProcessor:",
-        '  modelName: "shared-chat"',
-        "  slidingWindow:",
-        "    overlapChars: 8",
-        "  requestOptions:",
-        "    requestConfig:",
-        "      temperature: 0.1",
-        "      maxTokens: 222",
-        "glossaryUpdater:",
-        '  modelName: "glossary-chat"',
-        "  requestOptions:",
-        "    requestConfig:",
-        "      topP: 0.4",
-      ].join("\n"),
-      "utf8",
-    );
+    const configPath = join(workspaceDir, "config.json");
+    const manager = new GlobalConfigManager({ filePath: configPath });
+    await manager.setLlmProfile("shared-chat", {
+      provider: "openai",
+      modelType: "chat",
+      modelName: "gpt-4.1",
+      endpoint: "https://example.com/v1",
+      apiKey: "test-key",
+      retries: 3,
+    });
+    await manager.setLlmProfile("glossary-chat", {
+      provider: "openai",
+      modelType: "chat",
+      modelName: "gpt-4.1-mini",
+      endpoint: "https://example.com/v1",
+      apiKey: "test-key",
+      retries: 3,
+    });
+    await manager.setTranslationProcessorConfig({
+      modelName: "shared-chat",
+      slidingWindow: {
+        overlapChars: 8,
+      },
+      requestOptions: {
+        requestConfig: {
+          temperature: 0.1,
+          maxTokens: 222,
+        },
+      },
+    });
+    await manager.setGlossaryUpdaterConfig({
+      modelName: "glossary-chat",
+      requestOptions: {
+        requestConfig: {
+          topP: 0.4,
+        },
+      },
+    });
 
-    const config = await TranslationGlobalConfig.loadFromFile(configPath);
+    const config = await manager.getTranslationGlobalConfig();
     expect(config.getTranslationProcessorConfig().modelName).toBe("shared-chat");
     const providerFromConfig = config.createProvider();
     expect(providerFromConfig).toBeInstanceOf(LlmClientProvider);
@@ -320,6 +326,49 @@ describe("TranslationProcessor", () => {
     expect(glossary.getTerm("第一行")).toMatchObject({
       translation: "Line 1",
       status: "translated",
+    });
+  });
+
+  test("loads translation settings from nested global config document file", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-file-"));
+    cleanupTargets.push(workspaceDir);
+
+    const configPath = join(workspaceDir, "config.yaml");
+    await writeFile(
+      configPath,
+      [
+        "version: 1",
+        "llm:",
+        "  profiles:",
+        "    shared-chat:",
+        '      provider: "openai"',
+        '      modelType: "chat"',
+        '      modelName: "gpt-4.1"',
+        '      endpoint: "https://example.com/v1"',
+        '      apiKey: "test-key"',
+        "      retries: 3",
+        "translation:",
+        "  translationProcessor:",
+        '    modelName: "shared-chat"',
+        "    slidingWindow:",
+        "      overlapChars: 8",
+        "  glossaryUpdater:",
+        '    modelName: "shared-chat"',
+      ].join("\n"),
+      "utf8",
+    );
+
+    const config = await TranslationGlobalConfig.loadFromFile(configPath);
+    expect(config.getTranslationProcessorConfig()).toEqual({
+      workflow: undefined,
+      modelName: "shared-chat",
+      slidingWindow: { overlapChars: 8 },
+      requestOptions: undefined,
+    });
+    expect(config.getGlossaryUpdaterConfig()).toEqual({
+      workflow: undefined,
+      modelName: "shared-chat",
+      requestOptions: undefined,
     });
   });
 });

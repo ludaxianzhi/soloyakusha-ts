@@ -6,6 +6,7 @@ import {
   GlobalConfigManager,
   getDefaultGlobalConfigFilePath,
 } from "./manager.ts";
+import { TranslationGlobalConfig } from "../project/config.ts";
 
 const cleanupTargets: string[] = [];
 
@@ -147,5 +148,87 @@ describe("GlobalConfigManager", () => {
     expect(resolved.modelType).toBe("embedding");
 
     delete process.env.SOLOYAKUSHA_GLOBAL_TEST_KEY;
+  });
+
+  test("persists translation processor and glossary updater config in global file", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-"));
+    cleanupTargets.push(rootDir);
+
+    const filePath = join(rootDir, "settings.json");
+    const manager = new GlobalConfigManager({ filePath });
+
+    await manager.setLlmProfile("translator", {
+      provider: "openai",
+      modelType: "chat",
+      modelName: "gpt-4.1",
+      endpoint: "https://example.com/v1",
+      apiKey: "secret",
+      retries: 3,
+    });
+    await manager.setLlmProfile("glossary", {
+      provider: "openai",
+      modelType: "chat",
+      modelName: "gpt-4.1-mini",
+      endpoint: "https://example.com/v1",
+      apiKey: "secret",
+      retries: 3,
+    });
+
+    await manager.setTranslationProcessorConfig({
+      modelName: "translator",
+      slidingWindow: { overlapChars: 12 },
+      requestOptions: {
+        requestConfig: {
+          temperature: 0.2,
+          maxTokens: 1234,
+        },
+      },
+    });
+    await manager.setGlossaryUpdaterConfig({
+      modelName: "glossary",
+      requestOptions: {
+        requestConfig: {
+          topP: 0.4,
+        },
+      },
+    });
+
+    const reloaded = new GlobalConfigManager({ filePath });
+    expect(await reloaded.getTranslationProcessorConfig()).toEqual({
+      modelName: "translator",
+      workflow: undefined,
+      slidingWindow: { overlapChars: 12 },
+      requestOptions: {
+        requestConfig: {
+          temperature: 0.2,
+          maxTokens: 1234,
+        },
+        outputValidationContext: undefined,
+      },
+    });
+    expect(await reloaded.getGlossaryUpdaterConfig()).toEqual({
+      modelName: "glossary",
+      workflow: undefined,
+      requestOptions: {
+        requestConfig: {
+          topP: 0.4,
+        },
+        outputValidationContext: undefined,
+      },
+    });
+
+    const translationGlobalConfig = await reloaded.getTranslationGlobalConfig();
+    expect(translationGlobalConfig).toBeInstanceOf(TranslationGlobalConfig);
+    expect(translationGlobalConfig.getTranslationProcessorConfig().modelName).toBe("translator");
+    expect(translationGlobalConfig.getGlossaryUpdaterConfig()?.modelName).toBe("glossary");
+
+    const saved = JSON.parse(await readFile(filePath, "utf8")) as {
+      translation?: {
+        translationProcessor?: { modelName: string };
+        glossaryUpdater?: { modelName: string };
+      };
+    };
+    expect(saved.translation?.translationProcessor?.modelName).toBe("translator");
+    expect(saved.translation?.glossaryUpdater?.modelName).toBe("glossary");
   });
 });

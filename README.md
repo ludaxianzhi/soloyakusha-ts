@@ -2,7 +2,7 @@
 
 当前项目已移植 `参考\soloyakusha` 中的 LLM 管理与封装主干能力，并改成了更贴近 TypeScript 的类/模块设计：
 
-- `GlobalConfigManager`：管理用户目录下的全局配置文件，提供 LLM 配置的读取、更新与删除 API
+- `GlobalConfigManager`：管理用户目录下的全局配置文件，提供 LLM 配置以及翻译器/术语更新器默认配置的读取、更新与删除 API
 - `LlmClientProvider`：注册命名模型配置、延迟创建客户端、按配置缓存实例
 - `OpenAIChatClient`：OpenAI-compatible chat completions，支持流式解析、重试、限流、观测与历史记录
 - `AnthropicChatClient`：Anthropic messages API，支持流式解析、重试、限流、观测与历史记录
@@ -17,7 +17,7 @@
 - `TranslationPipeline` / `TranslationStepWorkQueue`：步骤定义与步骤级调度队列
 - `TranslationProcessor`：接受 `contextView` 的基础翻译/文本处理接口，同步完成“翻译 + 词汇表增量更新”
 - `PromptManager`：集中管理翻译提示词，使用 Liquid 模板渲染用户提示词，并用 JSON Schema 约束输出
-- `TranslationGlobalConfig` / `TranslationProcessorRegistry`：加载全局配置、创建 Provider，并按名称获取不同参数的翻译器
+- `TranslationGlobalConfig`：从独立文件或用户级全局配置构建翻译处理器与 Provider
 - `ConsoleLogger` / `Logger`：为翻译处理与配置注册表提供基础日志接口
 - `startTranslation()` / `stopTranslation()`：翻译开始、停止与断点续跑生命周期控制
 - `GlobalAssociationPatternScanner`：原文全文重复模式扫描（默认至少出现 3 次且长度至少 8）
@@ -215,19 +215,19 @@ await project.saveProgress();
 console.log(result.glossaryUpdates);
 ```
 
-## 命名翻译器 + 滑动窗口配置示例
+## 用户级全局翻译配置示例
 
 ```ts
 import {
   ConsoleLogger,
-  TranslationGlobalConfig,
+  GlobalConfigManager,
   TranslationProject,
 } from "./index.ts";
 
-const globalConfig = await TranslationGlobalConfig.loadFromFile("./translation.config.yaml");
+const manager = new GlobalConfigManager();
+const globalConfig = await manager.getTranslationGlobalConfig();
 const logger = new ConsoleLogger();
-const translatorRegistry = globalConfig.createTranslatorRegistry({ logger });
-const translator = translatorRegistry.getTranslator("novel-window");
+const translator = globalConfig.createTranslationProcessor({ logger });
 
 const project = new TranslationProject({
   projectName: "demo",
@@ -253,26 +253,41 @@ await project.submitWorkResult({
 });
 ```
 
-对应配置文件示例：
+对应 `%USERPROFILE%\\.soloyakusha-ts\\config.json`（Windows）中的配置片段示例：
 
-```yaml
-defaultTranslator: novel-window
-llm:
-  shared-chat:
-    provider: openai
-    modelType: chat
-    modelName: gpt-4.1
-    endpoint: https://api.openai.com/v1
-    apiKeyEnv: OPENAI_API_KEY
-translators:
-  novel-window:
-    modelName: shared-chat
-    slidingWindow:
-      overlapChars: 400
-    requestOptions:
-      requestConfig:
-        temperature: 0.2
-        maxTokens: 4096
+```json
+{
+  "version": 1,
+  "llm": {
+    "profiles": {
+      "shared-chat": {
+        "provider": "openai",
+        "modelType": "chat",
+        "modelName": "gpt-4.1",
+        "endpoint": "https://api.openai.com/v1",
+        "apiKeyEnv": "OPENAI_API_KEY",
+        "retries": 3
+      }
+    }
+  },
+  "translation": {
+    "translationProcessor": {
+      "modelName": "shared-chat",
+      "slidingWindow": {
+        "overlapChars": 400
+      },
+      "requestOptions": {
+        "requestConfig": {
+          "temperature": 0.2,
+          "maxTokens": 4096
+        }
+      }
+    },
+    "glossaryUpdater": {
+      "modelName": "shared-chat"
+    }
+  }
+}
 ```
 
 ## 多步骤 Pipeline 示例

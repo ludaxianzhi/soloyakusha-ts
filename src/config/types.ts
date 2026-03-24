@@ -1,8 +1,8 @@
 /**
  * 定义全局配置模块共享的类型。
  *
- * 当前仅持久化 LLM 配置，但顶层文档保留了扩展入口，
- * 后续可继续加入 prompt、project defaults 等全局设置。
+ * 当前持久化 LLM 配置与翻译流程默认配置，
+ * 便于在用户目录下统一管理模型、翻译器与术语更新器参数。
  */
 
 import type {
@@ -12,6 +12,10 @@ import type {
   LlmProvider,
   LlmRequestConfigInput,
 } from "../llm/types.ts";
+import type {
+  GlossaryUpdaterConfig,
+  TranslationProcessorConfig,
+} from "../project/config.ts";
 
 export const GLOBAL_CONFIG_VERSION = 1;
 export const DEFAULT_GLOBAL_CONFIG_DIR_NAME = ".soloyakusha-ts";
@@ -37,9 +41,15 @@ export type GlobalLlmConfig = {
   profiles: Record<string, PersistedLlmClientConfig>;
 };
 
+export type GlobalTranslationConfig = {
+  translationProcessor?: TranslationProcessorConfig;
+  glossaryUpdater?: GlossaryUpdaterConfig;
+};
+
 export type GlobalConfigDocument = {
   version: typeof GLOBAL_CONFIG_VERSION;
   llm: GlobalLlmConfig;
+  translation?: GlobalTranslationConfig;
 };
 
 export type GlobalConfigManagerOptions = {
