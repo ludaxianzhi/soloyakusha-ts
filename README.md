@@ -42,6 +42,13 @@
 - JSON / CSV / TSV / YAML / XML 术语表持久化
 - 术语状态（已翻译 / 未翻译）与出现统计（总出现次数 / 出现文本块数）
 
+以及提示词管理：
+
+- `PromptManager`：从 YAML 静态资源加载提示词目录
+- 三类模板：`static`、`interpolate`、`liquid`
+- 默认提示词资源：`src/prompts/resources/default-prompts.yaml`
+- 所有 LLM 请求均显式区分 `systemPrompt` 与用户提示内容
+
 ## 安装依赖
 
 ```bash
@@ -52,6 +59,24 @@ bun install
 
 ```bash
 bunx tsc --noEmit
+```
+
+## 默认提示词资源
+
+默认提示词以 YAML 静态资源形式随源码分发，位于 `src/prompts/resources/default-prompts.yaml`。
+
+```ts
+import { getDefaultPromptManager } from "./index.ts";
+
+const promptManager = await getDefaultPromptManager();
+const rendered = promptManager.renderPrompt("glossary.fullTextScan", {
+  startLineLabel: "L00001",
+  endLineLabel: "L00010",
+  batchText: "L00001: 勇者来了",
+});
+
+console.log(rendered.systemPrompt);
+console.log(rendered.userPrompt);
 ```
 
 ## 运行测试

@@ -1,0 +1,48 @@
+version: 1
+prompts:
+  glossary.fullTextScan:
+    system:
+      type: static
+      template: |
+        你是一个小说/剧情文本术语扫描器。
+        只提取以下五类：personName（人名）、placeName（地名）、properNoun（专有名词）、personTitle（人物称呼）、catchphrase（口癖）。
+        禁止输出普通名词、动作、形容词、一般性代词、叙述性短语。
+        term 必须使用原文中实际出现的写法。
+        description 用简短中文说明，不超过 20 个字；如果没有必要可省略。
+        输出必须是严格 JSON，格式为 {"entities":[{"term":"...","category":"personName","description":"..."}]}。
+        如果没有任何结果，返回 {"entities":[]}。
+        不要输出 Markdown、解释、代码块或额外文字。
+    user:
+      type: interpolate
+      template: |
+        以下内容是按行展开的全文连续片段，不代表独立章节或文本块。
+        请直接基于这些连续行抽取术语，不要按章节、片段或文本块重组。
+        当前行号范围：${startLineLabel} - ${endLineLabel}
+
+        全文行内容：
+        ${batchText}
+
+  utils.alignmentRepair:
+    system:
+      type: static
+      template: |
+        你是翻译补漏助手。
+        请只补全缺失译文，不要输出完整译文，不要重复输出已有译文，不要解释原因。
+        输出必须是严格 JSON，并完全符合用户消息里提供的 JSON Schema。
+    user:
+      type: liquid
+      template: |
+        下面给出按翻译单元编号后的原文/现有译文对照表。
+        请只补全 TARGET 为 <MISSING> 的单元。
+
+        原文行数: {{ analysis.sourceLineCount }}
+        译文行数: {{ analysis.targetLineCount }}
+        {% if analysis.missingUnitIds %}
+        待补翻 ID: {{ missingUnitIdsText }}
+        {% endif %}
+
+        对照表：
+        {{ analysis.comparisonText }}
+
+        JSON Schema：
+        {{ responseSchemaJson }}

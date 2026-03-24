@@ -171,6 +171,7 @@ describe("glossary", () => {
     expect(result.batches).toHaveLength(2);
     expect(client.requests[0]?.prompt).toContain("L00001: 勇者来了");
     expect(client.requests[1]?.prompt).toContain("L00003: 勇者说勇者必胜");
+    expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("术语扫描器");
     expect(result.glossary.getTerm("勇者")).toMatchObject({
       category: "personName",
       status: "untranslated",
@@ -215,6 +216,7 @@ describe("glossary", () => {
     expect(result.batches[0]?.lines).toHaveLength(3);
     expect(client.requests[0]?.prompt).toContain("L00001: 第一行");
     expect(client.requests[0]?.prompt).toContain("L00003: 第三行");
+    expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("严格 JSON");
   });
 });
 

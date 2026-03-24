@@ -12,6 +12,7 @@
 
 import type { ChatClient } from "../llm/base.ts";
 import type { ChatRequestOptions } from "../llm/types.ts";
+import { getDefaultPromptManager } from "../prompts/index.ts";
 import type { TranslationDocumentManager } from "../project/translation-document-manager.ts";
 import {
   Glossary,
@@ -159,11 +160,17 @@ export class FullTextGlossaryScanner {
   ): Promise<FullTextGlossaryScanResult> {
     const glossary = new Glossary(options.seedTerms ?? []);
     const batches = this.buildBatches(lines, options);
+    const promptManager = await getDefaultPromptManager();
 
     for (const batch of batches) {
+      const renderedPrompt = promptManager.renderPrompt("glossary.fullTextScan", {
+        startLineLabel: formatScanLineLabel(batch.startLineNumber),
+        endLineLabel: formatScanLineLabel(batch.endLineNumber),
+        batchText: batch.text,
+      });
       const response = await this.chatClient.singleTurnRequest(
-        buildScanPrompt(batch),
-        buildScanRequestOptions(options.requestOptions),
+        renderedPrompt.userPrompt,
+        buildScanRequestOptions(options.requestOptions, renderedPrompt.systemPrompt),
       );
       const extractedEntities = parseScanResponse(response);
       for (const entity of extractedEntities) {
@@ -241,48 +248,38 @@ function createScanBatch(
     charCount,
     lines: [...lines],
     text: lines
-      .map((line) => `L${line.lineNumber.toString().padStart(5, "0")}: ${line.text}`)
+      .map((line) => `${formatScanLineLabel(line.lineNumber)}: ${line.text}`)
       .join("\n"),
   };
 }
 
-function buildScanPrompt(batch: FullTextGlossaryScanBatch): string {
-  return [
-    "以下内容是按行展开的全文连续片段，不代表独立章节或文本块。",
-    "请直接基于这些连续行抽取术语，不要按章节、片段或文本块重组。",
-    `当前行号范围：L${batch.startLineNumber.toString().padStart(5, "0")} - L${batch.endLineNumber.toString().padStart(5, "0")}`,
-    "",
-    "全文行内容：",
-    batch.text,
-  ].join("\n");
-}
-
 function buildScanRequestOptions(
   requestOptions: ChatRequestOptions | undefined,
+  systemPrompt: string,
 ): ChatRequestOptions {
   const requestConfig = requestOptions?.requestConfig;
-  const userSystemPrompt = requestConfig?.systemPrompt;
 
   return {
     ...requestOptions,
     requestConfig: {
       ...requestConfig,
       temperature: requestConfig?.temperature ?? 0,
-      systemPrompt: [
-        "你是一个小说/剧情文本术语扫描器。",
-        "只提取以下五类：personName（人名）、placeName（地名）、properNoun（专有名词）、personTitle（人物称呼）、catchphrase（口癖）。",
-        "禁止输出普通名词、动作、形容词、一般性代词、叙述性短语。",
-        "term 必须使用原文中实际出现的写法。",
-        "description 用简短中文说明，不超过 20 个字；如果没有必要可省略。",
-        '输出必须是严格 JSON，格式为 {"entities":[{"term":"...","category":"personName","description":"..."}]}。',
-        '如果没有任何结果，返回 {"entities":[]}。',
-        "不要输出 Markdown、解释、代码块或额外文字。",
-        userSystemPrompt ?? "",
-      ]
-        .filter((value) => value.length > 0)
-        .join("\n"),
+      systemPrompt: composeSystemPrompt(systemPrompt, requestConfig?.systemPrompt),
     },
   };
+}
+
+function formatScanLineLabel(lineNumber: number): string {
+  return `L${lineNumber.toString().padStart(5, "0")}`;
+}
+
+function composeSystemPrompt(basePrompt: string, overridePrompt: string | undefined): string {
+  const normalizedOverride = overridePrompt?.trim();
+  if (!normalizedOverride) {
+    return basePrompt;
+  }
+
+  return `${basePrompt}\n\n${normalizedOverride}`;
 }
 
 function parseScanResponse(responseText: string): RawScannedEntity[] {
