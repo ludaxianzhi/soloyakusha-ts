@@ -13,6 +13,7 @@ import { createPromptTemplate } from "./templates.ts";
 import type {
   PromptCatalogDocument,
   PromptDefinition,
+  PromptMessageTemplateDefinition,
   PromptRenderVariables,
   RenderedPrompt,
 } from "./types.ts";
@@ -161,7 +162,7 @@ function validatePromptMessageTemplateDefinition(
   value: unknown,
   fieldLabel: string,
   sourceLabel: string,
-) {
+): PromptMessageTemplateDefinition {
   if (!isRecord(value)) {
     throw new Error(`提示词模板定义必须是对象: ${fieldLabel} (${sourceLabel})`);
   }

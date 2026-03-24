@@ -68,10 +68,11 @@ function createInterpolatedPromptTemplate(template: string): PromptTemplate {
 }
 
 function createLiquidPromptTemplate(template: string): PromptTemplate {
+  const normalizedTemplate = normalizeLiquidTemplate(template);
   let parsedTemplate: ReturnType<typeof liquidEngine.parse>;
 
   try {
-    parsedTemplate = liquidEngine.parse(template);
+    parsedTemplate = liquidEngine.parse(normalizedTemplate);
   } catch (error) {
     throw new Error(`Liquid 模板编译失败: ${getErrorMessage(error)}`);
   }
@@ -101,6 +102,37 @@ function stringifyTemplateValue(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+function resolveExpression(
+  expression: string,
+  variables: PromptRenderVariables,
+): unknown {
+  let current: unknown = variables;
+
+  for (const segment of expression.split(".")) {
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index)) {
+        return undefined;
+      }
+
+      current = current[index];
+      continue;
+    }
+
+    if (!isRecord(current)) {
+      return undefined;
+    }
+
+    current = current[segment];
+  }
+
+  return current;
+}
+
+function normalizeLiquidTemplate(template: string): string {
+  return template.replaceAll("forloop.index1", "forloop.index");
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
@@ -111,6 +143,10 @@ function getErrorMessage(error: unknown): string {
 
 function assertNever(value: never): never {
   throw new Error(`未支持的模板类型: ${String(value)}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 export type { PromptTemplate, PromptTemplateKind };

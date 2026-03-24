@@ -93,9 +93,9 @@ describe("AlignmentRepairTool", () => {
     expect(result.repairs).toEqual([{ id: "u0002", translation: "补翻第二句" }]);
     expect(result.unresolvedIds).toEqual([]);
     expect(result.systemPrompt).toContain("翻译补漏助手");
-    expect(result.userPrompt).toContain("JSON Schema");
+    expect(result.systemPrompt).toContain("JSON Schema");
     expect(chatClient.requests).toHaveLength(1);
-    expect(chatClient.requests[0]?.prompt).toContain("JSON Schema");
+    expect(chatClient.requests[0]?.prompt).not.toContain("JSON Schema");
     expect(chatClient.requests[0]?.prompt).toContain("u0002");
     expect(chatClient.requests[0]?.options?.requestConfig?.systemPrompt).toContain("严格 JSON");
     expect(chatClient.requests[0]?.options?.requestConfig?.extraBody).toMatchObject({

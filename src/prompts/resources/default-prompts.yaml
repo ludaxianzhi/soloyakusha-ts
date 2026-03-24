@@ -15,25 +15,106 @@ prompts:
     user:
       type: interpolate
       template: |
-        以下内容是按行展开的全文连续片段，不代表独立章节或文本块。
-        请直接基于这些连续行抽取术语，不要按章节、片段或文本块重组。
+        以下是本次待扫描的全文连续行数据。
         当前行号范围：${startLineLabel} - ${endLineLabel}
 
         全文行内容：
         ${batchText}
 
-  utils.alignmentRepair:
+  glossary.translationUpdate:
     system:
-      type: static
+      type: interpolate
       template: |
-        你是翻译补漏助手。
-        请只补全缺失译文，不要输出完整译文，不要重复输出已有译文，不要解释原因。
-        输出必须是严格 JSON，并完全符合用户消息里提供的 JSON Schema。
+        你是术语表译文更新器。
+        任务：根据用户消息中提供的原文/译文对照，为候选未翻译术语补全能够被明确确认的译文。
+        只允许依据用户消息中的原文、译文、候选术语和补充要求作答，不要依赖未提供的背景知识臆测。
+        如果某个术语无法从给定译文中明确判断，就不要返回它。
+        glossaryUpdates 中只能返回给定候选术语列表中的 term，不能新增其他术语。
+        只返回 JSON，不要输出 Markdown、解释或代码块。
+        输出必须严格满足以下 JSON Schema：
+        ${responseSchemaJson}
     user:
       type: liquid
       template: |
-        下面给出按翻译单元编号后的原文/现有译文对照表。
-        请只补全 TARGET 为 <MISSING> 的单元。
+        {% if requirements.size > 0 %}
+        本次补充要求：
+        {% for requirement in requirements %}
+        - {{ requirement }}
+        {% endfor %}
+
+        {% endif %}
+        原文与译文对照：
+        {% for unit in translationUnits %}
+        - id: {{ unit.id }}
+          sourceText: {{ unit.sourceText }}
+          translatedText: {{ unit.translatedText }}
+        {% endfor %}
+
+        候选未翻译术语：
+        {% for term in untranslatedTerms %}
+        - term: {{ term.term }}
+          {% if term.description %}description: {{ term.description }}{% endif %}
+        {% endfor %}
+
+  project.translationPipeline:
+    system:
+      type: interpolate
+      template: |
+        你是翻译 Pipeline 的文本处理器。
+        任务：翻译用户消息中提供的全部原文单元，并按原 id 返回对应译文。
+        dependencyTranslations 仅作参考，不能把其中不存在于当前原文单元的内容当作本次输出。
+        translatedGlossaryTerms 是优先复用的既有术语译法；如果当前原文出现这些术语，应尽量保持一致。
+        translations 中必须与输入 id 一一对应，不能缺失、不能重复、不能新增未请求 id。
+        只返回 JSON，不要输出 Markdown、解释或代码块。
+        输出必须严格满足以下 JSON Schema：
+        ${responseSchemaJson}
+    user:
+      type: liquid
+      template: |
+        {% if requirements.size > 0 %}
+        本次补充要求：
+        {% for requirement in requirements %}
+        - {{ requirement }}
+        {% endfor %}
+
+        {% endif %}
+        原文单元：
+        {% for unit in sourceUnits %}
+        - id: {{ unit.id }}
+          text: {{ unit.text }}
+        {% endfor %}
+
+        {% if dependencyTranslations.size > 0 %}
+        依赖文本块译文参考：
+        {% for translation in dependencyTranslations %}
+        - {{ translation }}
+        {% endfor %}
+
+        {% endif %}
+        {% if translatedGlossaryTerms.size > 0 %}
+        可复用术语表：
+        {% for term in translatedGlossaryTerms %}
+        - term: {{ term.term }}
+          translation: {{ term.translation }}
+          {% if term.description %}description: {{ term.description }}{% endif %}
+        {% endfor %}
+
+        {% endif %}
+
+  utils.alignmentRepair:
+    system:
+      type: interpolate
+      template: |
+        你是翻译补漏助手。
+        任务：只补全用户消息中 TARGET 为 <MISSING> 的缺失译文。
+        不要输出完整译文，不要重复输出已有译文，不要解释原因。
+        repairs 中只能返回用户消息里标记为缺失的 id。
+        输出必须是严格 JSON，并完全符合以下 JSON Schema：
+        ${responseSchemaJson}
+    user:
+      type: liquid
+      template: |
+        下面给出本次修复所需的原文/现有译文对照数据。
 
         原文行数: {{ analysis.sourceLineCount }}
         译文行数: {{ analysis.targetLineCount }}
@@ -43,6 +124,3 @@ prompts:
 
         对照表：
         {{ analysis.comparisonText }}
-
-        JSON Schema：
-        {{ responseSchemaJson }}

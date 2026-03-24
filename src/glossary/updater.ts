@@ -4,11 +4,14 @@
  * @module glossary/updater
  */
 
-import { Liquid } from "liquidjs";
 import type { ChatClient } from "../llm/base.ts";
 import { buildJsonSchemaChatRequestOptions, mergeChatRequestOptions } from "../llm/chat-request.ts";
 import { LlmClientProvider } from "../llm/provider.ts";
 import type { ChatRequestOptions, JsonObject } from "../llm/types.ts";
+import {
+  getDefaultPromptManager,
+  type PromptManager as SharedPromptManager,
+} from "../prompts/index.ts";
 import type {
   GlossaryTranslationUpdate,
   ResolvedGlossaryTerm,
@@ -79,35 +82,12 @@ type GlossaryUpdaterBuilder = (
 ) => GlossaryUpdater;
 
 const GLOSSARY_UPDATE_PROMPT_NAME = "glossary_update_result";
-
-const GLOSSARY_UPDATE_USER_TEMPLATE = `
-你将根据已生成的译文，为术语表补全能够明确识别的缺失译文。
-
-{% if requirements.size > 0 %}
-额外要求：
-{% for requirement in requirements %}
-- {{ requirement }}
-{% endfor %}
-
-{% endif %}
-原文与译文对照：
-{% for unit in translationUnits %}
-- id: {{ unit.id }}
-  sourceText: {{ unit.sourceText }}
-  translatedText: {{ unit.translatedText }}
-{% endfor %}
-
-待更新术语：
-{% for term in untranslatedTerms %}
-- term: {{ term.term }}
-  {% if term.description %}description: {{ term.description }}{% endif %}
-{% endfor %}
-`;
+const GLOSSARY_UPDATE_PROMPT_ID = "glossary.translationUpdate";
 
 export class DefaultGlossaryUpdater implements GlossaryUpdater {
-  private readonly liquid = new Liquid();
   private readonly logger: GlossaryUpdaterLogger;
   private readonly defaultRequestOptions?: ChatRequestOptions;
+  private readonly promptManagerPromise: Promise<SharedPromptManager>;
   private readonly updaterName?: string;
 
   constructor(
@@ -115,11 +95,15 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
     options: {
       defaultRequestOptions?: ChatRequestOptions;
       logger?: GlossaryUpdaterLogger;
+      promptManager?: SharedPromptManager | Promise<SharedPromptManager>;
       updaterName?: string;
     } = {},
   ) {
     this.defaultRequestOptions = options.defaultRequestOptions;
     this.logger = options.logger ?? NOOP_GLOSSARY_UPDATER_LOGGER;
+    this.promptManagerPromise = Promise.resolve(
+      options.promptManager ?? getDefaultPromptManager(),
+    );
     this.updaterName = options.updaterName;
   }
 
@@ -180,14 +164,18 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
     input: GlossaryUpdateRequest,
   ): Promise<RenderedGlossaryUpdatePrompt> {
     const responseSchema = buildGlossaryUpdateResponseSchema(input.untranslatedTerms);
+    const promptManager = await this.promptManagerPromise;
+    const renderedPrompt = promptManager.renderPrompt(GLOSSARY_UPDATE_PROMPT_ID, {
+      translationUnits: input.translationUnits,
+      untranslatedTerms: input.untranslatedTerms,
+      requirements: [...(input.requirements ?? [])],
+      responseSchemaJson: JSON.stringify(responseSchema, null, 2),
+    });
+
     return {
       name: GLOSSARY_UPDATE_PROMPT_NAME,
-      systemPrompt: buildGlossaryUpdateSystemPrompt(responseSchema),
-      userPrompt: await this.liquid.parseAndRender(GLOSSARY_UPDATE_USER_TEMPLATE, {
-        translationUnits: input.translationUnits,
-        untranslatedTerms: input.untranslatedTerms,
-        requirements: [...(input.requirements ?? [])],
-      }),
+      systemPrompt: renderedPrompt.systemPrompt,
+      userPrompt: renderedPrompt.userPrompt,
       responseSchema,
     };
   }
@@ -228,18 +216,6 @@ export class GlossaryUpdaterFactory {
   static registerWorkflow(workflow: string, builder: GlossaryUpdaterBuilder): void {
     this.builders.set(workflow, builder);
   }
-}
-
-function buildGlossaryUpdateSystemPrompt(responseSchema: JsonObject): string {
-  return [
-    "你是术语表译文更新器。",
-    "请仅根据提供的原文与译文对照，提取待更新术语中能够被明确确认的译文。",
-    "如果某个术语无法从给定译文中明确判断，就不要返回它。",
-    "glossaryUpdates 中只能返回给定未翻译术语列表中的 term，不能新增其他术语。",
-    "只返回 JSON，不要输出 Markdown、解释或代码块。",
-    "输出必须严格满足以下 JSON Schema：",
-    JSON.stringify(responseSchema, null, 2),
-  ].join("\n");
 }
 
 function buildGlossaryUpdateResponseSchema(

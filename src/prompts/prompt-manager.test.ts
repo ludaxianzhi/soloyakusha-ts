@@ -11,6 +11,8 @@ describe("PromptManager", () => {
 
     expect(getDefaultPromptFilePath()).toEndWith("default-prompts.yaml");
     expect(manager.getPromptIds()).toContain("glossary.fullTextScan");
+    expect(manager.getPromptIds()).toContain("glossary.translationUpdate");
+    expect(manager.getPromptIds()).toContain("project.translationPipeline");
     expect(manager.getPromptIds()).toContain("utils.alignmentRepair");
   });
 
@@ -32,8 +34,8 @@ prompts:
       meta: { id: 7 },
     });
 
-    expect(rendered.systemPrompt).toBe("固定系统提示\n");
-    expect(rendered.userPrompt).toBe("你好，测试用户，编号 7\n");
+    expect(rendered.systemPrompt).toBe("固定系统提示");
+    expect(rendered.userPrompt).toBe("你好，测试用户，编号 7");
   });
 
   test("renders liquid prompt with conditionals and loops", () => {
@@ -112,5 +114,35 @@ prompts:
 
     expect(rendered.userPrompt).not.toContain("待补翻 ID:");
     expect(rendered.userPrompt).toContain("对照表：");
+    expect(rendered.systemPrompt).toContain('"type":"object"');
+  });
+
+  test("renders translation pipeline and glossary update prompts from default yaml", async () => {
+    const manager = await getDefaultPromptManager();
+
+    const translationPrompt = manager.renderPrompt("project.translationPipeline", {
+      sourceUnits: [{ id: "1", text: "勇者来了" }],
+      dependencyTranslations: ["Previous translated line"],
+      translatedGlossaryTerms: [{ term: "勇者", translation: "Hero", status: "translated" }],
+      requirements: ["保持术语一致"],
+      responseSchemaJson: '{"type":"object","properties":{"translations":{"type":"array"}}}',
+    });
+    const glossaryPrompt = manager.renderPrompt("glossary.translationUpdate", {
+      translationUnits: [
+        { id: "1", sourceText: "勇者来到王都", translatedText: "Hero arrived at the Royal Capital" },
+      ],
+      untranslatedTerms: [{ term: "王都", translation: "", status: "untranslated" }],
+      requirements: ["保持术语一致"],
+      responseSchemaJson: '{"type":"object","properties":{"glossaryUpdates":{"type":"array"}}}',
+    });
+
+    expect(translationPrompt.systemPrompt).toContain("任务：翻译用户消息中提供的全部原文单元");
+    expect(translationPrompt.systemPrompt).toContain("JSON Schema");
+    expect(translationPrompt.userPrompt).toContain("Previous translated line");
+    expect(translationPrompt.userPrompt).toContain("term: 勇者");
+    expect(glossaryPrompt.systemPrompt).toContain("任务：根据用户消息中提供的原文/译文对照");
+    expect(glossaryPrompt.systemPrompt).toContain("JSON Schema");
+    expect(glossaryPrompt.userPrompt).toContain("translatedText: Hero arrived at the Royal Capital");
+    expect(glossaryPrompt.userPrompt).toContain("term: 王都");
   });
 });
