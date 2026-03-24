@@ -37,7 +37,7 @@ prompts:
 
         原文行数: {{ analysis.sourceLineCount }}
         译文行数: {{ analysis.targetLineCount }}
-        {% if analysis.missingUnitIds %}
+        {% if missingUnitIdsText %}
         待补翻 ID: {{ missingUnitIdsText }}
         {% endif %}
 

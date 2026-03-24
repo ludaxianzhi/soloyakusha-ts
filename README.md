@@ -45,7 +45,7 @@
 以及提示词管理：
 
 - `PromptManager`：从 YAML 静态资源加载提示词目录
-- 三类模板：`static`、`interpolate`、`liquid`
+- 三类模板：`static`、`interpolate`、`liquid`（由 LiquidJS 渲染）
 - 默认提示词资源：`src/prompts/resources/default-prompts.yaml`
 - 所有 LLM 请求均显式区分 `systemPrompt` 与用户提示内容
 
