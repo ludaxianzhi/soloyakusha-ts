@@ -2,6 +2,7 @@
 
 当前项目已移植 `参考\soloyakusha` 中的 LLM 管理与封装主干能力，并改成了更贴近 TypeScript 的类/模块设计：
 
+- `GlobalConfigManager`：管理用户目录下的全局配置文件，提供 LLM 配置的读取、更新与删除 API
 - `LlmClientProvider`：注册命名模型配置、延迟创建客户端、按配置缓存实例
 - `OpenAIChatClient`：OpenAI-compatible chat completions，支持流式解析、重试、限流、观测与历史记录
 - `AnthropicChatClient`：Anthropic messages API，支持流式解析、重试、限流、观测与历史记录
@@ -46,6 +47,13 @@
 - JSON / CSV / TSV / YAML / XML 术语表持久化
 - 术语状态（已翻译 / 未翻译）与出现统计（总出现次数 / 出现文本块数）
 
+以及提示词管理：
+
+- `PromptManager`：从 YAML 静态资源加载提示词目录
+- 三类模板：`static`、`interpolate`、`liquid`（由 LiquidJS 渲染）
+- 默认提示词资源：`src/prompts/resources/default-prompts.yaml`
+- 所有 LLM 请求均显式区分 `systemPrompt` 与用户提示内容
+
 ## 安装依赖
 
 ```bash
@@ -58,6 +66,24 @@ bun install
 bunx tsc --noEmit
 ```
 
+## 默认提示词资源
+
+默认提示词以 YAML 静态资源形式随源码分发，位于 `src/prompts/resources/default-prompts.yaml`。
+
+```ts
+import { getDefaultPromptManager } from "./index.ts";
+
+const promptManager = await getDefaultPromptManager();
+const rendered = promptManager.renderPrompt("glossary.fullTextScan", {
+  startLineLabel: "L00001",
+  endLineLabel: "L00010",
+  batchText: "L00001: 勇者来了",
+});
+
+console.log(rendered.systemPrompt);
+console.log(rendered.userPrompt);
+```
+
 ## 运行测试
 
 ```bash
@@ -68,25 +94,31 @@ bun test
 
 ```ts
 import {
+  GlobalConfigManager,
   FileRequestHistoryLogger,
   LlmClientProvider,
 } from "./index.ts";
 
-const provider = new LlmClientProvider({
-  historyLogger: new FileRequestHistoryLogger("logs"),
-});
-
-provider.register("writer", {
+const configManager = new GlobalConfigManager();
+await configManager.setLlmProfile("writer", {
   provider: "openai",
   modelType: "chat",
   modelName: "gpt-4.1",
   endpoint: "https://api.openai.com/v1",
   apiKeyEnv: "OPENAI_API_KEY",
+  retries: 3,
   defaultRequestConfig: {
     temperature: 0.3,
     maxTokens: 2048,
   },
 });
+await configManager.setDefaultLlmProfileName("writer");
+
+const provider = new LlmClientProvider({
+  historyLogger: new FileRequestHistoryLogger("logs"),
+});
+
+provider.register("writer", await configManager.getResolvedLlmProfile("writer"));
 
 const writer = provider.getChatClient("writer");
 const response = await writer.singleTurnRequest("给我一段简短的摘要");

@@ -11,6 +11,7 @@
 
 import type { ChatClient } from "../llm/base.ts";
 import type { ChatRequestOptions, JsonObject } from "../llm/types.ts";
+import { getDefaultPromptManager } from "../prompts/index.ts";
 import { TEXT_ALIGN_PLACEHOLDER, TextAligner } from "./text-align.ts";
 
 export const DEFAULT_ALIGNMENT_REPAIR_ID_PREFIX = "u";
@@ -49,6 +50,8 @@ export type AlignmentRepairRequestOptions = AlignmentRepairAnalyzeOptions & {
 
 export type AlignmentRepairResult = {
   analysis: AlignmentRepairAnalysis;
+  systemPrompt?: string;
+  userPrompt?: string;
   prompt?: string;
   responseText?: string;
   responseSchema?: JsonObject;
@@ -130,16 +133,27 @@ export class AlignmentRepairTool {
     }
 
     const responseSchema = buildRepairResponseSchema(analysis.missingUnitIds);
-    const prompt = buildAlignmentRepairPrompt(analysis, responseSchema);
+    const promptManager = await getDefaultPromptManager();
+    const renderedPrompt = promptManager.renderPrompt("utils.alignmentRepair", {
+      analysis,
+      missingUnitIdsText: analysis.missingUnitIds.join(", "),
+      responseSchemaJson: JSON.stringify(responseSchema, null, 2),
+    });
     const responseText = await this.chatClient.singleTurnRequest(
-      prompt,
-      buildAlignmentRepairRequestOptions(options.requestOptions, responseSchema),
+      renderedPrompt.userPrompt,
+      buildAlignmentRepairRequestOptions(
+        options.requestOptions,
+        renderedPrompt.systemPrompt,
+        responseSchema,
+      ),
     );
     const repairs = parseAlignmentRepairResponse(responseText, new Set(analysis.missingUnitIds));
 
     return {
       analysis,
-      prompt,
+      systemPrompt: renderedPrompt.systemPrompt,
+      userPrompt: renderedPrompt.userPrompt,
+      prompt: renderedPrompt.userPrompt,
       responseText,
       responseSchema,
       repairs,
@@ -182,36 +196,19 @@ function buildComparisonText(units: ReadonlyArray<AlignmentRepairUnit>): string 
     .join("\n");
 }
 
-function buildAlignmentRepairPrompt(
-  analysis: AlignmentRepairAnalysis,
-  responseSchema: JsonObject,
-): string {
-  return [
-    "你是翻译补漏助手。下面给出按翻译单元编号后的原文/现有译文对照表。",
-    "请只补全 TARGET 为 <MISSING> 的单元。",
-    "不要输出完整译文，不要重复输出已有译文，不要解释原因。",
-    "只返回满足 JSON Schema 的 JSON 对象。",
-    "",
-    `原文行数: ${analysis.sourceLineCount}`,
-    `译文行数: ${analysis.targetLineCount}`,
-    `待补翻 ID: ${analysis.missingUnitIds.join(", ")}`,
-    "",
-    "对照表：",
-    analysis.comparisonText,
-    "",
-    "JSON Schema：",
-    JSON.stringify(responseSchema, null, 2),
-  ].join("\n");
-}
-
 function buildAlignmentRepairRequestOptions(
   requestOptions: ChatRequestOptions | undefined,
+  systemPrompt: string,
   responseSchema: JsonObject,
 ): ChatRequestOptions {
   return {
     ...requestOptions,
     requestConfig: {
       ...(requestOptions?.requestConfig ?? {}),
+      systemPrompt: composeSystemPrompt(
+        systemPrompt,
+        requestOptions?.requestConfig?.systemPrompt,
+      ),
       extraBody: {
         ...(requestOptions?.requestConfig?.extraBody ?? {}),
         response_format: {
@@ -225,6 +222,15 @@ function buildAlignmentRepairRequestOptions(
       },
     },
   };
+}
+
+function composeSystemPrompt(basePrompt: string, overridePrompt: string | undefined): string {
+  const normalizedOverride = overridePrompt?.trim();
+  if (!normalizedOverride) {
+    return basePrompt;
+  }
+
+  return `${basePrompt}\n\n${normalizedOverride}`;
 }
 
 function buildRepairResponseSchema(missingIds: ReadonlyArray<string>): JsonObject {
