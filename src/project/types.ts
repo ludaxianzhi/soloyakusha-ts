@@ -16,13 +16,6 @@ export type TranslationUnit = {
   metadata?: TranslationUnitMetadata;
 };
 
-export type TranslationUnitWindow = {
-  units: TranslationUnit[];
-  originalUnitIndexes?: number[];
-  windowStartUnitIndex?: number;
-  windowEndUnitIndex?: number;
-};
-
 export type TextFragment = {
   lines: string[];
 };
@@ -34,9 +27,6 @@ export type WorkItemMetadata = Record<string, WorkItemMetadataValue>;
 export type FragmentMeta = {
   metadataList: TranslationUnitMetadata[];
   targetGroups?: string[][];
-  originalUnitIndexes?: number[];
-  windowStartUnitIndex?: number;
-  windowEndUnitIndex?: number;
 };
 
 export type PipelineStepStatus = "queued" | "running" | "completed";
@@ -97,7 +87,29 @@ export type TranslationProjectConfig = {
 export type TranslationUnitParser = (content: string) => TranslationUnit[];
 
 export type TranslationUnitSplitter = {
-  split(units: TranslationUnit[]): Array<TranslationUnit[] | TranslationUnitWindow>;
+  split(units: TranslationUnit[]): TranslationUnit[][];
+};
+
+export type SlidingWindowOptions = {
+  overlapChars?: number;
+};
+
+export type SlidingWindowFragmentLine = {
+  unitIndex: number;
+  fragmentIndex: number;
+  lineIndex: number;
+  source: string;
+  translation: string;
+};
+
+export type SlidingWindowFragment = {
+  chapterId: number;
+  fragmentIndex: number;
+  source: TextFragment;
+  translation: TextFragment;
+  lines: SlidingWindowFragmentLine[];
+  focusLineStart: number;
+  focusLineEnd: number;
 };
 
 export type ContextPair = {

@@ -1,11 +1,12 @@
 /**
- * 负责章节加载、文本切分、片段持久化、滑动窗口合并与翻译文档访问。
+ * 负责章节加载、文本切分、片段持久化、运行时滑动窗口视图与翻译文档访问。
  *
  * 本模块是翻译项目的数据存储层核心，提供：
  * - 多格式文件的翻译单元解析
  * - 基于字符限制的文本切分策略
  * - 片段状态的内存索引与磁盘持久化
  * - 翻译结果合并导出
+ * - 基于已切分片段按需派生滑动窗口视图
  *
  * 数据流向：
  * 原始文件 → TranslationUnit[] → FragmentEntry[] → JSON 持久化
@@ -27,12 +28,15 @@ import type {
   ChapterEntry,
   FragmentEntry,
   FragmentPipelineStepState,
+  SlidingWindowFragment,
+  SlidingWindowFragmentLine,
+  SlidingWindowOptions,
   TextFragment,
   TranslationProjectState,
   TranslationUnit,
+  TranslationUnitMetadata,
   TranslationUnitParser,
   TranslationUnitSplitter,
-  TranslationUnitWindow,
 } from "./types.ts";
 import {
   createTextFragment,
@@ -81,106 +85,6 @@ export class DefaultTextSplitter implements TranslationUnitSplitter {
     return fragments;
   }
 }
-
-/**
- * 滑动窗口切分器，按字符长度生成带重叠区间的翻译窗口。
- *
- * 每个窗口包含不超过 maxChars 字符的翻译单元，相邻窗口之间有 overlapChars 的重叠。
- * 重叠区域用于提供上下文信息，帮助翻译模型理解衔接关系。
- *
- * 适用场景：
- * - 需要保持翻译上下文连贯性
- * - 处理长文本章节
- * - 翻译模型需要更多上下文信息
- *
- * 窗口元数据：
- * - originalUnitIndexes: 窗口内翻译单元在原文中的索引
- * - windowStartUnitIndex / windowEndUnitIndex: 窗口边界
- */
-export class SlidingWindowTextSplitter implements TranslationUnitSplitter {
-  constructor(
-    private readonly maxChars = 2000,
-    private readonly overlapChars = 400,
-  ) {
-    if (maxChars <= 0) {
-      throw new Error("maxChars 必须大于 0");
-    }
-
-    if (overlapChars < 0) {
-      throw new Error("overlapChars 不能小于 0");
-    }
-  }
-
-  split(units: TranslationUnit[]): TranslationUnitWindow[] {
-    if (units.length === 0) {
-      return [];
-    }
-
-    const fragments: TranslationUnitWindow[] = [];
-    let startIndex = 0;
-
-    while (startIndex < units.length) {
-      let endIndex = startIndex;
-      let currentLength = 0;
-
-      while (endIndex < units.length) {
-        const unitLength = units[endIndex]?.source.length ?? 0;
-        if (currentLength + unitLength > this.maxChars && endIndex > startIndex) {
-          break;
-        }
-
-        currentLength += unitLength;
-        endIndex += 1;
-      }
-
-      const originalUnitIndexes = createSequentialUnitIndexes(
-        startIndex,
-        endIndex - startIndex,
-      );
-      fragments.push({
-        units: units.slice(startIndex, endIndex),
-        originalUnitIndexes,
-        windowStartUnitIndex: startIndex,
-        windowEndUnitIndex: endIndex,
-      });
-
-      if (endIndex >= units.length) {
-        break;
-      }
-
-      startIndex = this.getNextStartIndex(units, startIndex, endIndex);
-    }
-
-    return fragments;
-  }
-
-  private getNextStartIndex(
-    units: TranslationUnit[],
-    startIndex: number,
-    endIndex: number,
-  ): number {
-    if (this.overlapChars === 0) {
-      return endIndex;
-    }
-
-    let nextStartIndex = endIndex;
-    let overlapLength = 0;
-
-    while (nextStartIndex > startIndex && overlapLength < this.overlapChars) {
-      nextStartIndex -= 1;
-      overlapLength += units[nextStartIndex]?.source.length ?? 0;
-    }
-
-    return Math.max(startIndex + 1, nextStartIndex);
-  }
-}
-
-type NormalizedSplitFragment = {
-  units: TranslationUnit[];
-  originalUnitIndexes: number[];
-  windowStartUnitIndex: number;
-  windowEndUnitIndex: number;
-};
 
 /**
  * 翻译文档管理器，负责章节读写、片段持久化、哈希索引与导出合并。
@@ -373,6 +277,76 @@ export class TranslationDocumentManager {
     return mergeChapterTranslationUnits(chapter);
   }
 
+  getSlidingWindowFragment(
+    chapterId: number,
+    fragmentIndex: number,
+    options: SlidingWindowOptions = {},
+  ): SlidingWindowFragment {
+    const overlapChars = options.overlapChars ?? 400;
+    if (overlapChars < 0) {
+      throw new Error("overlapChars 不能小于 0");
+    }
+
+    const chapter = this.getRequiredChapter(chapterId);
+    const lines = flattenChapterLines(chapter);
+    const focusRange = getFragmentLineRange(chapter, fragmentIndex);
+    const windowStart = expandWindowStart(lines, focusRange.start, overlapChars);
+    const windowEnd = expandWindowEnd(lines, focusRange.end, overlapChars);
+    const windowLines = lines.slice(windowStart, windowEnd);
+
+    return {
+      chapterId,
+      fragmentIndex,
+      source: createTextFragment(windowLines.map((line) => line.source)),
+      translation: createTextFragment(windowLines.map((line) => line.translation)),
+      lines: windowLines.map<SlidingWindowFragmentLine>((line) => ({
+        unitIndex: line.unitIndex,
+        fragmentIndex: line.fragmentIndex,
+        lineIndex: line.lineIndex,
+        source: line.source,
+        translation: line.translation,
+      })),
+      focusLineStart: focusRange.start - windowStart,
+      focusLineEnd: focusRange.end - windowStart,
+    };
+  }
+
+  getChapterSlidingWindowFragments(
+    chapterId: number,
+    options: SlidingWindowOptions = {},
+  ): SlidingWindowFragment[] {
+    const chapter = this.getRequiredChapter(chapterId);
+    return chapter.fragments.map((_fragment, fragmentIndex) =>
+      this.getSlidingWindowFragment(chapterId, fragmentIndex, options),
+    );
+  }
+
+  async updateSlidingWindowTranslation(
+    window: SlidingWindowFragment,
+    translation: TextFragment | string | string[],
+  ): Promise<void> {
+    const normalizedTranslation = normalizeFragment(translation);
+    if (normalizedTranslation.lines.length !== window.source.lines.length) {
+      throw new Error(
+        `滑动窗口译文行数不匹配: expected=${window.source.lines.length}, actual=${normalizedTranslation.lines.length}`,
+      );
+    }
+
+    const fragment = this.getRequiredFragment(window.chapterId, window.fragmentIndex);
+    const focusLines = normalizedTranslation.lines.slice(
+      window.focusLineStart,
+      window.focusLineEnd,
+    );
+    if (focusLines.length !== fragment.source.lines.length) {
+      throw new Error(
+        `滑动窗口回填范围无效: expected=${fragment.source.lines.length}, actual=${focusLines.length}`,
+      );
+    }
+
+    fragment.translation = createTextFragment(focusLines);
+    await this.saveChapterById(window.chapterId);
+  }
+
   async exportChapter(
     chapterId: number,
     outputFilePath: string,
@@ -392,38 +366,7 @@ export class TranslationDocumentManager {
     const units = fileHandler
       ? await fileHandler.readTranslationUnits(filePath)
       : this.parseUnits(await readFile(filePath, "utf8"));
-    const fragmentGroups = normalizeSplitFragments(this.textSplitter.split(units));
-
-    const fragments = fragmentGroups.map<FragmentEntry>((fragmentGroup) => {
-      const fragmentUnits = fragmentGroup.units;
-      const sourceLines = fragmentUnits.map((unit) => unit.source);
-      const metadataList = fragmentUnits.map((unit) => unit.metadata ?? null);
-      const targetGroups = fragmentUnits.map((unit) => [...unit.target]);
-      const source = createTextFragment(sourceLines);
-      const translation = createTextFragment(
-        fragmentUnits.map((unit) => unit.target.at(-1) ?? ""),
-      );
-
-        return {
-          source,
-          translation,
-          pipelineStates: {},
-          meta: {
-            metadataList,
-            targetGroups,
-            originalUnitIndexes: [...fragmentGroup.originalUnitIndexes],
-            windowStartUnitIndex: fragmentGroup.windowStartUnitIndex,
-            windowEndUnitIndex: fragmentGroup.windowEndUnitIndex,
-          },
-          hash: computeHash(source),
-        };
-      });
-
-    const chapter: ChapterEntry = {
-      id: chapterId,
-      filePath,
-      fragments,
-    };
+    const chapter = createChapterEntry(chapterId, filePath, this.textSplitter.split(units));
 
     this.chapters.set(chapterId, chapter);
     this.rebuildHashIndexForChapter(chapter);
@@ -444,8 +387,19 @@ export class TranslationDocumentManager {
     const filePath = this.getChapterDataPath(chapterId);
     try {
       const content = await readFile(filePath, "utf8");
-      const chapter = JSON.parse(content) as ChapterEntry;
-      return normalizePersistedChapter(chapter);
+      const parsed = JSON.parse(content) as ChapterEntry;
+      const chapter = normalizePersistedChapter(parsed);
+      if (chapterNeedsLegacyWindowUpgrade(parsed)) {
+        const upgraded = createChapterEntry(
+          chapter.id,
+          chapter.filePath,
+          this.textSplitter.split(mergeLegacyChapterTranslationUnits(parsed)),
+        );
+        await this.saveChapterToDisk(upgraded);
+        return upgraded;
+      }
+
+      return chapter;
     } catch (error) {
       if (isMissingFileError(error)) {
         return undefined;
@@ -511,26 +465,10 @@ function computeHash(fragment: TextFragment): string {
 }
 
 function normalizePersistedChapter(chapter: ChapterEntry): ChapterEntry {
-  let nextUnitIndex = 0;
-
   return {
     id: chapter.id,
     filePath: chapter.filePath,
     fragments: chapter.fragments.map((fragment) => {
-      const originalUnitIndexes = normalizeOriginalUnitIndexes({
-        providedIndexes: fragment.meta?.originalUnitIndexes,
-        lineCount: fragment.source.lines.length,
-        fallbackStartIndex: nextUnitIndex,
-        windowStartUnitIndex: fragment.meta?.windowStartUnitIndex,
-        windowEndUnitIndex: fragment.meta?.windowEndUnitIndex,
-      });
-      const windowStartUnitIndex = originalUnitIndexes[0] ?? nextUnitIndex;
-      const windowEndUnitIndex =
-        typeof fragment.meta?.windowEndUnitIndex === "number"
-          ? fragment.meta.windowEndUnitIndex
-          : (originalUnitIndexes.at(-1) ?? (windowStartUnitIndex - 1)) + 1;
-      nextUnitIndex = Math.max(nextUnitIndex, windowEndUnitIndex);
-
       return {
         source: fragment.source,
         translation: fragment.translation,
@@ -543,9 +481,6 @@ function normalizePersistedChapter(chapter: ChapterEntry): ChapterEntry {
         meta: {
           metadataList: fragment.meta?.metadataList ?? [],
           targetGroups: (fragment.meta?.targetGroups ?? []).map((group) => [...group]),
-          originalUnitIndexes,
-          windowStartUnitIndex,
-          windowEndUnitIndex,
         },
         hash: fragment.hash,
       };
@@ -584,90 +519,12 @@ function normalizePersistedProjectState(
   };
 }
 
-function normalizeSplitFragments(
-  fragments: Array<TranslationUnit[] | TranslationUnitWindow>,
-): NormalizedSplitFragment[] {
-  const normalized: NormalizedSplitFragment[] = [];
-  let nextUnitIndex = 0;
-
-  for (const fragment of fragments) {
-    const units = Array.isArray(fragment) ? fragment : fragment.units;
-    const originalUnitIndexes = normalizeOriginalUnitIndexes({
-      providedIndexes: Array.isArray(fragment) ? undefined : fragment.originalUnitIndexes,
-      lineCount: units.length,
-      fallbackStartIndex: nextUnitIndex,
-      windowStartUnitIndex:
-        Array.isArray(fragment) ? undefined : fragment.windowStartUnitIndex,
-      windowEndUnitIndex:
-        Array.isArray(fragment) ? undefined : fragment.windowEndUnitIndex,
-    });
-    const windowStartUnitIndex = originalUnitIndexes[0] ?? nextUnitIndex;
-    const windowEndUnitIndex =
-      !Array.isArray(fragment) && typeof fragment.windowEndUnitIndex === "number"
-        ? fragment.windowEndUnitIndex
-        : (originalUnitIndexes.at(-1) ?? (windowStartUnitIndex - 1)) + 1;
-
-    normalized.push({
-      units,
-      originalUnitIndexes,
-      windowStartUnitIndex,
-      windowEndUnitIndex,
-    });
-    nextUnitIndex = Math.max(nextUnitIndex, windowEndUnitIndex);
-  }
-
-  return normalized;
-}
-
 function mergeChapterTranslationUnits(chapter: ChapterEntry): TranslationUnit[] {
-  const unitSlots = new Map<number, TranslationUnit>();
-  let nextUnitIndex = 0;
-
-  for (const fragment of chapter.fragments) {
-    const originalUnitIndexes = normalizeOriginalUnitIndexes({
-      providedIndexes: fragment.meta?.originalUnitIndexes,
-      lineCount: fragment.source.lines.length,
-      fallbackStartIndex: nextUnitIndex,
-      windowStartUnitIndex: fragment.meta?.windowStartUnitIndex,
-      windowEndUnitIndex: fragment.meta?.windowEndUnitIndex,
-    });
-    const fragmentEndUnitIndex =
-      (originalUnitIndexes.at(-1) ?? (nextUnitIndex - 1)) + 1;
-    nextUnitIndex = Math.max(nextUnitIndex, fragmentEndUnitIndex);
-
-    for (const [lineIndex, sourceLine] of fragment.source.lines.entries()) {
-      const unitIndex = originalUnitIndexes[lineIndex];
-      if (typeof unitIndex !== "number") {
-        throw new Error(`章节 ${chapter.id} 的窗口索引缺失: fragment=${fragment.hash}`);
-      }
-
-      const candidate = buildTranslationUnit(fragment, lineIndex, sourceLine);
-      const existing = unitSlots.get(unitIndex);
-      if (!existing) {
-        unitSlots.set(unitIndex, candidate);
-        continue;
-      }
-
-      if (existing.source !== candidate.source) {
-        throw new Error(
-          `章节 ${chapter.id} 的窗口索引 ${unitIndex} 存在不一致原文，无法合并导出`,
-        );
-      }
-
-      if (shouldReplaceMergedUnit(existing, candidate)) {
-        unitSlots.set(unitIndex, candidate);
-      }
-    }
-  }
-
-  const orderedIndexes = Array.from(unitSlots.keys()).sort((left, right) => left - right);
-  for (const [expectedIndex, actualIndex] of orderedIndexes.entries()) {
-    if (expectedIndex !== actualIndex) {
-      throw new Error(`章节 ${chapter.id} 的窗口索引不连续，无法导出`);
-    }
-  }
-
-  return orderedIndexes.map((index) => unitSlots.get(index)!);
+  return chapter.fragments.flatMap((fragment) =>
+    fragment.source.lines.map((sourceLine, lineIndex) =>
+      buildTranslationUnit(fragment, lineIndex, sourceLine),
+    ),
+  );
 }
 
 function buildTranslationUnit(
@@ -696,13 +553,180 @@ function buildTranslationUnit(
   };
 }
 
-function shouldReplaceMergedUnit(existing: TranslationUnit, candidate: TranslationUnit): boolean {
-  const existingTranslation = existing.target.at(-1) ?? "";
-  const candidateTranslation = candidate.target.at(-1) ?? "";
-  return existingTranslation.length === 0 && candidateTranslation.length > 0;
+function createSequentialUnitIndexes(startIndex: number, count: number): number[] {
+  return Array.from({ length: count }, (_, offset) => startIndex + offset);
 }
 
-function normalizeOriginalUnitIndexes(options: {
+function createChapterEntry(
+  chapterId: number,
+  filePath: string,
+  fragmentGroups: TranslationUnit[][],
+): ChapterEntry {
+  return {
+    id: chapterId,
+    filePath,
+    fragments: fragmentGroups.map((fragmentUnits) => createFragmentEntry(fragmentUnits)),
+  };
+}
+
+function createFragmentEntry(fragmentUnits: TranslationUnit[]): FragmentEntry {
+  const source = createTextFragment(fragmentUnits.map((unit) => unit.source));
+  return {
+    source,
+    translation: createTextFragment(fragmentUnits.map((unit) => unit.target.at(-1) ?? "")),
+    pipelineStates: {},
+    meta: {
+      metadataList: fragmentUnits.map((unit) => unit.metadata ?? null),
+      targetGroups: fragmentUnits.map((unit) => [...unit.target]),
+    },
+    hash: computeHash(source),
+  };
+}
+
+type FlattenedChapterLine = {
+  unitIndex: number;
+  fragmentIndex: number;
+  lineIndex: number;
+  source: string;
+  translation: string;
+};
+
+function flattenChapterLines(chapter: ChapterEntry): FlattenedChapterLine[] {
+  let unitIndex = 0;
+  return chapter.fragments.flatMap((fragment, fragmentIndex) =>
+    fragment.source.lines.map((source, lineIndex) => ({
+      unitIndex: unitIndex++,
+      fragmentIndex,
+      lineIndex,
+      source,
+      translation: fragment.translation.lines[lineIndex] ?? "",
+    })),
+  );
+}
+
+function getFragmentLineRange(
+  chapter: ChapterEntry,
+  fragmentIndex: number,
+): { start: number; end: number } {
+  const fragment = chapter.fragments[fragmentIndex];
+  if (!fragment) {
+    throw new Error(`文本块不存在: chapter=${chapter.id}, fragment=${fragmentIndex}`);
+  }
+
+  const start = chapter.fragments
+    .slice(0, fragmentIndex)
+    .reduce((sum, current) => sum + current.source.lines.length, 0);
+  return {
+    start,
+    end: start + fragment.source.lines.length,
+  };
+}
+
+function expandWindowStart(
+  lines: FlattenedChapterLine[],
+  focusStart: number,
+  overlapChars: number,
+): number {
+  let start = focusStart;
+  let currentChars = 0;
+
+  while (start > 0 && currentChars < overlapChars) {
+    start -= 1;
+    currentChars += lines[start]?.source.length ?? 0;
+  }
+
+  return start;
+}
+
+function expandWindowEnd(
+  lines: FlattenedChapterLine[],
+  focusEnd: number,
+  overlapChars: number,
+): number {
+  let end = focusEnd;
+  let currentChars = 0;
+
+  while (end < lines.length && currentChars < overlapChars) {
+    currentChars += lines[end]?.source.length ?? 0;
+    end += 1;
+  }
+
+  return end;
+}
+
+type LegacyFragmentMeta = {
+  metadataList: TranslationUnitMetadata[];
+  targetGroups?: string[][];
+  originalUnitIndexes?: number[];
+  windowStartUnitIndex?: number;
+  windowEndUnitIndex?: number;
+};
+
+type LegacyFragmentEntry = Omit<FragmentEntry, "meta"> & {
+  meta?: LegacyFragmentMeta;
+};
+
+type LegacyChapterEntry = Omit<ChapterEntry, "fragments"> & {
+  fragments: LegacyFragmentEntry[];
+};
+
+function chapterNeedsLegacyWindowUpgrade(chapter: ChapterEntry): chapter is LegacyChapterEntry {
+  return chapter.fragments.some(
+    (fragment) =>
+      Array.isArray((fragment.meta as LegacyFragmentMeta | undefined)?.originalUnitIndexes) ||
+      typeof (fragment.meta as LegacyFragmentMeta | undefined)?.windowStartUnitIndex ===
+        "number" ||
+      typeof (fragment.meta as LegacyFragmentMeta | undefined)?.windowEndUnitIndex === "number",
+  );
+}
+
+function mergeLegacyChapterTranslationUnits(chapter: LegacyChapterEntry): TranslationUnit[] {
+  const unitSlots = new Map<number, TranslationUnit>();
+  let nextUnitIndex = 0;
+
+  for (const fragment of chapter.fragments) {
+    const originalUnitIndexes = normalizeLegacyOriginalUnitIndexes({
+      providedIndexes: fragment.meta?.originalUnitIndexes,
+      lineCount: fragment.source.lines.length,
+      fallbackStartIndex: nextUnitIndex,
+      windowStartUnitIndex: fragment.meta?.windowStartUnitIndex,
+      windowEndUnitIndex: fragment.meta?.windowEndUnitIndex,
+    });
+    const fragmentEndUnitIndex =
+      (originalUnitIndexes.at(-1) ?? (nextUnitIndex - 1)) + 1;
+    nextUnitIndex = Math.max(nextUnitIndex, fragmentEndUnitIndex);
+
+    for (const [lineIndex, sourceLine] of fragment.source.lines.entries()) {
+      const unitIndex = originalUnitIndexes[lineIndex];
+      if (typeof unitIndex !== "number") {
+        throw new Error(`章节 ${chapter.id} 的旧窗口索引缺失: fragment=${fragment.hash}`);
+      }
+
+      const candidate = buildTranslationUnit(fragment, lineIndex, sourceLine);
+      const existing = unitSlots.get(unitIndex);
+      if (!existing) {
+        unitSlots.set(unitIndex, candidate);
+        continue;
+      }
+
+      if (existing.source !== candidate.source) {
+        throw new Error(
+          `章节 ${chapter.id} 的旧窗口索引 ${unitIndex} 存在不一致原文，无法迁移`,
+        );
+      }
+
+      if (shouldReplaceLegacyMergedUnit(existing, candidate)) {
+        unitSlots.set(unitIndex, candidate);
+      }
+    }
+  }
+
+  return Array.from(unitSlots.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([, unit]) => unit);
+}
+
+function normalizeLegacyOriginalUnitIndexes(options: {
   providedIndexes?: number[];
   lineCount: number;
   fallbackStartIndex: number;
@@ -732,8 +756,13 @@ function normalizeOriginalUnitIndexes(options: {
   return createSequentialUnitIndexes(fallbackStartIndex, lineCount);
 }
 
-function createSequentialUnitIndexes(startIndex: number, count: number): number[] {
-  return Array.from({ length: count }, (_, offset) => startIndex + offset);
+function shouldReplaceLegacyMergedUnit(
+  existing: TranslationUnit,
+  candidate: TranslationUnit,
+): boolean {
+  const existingTranslation = existing.target.at(-1) ?? "";
+  const candidateTranslation = candidate.target.at(-1) ?? "";
+  return existingTranslation.length === 0 && candidateTranslation.length > 0;
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
