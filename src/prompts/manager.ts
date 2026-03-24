@@ -1,3 +1,11 @@
+/**
+ * 负责加载、校验并渲染提示词目录中的 system/user 模板。
+ *
+ * 本模块将 YAML/对象格式的提示词定义编译为可复用的模板实例，
+ * 以便上层流程按 promptId 获取最终的 systemPrompt 与 userPrompt。
+ *
+ * @module prompts/manager
+ */
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -14,6 +22,14 @@ type CompiledPromptDefinition = {
   user: ReturnType<typeof createPromptTemplate>;
 };
 
+/**
+ * 提示词管理器，负责从文档加载 prompt 定义并按需渲染 system/user 内容。
+ *
+ * 典型流程：
+ * - 从 YAML 文件、YAML 文本或已解析文档创建实例
+ * - 校验 prompt 目录结构与模板定义
+ * - 根据 promptId 和变量集渲染最终提示词
+ */
 export class PromptManager {
   private readonly prompts = new Map<string, CompiledPromptDefinition>();
 
@@ -70,10 +86,20 @@ const DEFAULT_PROMPT_FILE_PATH = fileURLToPath(
 
 let defaultPromptManagerPromise: Promise<PromptManager> | undefined;
 
+/**
+ * 获取内置默认提示词文件的绝对路径。
+ *
+ * 该路径指向随包分发的默认提示词资源，通常供启动时加载兜底配置使用。
+ */
 export function getDefaultPromptFilePath(): string {
   return DEFAULT_PROMPT_FILE_PATH;
 }
 
+/**
+ * 异步加载并缓存默认提示词管理器实例。
+ *
+ * 首次调用时会读取内置 YAML 资源并完成校验，后续调用复用同一个 Promise。
+ */
 export function getDefaultPromptManager(): Promise<PromptManager> {
   defaultPromptManagerPromise ??= PromptManager.fromYamlFile(DEFAULT_PROMPT_FILE_PATH);
   return defaultPromptManagerPromise;

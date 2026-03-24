@@ -1,3 +1,8 @@
+/**
+ * 将提示词模板定义编译为可渲染模板，并支持静态、插值与 Liquid 风格语法。
+ *
+ * @module prompts/templates
+ */
 import type {
   PromptMessageTemplateDefinition,
   PromptRenderVariables,
@@ -30,6 +35,14 @@ type TemplateNode =
       body: TemplateNode[];
     };
 
+/**
+ * 将单条提示词模板定义编译为可渲染模板实例。
+ *
+ * 支持三种模板类型：
+ * - static：直接返回原始文本
+ * - interpolate：解析 ${variable} 形式的字符串插值
+ * - liquid：解析简化版 Liquid 语法的条件与循环
+ */
 export function createPromptTemplate(
   definition: PromptMessageTemplateDefinition,
 ): PromptTemplate {
