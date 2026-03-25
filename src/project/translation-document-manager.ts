@@ -17,6 +17,7 @@
 import {
   mkdir,
   readFile,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -37,6 +38,7 @@ import type {
   TranslationUnitMetadata,
   TranslationUnitParser,
   TranslationUnitSplitter,
+  WorkspaceConfig,
 } from "./types.ts";
 import {
   createTextFragment,
@@ -104,6 +106,7 @@ export class TranslationDocumentManager {
   readonly projectDir: string;
   readonly dataDir: string;
   readonly projectStatePath: string;
+  readonly workspaceConfigPath: string;
   private readonly textSplitter: TranslationUnitSplitter;
   private readonly parseUnits: TranslationUnitParser;
   private readonly chapters = new Map<number, ChapterEntry>();
@@ -122,6 +125,7 @@ export class TranslationDocumentManager {
     const dataRootDir = resolve(this.projectDir, "Data");
     this.dataDir = resolve(options.chapterDataDir ?? join(dataRootDir, "Chapters"));
     this.projectStatePath = resolve(join(dataRootDir, "project-state.json"));
+    this.workspaceConfigPath = resolve(join(dataRootDir, "workspace-config.json"));
     this.textSplitter = options.textSplitter ?? new DefaultTextSplitter();
     this.parseUnits = options.parseUnits ?? defaultUnitParser;
     this.fileHandlerResolver = options.fileHandlerResolver;
@@ -356,6 +360,74 @@ export class TranslationDocumentManager {
       outputFilePath,
       this.getChapterTranslationUnits(chapterId),
     );
+  }
+
+  /**
+   * 添加新章节：从源文件读取翻译单元、切分为片段并持久化。
+   *
+   * 如果提供了 fileHandler，使用它读取文件；否则回退到构造时的 fileHandlerResolver 和 parseUnits。
+   */
+  async addChapter(
+    chapterId: number,
+    filePath: string,
+    options?: { fileHandler?: TranslationFileHandler },
+  ): Promise<ChapterEntry> {
+    const fileHandler = options?.fileHandler ?? this.fileHandlerResolver?.(filePath);
+    const units = fileHandler
+      ? await fileHandler.readTranslationUnits(filePath)
+      : this.parseUnits(await readFile(filePath, "utf8"));
+    const chapter = createChapterEntry(chapterId, filePath, this.textSplitter.split(units));
+
+    this.chapters.set(chapterId, chapter);
+    this.rebuildHashIndexForChapter(chapter);
+    await this.saveChapterToDisk(chapter);
+    return chapter;
+  }
+
+  /**
+   * 移除章节：从内存中删除章节数据和哈希索引，并删除磁盘上的数据文件。
+   */
+  async removeChapter(chapterId: number): Promise<void> {
+    const chapter = this.chapters.get(chapterId);
+    if (chapter) {
+      for (const fragment of chapter.fragments) {
+        this.hashIndex.delete(fragment.hash);
+      }
+    }
+    this.chapters.delete(chapterId);
+
+    try {
+      await unlink(this.getChapterDataPath(chapterId));
+    } catch (error) {
+      if (!isMissingFileError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * 从磁盘加载工作区配置文件。文件不存在时返回 undefined。
+   */
+  async loadWorkspaceConfig(): Promise<WorkspaceConfig | undefined> {
+    try {
+      const content = await readFile(this.workspaceConfigPath, "utf8");
+      return JSON.parse(content) as WorkspaceConfig;
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 将工作区配置持久化到磁盘。
+   *
+   * 配置以紧凑 JSON 存储（不考虑可读性，优先 API 交互友好性）。
+   */
+  async saveWorkspaceConfig(config: WorkspaceConfig): Promise<void> {
+    await mkdir(dirname(this.workspaceConfigPath), { recursive: true });
+    await writeFile(this.workspaceConfigPath, JSON.stringify(config), "utf8");
   }
 
   private async loadAndInitializeChapter(

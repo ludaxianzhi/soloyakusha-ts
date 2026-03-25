@@ -4,10 +4,12 @@
  * @module project/translation-project
  */
 
-import type { TranslationFileHandlerResolver } from "../file-handlers/base.ts";
+import type { TranslationFileHandler, TranslationFileHandlerResolver } from "../file-handlers/base.ts";
+import { TranslationFileHandlerFactory } from "../file-handlers/factory.ts";
 import { Glossary, GlossaryPersisterFactory } from "../glossary/index.ts";
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { resolve, join, extname, basename } from "node:path";
 import { TranslationContextView } from "./context-view.ts";
 import type {
   GlobalAssociationPattern,
@@ -31,9 +33,12 @@ import { TranslationDocumentManager } from "./translation-document-manager.ts";
 import type {
   Chapter,
   FragmentEntry,
+  GlossaryImportResult,
   GlossaryProgressSnapshot,
   ProjectProgressSnapshot,
   ProjectCursor,
+  TranslationExportResult,
+  TranslationImportResult,
   TranslationProjectLifecycleSnapshot,
   TranslationProjectState,
   TranslationStopMode,
@@ -46,6 +51,10 @@ import type {
   TranslationUnitParser,
   TranslationUnitSplitter,
   TranslationStepQueueEntrySnapshot,
+  WorkspaceChapterDescriptor,
+  WorkspaceConfig,
+  WorkspaceConfigPatch,
+  WorkspaceFileManifest,
 } from "./types.ts";
 import { ProjectProgress, createTextFragment, fragmentToText } from "./types.ts";
 
@@ -60,6 +69,7 @@ export class TranslationProject
   private readonly nextQueueSequenceByStep = new Map<string, number>();
   private glossary?: Glossary;
   private projectState: TranslationProjectState;
+  private workspaceConfig!: WorkspaceConfig;
   private initialized = false;
 
   constructor(
@@ -116,6 +126,17 @@ export class TranslationProject
     this.projectState =
       (await this.documentManager.loadProjectState()) ?? createDefaultProjectState(this.pipeline);
     this.projectState = normalizeProjectStateForPipeline(this.projectState, this.pipeline);
+
+    this.workspaceConfig = buildInitialWorkspaceConfig(this.config, this.chapters);
+    const existingWorkspaceConfig = await this.documentManager.loadWorkspaceConfig();
+    if (existingWorkspaceConfig) {
+      this.workspaceConfig = mergePersistedWorkspaceConfig(
+        this.workspaceConfig,
+        existingWorkspaceConfig,
+      );
+    }
+    await this.documentManager.saveWorkspaceConfig(this.workspaceConfig);
+
     this.initialized = true;
     await this.initializePipelineQueues();
     await this.recoverInterruptedRunIfNeeded();
@@ -124,6 +145,353 @@ export class TranslationProject
 
   getPipeline(): TranslationPipeline {
     return this.pipeline;
+  }
+
+  // ===== Static Factory =====
+
+  /**
+   * 从已有工作区目录打开翻译项目。
+   *
+   * 读取 {projectDir}/Data/workspace-config.json 并据此构建项目实例。
+   */
+  static async openWorkspace(
+    projectDir: string,
+    options: {
+      textSplitter?: TranslationUnitSplitter;
+      parseUnits?: TranslationUnitParser;
+      fileHandlerResolver?: TranslationFileHandlerResolver;
+      glossary?: Glossary;
+      pipeline?: TranslationPipelineDefinition | TranslationPipeline;
+    } = {},
+  ): Promise<TranslationProject> {
+    const resolvedDir = resolve(projectDir);
+    const configPath = join(resolvedDir, "Data", "workspace-config.json");
+
+    let workspaceConfig: WorkspaceConfig;
+    try {
+      const content = await readFile(configPath, "utf8");
+      workspaceConfig = JSON.parse(content) as WorkspaceConfig;
+    } catch {
+      throw new Error(`工作区配置不存在: ${configPath}`);
+    }
+
+    const project = new TranslationProject(
+      {
+        projectName: workspaceConfig.projectName,
+        projectDir,
+        chapters: workspaceConfig.chapters,
+        glossary: workspaceConfig.glossary,
+        customRequirements: workspaceConfig.customRequirements,
+      },
+      options,
+    );
+
+    await project.initialize();
+    return project;
+  }
+
+  // ===== Workspace Config Management =====
+
+  /**
+   * 获取当前工作区配置的只读快照。
+   */
+  getWorkspaceConfig(): WorkspaceConfig {
+    this.ensureInitialized();
+    return cloneWorkspaceConfig(this.workspaceConfig);
+  }
+
+  /**
+   * 部分更新工作区配置并持久化。
+   *
+   * null 值用于清除可选字段。
+   */
+  async updateWorkspaceConfig(
+    patch: WorkspaceConfigPatch,
+  ): Promise<WorkspaceConfig> {
+    this.ensureInitialized();
+    this.workspaceConfig = applyWorkspaceConfigPatch(this.workspaceConfig, patch);
+    await this.documentManager.saveWorkspaceConfig(this.workspaceConfig);
+    return this.getWorkspaceConfig();
+  }
+
+  // ===== Chapter Management =====
+
+  /**
+   * 获取所有章节的描述符列表，按当前排序顺序返回。
+   */
+  getChapterDescriptors(): WorkspaceChapterDescriptor[] {
+    this.ensureInitialized();
+    return this.chapters.map((chapter) => this.buildChapterDescriptor(chapter.id));
+  }
+
+  /**
+   * 获取指定章节的描述符。章节不存在时返回 undefined。
+   */
+  getChapterDescriptor(chapterId: number): WorkspaceChapterDescriptor | undefined {
+    this.ensureInitialized();
+    if (!this.chapters.some((chapter) => chapter.id === chapterId)) {
+      return undefined;
+    }
+    return this.buildChapterDescriptor(chapterId);
+  }
+
+  /**
+   * 添加新章节：从源文件导入翻译单元并初始化 Pipeline 队列。
+   *
+   * @param options.format - 文件格式名（如 "plain_text"、"naturedialog"）
+   * @param options.fileHandler - 自定义文件处理器，优先级高于 format
+   */
+  async addChapter(
+    chapterId: number,
+    filePath: string,
+    options?: {
+      format?: string;
+      fileHandler?: TranslationFileHandler;
+    },
+  ): Promise<TranslationImportResult> {
+    this.ensureInitialized();
+
+    if (this.chapters.some((chapter) => chapter.id === chapterId)) {
+      throw new Error(`章节 ${chapterId} 已存在`);
+    }
+
+    const resolvedPath = resolveChapterPath(this.projectDir, filePath);
+    const fileHandler = this.resolveFileHandler(
+      resolvedPath,
+      options,
+      this.workspaceConfig.defaultImportFormat,
+    );
+    const chapter = await this.documentManager.addChapter(chapterId, resolvedPath, {
+      fileHandler,
+    });
+
+    this.chapters.push({ id: chapterId, filePath });
+    this.workspaceConfig = {
+      ...this.workspaceConfig,
+      chapters: this.chapters.map((ch) => ({ id: ch.id, filePath: ch.filePath })),
+    };
+    await this.documentManager.saveWorkspaceConfig(this.workspaceConfig);
+    await this.initializePipelineQueues();
+
+    return {
+      chapterId,
+      filePath,
+      unitCount: chapter.fragments.reduce(
+        (sum, fragment) => sum + fragment.source.lines.length,
+        0,
+      ),
+      fragmentCount: chapter.fragments.length,
+    };
+  }
+
+  /**
+   * 移除章节：删除章节数据并更新工作区配置。
+   */
+  async removeChapter(chapterId: number): Promise<void> {
+    this.ensureInitialized();
+
+    const index = this.chapters.findIndex((chapter) => chapter.id === chapterId);
+    if (index === -1) {
+      throw new Error(`章节 ${chapterId} 不存在`);
+    }
+
+    await this.documentManager.removeChapter(chapterId);
+    this.chapters.splice(index, 1);
+    this.workspaceConfig = {
+      ...this.workspaceConfig,
+      chapters: this.chapters.map((ch) => ({ id: ch.id, filePath: ch.filePath })),
+    };
+    this.queueCache.clear();
+    await this.documentManager.saveWorkspaceConfig(this.workspaceConfig);
+    await this.refreshLifecycleState();
+  }
+
+  /**
+   * 重新排列章节顺序。
+   *
+   * @param chapterIds - 必须恰好包含所有现有章节 ID，不重复、不遗漏
+   */
+  async reorderChapters(chapterIds: number[]): Promise<void> {
+    this.ensureInitialized();
+
+    const existingIds = new Set(this.chapters.map((chapter) => chapter.id));
+    for (const id of chapterIds) {
+      if (!existingIds.has(id)) {
+        throw new Error(`章节 ${id} 不存在`);
+      }
+    }
+    if (new Set(chapterIds).size !== this.chapters.length) {
+      throw new Error("重排序列表必须恰好包含所有章节且不重复");
+    }
+
+    const chapterMap = new Map(this.chapters.map((chapter) => [chapter.id, chapter]));
+    this.chapters.length = 0;
+    for (const id of chapterIds) {
+      this.chapters.push(chapterMap.get(id)!);
+    }
+
+    this.workspaceConfig = {
+      ...this.workspaceConfig,
+      chapters: this.chapters.map((ch) => ({ id: ch.id, filePath: ch.filePath })),
+    };
+    await this.documentManager.saveWorkspaceConfig(this.workspaceConfig);
+  }
+
+  // ===== Translation Export =====
+
+  /**
+   * 导出指定章节的翻译结果到文件。
+   *
+   * @param options.format - 导出格式名，如不指定则使用工作区默认导出格式
+   * @param options.fileHandler - 自定义文件处理器
+   */
+  async exportChapter(
+    chapterId: number,
+    outputPath: string,
+    options?: {
+      format?: string;
+      fileHandler?: TranslationFileHandler;
+    },
+  ): Promise<TranslationExportResult> {
+    this.ensureInitialized();
+
+    const resolvedPath = resolveChapterPath(this.projectDir, outputPath);
+    const fileHandler = this.resolveFileHandler(
+      resolvedPath,
+      options,
+      this.workspaceConfig.defaultExportFormat,
+    );
+    if (!fileHandler) {
+      throw new Error(
+        `无法确定导出格式，请通过 format 或 fileHandler 指定: ${outputPath}`,
+      );
+    }
+
+    const units = this.documentManager.getChapterTranslationUnits(chapterId);
+    await this.documentManager.exportChapter(chapterId, resolvedPath, fileHandler);
+
+    return {
+      chapterId,
+      outputPath: resolvedPath,
+      unitCount: units.length,
+    };
+  }
+
+  /**
+   * 批量导出所有章节到指定目录。
+   *
+   * 输出文件名基于源文件名，扩展名根据格式决定。
+   *
+   * @param options.fileExtension - 强制指定输出扩展名（如 ".txt"）
+   */
+  async exportAllChapters(
+    outputDir: string,
+    options?: {
+      format?: string;
+      fileHandler?: TranslationFileHandler;
+      fileExtension?: string;
+    },
+  ): Promise<TranslationExportResult[]> {
+    this.ensureInitialized();
+
+    const resolvedDir = resolveChapterPath(this.projectDir, outputDir);
+    const results: TranslationExportResult[] = [];
+
+    for (const chapter of this.chapters) {
+      const ext =
+        options?.fileExtension ??
+        getExportFileExtension(chapter.filePath, options?.format);
+      const base = basename(chapter.filePath, extname(chapter.filePath));
+      const outputPath = join(resolvedDir, `${base}${ext}`);
+      results.push(
+        await this.exportChapter(chapter.id, outputPath, options),
+      );
+    }
+
+    return results;
+  }
+
+  // ===== Glossary Import/Export =====
+
+  /**
+   * 从外部文件导入术语表，合并到当前项目的术语表中。
+   *
+   * 支持格式由 GlossaryPersisterFactory 决定（JSON/CSV/TSV/YAML/XML）。
+   * 已存在的术语会被更新，新术语会被添加。
+   */
+  async importGlossary(filePath: string): Promise<GlossaryImportResult> {
+    this.ensureInitialized();
+
+    const resolvedPath = resolveChapterPath(this.projectDir, filePath);
+    const persister = GlossaryPersisterFactory.getPersister(resolvedPath);
+    const importedGlossary = await persister.loadGlossary(resolvedPath);
+    const importedTerms = importedGlossary.getAllTerms();
+
+    this.glossary ??= new Glossary();
+    const existingTerms = new Set(this.glossary.getAllTerms().map((term) => term.term));
+    let newTermCount = 0;
+    let updatedTermCount = 0;
+
+    for (const term of importedTerms) {
+      if (existingTerms.has(term.term)) {
+        this.glossary.updateTerm(term.term, term);
+        updatedTermCount += 1;
+      } else {
+        this.glossary.addTerm(term);
+        newTermCount += 1;
+      }
+    }
+
+    await this.saveGlossaryIfNeeded();
+
+    return {
+      filePath: resolvedPath,
+      termCount: importedTerms.length,
+      newTermCount,
+      updatedTermCount,
+    };
+  }
+
+  /**
+   * 将当前术语表导出到指定文件。
+   *
+   * 输出格式由文件扩展名决定。
+   */
+  async exportGlossary(outputPath: string): Promise<void> {
+    this.ensureInitialized();
+
+    if (!this.glossary) {
+      throw new Error("当前项目没有术语表");
+    }
+
+    const resolvedPath = resolveChapterPath(this.projectDir, outputPath);
+    const persister = GlossaryPersisterFactory.getPersister(resolvedPath);
+    await persister.saveGlossary(this.glossary, resolvedPath);
+  }
+
+  // ===== Workspace File Info =====
+
+  /**
+   * 获取工作区文件清单，列出所有关键文件的绝对路径。
+   */
+  getWorkspaceFileManifest(): WorkspaceFileManifest {
+    this.ensureInitialized();
+
+    const glossaryPath = this.config.glossary?.path
+      ? resolveChapterPath(this.projectDir, this.config.glossary.path)
+      : undefined;
+
+    return {
+      projectDir: this.projectDir,
+      configPath: this.documentManager.workspaceConfigPath,
+      projectStatePath: this.documentManager.projectStatePath,
+      glossaryPath,
+      chapters: this.chapters.map((chapter) => ({
+        id: chapter.id,
+        sourceFilePath: resolveChapterPath(this.projectDir, chapter.filePath),
+        dataFilePath: join(this.documentManager.dataDir, `${chapter.id}.json`),
+      })),
+    };
   }
 
   getLifecycleSnapshot(): TranslationProjectLifecycleSnapshot {
@@ -1171,6 +1539,51 @@ export class TranslationProject
     return "waiting_for_step_dependencies";
   }
 
+  private buildChapterDescriptor(chapterId: number): WorkspaceChapterDescriptor {
+    const chapter = this.documentManager.getChapterById(chapterId);
+    const chapterConfig = this.chapters.find((ch) => ch.id === chapterId);
+
+    if (!chapter || !chapterConfig) {
+      throw new Error(`章节 ${chapterId} 不存在`);
+    }
+
+    const sourceLineCount = chapter.fragments.reduce(
+      (sum, fragment) => sum + fragment.source.lines.length,
+      0,
+    );
+    const translatedLineCount = chapter.fragments.reduce(
+      (sum, fragment) =>
+        sum + fragment.translation.lines.filter((line) => line.length > 0).length,
+      0,
+    );
+
+    return {
+      id: chapterId,
+      filePath: chapterConfig.filePath,
+      fragmentCount: chapter.fragments.length,
+      sourceLineCount,
+      translatedLineCount,
+      hasTranslationData: translatedLineCount > 0,
+    };
+  }
+
+  private resolveFileHandler(
+    filePath: string,
+    options?: { format?: string; fileHandler?: TranslationFileHandler },
+    defaultFormat?: string,
+  ): TranslationFileHandler | undefined {
+    if (options?.fileHandler) {
+      return options.fileHandler;
+    }
+
+    const format = options?.format ?? defaultFormat;
+    if (format) {
+      return TranslationFileHandlerFactory.getHandler(format);
+    }
+
+    return undefined;
+  }
+
   private ensureInitialized(): void {
     if (!this.initialized) {
       throw new Error("项目尚未初始化，请先调用 initialize()");
@@ -1242,4 +1655,111 @@ function collectSourceTextBlocks(
       text: fragment.source.lines.join("\n"),
     })),
   );
+}
+
+// ===== Workspace Config Helpers =====
+
+function buildInitialWorkspaceConfig(
+  config: TranslationProjectConfig,
+  chapters: Chapter[],
+): WorkspaceConfig {
+  return {
+    schemaVersion: 1,
+    projectName: config.projectName,
+    chapters: chapters.map((chapter) => ({ id: chapter.id, filePath: chapter.filePath })),
+    glossary: {
+      path: config.glossary?.path,
+      autoFilter: config.glossary?.autoFilter,
+    },
+    translator: {},
+    slidingWindow: {},
+    customRequirements: [...(config.customRequirements ?? [])],
+  };
+}
+
+/**
+ * 合并持久化的工作区配置到当前配置。
+ *
+ * 章节列表、术语表设置和自定义要求以构造时配置为准（反映运行时实际状态）；
+ * 翻译器选择、滑动窗口、上下文大小、默认格式等工作区特有设置以持久化配置为准。
+ */
+function mergePersistedWorkspaceConfig(
+  current: WorkspaceConfig,
+  persisted: WorkspaceConfig,
+): WorkspaceConfig {
+  return {
+    ...current,
+    translator: {
+      ...current.translator,
+      ...persisted.translator,
+    },
+    slidingWindow: {
+      ...current.slidingWindow,
+      ...persisted.slidingWindow,
+    },
+    contextSize: persisted.contextSize ?? current.contextSize,
+    defaultImportFormat: persisted.defaultImportFormat ?? current.defaultImportFormat,
+    defaultExportFormat: persisted.defaultExportFormat ?? current.defaultExportFormat,
+  };
+}
+
+function applyWorkspaceConfigPatch(
+  config: WorkspaceConfig,
+  patch: WorkspaceConfigPatch,
+): WorkspaceConfig {
+  return {
+    ...config,
+    projectName: patch.projectName ?? config.projectName,
+    glossary: patch.glossary
+      ? { ...config.glossary, ...patch.glossary }
+      : config.glossary,
+    translator: patch.translator
+      ? { ...config.translator, ...patch.translator }
+      : config.translator,
+    slidingWindow: patch.slidingWindow
+      ? { ...config.slidingWindow, ...patch.slidingWindow }
+      : config.slidingWindow,
+    contextSize:
+      patch.contextSize === null
+        ? undefined
+        : (patch.contextSize ?? config.contextSize),
+    customRequirements: patch.customRequirements ?? config.customRequirements,
+    defaultImportFormat:
+      patch.defaultImportFormat === null
+        ? undefined
+        : (patch.defaultImportFormat ?? config.defaultImportFormat),
+    defaultExportFormat:
+      patch.defaultExportFormat === null
+        ? undefined
+        : (patch.defaultExportFormat ?? config.defaultExportFormat),
+  };
+}
+
+function cloneWorkspaceConfig(config: WorkspaceConfig): WorkspaceConfig {
+  return {
+    ...config,
+    chapters: config.chapters.map((ch) => ({ ...ch })),
+    glossary: { ...config.glossary },
+    translator: { ...config.translator },
+    slidingWindow: { ...config.slidingWindow },
+    customRequirements: [...config.customRequirements],
+  };
+}
+
+const FORMAT_FILE_EXTENSIONS: Record<string, string> = {
+  plain_text: ".txt",
+  naturedialog: ".txt",
+  naturedialog_keepname: ".txt",
+  m3t: ".m3t",
+  galtransl_json: ".json",
+};
+
+function getExportFileExtension(
+  originalFilePath: string,
+  format?: string,
+): string {
+  if (format) {
+    return FORMAT_FILE_EXTENSIONS[format] ?? `.${format}`;
+  }
+  return extname(originalFilePath) || ".txt";
 }

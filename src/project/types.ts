@@ -293,3 +293,121 @@ export function createTextFragment(input: string | string[]): TextFragment {
 export function fragmentToText(fragment: TextFragment): string {
   return fragment.lines.join("\n");
 }
+
+// ===== Workspace Config Types =====
+
+/**
+ * 工作区翻译器配置，覆盖全局默认的翻译器设置。
+ *
+ * 职责边界：
+ * - 全局配置（GlobalConfigManager）：LLM profiles、API keys、endpoints、默认模型
+ * - 工作区配置（WorkspaceTranslatorConfig）：当前项目使用的模型名和工作流
+ */
+export type WorkspaceTranslatorConfig = {
+  modelName?: string;
+  workflow?: string;
+};
+
+/**
+ * 工作区滑动窗口配置。
+ */
+export type WorkspaceSlidingWindowConfig = {
+  overlapChars?: number;
+};
+
+/**
+ * 工作区配置文件的完整结构。
+ *
+ * 存储翻译项目的所有非数据设置。翻译单元和术语条目
+ * 分别存储在章节数据文件和术语表文件中。
+ *
+ * 与全局配置的职责边界：
+ * - 全局配置：LLM 服务连接信息（profiles/keys/endpoints）、系统级默认参数
+ * - 工作区配置：项目级设置（章节列表、排序、翻译器选择、窗口参数、上下文大小）
+ *
+ * 配置文件路径：{projectDir}/Data/workspace-config.json
+ */
+export type WorkspaceConfig = {
+  schemaVersion: 1;
+  projectName: string;
+  chapters: Chapter[];
+  glossary: GlossarySettings;
+  translator: WorkspaceTranslatorConfig;
+  slidingWindow: WorkspaceSlidingWindowConfig;
+  contextSize?: number;
+  customRequirements: string[];
+  defaultImportFormat?: string;
+  defaultExportFormat?: string;
+};
+
+/**
+ * 工作区配置的部分更新补丁。
+ *
+ * null 值表示清除对应字段。
+ */
+export type WorkspaceConfigPatch = {
+  projectName?: string;
+  glossary?: Partial<GlossarySettings>;
+  translator?: Partial<WorkspaceTranslatorConfig>;
+  slidingWindow?: Partial<WorkspaceSlidingWindowConfig>;
+  contextSize?: number | null;
+  customRequirements?: string[];
+  defaultImportFormat?: string | null;
+  defaultExportFormat?: string | null;
+};
+
+/**
+ * 章节描述符，提供章节的元信息摘要。
+ */
+export type WorkspaceChapterDescriptor = {
+  id: number;
+  filePath: string;
+  fragmentCount: number;
+  sourceLineCount: number;
+  translatedLineCount: number;
+  hasTranslationData: boolean;
+};
+
+/**
+ * 工作区文件清单，列出工作区中所有关键文件路径。
+ */
+export type WorkspaceFileManifest = {
+  projectDir: string;
+  configPath: string;
+  projectStatePath: string;
+  glossaryPath?: string;
+  chapters: Array<{
+    id: number;
+    sourceFilePath: string;
+    dataFilePath: string;
+  }>;
+};
+
+/**
+ * 翻译文件导入结果。
+ */
+export type TranslationImportResult = {
+  chapterId: number;
+  filePath: string;
+  unitCount: number;
+  fragmentCount: number;
+};
+
+/**
+ * 翻译文件导出结果。
+ */
+export type TranslationExportResult = {
+  chapterId: number;
+  outputPath: string;
+  unitCount: number;
+};
+
+/**
+ * 术语表导入结果。
+ */
+export type GlossaryImportResult = {
+  filePath: string;
+  termCount: number;
+  newTermCount: number;
+  updatedTermCount: number;
+};
