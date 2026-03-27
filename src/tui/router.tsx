@@ -4,6 +4,8 @@ import { MainMenuScreen } from './screens/main-menu.tsx';
 import { WorkspaceMenuScreen } from './screens/workspace-menu.tsx';
 import { WorkspaceCreateScreen } from './screens/workspace-create.tsx';
 import { WorkspaceProgressScreen } from './screens/workspace-progress.tsx';
+import { WorkspaceDictionaryScreen } from './screens/workspace-dictionary.tsx';
+import { WorkspaceHistoryScreen } from './screens/workspace-history.tsx';
 import { WorkspaceImportScreen } from './screens/workspace-import.tsx';
 import { WorkspaceConfigScreen } from './screens/workspace-config.tsx';
 import { WorkspaceSortScreen } from './screens/workspace-sort.tsx';
@@ -19,6 +21,8 @@ const screenMap: Record<ScreenName, () => JSX.Element> = {
   'workspace-menu': WorkspaceMenuScreen,
   'workspace-create': WorkspaceCreateScreen,
   'workspace-progress': WorkspaceProgressScreen,
+  'workspace-dictionary': WorkspaceDictionaryScreen,
+  'workspace-history': WorkspaceHistoryScreen,
   'workspace-import': WorkspaceImportScreen,
   'workspace-config': WorkspaceConfigScreen,
   'workspace-sort': WorkspaceSortScreen,

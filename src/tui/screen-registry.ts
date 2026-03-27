@@ -56,8 +56,8 @@ export const screenDescriptors: Record<ScreenName, ScreenDescriptor> = {
   },
   'workspace-progress': {
     eyebrow: 'PROGRESS',
-    title: '项目进度与控制',
-    subtitle: '实时查看生命周期、队列进度和步骤状态，并直接控制项目运行。',
+    title: '项目主页',
+    subtitle: '实时查看项目信息、翻译进度，并进入字典、日志和翻译控制功能。',
     tone: 'green',
     mdx: String.raw`
 ## Live project control
@@ -68,6 +68,36 @@ export const screenDescriptors: Record<ScreenName, ScreenDescriptor> = {
 - 章节 / 文本块 / 步骤进度
 - 开始、暂停、恢复、保存与中止动作
 - 与项目控制相关的日志反馈
+`,
+  },
+  'workspace-dictionary': {
+    eyebrow: 'GLOSSARY',
+    title: '字典编辑',
+    subtitle: '浏览并编辑项目中的术语条目。',
+    tone: 'yellow',
+    mdx: String.raw`
+## Glossary workspace
+
+这里用于：
+
+- 浏览术语条目及翻译状态
+- 编辑术语、译文和说明
+- 快速补充项目字典
+`,
+  },
+  'workspace-history': {
+    eyebrow: 'HISTORY',
+    title: '历史日志',
+    subtitle: '查看当前 TUI 事件日志，以及可用的 LLM 请求历史。',
+    tone: 'blue',
+    mdx: String.raw`
+## History viewer
+
+这里会展示：
+
+- 当前会话内的项目事件日志
+- 最近的 LLM 请求历史（如果存在）
+- 便于排查的运行时间线
 `,
   },
   'workspace-import': {

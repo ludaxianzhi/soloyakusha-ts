@@ -13,6 +13,9 @@ type ActionValue =
   | 'resume'
   | 'save'
   | 'abort'
+  | 'scan-dictionary'
+  | 'dictionary'
+  | 'history'
   | 'refresh'
   | 'open'
   | 'back';
@@ -28,6 +31,7 @@ export function WorkspaceProgressScreen() {
     resumeTranslation,
     saveProgress,
     abortTranslation,
+    scanDictionary,
     refreshSnapshot,
   } = useProject();
 
@@ -37,12 +41,14 @@ export function WorkspaceProgressScreen() {
     }
   });
 
-  const items = buildActionItems(snapshot, Boolean(project));
+  const workspaceConfig = project?.getWorkspaceConfig();
+  const glossaryTerms = project?.getGlossary()?.getAllTerms().length ?? 0;
+  const items = buildActionItems(snapshot, Boolean(project), glossaryTerms > 0);
 
   return (
     <SafeBox flexDirection="column" gap={1}>
       <Panel
-        title="项目进度总览"
+        title="项目基本信息"
         subtitle={project ? '实时读取当前项目快照。' : '请先创建或打开一个工作区。'}
         tone="green"
       >
@@ -69,6 +75,28 @@ export function WorkspaceProgressScreen() {
             <Text>
               总进度：{formatPercent(snapshot.progress.fragmentProgressRatio)} ·
               队列：排队 {snapshot.lifecycle.queuedWorkItems} / 运行中 {snapshot.lifecycle.activeWorkItems}
+            </Text>
+            <Text>
+              翻译器：
+              {' '}
+              {workspaceConfig?.translator.modelName ? (
+                <Text color="magenta">{workspaceConfig.translator.modelName}</Text>
+              ) : (
+                <Text dimColor>未设置</Text>
+              )}
+              {' / '}
+              {workspaceConfig?.translator.workflow || 'default'}
+            </Text>
+            <Text>
+              字典：
+              {' '}
+              {snapshot.glossary ? (
+                <Text color="yellow">
+                  {snapshot.glossary.totalTerms} 项（已翻译 {snapshot.glossary.translatedTerms}）
+                </Text>
+              ) : (
+                <Text dimColor>尚未扫描</Text>
+              )}
             </Text>
             <Text dimColor>
               当前游标：
@@ -106,8 +134,8 @@ export function WorkspaceProgressScreen() {
       </Panel>
 
       <Select<ActionValue>
-        title={isBusy ? '项目控制动作（处理中）' : '项目控制动作'}
-        description="选择要执行的项目控制动作。"
+        title={isBusy ? '项目菜单（处理中）' : '项目菜单'}
+        description="项目主页入口：翻译控制、字典操作与历史日志。"
         items={items}
         onSelect={(item) => {
           switch (item.value) {
@@ -129,6 +157,15 @@ export function WorkspaceProgressScreen() {
             case 'abort':
               void abortTranslation();
               return;
+            case 'scan-dictionary':
+              void scanDictionary();
+              return;
+            case 'dictionary':
+              navigate('workspace-dictionary');
+              return;
+            case 'history':
+              navigate('workspace-history');
+              return;
             case 'refresh':
               void refreshSnapshot();
               return;
@@ -146,13 +183,14 @@ export function WorkspaceProgressScreen() {
 function buildActionItems(
   snapshot: TranslationProjectSnapshot | null,
   hasProject: boolean,
+  hasDictionary: boolean,
 ): SelectItem<ActionValue>[] {
   if (!snapshot || !hasProject) {
     return [
       {
-        label: '📁 初始化 / 打开工作区',
+        label: '📁 初始化项目工作流',
         value: 'open',
-        description: '进入工作区表单，初始化新项目或打开已有工作区。',
+        description: '进入多步骤项目初始化向导。',
         meta: 'init',
       },
       {
@@ -165,11 +203,12 @@ function buildActionItems(
   }
 
   const items: SelectItem<ActionValue>[] = [];
-  if (snapshot.lifecycle.canStart && snapshot.lifecycle.status !== 'stopped' && snapshot.lifecycle.status !== 'aborted' && snapshot.lifecycle.status !== 'interrupted') {
+
+  if (snapshot.lifecycle.canStart && !snapshot.lifecycle.canResume) {
     items.push({
       label: '▶️ 开始翻译',
       value: 'start',
-      description: '启动翻译流程并进入运行状态。',
+      description: '启动翻译流程并开始实际处理队列。',
       meta: 'start',
     });
   }
@@ -178,7 +217,7 @@ function buildActionItems(
     items.push({
       label: '⏯️ 恢复翻译',
       value: 'resume',
-      description: '从暂停、中断或中止后的状态恢复翻译流程。',
+      description: '从暂停、中断或中止状态恢复翻译处理。',
       meta: 'resume',
     });
   }
@@ -187,16 +226,25 @@ function buildActionItems(
     items.push({
       label: '⏸️ 暂停翻译',
       value: 'pause',
-      description: '提交温和暂停请求，停止继续调度新的工作项。',
+      description: '停止继续调度新的工作项，等待当前项自然完成。',
       meta: 'pause',
     });
   }
 
+  items.push({
+    label: hasDictionary ? '📚 字典编辑' : '🔍 开始扫描字典',
+    value: hasDictionary ? 'dictionary' : 'scan-dictionary',
+    description: hasDictionary
+      ? '浏览并编辑当前项目字典。'
+      : '基于项目内容执行字典扫描，生成候选术语。',
+    meta: hasDictionary ? 'glossary' : 'scan',
+  });
+
   if (snapshot.lifecycle.canSave) {
     items.push({
-      label: '💾 保存进度',
+      label: '💾 保存项目进度',
       value: 'save',
-      description: '持久化当前章节状态、术语表和项目生命周期信息。',
+      description: '持久化项目、章节与字典状态。',
       meta: 'save',
     });
   }
@@ -205,15 +253,21 @@ function buildActionItems(
     items.push({
       label: '🛑 中止翻译',
       value: 'abort',
-      description: '立即中止当前翻译流程，并把运行项重新回队。',
+      description: '立即中止当前翻译流程，并使工作项回队。',
       meta: 'abort',
     });
   }
 
   items.push({
-    label: '🔄 刷新快照',
+    label: '🕘 查看历史日志',
+    value: 'history',
+    description: '查看当前事件日志以及可用的 LLM 请求历史。',
+    meta: 'logs',
+  });
+  items.push({
+    label: '🔄 刷新项目状态',
     value: 'refresh',
-    description: '立即重新读取项目快照和当前进度信息。',
+    description: '立即刷新当前项目快照。',
     meta: 'refresh',
   });
   items.push({

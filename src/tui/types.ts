@@ -3,6 +3,8 @@ export type ScreenName =
   | 'workspace-menu'
   | 'workspace-create'
   | 'workspace-progress'
+  | 'workspace-dictionary'
+  | 'workspace-history'
   | 'workspace-import'
   | 'workspace-config'
   | 'workspace-sort'
