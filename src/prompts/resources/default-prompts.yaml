@@ -101,6 +101,35 @@ prompts:
 
         {% endif %}
 
+  project.plotSummary:
+    system:
+      type: interpolate
+      template: |
+        你是一个小说/剧情文本情节总结助手。
+        任务：根据用户消息中提供的原文文本块，使用原文所用语言对情节内容进行简洁而全面的总结。
+        如果用户提供了已有总结作为上下文，请结合这些上下文理解当前段落的情节走向，但总结内容只针对本次提供的文本块。
+        mainEvents：描述本段落的主要情节事件，用原文语言简洁陈述。
+        keyCharacters：列出本段落中涉及的关键人物，用原文语言表述。
+        setting：描述本段落的主要场景和背景，用原文语言表述。
+        notes：记录其他值得关注的细节、伏笔或情节转折；如无则返回空字符串。
+        只返回 JSON，不要输出 Markdown、解释或代码块。
+        输出必须严格满足以下 JSON Schema：
+        ${responseSchemaJson}
+    user:
+      type: liquid
+      template: |
+        {% if contextSummaries.size > 0 %}
+        已有情节总结（最近 {{ contextSummaries.size }} 条，仅供参考）：
+        {% for item in contextSummaries %}
+        {{ item }}
+        {% endfor %}
+        {% endif %}
+        待总结原文文本块（共 {{ sourceBlocks.size }} 块）：
+        {% for block in sourceBlocks %}
+        --- 文本块 ---
+        {{ block }}
+        {% endfor %}
+
   utils.alignmentRepair:
     system:
       type: interpolate
