@@ -129,7 +129,12 @@ export function resolveTranslationDependencyMode(
   if (
     hasCompletedPeer &&
     matchedGlossaryTerms.length > 0 &&
-    matchedGlossaryTerms.every((term) => term.status === "translated")
+    matchedGlossaryTerms.every((term) => term.status === "translated") &&
+    options.orderedFragments
+      .slice(0, Math.floor((currentIndex + 1) / 2))
+      .every((fragment) =>
+        options.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, options.stepId),
+      )
   ) {
     return "glossaryTerms";
   }
@@ -183,6 +188,17 @@ export function getTranslationDependencyBlockedReason(
   );
   if (!hasCompletedPeer) {
     return "waiting_for_completed_peer";
+  }
+
+  const requiredPrecedingCount = Math.floor((currentIndex + 1) / 2);
+  const precedingNotCompleted = options.orderedFragments
+    .slice(0, requiredPrecedingCount)
+    .some(
+      (fragment) =>
+        !options.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, options.stepId),
+    );
+  if (precedingNotCompleted) {
+    return "waiting_for_preceding_fragments";
   }
 
   return "waiting_for_step_dependencies";

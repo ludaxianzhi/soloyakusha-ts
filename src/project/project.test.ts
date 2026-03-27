@@ -168,9 +168,8 @@ describe("TranslationProject", () => {
     const glossaryContext = glossaryItem?.contextView?.getContext("dependencyTranslation");
     expect(glossaryContext?.type).toBe("dependencyTranslation");
     if (glossaryContext?.type === "dependencyTranslation") {
-      expect(glossaryContext.pairs).toHaveLength(2);
+      expect(glossaryContext.pairs).toHaveLength(1);
       expect(glossaryContext.pairs[0]?.sourceText).toBe("王都教会钟声回荡");
-      expect(glossaryContext.pairs[1]?.sourceText).toBe("王都公告正式发布");
     }
   });
 

@@ -186,48 +186,25 @@ export class TranslationContextView {
       return [];
     }
 
-    const nearest = [...translatedRefs].sort((left, right) =>
-      compareByDistance(left, right, currentIndex, orderedFragments),
-    )[0];
-    const pairs: ContextPair[] = [];
-
-    if (nearest) {
-      pairs.push(
-        createContextPair(
-          nearest.chapterId,
-          nearest.fragmentIndex,
-          this.options.documentManager,
-        ),
-      );
+    const best = this.selectBestGlossaryDependencyRef(translatedRefs, currentIndex, orderedFragments);
+    if (!best) {
+      return [];
     }
 
-    const overlapRef = this.getHighestGlossaryOverlapRef(translatedRefs, nearest);
-    if (
-      overlapRef &&
-      !pairs.some(
-        (pair) =>
-          pair.chapterId === overlapRef.chapterId &&
-          pair.fragmentIndex === overlapRef.fragmentIndex,
-      )
-    ) {
-      pairs.push(
-        createContextPair(
-          overlapRef.chapterId,
-          overlapRef.fragmentIndex,
-          this.options.documentManager,
-        ),
-      );
-    }
-
-    return pairs;
+    return [
+      createContextPair(best.chapterId, best.fragmentIndex, this.options.documentManager),
+    ];
   }
 
-  private getHighestGlossaryOverlapRef(
+  private selectBestGlossaryDependencyRef(
     translatedRefs: OrderedFragmentRef[],
-    nearest?: OrderedFragmentRef,
+    currentIndex: number,
+    orderedFragments: OrderedFragmentRef[],
   ): OrderedFragmentRef | undefined {
     if (!this.options.glossary) {
-      return undefined;
+      return [...translatedRefs].sort((left, right) =>
+        compareByDistance(left, right, currentIndex, orderedFragments),
+      )[0];
     }
 
     const currentTerms = new Set(
@@ -236,33 +213,30 @@ export class TranslationContextView {
         .filter((term) => term.status === "translated")
         .map((term) => term.term),
     );
-    if (currentTerms.size === 0) {
-      return undefined;
-    }
 
-    let bestScore = 0;
+    let bestScore = -1;
     let bestRef: OrderedFragmentRef | undefined;
+    let bestDistance = Infinity;
 
     for (const ref of translatedRefs) {
-      if (
-        nearest &&
-        ref.chapterId === nearest.chapterId &&
-        ref.fragmentIndex === nearest.fragmentIndex
-      ) {
-        continue;
-      }
-
+      const refIndex = orderedFragments.findIndex(
+        (fragment) =>
+          fragment.chapterId === ref.chapterId &&
+          fragment.fragmentIndex === ref.fragmentIndex,
+      );
+      const distance = Math.abs(refIndex - currentIndex);
       const candidateTerms = this.options.glossary.filterTerms(
         this.options.documentManager.getSourceText(ref.chapterId, ref.fragmentIndex),
       );
       const score = countGlossaryOverlap(currentTerms, candidateTerms);
-      if (score > bestScore) {
+      if (score > bestScore || (score === bestScore && distance < bestDistance)) {
         bestScore = score;
         bestRef = ref;
+        bestDistance = distance;
       }
     }
 
-    return bestScore > 0 ? bestRef : undefined;
+    return bestRef;
   }
 
   private getOrderedFragments(): OrderedFragmentRef[] {
