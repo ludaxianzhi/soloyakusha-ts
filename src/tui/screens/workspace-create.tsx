@@ -4,12 +4,25 @@ import { useLog } from '../context/log.tsx';
 import type { FormFieldDef } from '../types.ts';
 
 const fields: FormFieldDef[] = [
-  { key: 'name', label: '工作区名称', type: 'text', placeholder: '输入名称...' },
-  { key: 'dir', label: '工作区路径', type: 'text', placeholder: '输入目录路径...' },
+  {
+    key: 'name',
+    label: '工作区名称',
+    type: 'text',
+    placeholder: '输入名称...',
+    description: '用于在未来的项目列表和状态栏中标识当前工作区。',
+  },
+  {
+    key: 'dir',
+    label: '工作区路径',
+    type: 'text',
+    placeholder: '输入目录路径...',
+    description: '目标工程目录。当前阶段不会真正写入文件，只用于验证表单体验。',
+  },
   {
     key: 'srcLang',
     label: '源语言',
     type: 'select',
+    description: '指定原始文本的语言，用于后续翻译管线的默认配置。',
     options: [
       { label: '日语 (ja)', value: 'ja' },
       { label: '英语 (en)', value: 'en' },
@@ -21,6 +34,7 @@ const fields: FormFieldDef[] = [
     key: 'tgtLang',
     label: '目标语言',
     type: 'select',
+    description: '指定输出文本的目标语言，未来会参与项目默认参数初始化。',
     options: [
       { label: '简体中文 (zh-CN)', value: 'zh-CN' },
       { label: '英语 (en)', value: 'en' },

@@ -1,5 +1,8 @@
 #!/usr/bin/env bun
-import { render } from 'ink';
+import { withFullScreen } from 'fullscreen-ink';
 import { App } from './app.tsx';
 
-render(<App />);
+const ink = withFullScreen(<App />);
+
+await ink.start();
+await ink.waitUntilExit();

@@ -4,11 +4,18 @@ import { useLog } from '../context/log.tsx';
 import type { FormFieldDef } from '../types.ts';
 
 const fields: FormFieldDef[] = [
-  { key: 'filePath', label: '文件路径', type: 'text', placeholder: '输入文件路径或通配符...' },
+  {
+    key: 'filePath',
+    label: '文件路径',
+    type: 'text',
+    placeholder: '输入文件路径或通配符...',
+    description: '支持未来的单文件导入和批量匹配模式。',
+  },
   {
     key: 'format',
     label: '文件格式',
     type: 'select',
+    description: '后续会根据这里的选择切换对应的解析器与预览行为。',
     options: [
       { label: 'Plain Text', value: 'plain_text' },
       { label: 'Nature Dialog', value: 'naturedialog' },
@@ -22,6 +29,7 @@ const fields: FormFieldDef[] = [
     key: 'encoding',
     label: '文件编码',
     type: 'select',
+    description: '用于决定文本读取时的默认编码策略。',
     options: [
       { label: 'UTF-8', value: 'utf-8' },
       { label: 'Shift_JIS', value: 'shift_jis' },

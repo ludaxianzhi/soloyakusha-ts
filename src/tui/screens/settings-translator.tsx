@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { useInput } from 'ink';
 import { Select } from '../components/select.tsx';
 import { Form } from '../components/form.tsx';
 import { useNavigation } from '../context/navigation.tsx';
@@ -18,6 +18,7 @@ const translatorRegistry: TranslatorTypeDef[] = [
         key: 'contextWindow',
         label: '上下文窗口大小',
         type: 'select',
+        description: '决定每批翻译任务默认带入的上下文范围。',
         options: [
           { label: '3', value: '3' },
           { label: '5', value: '5' },
@@ -29,6 +30,7 @@ const translatorRegistry: TranslatorTypeDef[] = [
         key: 'maxRetries',
         label: '最大重试次数',
         type: 'select',
+        description: '定义单批任务在失败后的自动重试次数。',
         options: [
           { label: '1', value: '1' },
           { label: '3', value: '3' },
@@ -40,6 +42,7 @@ const translatorRegistry: TranslatorTypeDef[] = [
         key: 'batchSize',
         label: '批次大小',
         type: 'select',
+        description: '影响每次请求所携带的翻译单元数量。',
         options: [
           { label: '5', value: '5' },
           { label: '10', value: '10' },
@@ -77,19 +80,15 @@ export function SettingsTranslatorScreen() {
   // Step 1: 选择翻译器类型
   if (!selectedType) {
     return (
-      <Box flexDirection="column">
-        <Text bold color="cyan">翻译器配置</Text>
-        <Text dimColor>{'─'.repeat(36)}</Text>
-        <Text>选择翻译器类型：</Text>
-        <Text> </Text>
-        <Select
-          items={typeSelectItems}
-          onSelect={item => {
-            const found = translatorRegistry.find(t => t.name === item.value);
-            if (found) setSelectedType(found);
-          }}
-        />
-      </Box>
+      <Select
+        title="翻译器类型"
+        description="先选择一个翻译器模板，再进入对应参数表单。"
+        items={typeSelectItems}
+        onSelect={item => {
+          const found = translatorRegistry.find(t => t.name === item.value);
+          if (found) setSelectedType(found);
+        }}
+      />
     );
   }
 

@@ -19,6 +19,8 @@ export interface LogEntry {
 export interface SelectItem<T extends string = string> {
   label: string;
   value: T;
+  description?: string;
+  meta?: string;
 }
 
 export interface FormFieldDef {
@@ -28,6 +30,7 @@ export interface FormFieldDef {
   placeholder?: string;
   options?: SelectItem[];
   defaultValue?: string;
+  description?: string;
 }
 
 /** 翻译器类型注册表条目 */

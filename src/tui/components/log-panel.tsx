@@ -1,5 +1,7 @@
-import { Box, Text } from 'ink';
+import { Text } from 'ink';
 import { useLog } from '../context/log.tsx';
+import { Panel } from './panel.tsx';
+import { SafeBox } from './safe-box.tsx';
 
 const MAX_VISIBLE = 6;
 
@@ -12,23 +14,20 @@ export function LogPanel() {
   const visible = logs.slice(-MAX_VISIBLE);
 
   return (
-    <Box flexDirection="column">
-      <Text dimColor>{'─'.repeat(36)}</Text>
-      <Text bold> 📋 日志 {logs.length > 0 ? `(${logs.length})` : ''}</Text>
-
+    <Panel title={`日志流${logs.length > 0 ? ` (${logs.length})` : ''}`} subtitle="最近的界面反馈会显示在这里。">
       {visible.length === 0 ? (
-        <Text dimColor>  暂无日志</Text>
+        <Text dimColor>暂无日志，当前界面仍处于纯框架阶段。</Text>
       ) : (
         visible.map(entry => (
-          <Box key={entry.id}>
-            <Text color={entry.level === 'error' ? 'red' : 'yellow'}>
-              {entry.level === 'error' ? ' ❌' : ' ⚠️'}{' '}
+          <SafeBox key={entry.id} marginBottom={1}>
+            <Text color={entry.level === 'error' ? 'red' : 'yellow'} bold>
+              {entry.level === 'error' ? 'ERR' : 'WARN'}
             </Text>
-            <Text dimColor>[{formatTime(entry.timestamp)}] </Text>
-            <Text>{entry.message}</Text>
-          </Box>
+            <Text dimColor> [{formatTime(entry.timestamp)}] </Text>
+            <Text wrap="wrap">{entry.message}</Text>
+          </SafeBox>
         ))
       )}
-    </Box>
+    </Panel>
   );
 }

@@ -1,6 +1,10 @@
-import { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { useEffect, useState } from 'react';
+import { Text, useInput } from 'ink';
 import type { FormFieldDef } from '../types.ts';
+import { Panel } from './panel.tsx';
+import { Keycap } from './keycap.tsx';
+import { useMouse } from '../context/mouse.tsx';
+import { SafeBox } from './safe-box.tsx';
 
 interface FormProps {
   title: string;
@@ -19,6 +23,7 @@ export function Form({
 }: FormProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [editing, setEditing] = useState(false);
+  const { subscribe } = useMouse();
   const [values, setValues] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
     for (const f of fields) {
@@ -78,51 +83,129 @@ export function Form({
     } else if (key.escape) onCancel();
   });
 
+  useEffect(() => {
+    return subscribe(event => {
+      if (event.action === 'scroll-up') {
+        if (editing) {
+          const field = fields[activeIndex];
+          if (field?.type !== 'select' || !field.options?.length) {
+            return;
+          }
+
+          const cur = field.options.findIndex(option => option.value === values[field.key]);
+          const next = (cur - 1 + field.options.length) % field.options.length;
+          setValues(prev => ({ ...prev, [field.key]: field.options![next]!.value }));
+          return;
+        }
+
+        setActiveIndex(prev => (prev - 1 + total) % total);
+      } else if (event.action === 'scroll-down') {
+        if (editing) {
+          const field = fields[activeIndex];
+          if (field?.type !== 'select' || !field.options?.length) {
+            return;
+          }
+
+          const cur = field.options.findIndex(option => option.value === values[field.key]);
+          const next = (cur + 1) % field.options.length;
+          setValues(prev => ({ ...prev, [field.key]: field.options![next]!.value }));
+          return;
+        }
+
+        setActiveIndex(prev => (prev + 1) % total);
+      } else if (event.action === 'left') {
+        if (editing) {
+          setEditing(false);
+          return;
+        }
+
+        if (activeIndex === submitIdx) onSubmit(values);
+        else if (activeIndex === cancelIdx) onCancel();
+        else setEditing(true);
+      } else if (event.action === 'right') {
+        if (editing) {
+          setEditing(false);
+        } else {
+          onCancel();
+        }
+      }
+    });
+  }, [activeIndex, editing, fields, onCancel, onSubmit, subscribe, total, values]);
+
   return (
-    <Box flexDirection="column">
-      <Text bold color="cyan">
-        {title}
-      </Text>
-      <Text dimColor>{'─'.repeat(36)}</Text>
+    <Panel title={title} subtitle="Tabless form flow with keyboard-first interaction and mouse-assisted scrolling.">
+      <SafeBox flexDirection="column">
+        {fields.map((field, i) => {
+          const focused = i === activeIndex;
+          const isEditing = focused && editing;
+          const val = values[field.key] ?? '';
 
-      {fields.map((field, i) => {
-        const focused = i === activeIndex;
-        const isEditing = focused && editing;
-        const val = values[field.key] ?? '';
+          return (
+            <SafeBox
+              key={field.key}
+              flexDirection="column"
+              borderStyle="round"
+              borderColor={focused ? 'cyan' : 'gray'}
+              paddingX={1}
+              marginBottom={1}
+            >
+              <SafeBox justifyContent="space-between">
+                <Text color={focused ? 'cyan' : undefined} bold>
+                  {focused ? '❯ ' : '  '}
+                  {field.label}
+                </Text>
+                <Text dimColor>{field.type === 'text' ? 'TEXT' : 'SELECT'}</Text>
+              </SafeBox>
 
-        return (
-          <Box key={field.key}>
-            <Text color={focused ? 'cyan' : undefined}>{focused ? '❯ ' : '  '}</Text>
-            <Text bold>{field.label}: </Text>
+              {field.description ? (
+                <Text dimColor wrap="wrap">
+                  {field.description}
+                </Text>
+              ) : null}
 
-            {field.type === 'text' ? (
-              <Box>
-                <Text dimColor={!val}>{val || field.placeholder || '(空)'}</Text>
-                {isEditing && <Text color="cyan">█</Text>}
-              </Box>
-            ) : (
-              <Text>
-                {isEditing ? '◄ ' : ''}
-                {field.options?.find(o => o.value === val)?.label ?? val}
-                {isEditing ? ' ►' : ''}
-              </Text>
-            )}
-          </Box>
-        );
-      })}
+              {field.type === 'text' ? (
+                <SafeBox marginTop={1}>
+                  <Text dimColor={!val}>{val || field.placeholder || '(空)'}</Text>
+                  {isEditing ? <Text color="cyan">█</Text> : null}
+                </SafeBox>
+              ) : (
+                <SafeBox marginTop={1}>
+                  <Text>
+                    {isEditing ? '◄ ' : ''}
+                    {field.options?.find(o => o.value === val)?.label ?? val}
+                    {isEditing ? ' ►' : ''}
+                  </Text>
+                </SafeBox>
+              )}
+            </SafeBox>
+          );
+        })}
 
-      <Text> </Text>
-      <Box gap={2}>
-        <Text color={activeIndex === submitIdx ? 'green' : undefined} bold={activeIndex === submitIdx}>
-          {activeIndex === submitIdx ? '❯ ' : '  '}[{submitLabel}]
-        </Text>
-        <Text
-          color={activeIndex === cancelIdx ? 'yellow' : undefined}
-          bold={activeIndex === cancelIdx}
-        >
-          {activeIndex === cancelIdx ? '❯ ' : '  '}[取消]
-        </Text>
-      </Box>
-    </Box>
+        <SafeBox gap={2} marginBottom={1}>
+          <Text color={activeIndex === submitIdx ? 'green' : undefined} bold={activeIndex === submitIdx}>
+            {activeIndex === submitIdx ? '❯ ' : '  '}[{submitLabel}]
+          </Text>
+          <Text
+            color={activeIndex === cancelIdx ? 'yellow' : undefined}
+            bold={activeIndex === cancelIdx}
+          >
+            {activeIndex === cancelIdx ? '❯ ' : '  '}[取消]
+          </Text>
+        </SafeBox>
+
+        <SafeBox gap={1}>
+          <Keycap label="Enter" />
+          <Text dimColor>{editing ? '完成当前字段编辑' : '进入字段或确认动作'}</Text>
+        </SafeBox>
+        <SafeBox gap={1}>
+          <Keycap label="Wheel" />
+          <Text dimColor>在字段与选项间滚动</Text>
+        </SafeBox>
+        <SafeBox gap={1}>
+          <Keycap label="Right Click" />
+          <Text dimColor>{editing ? '退出编辑' : '取消并返回'}</Text>
+        </SafeBox>
+      </SafeBox>
+    </Panel>
   );
 }

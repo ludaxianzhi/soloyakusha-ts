@@ -4,12 +4,25 @@ import { useLog } from '../context/log.tsx';
 import type { FormFieldDef } from '../types.ts';
 
 const fields: FormFieldDef[] = [
-  { key: 'projectName', label: '项目名称', type: 'text', placeholder: '输入项目名称...' },
-  { key: 'glossaryPath', label: '术语表路径', type: 'text', placeholder: '输入术语表文件路径...' },
+  {
+    key: 'projectName',
+    label: '项目名称',
+    type: 'text',
+    placeholder: '输入项目名称...',
+    description: '工作区的展示名称。',
+  },
+  {
+    key: 'glossaryPath',
+    label: '术语表路径',
+    type: 'text',
+    placeholder: '输入术语表文件路径...',
+    description: '未来用于加载术语表资源；当前阶段仅展示表单结构。',
+  },
   {
     key: 'contextWindow',
     label: '上下文窗口',
     type: 'select',
+    description: '翻译时默认带入的上下文条目数。',
     options: [
       { label: '3 行', value: '3' },
       { label: '5 行', value: '5' },
@@ -21,6 +34,7 @@ const fields: FormFieldDef[] = [
     key: 'batchSize',
     label: '批次大小',
     type: 'select',
+    description: '用于未来批处理策略的默认分批大小。',
     options: [
       { label: '5', value: '5' },
       { label: '10', value: '10' },
