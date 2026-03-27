@@ -584,8 +584,11 @@ function normalizePersistedProjectState(
       startedAt: state.lifecycle?.startedAt,
       stopRequestedAt: state.lifecycle?.stopRequestedAt,
       stoppedAt: state.lifecycle?.stoppedAt,
+      abortedAt: state.lifecycle?.abortedAt,
+      abortReason: state.lifecycle?.abortReason,
       completedAt: state.lifecycle?.completedAt,
       interruptedAt: state.lifecycle?.interruptedAt,
+      lastSavedAt: state.lifecycle?.lastSavedAt,
       updatedAt: state.lifecycle?.updatedAt,
     },
   };

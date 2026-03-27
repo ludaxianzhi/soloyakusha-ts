@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Glossary } from "../glossary/glossary.ts";
@@ -490,5 +490,94 @@ describe("TranslationProject", () => {
         outputText: "Line 2",
       }),
     ).rejects.toThrow("当前项目不接受翻译结果");
+  });
+
+  test("supports explicit abort and later resume", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-abort-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n第二句\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "abort",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.startTranslation();
+
+    const firstBatch = await project.getWorkQueue("translation").dispatchReadyItems();
+    expect(firstBatch).toHaveLength(1);
+    expect(project.getLifecycleSnapshot().canAbort).toBe(true);
+
+    const aborted = await project.abortTranslation("user_requested_abort");
+    expect(aborted.status).toBe("aborted");
+    expect(aborted.abortReason).toBe("user_requested_abort");
+    expect(aborted.canResume).toBe(true);
+    expect(project.getDocumentManager().getPipelineStepState(1, 0, "translation")?.status).toBe(
+      "queued",
+    );
+
+    await expect(
+      project.submitWorkResult({
+        runId: firstBatch[0]!.runId,
+        stepId: "translation",
+        chapterId: 1,
+        fragmentIndex: 0,
+        outputText: "Line 1",
+      }),
+    ).rejects.toThrow("当前项目不接受翻译结果");
+
+    const resumed = await project.startTranslation();
+    expect(resumed.status).toBe("running");
+    const resumedBatch = await project.getWorkQueue("translation").dispatchReadyItems();
+    expect(resumedBatch.map((item) => item.fragmentIndex)).toEqual([0]);
+  });
+
+  test("persists progress save metadata in project state", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-save-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "save",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.startTranslation();
+    await project.saveProgress();
+
+    const lifecycle = project.getLifecycleSnapshot();
+    expect(lifecycle.lastSavedAt).toBeTruthy();
+    expect(lifecycle.canSave).toBe(true);
+
+    const persistedState = JSON.parse(
+      await readFile(join(workspaceDir, "Data", "project-state.json"), "utf8"),
+    ) as { lifecycle?: { lastSavedAt?: string } };
+    expect(persistedState.lifecycle?.lastSavedAt).toBe(lifecycle.lastSavedAt);
   });
 });

@@ -35,6 +35,7 @@ export type TranslationRunStatus =
   | "running"
   | "stopping"
   | "stopped"
+  | "aborted"
   | "completed"
   | "interrupted";
 export type TranslationStopMode = "graceful" | "immediate";
@@ -151,8 +152,11 @@ export type TranslationProjectLifecycleState = {
   startedAt?: string;
   stopRequestedAt?: string;
   stoppedAt?: string;
+  abortedAt?: string;
+  abortReason?: string;
   completedAt?: string;
   interruptedAt?: string;
+  lastSavedAt?: string;
   updatedAt?: string;
 };
 
@@ -171,6 +175,9 @@ export type TranslationProjectLifecycleSnapshot = TranslationProjectLifecycleSta
   activeWorkItems: number;
   canStart: boolean;
   canStop: boolean;
+  canAbort: boolean;
+  canResume: boolean;
+  canSave: boolean;
 };
 
 export type TranslationStepQueueEntrySnapshot = {

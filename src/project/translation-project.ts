@@ -1,18 +1,13 @@
 /**
- * 负责翻译项目初始化、Pipeline 调度、步骤工作队列接入与结果提交协调。
+ * 定义翻译项目门面，协调工作区、生命周期、Pipeline 调度与结果提交。
  *
  * @module project/translation-project
  */
 
 import type { TranslationFileHandler, TranslationFileHandlerResolver } from "../file-handlers/base.ts";
-import { TranslationFileHandlerFactory } from "../file-handlers/factory.ts";
 import { Glossary, GlossaryPersisterFactory } from "../glossary/index.ts";
-import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { resolve, join, extname, basename } from "node:path";
-import { TranslationContextView } from "./context-view.ts";
+import { resolve } from "node:path";
 import type {
-  GlobalAssociationPattern,
   GlobalAssociationPatternScanOptions,
   GlobalAssociationPatternScanResult,
 } from "./global-pattern-scanner.ts";
@@ -35,28 +30,44 @@ import type {
   FragmentEntry,
   GlossaryImportResult,
   GlossaryProgressSnapshot,
-  ProjectProgressSnapshot,
   ProjectCursor,
+  ProjectProgressSnapshot,
   TranslationExportResult,
   TranslationImportResult,
+  TranslationProjectConfig,
   TranslationProjectLifecycleSnapshot,
+  TranslationProjectSnapshot,
   TranslationProjectState,
   TranslationStopMode,
-  TextFragment,
-  TranslationProjectSnapshot,
   TranslationStepProgressSnapshot,
   TranslationStepQueueSnapshot,
-  TranslationDependencyMode,
-  TranslationProjectConfig,
   TranslationUnitParser,
   TranslationUnitSplitter,
-  TranslationStepQueueEntrySnapshot,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
   WorkspaceConfigPatch,
   WorkspaceFileManifest,
 } from "./types.ts";
-import { ProjectProgress, createTextFragment, fragmentToText } from "./types.ts";
+import { createTextFragment, type TextFragment } from "./types.ts";
+import {
+  collectSourceTextBlocks,
+  createDefaultTranslationPipelineDefinition,
+  upsertGlobalPatternTerm,
+} from "./default-translation-pipeline.ts";
+import {
+  createDefaultProjectState,
+  normalizeProjectStateForPipeline,
+  TranslationProjectLifecycleManager,
+} from "./translation-project-lifecycle.ts";
+import { TranslationProjectSnapshotBuilder } from "./translation-project-snapshot.ts";
+import {
+  buildInitialWorkspaceConfig,
+  mergePersistedWorkspaceConfig,
+  openWorkspaceConfig,
+  resolveChapterPath,
+  resolveFileHandlerFromOptions,
+  TranslationProjectWorkspace,
+} from "./translation-project-workspace.ts";
 
 export class TranslationProject
   implements TranslationPipelineRuntime, TranslationWorkQueueRuntime
@@ -67,6 +78,9 @@ export class TranslationProject
   private readonly pipeline: TranslationPipeline;
   private readonly queueCache = new Map<string, TranslationStepWorkQueue>();
   private readonly nextQueueSequenceByStep = new Map<string, number>();
+  private readonly workspaceManager: TranslationProjectWorkspace;
+  private readonly lifecycleManager: TranslationProjectLifecycleManager;
+  private readonly snapshotBuilder: TranslationProjectSnapshotBuilder;
   private glossary?: Glossary;
   private projectState: TranslationProjectState;
   private workspaceConfig!: WorkspaceConfig;
@@ -96,8 +110,81 @@ export class TranslationProject
     this.pipeline =
       options.pipeline instanceof TranslationPipeline
         ? options.pipeline
-        : new TranslationPipeline(options.pipeline ?? this.createDefaultPipelineDefinition());
+        : new TranslationPipeline(
+            options.pipeline ??
+              createDefaultTranslationPipelineDefinition({
+                documentManager: this.documentManager,
+                getGlossary: () => this.glossary,
+                glossaryConfig: this.config.glossary,
+                getTraversalChapters: () => this.getTraversalChapters(),
+                isStepCompleted: (chapterId, fragmentIndex, stepId) =>
+                  this.isStepCompleted(chapterId, fragmentIndex, stepId),
+              }),
+          );
     this.projectState = createDefaultProjectState(this.pipeline);
+
+    this.workspaceManager = new TranslationProjectWorkspace(
+      this.projectDir,
+      this.config,
+      this.documentManager,
+      this.chapters,
+      () => this.workspaceConfig,
+      (nextConfig) => {
+        this.workspaceConfig = nextConfig;
+      },
+      () => this.glossary,
+      (glossary) => {
+        this.glossary = glossary;
+      },
+      (filePath, handlerOptions, defaultFormat) =>
+        resolveFileHandlerFromOptions(filePath, handlerOptions, defaultFormat),
+      async () => {
+        this.queueCache.clear();
+        await this.initializePipelineQueues();
+        await this.lifecycleManager.refreshLifecycleState();
+      },
+      async () => {
+        this.queueCache.clear();
+        await this.lifecycleManager.refreshLifecycleState();
+      },
+    );
+
+    this.lifecycleManager = new TranslationProjectLifecycleManager({
+      pipeline: this.pipeline,
+      getProjectState: () => this.projectState,
+      setProjectState: (state) => {
+        this.projectState = state;
+      },
+      persistProjectState: async () => {
+        await this.persistProjectState();
+      },
+      listAllQueueEntries: () => this.listAllQueueEntries(),
+      getOrderedFragments: () => this.getOrderedFragments(),
+      isStepCompleted: (chapterId, fragmentIndex, stepId) =>
+        this.isStepCompleted(chapterId, fragmentIndex, stepId),
+      requeueRunningWorkItems: async (errorMessage) => {
+        await this.requeueRunningWorkItems(errorMessage);
+      },
+    });
+
+    this.snapshotBuilder = new TranslationProjectSnapshotBuilder({
+      projectName: this.config.projectName,
+      pipeline: this.pipeline,
+      documentManager: this.documentManager,
+      getGlossary: () => this.glossary,
+      getTraversalChapters: () => this.getTraversalChapters(),
+      getOrderedFragments: () => this.getOrderedFragments(),
+      listStepQueueEntries: (stepId) => this.listStepQueueEntries(stepId),
+      listAllQueueEntries: () => this.listAllQueueEntries(),
+      getCurrentCursor: () => this.getCurrentCursor(),
+      isStepCompleted: (chapterId, fragmentIndex, stepId) =>
+        this.isStepCompleted(chapterId, fragmentIndex, stepId),
+      getLifecycleSnapshot: () => this.lifecycleManager.getLifecycleSnapshot(),
+      resolveStepDependencies: (stepId, entry) => this.resolveStepDependencies(stepId, entry),
+      buildWorkItem: (stepId, entry, resolution) => this.buildWorkItem(stepId, entry, resolution),
+      buildInputPreview: (stepId, chapterId, fragmentIndex) =>
+        this.buildInputPreview(stepId, chapterId, fragmentIndex),
+    });
   }
 
   async initialize(): Promise<void> {
@@ -116,17 +203,6 @@ export class TranslationProject
       })),
     );
 
-    if (!this.glossary && this.config.glossary?.path) {
-      const glossaryPath = resolveChapterPath(this.projectDir, this.config.glossary.path);
-      this.glossary = await GlossaryPersisterFactory.getPersister(
-        glossaryPath,
-      ).loadGlossary(glossaryPath);
-    }
-
-    this.projectState =
-      (await this.documentManager.loadProjectState()) ?? createDefaultProjectState(this.pipeline);
-    this.projectState = normalizeProjectStateForPipeline(this.projectState, this.pipeline);
-
     this.workspaceConfig = buildInitialWorkspaceConfig(this.config, this.chapters);
     const existingWorkspaceConfig = await this.documentManager.loadWorkspaceConfig();
     if (existingWorkspaceConfig) {
@@ -137,23 +213,27 @@ export class TranslationProject
     }
     await this.documentManager.saveWorkspaceConfig(this.workspaceConfig);
 
+    this.projectState =
+      (await this.documentManager.loadProjectState()) ?? createDefaultProjectState(this.pipeline);
+    this.projectState = normalizeProjectStateForPipeline(this.projectState, this.pipeline);
+
+    if (!this.glossary && this.config.glossary?.path) {
+      const glossaryPath = resolveChapterPath(this.projectDir, this.config.glossary.path);
+      this.glossary = await GlossaryPersisterFactory.getPersister(glossaryPath).loadGlossary(
+        glossaryPath,
+      );
+    }
+
     this.initialized = true;
     await this.initializePipelineQueues();
-    await this.recoverInterruptedRunIfNeeded();
-    await this.refreshLifecycleState();
+    await this.lifecycleManager.recoverInterruptedRunIfNeeded();
+    await this.lifecycleManager.refreshLifecycleState();
   }
 
   getPipeline(): TranslationPipeline {
     return this.pipeline;
   }
 
-  // ===== Static Factory =====
-
-  /**
-   * 从已有工作区目录打开翻译项目。
-   *
-   * 读取 {projectDir}/Data/workspace-config.json 并据此构建项目实例。
-   */
   static async openWorkspace(
     projectDir: string,
     options: {
@@ -164,17 +244,7 @@ export class TranslationProject
       pipeline?: TranslationPipelineDefinition | TranslationPipeline;
     } = {},
   ): Promise<TranslationProject> {
-    const resolvedDir = resolve(projectDir);
-    const configPath = join(resolvedDir, "Data", "workspace-config.json");
-
-    let workspaceConfig: WorkspaceConfig;
-    try {
-      const content = await readFile(configPath, "utf8");
-      workspaceConfig = JSON.parse(content) as WorkspaceConfig;
-    } catch {
-      throw new Error(`工作区配置不存在: ${configPath}`);
-    }
-
+    const workspaceConfig = await openWorkspaceConfig(projectDir);
     const project = new TranslationProject(
       {
         projectName: workspaceConfig.projectName,
@@ -190,57 +260,28 @@ export class TranslationProject
     return project;
   }
 
-  // ===== Workspace Config Management =====
-
-  /**
-   * 获取当前工作区配置的只读快照。
-   */
   getWorkspaceConfig(): WorkspaceConfig {
     this.ensureInitialized();
-    return cloneWorkspaceConfig(this.workspaceConfig);
+    return this.workspaceManager.getWorkspaceConfig();
   }
 
-  /**
-   * 部分更新工作区配置并持久化。
-   *
-   * null 值用于清除可选字段。
-   */
   async updateWorkspaceConfig(
     patch: WorkspaceConfigPatch,
   ): Promise<WorkspaceConfig> {
     this.ensureInitialized();
-    this.workspaceConfig = applyWorkspaceConfigPatch(this.workspaceConfig, patch);
-    await this.documentManager.saveWorkspaceConfig(this.workspaceConfig);
-    return this.getWorkspaceConfig();
+    return this.workspaceManager.updateWorkspaceConfig(patch);
   }
 
-  // ===== Chapter Management =====
-
-  /**
-   * 获取所有章节的描述符列表，按当前排序顺序返回。
-   */
   getChapterDescriptors(): WorkspaceChapterDescriptor[] {
     this.ensureInitialized();
-    return this.chapters.map((chapter) => this.buildChapterDescriptor(chapter.id));
+    return this.workspaceManager.getChapterDescriptors();
   }
 
-  /**
-   * 获取指定章节的描述符。章节不存在时返回 undefined。
-   */
   getChapterDescriptor(chapterId: number): WorkspaceChapterDescriptor | undefined {
     this.ensureInitialized();
-    if (!this.chapters.some((chapter) => chapter.id === chapterId)) {
-      return undefined;
-    }
-    return this.buildChapterDescriptor(chapterId);
+    return this.workspaceManager.getChapterDescriptor(chapterId);
   }
 
-  /**
-   * 添加新章节：从源文件导入翻译单元并初始化 Pipeline 队列。
-   *
-   * @param options.format - 文件格式名（如 "plain_text"、"naturedialog"）
-   * @param options.fileHandler - 自定义文件处理器，优先级高于 format
-   */
   async addChapter(
     chapterId: number,
     filePath: string,
@@ -250,101 +291,19 @@ export class TranslationProject
     },
   ): Promise<TranslationImportResult> {
     this.ensureInitialized();
-
-    if (this.chapters.some((chapter) => chapter.id === chapterId)) {
-      throw new Error(`章节 ${chapterId} 已存在`);
-    }
-
-    const resolvedPath = resolveChapterPath(this.projectDir, filePath);
-    const fileHandler = this.resolveFileHandler(
-      resolvedPath,
-      options,
-      this.workspaceConfig.defaultImportFormat,
-    );
-    const chapter = await this.documentManager.addChapter(chapterId, resolvedPath, {
-      fileHandler,
-    });
-
-    this.chapters.push({ id: chapterId, filePath });
-    this.workspaceConfig = {
-      ...this.workspaceConfig,
-      chapters: this.chapters.map((ch) => ({ id: ch.id, filePath: ch.filePath })),
-    };
-    await this.documentManager.saveWorkspaceConfig(this.workspaceConfig);
-    await this.initializePipelineQueues();
-
-    return {
-      chapterId,
-      filePath,
-      unitCount: chapter.fragments.reduce(
-        (sum, fragment) => sum + fragment.source.lines.length,
-        0,
-      ),
-      fragmentCount: chapter.fragments.length,
-    };
+    return this.workspaceManager.addChapter(chapterId, filePath, options);
   }
 
-  /**
-   * 移除章节：删除章节数据并更新工作区配置。
-   */
   async removeChapter(chapterId: number): Promise<void> {
     this.ensureInitialized();
-
-    const index = this.chapters.findIndex((chapter) => chapter.id === chapterId);
-    if (index === -1) {
-      throw new Error(`章节 ${chapterId} 不存在`);
-    }
-
-    await this.documentManager.removeChapter(chapterId);
-    this.chapters.splice(index, 1);
-    this.workspaceConfig = {
-      ...this.workspaceConfig,
-      chapters: this.chapters.map((ch) => ({ id: ch.id, filePath: ch.filePath })),
-    };
-    this.queueCache.clear();
-    await this.documentManager.saveWorkspaceConfig(this.workspaceConfig);
-    await this.refreshLifecycleState();
+    await this.workspaceManager.removeChapter(chapterId);
   }
 
-  /**
-   * 重新排列章节顺序。
-   *
-   * @param chapterIds - 必须恰好包含所有现有章节 ID，不重复、不遗漏
-   */
   async reorderChapters(chapterIds: number[]): Promise<void> {
     this.ensureInitialized();
-
-    const existingIds = new Set(this.chapters.map((chapter) => chapter.id));
-    for (const id of chapterIds) {
-      if (!existingIds.has(id)) {
-        throw new Error(`章节 ${id} 不存在`);
-      }
-    }
-    if (new Set(chapterIds).size !== this.chapters.length) {
-      throw new Error("重排序列表必须恰好包含所有章节且不重复");
-    }
-
-    const chapterMap = new Map(this.chapters.map((chapter) => [chapter.id, chapter]));
-    this.chapters.length = 0;
-    for (const id of chapterIds) {
-      this.chapters.push(chapterMap.get(id)!);
-    }
-
-    this.workspaceConfig = {
-      ...this.workspaceConfig,
-      chapters: this.chapters.map((ch) => ({ id: ch.id, filePath: ch.filePath })),
-    };
-    await this.documentManager.saveWorkspaceConfig(this.workspaceConfig);
+    await this.workspaceManager.reorderChapters(chapterIds);
   }
 
-  // ===== Translation Export =====
-
-  /**
-   * 导出指定章节的翻译结果到文件。
-   *
-   * @param options.format - 导出格式名，如不指定则使用工作区默认导出格式
-   * @param options.fileHandler - 自定义文件处理器
-   */
   async exportChapter(
     chapterId: number,
     outputPath: string,
@@ -354,36 +313,9 @@ export class TranslationProject
     },
   ): Promise<TranslationExportResult> {
     this.ensureInitialized();
-
-    const resolvedPath = resolveChapterPath(this.projectDir, outputPath);
-    const fileHandler = this.resolveFileHandler(
-      resolvedPath,
-      options,
-      this.workspaceConfig.defaultExportFormat,
-    );
-    if (!fileHandler) {
-      throw new Error(
-        `无法确定导出格式，请通过 format 或 fileHandler 指定: ${outputPath}`,
-      );
-    }
-
-    const units = this.documentManager.getChapterTranslationUnits(chapterId);
-    await this.documentManager.exportChapter(chapterId, resolvedPath, fileHandler);
-
-    return {
-      chapterId,
-      outputPath: resolvedPath,
-      unitCount: units.length,
-    };
+    return this.workspaceManager.exportChapter(chapterId, outputPath, options);
   }
 
-  /**
-   * 批量导出所有章节到指定目录。
-   *
-   * 输出文件名基于源文件名，扩展名根据格式决定。
-   *
-   * @param options.fileExtension - 强制指定输出扩展名（如 ".txt"）
-   */
   async exportAllChapters(
     outputDir: string,
     options?: {
@@ -393,190 +325,44 @@ export class TranslationProject
     },
   ): Promise<TranslationExportResult[]> {
     this.ensureInitialized();
-
-    const resolvedDir = resolveChapterPath(this.projectDir, outputDir);
-    const results: TranslationExportResult[] = [];
-
-    for (const chapter of this.chapters) {
-      const ext =
-        options?.fileExtension ??
-        getExportFileExtension(chapter.filePath, options?.format);
-      const base = basename(chapter.filePath, extname(chapter.filePath));
-      const outputPath = join(resolvedDir, `${base}${ext}`);
-      results.push(
-        await this.exportChapter(chapter.id, outputPath, options),
-      );
-    }
-
-    return results;
+    return this.workspaceManager.exportAllChapters(outputDir, options);
   }
 
-  // ===== Glossary Import/Export =====
-
-  /**
-   * 从外部文件导入术语表，合并到当前项目的术语表中。
-   *
-   * 支持格式由 GlossaryPersisterFactory 决定（JSON/CSV/TSV/YAML/XML）。
-   * 已存在的术语会被更新，新术语会被添加。
-   */
   async importGlossary(filePath: string): Promise<GlossaryImportResult> {
     this.ensureInitialized();
-
-    const resolvedPath = resolveChapterPath(this.projectDir, filePath);
-    const persister = GlossaryPersisterFactory.getPersister(resolvedPath);
-    const importedGlossary = await persister.loadGlossary(resolvedPath);
-    const importedTerms = importedGlossary.getAllTerms();
-
-    this.glossary ??= new Glossary();
-    const existingTerms = new Set(this.glossary.getAllTerms().map((term) => term.term));
-    let newTermCount = 0;
-    let updatedTermCount = 0;
-
-    for (const term of importedTerms) {
-      if (existingTerms.has(term.term)) {
-        this.glossary.updateTerm(term.term, term);
-        updatedTermCount += 1;
-      } else {
-        this.glossary.addTerm(term);
-        newTermCount += 1;
-      }
-    }
-
-    await this.saveGlossaryIfNeeded();
-
-    return {
-      filePath: resolvedPath,
-      termCount: importedTerms.length,
-      newTermCount,
-      updatedTermCount,
-    };
+    return this.workspaceManager.importGlossary(filePath);
   }
 
-  /**
-   * 将当前术语表导出到指定文件。
-   *
-   * 输出格式由文件扩展名决定。
-   */
   async exportGlossary(outputPath: string): Promise<void> {
     this.ensureInitialized();
-
-    if (!this.glossary) {
-      throw new Error("当前项目没有术语表");
-    }
-
-    const resolvedPath = resolveChapterPath(this.projectDir, outputPath);
-    const persister = GlossaryPersisterFactory.getPersister(resolvedPath);
-    await persister.saveGlossary(this.glossary, resolvedPath);
+    await this.workspaceManager.exportGlossary(outputPath);
   }
 
-  // ===== Workspace File Info =====
-
-  /**
-   * 获取工作区文件清单，列出所有关键文件的绝对路径。
-   */
   getWorkspaceFileManifest(): WorkspaceFileManifest {
     this.ensureInitialized();
-
-    const glossaryPath = this.config.glossary?.path
-      ? resolveChapterPath(this.projectDir, this.config.glossary.path)
-      : undefined;
-
-    return {
-      projectDir: this.projectDir,
-      configPath: this.documentManager.workspaceConfigPath,
-      projectStatePath: this.documentManager.projectStatePath,
-      glossaryPath,
-      chapters: this.chapters.map((chapter) => ({
-        id: chapter.id,
-        sourceFilePath: resolveChapterPath(this.projectDir, chapter.filePath),
-        dataFilePath: join(this.documentManager.dataDir, `${chapter.id}.json`),
-      })),
-    };
+    return this.workspaceManager.getWorkspaceFileManifest();
   }
 
   getLifecycleSnapshot(): TranslationProjectLifecycleSnapshot {
-    const queuedWorkItems = this.listAllQueueEntries().filter((entry) => entry.status === "queued")
-      .length;
-    const activeWorkItems = this.listAllQueueEntries().filter((entry) => entry.status === "running")
-      .length;
-    const status = this.projectState.lifecycle.status;
-
-    return {
-      ...this.projectState.lifecycle,
-      hasPendingWork: queuedWorkItems > 0 || activeWorkItems > 0,
-      queuedWorkItems,
-      activeWorkItems,
-      canStart:
-        status !== "running" &&
-        status !== "stopping" &&
-        (queuedWorkItems > 0 || status === "interrupted"),
-      canStop: status === "running" || status === "stopping",
-    };
+    this.ensureInitialized();
+    return this.lifecycleManager.getLifecycleSnapshot();
   }
 
   async startTranslation(): Promise<TranslationProjectLifecycleSnapshot> {
     this.ensureInitialized();
-
-    const lifecycle = this.projectState.lifecycle;
-    if (lifecycle.status === "running" || lifecycle.status === "stopping") {
-      throw new Error(`翻译流程已处于${lifecycle.status}状态，不能重复启动`);
-    }
-
-    await this.recoverInterruptedRunIfNeeded();
-    await this.refreshLifecycleState();
-    if (!this.listAllQueueEntries().some((entry) => entry.status === "queued")) {
-      return this.getLifecycleSnapshot();
-    }
-
-    const now = new Date().toISOString();
-    this.projectState = {
-      ...this.projectState,
-      lifecycle: {
-        status: "running",
-        currentRunId: randomUUID(),
-        startedAt: now,
-        stopRequestedAt: undefined,
-        stoppedAt: undefined,
-        completedAt: undefined,
-        interruptedAt: this.projectState.lifecycle.interruptedAt,
-        updatedAt: now,
-      },
-    };
-    await this.persistProjectState();
-    return this.getLifecycleSnapshot();
+    return this.lifecycleManager.startTranslation();
   }
 
   async stopTranslation(
     options: { mode?: TranslationStopMode } = {},
   ): Promise<TranslationProjectLifecycleSnapshot> {
     this.ensureInitialized();
+    return this.lifecycleManager.stopTranslation(options);
+  }
 
-    const mode = options.mode ?? "graceful";
-    const lifecycle = this.projectState.lifecycle;
-    if (lifecycle.status !== "running" && lifecycle.status !== "stopping") {
-      return this.getLifecycleSnapshot();
-    }
-
-    if (mode === "immediate") {
-      await this.requeueRunningWorkItems("translation_interrupted");
-      await this.updateLifecycleState({
-        status: "stopped",
-        currentRunId: undefined,
-        stopRequestedAt: undefined,
-        stoppedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-      return this.getLifecycleSnapshot();
-    }
-
-    const now = new Date().toISOString();
-    await this.updateLifecycleState({
-      status: "stopping",
-      stopRequestedAt: now,
-      updatedAt: now,
-    });
-    await this.refreshLifecycleState();
-    return this.getLifecycleSnapshot();
+  async abortTranslation(reason?: string): Promise<TranslationProjectLifecycleSnapshot> {
+    this.ensureInitialized();
+    return this.lifecycleManager.abortTranslation(reason);
   }
 
   getWorkQueue(stepId: string): TranslationStepWorkQueue {
@@ -666,6 +452,7 @@ export class TranslationProject
     }
 
     if (result.success === false) {
+      const now = new Date().toISOString();
       await this.documentManager.updatePipelineStepState(
         result.chapterId,
         result.fragmentIndex,
@@ -673,16 +460,17 @@ export class TranslationProject
         {
           ...stepState,
           status: "queued",
-          queuedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          queuedAt: now,
+          updatedAt: now,
           errorMessage: result.errorMessage,
         },
       );
-      await this.refreshLifecycleState();
+      await this.lifecycleManager.refreshLifecycleState();
       return;
     }
 
     const output = createTextFragment(result.outputText ?? "");
+    const now = new Date().toISOString();
     await this.documentManager.updatePipelineStepState(
       result.chapterId,
       result.fragmentIndex,
@@ -690,8 +478,8 @@ export class TranslationProject
       {
         ...stepState,
         status: "completed",
-        completedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        completedAt: now,
+        updatedAt: now,
         output,
         errorMessage: undefined,
       },
@@ -710,156 +498,47 @@ export class TranslationProject
       await this.enqueueStepIfNeeded(result.chapterId, result.fragmentIndex, nextStepId);
     }
 
-    await this.refreshLifecycleState();
-  }
-
-  getProgress(): ProjectProgress {
-    if (!this.initialized) {
-      return new ProjectProgress();
-    }
-
-    const orderedFragments = this.getOrderedFragments();
-    const translatedFragments = orderedFragments.filter((fragment) =>
-      this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, this.pipeline.finalStepId),
-    ).length;
-    const totalFragments = orderedFragments.length;
-
-    let translatedChapters = 0;
-    for (const chapter of this.getTraversalChapters()) {
-      const chapterEntry = this.documentManager.getChapterById(chapter.id);
-      if (!chapterEntry) {
-        continue;
-      }
-
-      if (
-        chapterEntry.fragments.every((_, fragmentIndex) =>
-          this.isStepCompleted(chapter.id, fragmentIndex, this.pipeline.finalStepId),
-        )
-      ) {
-        translatedChapters += 1;
-      }
-    }
-
-    const cursor = this.getCurrentCursor();
-    return new ProjectProgress(
-      this.getTraversalChapters().length,
-      translatedChapters,
-      totalFragments,
-      translatedFragments,
-      cursor.chapterId,
-      cursor.fragmentIndex,
-    );
+    await this.lifecycleManager.refreshLifecycleState();
   }
 
   getProgressSnapshot(): ProjectProgressSnapshot {
-    const progress = this.getProgress();
-    return {
-      totalChapters: progress.totalChapters,
-      translatedChapters: progress.translatedChapters,
-      totalFragments: progress.totalFragments,
-      translatedFragments: progress.translatedFragments,
-      currentChapterId: progress.currentChapterId,
-      currentFragmentIndex: progress.currentFragmentIndex,
-      fragmentProgressRatio: progress.fragmentProgressRatio,
-      chapterProgressRatio: progress.chapterProgressRatio,
-    };
+    this.ensureInitialized();
+    return this.snapshotBuilder.getProgressSnapshot();
   }
 
   getGlossaryProgress(): GlossaryProgressSnapshot | undefined {
-    if (!this.glossary) {
-      return undefined;
-    }
-
-    const terms = this.glossary.getAllTerms();
-    const translatedTerms = terms.filter((term) => term.status === "translated").length;
-    return {
-      totalTerms: terms.length,
-      translatedTerms,
-      untranslatedTerms: terms.length - translatedTerms,
-    };
+    this.ensureInitialized();
+    return this.snapshotBuilder.getGlossaryProgress();
   }
 
   getStepProgress(stepId: string): TranslationStepProgressSnapshot {
-    const step = this.pipeline.getStep(stepId);
-    const entries = this.listStepQueueEntries(stepId);
-    const readyEntries = entries.filter((entry) => entry.status === "queued").filter((entry) =>
-      this.resolveStepDependencies(stepId, entry).ready,
-    );
-    const queuedFragments = entries.filter((entry) => entry.status === "queued").length;
-    const runningFragments = entries.filter((entry) => entry.status === "running").length;
-    const completedFragments = entries.filter((entry) => entry.status === "completed").length;
-    const totalFragments = this.getOrderedFragments().length;
-
-    return {
-      stepId,
-      description: step.description,
-      isFinalStep: stepId === this.pipeline.finalStepId,
-      totalFragments,
-      queuedFragments,
-      runningFragments,
-      completedFragments,
-      readyFragments: readyEntries.length,
-      waitingFragments: queuedFragments - readyEntries.length,
-      completionRatio: totalFragments === 0 ? 0 : completedFragments / totalFragments,
-    };
+    this.ensureInitialized();
+    return this.snapshotBuilder.getStepProgress(stepId);
   }
 
   getQueueSnapshot(stepId: string): TranslationStepQueueSnapshot {
-    const step = this.pipeline.getStep(stepId);
-    return {
-      stepId,
-      description: step.description,
-      isFinalStep: stepId === this.pipeline.finalStepId,
-      progress: this.getStepProgress(stepId),
-      entries: this.listStepQueueEntries(stepId).map((entry) =>
-        this.buildQueueEntrySnapshot(stepId, entry),
-      ),
-    };
+    this.ensureInitialized();
+    return this.snapshotBuilder.getQueueSnapshot(stepId);
   }
 
   getQueueSnapshots(): TranslationStepQueueSnapshot[] {
-    return this.pipeline.steps.map((step) => this.getQueueSnapshot(step.id));
+    this.ensureInitialized();
+    return this.snapshotBuilder.getQueueSnapshots();
   }
 
-  getActiveWorkItems(stepId?: string): TranslationStepQueueEntrySnapshot[] {
-    const stepIds = stepId ? [stepId] : this.pipeline.steps.map((step) => step.id);
-    return stepIds.flatMap((currentStepId) =>
-      this.listStepQueueEntries(currentStepId)
-        .filter((entry) => entry.status === "running")
-        .map((entry) => this.buildQueueEntrySnapshot(currentStepId, entry)),
-    );
+  getActiveWorkItems(stepId?: string) {
+    this.ensureInitialized();
+    return this.snapshotBuilder.getActiveWorkItems(stepId);
   }
 
-  getReadyWorkItemSnapshots(stepId?: string): TranslationStepQueueEntrySnapshot[] {
-    const stepIds = stepId ? [stepId] : this.pipeline.steps.map((step) => step.id);
-    return stepIds.flatMap((currentStepId) =>
-      this.listStepQueueEntries(currentStepId)
-        .filter((entry) => entry.status === "queued")
-        .map((entry) => this.buildQueueEntrySnapshot(currentStepId, entry))
-        .filter((entry) => entry.readyToDispatch),
-    );
+  getReadyWorkItemSnapshots(stepId?: string) {
+    this.ensureInitialized();
+    return this.snapshotBuilder.getReadyWorkItemSnapshots(stepId);
   }
 
   getProjectSnapshot(): TranslationProjectSnapshot {
-    return {
-      projectName: this.config.projectName,
-      currentCursor: this.getCurrentCursor(),
-      lifecycle: this.getLifecycleSnapshot(),
-      progress: this.getProgressSnapshot(),
-      glossary: this.getGlossaryProgress(),
-      pipeline: {
-        stepCount: this.pipeline.steps.length,
-        finalStepId: this.pipeline.finalStepId,
-        steps: this.pipeline.steps.map((step) => ({
-          id: step.id,
-          description: step.description,
-          isFinalStep: step.id === this.pipeline.finalStepId,
-        })),
-      },
-      queueSnapshots: this.getQueueSnapshots(),
-      activeWorkItems: this.getActiveWorkItems(),
-      readyWorkItems: this.getReadyWorkItemSnapshots(),
-    };
+    this.ensureInitialized();
+    return this.snapshotBuilder.getProjectSnapshot();
   }
 
   scanGlobalAssociationPatterns(
@@ -887,8 +566,8 @@ export class TranslationProject
   async saveProgress(): Promise<void> {
     this.ensureInitialized();
     await this.documentManager.saveChapters();
-    await this.saveGlossaryIfNeeded();
-    await this.persistProjectState();
+    await this.workspaceManager.saveGlossaryIfNeeded();
+    await this.lifecycleManager.markProgressSaved();
   }
 
   getDocumentManager(): TranslationDocumentManager {
@@ -962,19 +641,19 @@ export class TranslationProject
     for (const fragment of this.getOrderedFragments()) {
       const firstStepId = this.pipeline.steps[0]!.id;
       if (!fragment.fragment.pipelineStates[firstStepId]) {
-          updates.push({
-            chapterId: fragment.chapterId,
-            fragmentIndex: fragment.fragmentIndex,
-            stepId: firstStepId,
-            state: {
-              status: "queued",
-              queueSequence: this.allocateQueueSequence(firstStepId),
-              attemptCount: 0,
-              queuedAt: now,
-              updatedAt: now,
-            },
-          });
-        }
+        updates.push({
+          chapterId: fragment.chapterId,
+          fragmentIndex: fragment.fragmentIndex,
+          stepId: firstStepId,
+          state: {
+            status: "queued",
+            queueSequence: this.allocateQueueSequence(firstStepId),
+            attemptCount: 0,
+            queuedAt: now,
+            updatedAt: now,
+          },
+        });
+      }
 
       for (const step of this.pipeline.steps.slice(1)) {
         const previousStepId = this.pipeline.getPreviousStepId(step.id);
@@ -1012,29 +691,27 @@ export class TranslationProject
 
     const now = new Date().toISOString();
     await this.documentManager.updatePipelineStepStates(
-      readyItems.map((item) => ({
-        chapterId: item.chapterId,
-        fragmentIndex: item.fragmentIndex,
-        stepId: item.stepId,
-        state: {
-          ...this.documentManager.getPipelineStepState(
-            item.chapterId,
-            item.fragmentIndex,
-            item.stepId,
-          )!,
-          status: "running",
-          attemptCount:
-            (this.documentManager.getPipelineStepState(
-              item.chapterId,
-              item.fragmentIndex,
-              item.stepId,
-            )?.attemptCount ?? 0) + 1,
-          startedAt: now,
-          updatedAt: now,
-          lastRunId: item.runId,
-          errorMessage: undefined,
-        },
-      })),
+      readyItems.map((item) => {
+        const currentState = this.documentManager.getPipelineStepState(
+          item.chapterId,
+          item.fragmentIndex,
+          item.stepId,
+        )!;
+        return {
+          chapterId: item.chapterId,
+          fragmentIndex: item.fragmentIndex,
+          stepId: item.stepId,
+          state: {
+            ...currentState,
+            status: "running",
+            attemptCount: (currentState.attemptCount ?? 0) + 1,
+            startedAt: now,
+            updatedAt: now,
+            lastRunId: item.runId,
+            errorMessage: undefined,
+          },
+        };
+      }),
     );
 
     return readyItems;
@@ -1071,62 +748,8 @@ export class TranslationProject
         runtime: this,
         metadata,
       }),
-      requirements: [
-        ...this.getRequirements(),
-        ...(step.requirements ?? []),
-      ],
+      requirements: [...this.getRequirements(), ...(step.requirements ?? [])],
       metadata,
-    };
-  }
-
-  private buildQueueEntrySnapshot(
-    stepId: string,
-    entry: TranslationStepQueueEntry,
-  ): TranslationStepQueueEntrySnapshot {
-    const stepState = this.documentManager.getPipelineStepState(
-      entry.chapterId,
-      entry.fragmentIndex,
-      stepId,
-    );
-    const resolution =
-      entry.status === "queued" ? this.resolveStepDependencies(stepId, entry) : undefined;
-    const canBuildWorkItem =
-      entry.status === "queued" &&
-      Boolean(resolution?.ready) &&
-      this.projectState.lifecycle.status === "running";
-    const workItem =
-      canBuildWorkItem
-        ? this.buildWorkItem(stepId, entry, resolution!)
-        : undefined;
-
-    return {
-      stepId,
-      chapterId: entry.chapterId,
-      fragmentIndex: entry.fragmentIndex,
-      queueSequence: entry.queueSequence,
-      status: entry.status,
-      attemptCount: stepState?.attemptCount ?? 0,
-      queuedAt: stepState?.queuedAt,
-      startedAt: stepState?.startedAt,
-      completedAt: stepState?.completedAt,
-      updatedAt: stepState?.updatedAt,
-      runId: stepState?.lastRunId,
-      sourceText: this.documentManager.getSourceText(entry.chapterId, entry.fragmentIndex),
-      translatedText: this.documentManager.getTranslatedText(entry.chapterId, entry.fragmentIndex),
-      inputText:
-        workItem?.inputText ??
-        this.buildInputPreview(stepId, entry.chapterId, entry.fragmentIndex),
-      outputText: stepState?.output ? fragmentToText(stepState.output) : undefined,
-      dependencyMode:
-        workItem?.metadata.dependencyMode === "previousTranslations" ||
-        workItem?.metadata.dependencyMode === "glossaryTerms"
-          ? workItem.metadata.dependencyMode
-          : undefined,
-      readyToDispatch: entry.status === "queued" ? Boolean(resolution?.ready) : false,
-      blockedReason:
-        entry.status === "queued" && !resolution?.ready ? resolution?.reason : undefined,
-      errorMessage: entry.errorMessage,
-      metadata: workItem?.metadata ?? (resolution?.metadata ?? {}),
     };
   }
 
@@ -1176,18 +799,14 @@ export class TranslationProject
       return;
     }
 
-    await this.documentManager.updatePipelineStepState(
-      chapterId,
-      fragmentIndex,
-      stepId,
-      {
-        status: "queued",
-        queueSequence: this.allocateQueueSequence(stepId),
-        attemptCount: 0,
-        queuedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    );
+    const now = new Date().toISOString();
+    await this.documentManager.updatePipelineStepState(chapterId, fragmentIndex, stepId, {
+      status: "queued",
+      queueSequence: this.allocateQueueSequence(stepId),
+      attemptCount: 0,
+      queuedAt: now,
+      updatedAt: now,
+    });
   }
 
   private listAllQueueEntries(): TranslationStepQueueEntry[] {
@@ -1222,34 +841,6 @@ export class TranslationProject
     return next;
   }
 
-  private async recoverInterruptedRunIfNeeded(): Promise<void> {
-    const lifecycleStatus = this.projectState.lifecycle.status;
-    const hasRunningEntries = this.listAllQueueEntries().some((entry) => entry.status === "running");
-    if (
-      !hasRunningEntries &&
-      lifecycleStatus !== "running" &&
-      lifecycleStatus !== "stopping"
-    ) {
-      return;
-    }
-
-    if (hasRunningEntries) {
-      await this.requeueRunningWorkItems("translation_interrupted");
-    }
-
-    const now = new Date().toISOString();
-    await this.updateLifecycleState({
-      status: this.listAllQueueEntries().some((entry) => entry.status === "queued")
-        ? "interrupted"
-        : "completed",
-      currentRunId: undefined,
-      interruptedAt: hasRunningEntries ? now : this.projectState.lifecycle.interruptedAt,
-      stopRequestedAt: undefined,
-      stoppedAt: hasRunningEntries ? now : this.projectState.lifecycle.stoppedAt,
-      updatedAt: now,
-    });
-  }
-
   private async requeueRunningWorkItems(errorMessage: string): Promise<void> {
     const now = new Date().toISOString();
     const runningEntries = this.listAllQueueEntries().filter((entry) => entry.status === "running");
@@ -1277,83 +868,8 @@ export class TranslationProject
     );
   }
 
-  private async refreshLifecycleState(): Promise<void> {
-    const lifecycle = this.projectState.lifecycle;
-    const now = new Date().toISOString();
-    const hasQueuedWork = this.listAllQueueEntries().some((entry) => entry.status === "queued");
-    const hasRunningWork = this.listAllQueueEntries().some((entry) => entry.status === "running");
-    const isCompleted = this.getOrderedFragments().every((fragment) =>
-      this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, this.pipeline.finalStepId),
-    );
-
-    if (isCompleted) {
-      await this.updateLifecycleState({
-        status: "completed",
-        currentRunId: undefined,
-        stopRequestedAt: undefined,
-        stoppedAt: lifecycle.stoppedAt,
-        completedAt: lifecycle.completedAt ?? now,
-        updatedAt: now,
-      });
-      return;
-    }
-
-    if (lifecycle.status === "stopping" && !hasRunningWork) {
-      await this.updateLifecycleState({
-        status: "stopped",
-        currentRunId: undefined,
-        stopRequestedAt: undefined,
-        stoppedAt: now,
-        updatedAt: now,
-      });
-      return;
-    }
-
-    if (
-      lifecycle.status === "completed" &&
-      (hasQueuedWork || hasRunningWork)
-    ) {
-      await this.updateLifecycleState({
-        status: "stopped",
-        completedAt: undefined,
-        updatedAt: now,
-      });
-    }
-  }
-
-  private async updateLifecycleState(
-    patch: Partial<TranslationProjectState["lifecycle"]>,
-  ): Promise<void> {
-    const nextStatus = patch.status ?? this.projectState.lifecycle.status;
-    this.projectState = {
-      ...this.projectState,
-      pipeline: {
-        stepIds: this.pipeline.steps.map((step) => step.id),
-        finalStepId: this.pipeline.finalStepId,
-      },
-      lifecycle: {
-        ...this.projectState.lifecycle,
-        ...patch,
-        status: nextStatus,
-      },
-    };
-    await this.persistProjectState();
-  }
-
   private async persistProjectState(): Promise<void> {
     await this.documentManager.saveProjectState(this.projectState);
-  }
-
-  private async saveGlossaryIfNeeded(): Promise<void> {
-    if (!this.glossary || !this.config.glossary?.path) {
-      return;
-    }
-
-    const glossaryPath = resolveChapterPath(this.projectDir, this.config.glossary.path);
-    await GlossaryPersisterFactory.getPersister(glossaryPath).saveGlossary(
-      this.glossary,
-      glossaryPath,
-    );
   }
 
   private getCurrentRunIdOrThrow(): string {
@@ -1391,375 +907,9 @@ export class TranslationProject
     return [...this.chapters];
   }
 
-  private createDefaultPipelineDefinition(): TranslationPipelineDefinition {
-    return {
-      steps: [
-        {
-          id: "translation",
-          description: "最终翻译",
-          buildInput: ({ chapterId, fragmentIndex, runtime }) =>
-            runtime.getSourceText(chapterId, fragmentIndex),
-          resolveDependencies: ({ chapterId, fragmentIndex, stepId, runtime }) => {
-            const dependencyMode = this.resolveTranslationDependencyMode(
-              chapterId,
-              fragmentIndex,
-              stepId,
-              runtime.getOrderedFragments(),
-            );
-
-            return dependencyMode
-              ? {
-                  ready: true,
-                  metadata: { dependencyMode },
-                }
-              : {
-                  ready: false,
-                  reason: this.getTranslationDependencyBlockedReason(
-                    chapterId,
-                    fragmentIndex,
-                    stepId,
-                    runtime.getOrderedFragments(),
-                  ),
-                };
-          },
-          buildContextView: ({ chapterId, fragmentIndex, metadata }) => {
-            const dependencyMode = metadata.dependencyMode;
-            if (
-              dependencyMode !== "previousTranslations" &&
-              dependencyMode !== "glossaryTerms"
-            ) {
-              return undefined;
-            }
-
-            return new TranslationContextView(chapterId, fragmentIndex, {
-              documentManager: this.documentManager,
-              stepId: "translation",
-              dependencyMode,
-              traversalChapters: this.getTraversalChapters(),
-              glossary: this.glossary,
-              glossaryConfig: this.config.glossary,
-            });
-          },
-        },
-      ],
-    };
-  }
-
-  private resolveTranslationDependencyMode(
-    chapterId: number,
-    fragmentIndex: number,
-    stepId: string,
-    orderedFragments: OrderedFragmentSnapshot[],
-  ): TranslationDependencyMode | undefined {
-    const currentIndex = orderedFragments.findIndex(
-      (fragment) =>
-        fragment.chapterId === chapterId &&
-        fragment.fragmentIndex === fragmentIndex,
-    );
-    if (currentIndex === -1) {
-      throw new Error(`文本块不存在: chapter=${chapterId}, fragment=${fragmentIndex}`);
-    }
-
-    if (
-      orderedFragments
-        .slice(0, currentIndex)
-        .every((fragment) =>
-          this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, stepId),
-        )
-    ) {
-      return "previousTranslations";
-    }
-
-    const matchedGlossaryTerms = this.glossary?.filterTerms(
-      this.documentManager.getSourceText(chapterId, fragmentIndex),
-    ) ?? [];
-    const hasCompletedPeer = orderedFragments.some(
-      (fragment) =>
-        !(fragment.chapterId === chapterId && fragment.fragmentIndex === fragmentIndex) &&
-        this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, stepId),
-    );
-    if (
-      hasCompletedPeer &&
-      matchedGlossaryTerms.length > 0 &&
-      matchedGlossaryTerms.every((term) => term.status === "translated")
-    ) {
-      return "glossaryTerms";
-    }
-
-    return undefined;
-  }
-
-  private getTranslationDependencyBlockedReason(
-    chapterId: number,
-    fragmentIndex: number,
-    stepId: string,
-    orderedFragments: OrderedFragmentSnapshot[],
-  ): string {
-    const currentIndex = orderedFragments.findIndex(
-      (fragment) =>
-        fragment.chapterId === chapterId &&
-        fragment.fragmentIndex === fragmentIndex,
-    );
-    if (currentIndex === -1) {
-      return "fragment_not_found";
-    }
-
-    const hasUnfinishedPreviousFragments = orderedFragments
-      .slice(0, currentIndex)
-      .some((fragment) => !this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, stepId));
-    if (!this.glossary) {
-      return hasUnfinishedPreviousFragments
-        ? "waiting_for_previous_fragments"
-        : "waiting_for_glossary";
-    }
-
-    const matchedGlossaryTerms = this.glossary.filterTerms(
-      this.documentManager.getSourceText(chapterId, fragmentIndex),
-    );
-    if (matchedGlossaryTerms.length === 0) {
-      return hasUnfinishedPreviousFragments
-        ? "waiting_for_previous_fragments"
-        : "waiting_for_glossary_terms";
-    }
-
-    const untranslatedTerms = matchedGlossaryTerms.filter((term) => term.status !== "translated");
-    if (untranslatedTerms.length > 0) {
-      return "waiting_for_translated_glossary_terms";
-    }
-
-    const hasCompletedPeer = orderedFragments.some(
-      (fragment) =>
-        !(fragment.chapterId === chapterId && fragment.fragmentIndex === fragmentIndex) &&
-        this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, stepId),
-    );
-    if (!hasCompletedPeer) {
-      return "waiting_for_completed_peer";
-    }
-
-    return "waiting_for_step_dependencies";
-  }
-
-  private buildChapterDescriptor(chapterId: number): WorkspaceChapterDescriptor {
-    const chapter = this.documentManager.getChapterById(chapterId);
-    const chapterConfig = this.chapters.find((ch) => ch.id === chapterId);
-
-    if (!chapter || !chapterConfig) {
-      throw new Error(`章节 ${chapterId} 不存在`);
-    }
-
-    const sourceLineCount = chapter.fragments.reduce(
-      (sum, fragment) => sum + fragment.source.lines.length,
-      0,
-    );
-    const translatedLineCount = chapter.fragments.reduce(
-      (sum, fragment) =>
-        sum + fragment.translation.lines.filter((line) => line.length > 0).length,
-      0,
-    );
-
-    return {
-      id: chapterId,
-      filePath: chapterConfig.filePath,
-      fragmentCount: chapter.fragments.length,
-      sourceLineCount,
-      translatedLineCount,
-      hasTranslationData: translatedLineCount > 0,
-    };
-  }
-
-  private resolveFileHandler(
-    filePath: string,
-    options?: { format?: string; fileHandler?: TranslationFileHandler },
-    defaultFormat?: string,
-  ): TranslationFileHandler | undefined {
-    if (options?.fileHandler) {
-      return options.fileHandler;
-    }
-
-    const format = options?.format ?? defaultFormat;
-    if (format) {
-      return TranslationFileHandlerFactory.getHandler(format);
-    }
-
-    return undefined;
-  }
-
   private ensureInitialized(): void {
     if (!this.initialized) {
       throw new Error("项目尚未初始化，请先调用 initialize()");
     }
   }
-}
-
-function resolveChapterPath(projectDir: string, path: string): string {
-  return resolve(projectDir, path);
-}
-
-function createDefaultProjectState(pipeline: TranslationPipeline): TranslationProjectState {
-  return {
-    schemaVersion: 1,
-    pipeline: {
-      stepIds: pipeline.steps.map((step) => step.id),
-      finalStepId: pipeline.finalStepId,
-    },
-    lifecycle: {
-      status: "idle",
-    },
-  };
-}
-
-function normalizeProjectStateForPipeline(
-  state: TranslationProjectState,
-  pipeline: TranslationPipeline,
-): TranslationProjectState {
-  return {
-    ...state,
-    schemaVersion: 1,
-    pipeline: {
-      stepIds: pipeline.steps.map((step) => step.id),
-      finalStepId: pipeline.finalStepId,
-    },
-  };
-}
-
-function upsertGlobalPatternTerm(
-  glossary: Glossary,
-  pattern: GlobalAssociationPattern,
-): void {
-  const existing = glossary.getTerm(pattern.text);
-  if (!existing) {
-    glossary.addTerm({
-      term: pattern.text,
-      translation: "",
-      status: "untranslated",
-      totalOccurrenceCount: pattern.occurrenceCount,
-      description: "全局关联模式",
-    });
-    return;
-  }
-
-  glossary.updateTerm(pattern.text, {
-    ...existing,
-    description: existing.description ?? "全局关联模式",
-    totalOccurrenceCount: pattern.occurrenceCount,
-  });
-}
-
-function collectSourceTextBlocks(
-  documentManager: TranslationDocumentManager,
-  chapters: Chapter[],
-): Array<{ blockId: string; text: string }> {
-  return chapters.flatMap((chapter) =>
-    (documentManager.getChapterById(chapter.id)?.fragments ?? []).map((fragment, fragmentIndex) => ({
-      blockId: `chapter:${chapter.id}:fragment:${fragmentIndex}`,
-      text: fragment.source.lines.join("\n"),
-    })),
-  );
-}
-
-// ===== Workspace Config Helpers =====
-
-function buildInitialWorkspaceConfig(
-  config: TranslationProjectConfig,
-  chapters: Chapter[],
-): WorkspaceConfig {
-  return {
-    schemaVersion: 1,
-    projectName: config.projectName,
-    chapters: chapters.map((chapter) => ({ id: chapter.id, filePath: chapter.filePath })),
-    glossary: {
-      path: config.glossary?.path,
-      autoFilter: config.glossary?.autoFilter,
-    },
-    translator: {},
-    slidingWindow: {},
-    customRequirements: [...(config.customRequirements ?? [])],
-  };
-}
-
-/**
- * 合并持久化的工作区配置到当前配置。
- *
- * 章节列表、术语表设置和自定义要求以构造时配置为准（反映运行时实际状态）；
- * 翻译器选择、滑动窗口、上下文大小、默认格式等工作区特有设置以持久化配置为准。
- */
-function mergePersistedWorkspaceConfig(
-  current: WorkspaceConfig,
-  persisted: WorkspaceConfig,
-): WorkspaceConfig {
-  return {
-    ...current,
-    translator: {
-      ...current.translator,
-      ...persisted.translator,
-    },
-    slidingWindow: {
-      ...current.slidingWindow,
-      ...persisted.slidingWindow,
-    },
-    contextSize: persisted.contextSize ?? current.contextSize,
-    defaultImportFormat: persisted.defaultImportFormat ?? current.defaultImportFormat,
-    defaultExportFormat: persisted.defaultExportFormat ?? current.defaultExportFormat,
-  };
-}
-
-function applyWorkspaceConfigPatch(
-  config: WorkspaceConfig,
-  patch: WorkspaceConfigPatch,
-): WorkspaceConfig {
-  return {
-    ...config,
-    projectName: patch.projectName ?? config.projectName,
-    glossary: patch.glossary
-      ? { ...config.glossary, ...patch.glossary }
-      : config.glossary,
-    translator: patch.translator
-      ? { ...config.translator, ...patch.translator }
-      : config.translator,
-    slidingWindow: patch.slidingWindow
-      ? { ...config.slidingWindow, ...patch.slidingWindow }
-      : config.slidingWindow,
-    contextSize:
-      patch.contextSize === null
-        ? undefined
-        : (patch.contextSize ?? config.contextSize),
-    customRequirements: patch.customRequirements ?? config.customRequirements,
-    defaultImportFormat:
-      patch.defaultImportFormat === null
-        ? undefined
-        : (patch.defaultImportFormat ?? config.defaultImportFormat),
-    defaultExportFormat:
-      patch.defaultExportFormat === null
-        ? undefined
-        : (patch.defaultExportFormat ?? config.defaultExportFormat),
-  };
-}
-
-function cloneWorkspaceConfig(config: WorkspaceConfig): WorkspaceConfig {
-  return {
-    ...config,
-    chapters: config.chapters.map((ch) => ({ ...ch })),
-    glossary: { ...config.glossary },
-    translator: { ...config.translator },
-    slidingWindow: { ...config.slidingWindow },
-    customRequirements: [...config.customRequirements],
-  };
-}
-
-const FORMAT_FILE_EXTENSIONS: Record<string, string> = {
-  plain_text: ".txt",
-  naturedialog: ".txt",
-  naturedialog_keepname: ".txt",
-  m3t: ".m3t",
-  galtransl_json: ".json",
-};
-
-function getExportFileExtension(
-  originalFilePath: string,
-  format?: string,
-): string {
-  if (format) {
-    return FORMAT_FILE_EXTENSIONS[format] ?? `.${format}`;
-  }
-  return extname(originalFilePath) || ".txt";
 }
