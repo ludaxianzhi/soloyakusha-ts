@@ -24,6 +24,7 @@
 
 export * from "./context-view.ts";
 export * from "./plot-summarizer.ts";
+export * from "./story-topology.ts";
 export * from "./config.ts";
 export * from "./default-translation-processor.ts";
 export * from "./global-pattern-scanner.ts";

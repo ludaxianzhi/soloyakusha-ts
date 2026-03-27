@@ -8,6 +8,7 @@
  * - 格式化（JSON Schema）约束输出
  * - 总结结果保存在独立文件，不混入翻译文件
  * - 每次总结时将最近 N 条历史总结作为上下文（默认 20 条）
+ * - 支持 StoryTopology 拓扑感知：仅使用前序章节的总结作为上下文
  *
  * @module project/plot-summarizer
  */
@@ -22,6 +23,7 @@ import type { PromptManager } from "../prompts/index.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
 import type { TranslationDocumentManager } from "./translation-document-manager.ts";
 import type { TranslationProcessorClientResolver } from "./translation-processor.ts";
+import type { StoryTopology } from "./story-topology.ts";
 
 // ===== 常量 =====
 
@@ -93,6 +95,12 @@ export type PlotSummarizerOptions = {
   logger?: Logger;
   /** 提示词管理器（不传则使用内置默认 prompt） */
   promptManager?: PromptManager;
+  /**
+   * 多分线剧情拓扑。
+   * 提供后，总结上下文仅包含当前章节在拓扑中的前序章节的总结。
+   * 不提供时，上下文使用全部已有总结（兼容无拓扑场景）。
+   */
+  topology?: StoryTopology;
 };
 
 // ===== 主类 =====
@@ -113,6 +121,7 @@ export class PlotSummarizer {
   private readonly requestOptions?: ChatRequestOptions;
   private readonly logger: Logger;
   private readonly promptManagerPromise: Promise<PromptManager>;
+  private readonly topology?: StoryTopology;
   private entries: PlotSummaryEntry[] = [];
 
   constructor(
@@ -128,6 +137,7 @@ export class PlotSummarizer {
     this.promptManagerPromise = Promise.resolve(
       options.promptManager ?? getDefaultPromptManager(),
     );
+    this.topology = options.topology;
   }
 
   // ===== 数据访问 =====
@@ -137,6 +147,21 @@ export class PlotSummarizer {
    */
   getSummaries(): PlotSummaryEntry[] {
     return [...this.entries];
+  }
+
+  /**
+   * 根据文本块位置获取前序情节总结。
+   *
+   * 当提供了 StoryTopology 时，仅返回拓扑中当前章节前序章节的总结，
+   * 以及同一章节中位于 fragmentIndex 之前的总结条目。
+   *
+   * 未提供 StoryTopology 时，返回除同一章节中当前及之后片段外的所有总结。
+   *
+   * @param chapterId - 当前章节 ID
+   * @param fragmentIndex - 当前文本块索引（可选，不传则只按章节粒度过滤）
+   */
+  getSummariesForPosition(chapterId: number, fragmentIndex?: number): PlotSummaryEntry[] {
+    return this.filterPredecessorEntries(chapterId, fragmentIndex);
   }
 
   // ===== 持久化 =====
@@ -254,10 +279,8 @@ export class PlotSummarizer {
       sourceBlocks.push(this.documentManager.getSourceText(chapterId, i));
     }
 
-    // 截取最近 N 条总结作为上下文
-    const contextSummaries = this.entries
-      .slice(-this.maxContextSummaries)
-      .map((entry) => formatSummaryForContext(entry));
+    // 筛选前序总结作为上下文（拓扑感知或全量回退）
+    const contextSummaries = this.buildContextSummaries(chapterId, startFragmentIndex);
 
     this.logger.info?.("开始情节总结", {
       chapterId,
@@ -310,6 +333,59 @@ export class PlotSummarizer {
   }
 
   // ===== 私有工具 =====
+
+  /**
+   * 构建用于 LLM 上下文的前序总结字符串列表。
+   *
+   * 先通过拓扑（或全量回退）筛选前序条目，再截取最近 N 条并格式化。
+   */
+  private buildContextSummaries(chapterId: number, startFragmentIndex: number): string[] {
+    const predecessorEntries = this.filterPredecessorEntries(chapterId, startFragmentIndex);
+    return predecessorEntries
+      .slice(-this.maxContextSummaries)
+      .map((entry) => formatSummaryForContext(entry));
+  }
+
+  /**
+   * 筛选指定位置的前序总结条目。
+   *
+   * 有拓扑时：仅保留前序章节 + 同章节中更早片段的条目。
+   * 无拓扑时：保留其他章节全部条目 + 同章节中更早片段的条目。
+   */
+  private filterPredecessorEntries(
+    chapterId: number,
+    fragmentIndex?: number,
+  ): PlotSummaryEntry[] {
+    if (this.topology) {
+      const predecessorChapterIds = new Set(
+        this.topology.getPredecessorChapterIds(chapterId),
+      );
+      return this.entries.filter((entry) => {
+        if (predecessorChapterIds.has(entry.chapterId)) {
+          return true;
+        }
+        if (
+          entry.chapterId === chapterId &&
+          fragmentIndex != null &&
+          entry.endFragmentIndex <= fragmentIndex
+        ) {
+          return true;
+        }
+        return false;
+      });
+    }
+
+    // 无拓扑：保留所有其他章节 + 同章节中更早片段
+    return this.entries.filter((entry) => {
+      if (entry.chapterId !== chapterId) {
+        return true;
+      }
+      if (fragmentIndex != null && entry.endFragmentIndex <= fragmentIndex) {
+        return true;
+      }
+      return false;
+    });
+  }
 
   private resolveChatClient(): ChatClient {
     if ("singleTurnRequest" in this.clientResolver) {
