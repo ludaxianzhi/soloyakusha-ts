@@ -42,16 +42,32 @@ export const screenDescriptors: Record<ScreenName, ScreenDescriptor> = {
   'workspace-create': {
     eyebrow: 'WORKSPACE',
     title: '创建工作区',
-    subtitle: '先完善表单体验和视觉反馈，再接入真正的项目创建逻辑。',
+    subtitle: '通过表单初始化新项目，或直接打开已经存在的工作区。',
     tone: 'green',
     mdx: String.raw`
 ## Create with confidence
 
-表单区现在强调：
+现在这页已经承载真实初始化入口：
 
-- 清晰的焦点态
-- 更完整的字段说明
-- 更稳定的提交/取消交互
+- 新建项目并初始化章节
+- 打开已有工作区配置
+- 为后续 TUI 项目控制台提供入口
+`,
+  },
+  'workspace-progress': {
+    eyebrow: 'PROGRESS',
+    title: '项目进度与控制',
+    subtitle: '实时查看生命周期、队列进度和步骤状态，并直接控制项目运行。',
+    tone: 'green',
+    mdx: String.raw`
+## Live project control
+
+这里会持续展示：
+
+- 当前项目生命周期状态
+- 章节 / 文本块 / 步骤进度
+- 开始、暂停、恢复、保存与中止动作
+- 与项目控制相关的日志反馈
 `,
   },
   'workspace-import': {

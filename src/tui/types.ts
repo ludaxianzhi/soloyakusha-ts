@@ -2,6 +2,7 @@ export type ScreenName =
   | 'main-menu'
   | 'workspace-menu'
   | 'workspace-create'
+  | 'workspace-progress'
   | 'workspace-import'
   | 'workspace-config'
   | 'workspace-sort'
@@ -11,7 +12,7 @@ export type ScreenName =
 
 export interface LogEntry {
   id: number;
-  level: 'error' | 'warning';
+  level: 'error' | 'warning' | 'info' | 'success';
   message: string;
   timestamp: Date;
 }

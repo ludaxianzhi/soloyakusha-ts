@@ -9,8 +9,8 @@ import { SafeBox } from './safe-box.tsx';
 interface FormProps {
   title: string;
   fields: FormFieldDef[];
-  onSubmit: (values: Record<string, string>) => void;
-  onCancel: () => void;
+  onSubmit: (values: Record<string, string>) => void | Promise<void>;
+  onCancel: () => void | Promise<void>;
   submitLabel?: string;
 }
 
@@ -74,13 +74,13 @@ export function Form({
     }
 
     // ── Navigation mode ──
-    if (key.upArrow) setActiveIndex(p => (p - 1 + total) % total);
-    else if (key.downArrow) setActiveIndex(p => (p + 1) % total);
-    else if (key.return) {
-      if (activeIndex === submitIdx) onSubmit(values);
-      else if (activeIndex === cancelIdx) onCancel();
-      else setEditing(true);
-    } else if (key.escape) onCancel();
+      if (key.upArrow) setActiveIndex(p => (p - 1 + total) % total);
+      else if (key.downArrow) setActiveIndex(p => (p + 1) % total);
+      else if (key.return) {
+        if (activeIndex === submitIdx) void onSubmit(values);
+        else if (activeIndex === cancelIdx) void onCancel();
+        else setEditing(true);
+      } else if (key.escape) void onCancel();
   });
 
   useEffect(() => {
@@ -119,14 +119,14 @@ export function Form({
           return;
         }
 
-        if (activeIndex === submitIdx) onSubmit(values);
-        else if (activeIndex === cancelIdx) onCancel();
+        if (activeIndex === submitIdx) void onSubmit(values);
+        else if (activeIndex === cancelIdx) void onCancel();
         else setEditing(true);
       } else if (event.action === 'right') {
         if (editing) {
           setEditing(false);
         } else {
-          onCancel();
+          void onCancel();
         }
       }
     });

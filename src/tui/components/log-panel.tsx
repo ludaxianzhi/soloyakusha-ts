@@ -20,8 +20,8 @@ export function LogPanel() {
       ) : (
         visible.map(entry => (
           <SafeBox key={entry.id} marginBottom={1}>
-            <Text color={entry.level === 'error' ? 'red' : 'yellow'} bold>
-              {entry.level === 'error' ? 'ERR' : 'WARN'}
+            <Text color={getLevelColor(entry.level)} bold>
+              {getLevelLabel(entry.level)}
             </Text>
             <Text dimColor> [{formatTime(entry.timestamp)}] </Text>
             <Text wrap="wrap">{entry.message}</Text>
@@ -30,4 +30,32 @@ export function LogPanel() {
       )}
     </Panel>
   );
+}
+
+function getLevelColor(
+  level: 'error' | 'warning' | 'info' | 'success',
+): 'red' | 'yellow' | 'blue' | 'green' {
+  switch (level) {
+    case 'error':
+      return 'red';
+    case 'warning':
+      return 'yellow';
+    case 'success':
+      return 'green';
+    default:
+      return 'blue';
+  }
+}
+
+function getLevelLabel(level: 'error' | 'warning' | 'info' | 'success'): string {
+  switch (level) {
+    case 'error':
+      return 'ERR';
+    case 'warning':
+      return 'WARN';
+    case 'success':
+      return 'OK';
+    default:
+      return 'INFO';
+  }
 }

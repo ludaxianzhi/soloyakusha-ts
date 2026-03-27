@@ -5,9 +5,15 @@ import type { SelectItem, ScreenName } from '../types.ts';
 
 const menuItems: SelectItem<ScreenName | 'back'>[] = [
   {
+    label: '📊 项目进度与控制',
+    value: 'workspace-progress',
+    description: '查看实时项目状态，并执行开始、暂停、保存和中止等动作。',
+    meta: 'live',
+  },
+  {
     label: '✨ 新建工作区',
     value: 'workspace-create',
-    description: '查看新表单框架在创建流程中的表现。',
+    description: '初始化新项目，或打开已有工作区。',
     meta: 'form',
   },
   {

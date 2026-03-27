@@ -8,6 +8,7 @@ import { LogPanel } from './log-panel.tsx';
 import { SafeBox } from './safe-box.tsx';
 import { useNavigation } from '../context/navigation.tsx';
 import { useMouse } from '../context/mouse.tsx';
+import { useProject } from '../context/project.tsx';
 import { screenDescriptors } from '../screen-registry.ts';
 
 interface LayoutProps {
@@ -17,6 +18,7 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const { canGoBack, currentScreen, screenStack } = useNavigation();
   const { enabled, lastEvent } = useMouse();
+  const { snapshot, isBusy } = useProject();
   const { width, height } = useScreenSize();
   const descriptor = screenDescriptors[currentScreen];
   const screenTrail = screenStack.map(screen => screenDescriptors[screen].title).join(' / ');
@@ -67,6 +69,26 @@ export function Layout({ children }: LayoutProps) {
               <Text dimColor>导航栈深度：{screenStack.length}</Text>
             </SafeBox>
           </Panel>
+
+          <Panel title="项目状态" subtitle="当前已加载项目的实时快照。">
+            {!snapshot ? (
+              <Text dimColor>暂无项目，请先初始化或打开工作区。</Text>
+            ) : (
+              <SafeBox flexDirection="column">
+                <Text>
+                  <Text color="cyan">{snapshot.projectName}</Text>
+                  {isBusy ? <Text color="yellow"> · 处理中</Text> : null}
+                </Text>
+                <Text dimColor>状态：{formatRunStatus(snapshot.lifecycle.status)}</Text>
+                <Text dimColor>
+                  文本块：{snapshot.progress.translatedFragments}/{snapshot.progress.totalFragments}
+                </Text>
+                <Text dimColor>
+                  排队 {snapshot.lifecycle.queuedWorkItems} / 运行中 {snapshot.lifecycle.activeWorkItems}
+                </Text>
+              </SafeBox>
+            )}
+          </Panel>
         </SafeBox>
 
         <SafeBox flexDirection="column" flexGrow={1} gap={1}>
@@ -113,4 +135,25 @@ export function Layout({ children }: LayoutProps) {
       </SafeBox>
     </SafeBox>
   );
+}
+
+function formatRunStatus(status: string): string {
+  switch (status) {
+    case 'idle':
+      return '未启动';
+    case 'running':
+      return '运行中';
+    case 'stopping':
+      return '停止中';
+    case 'stopped':
+      return '已暂停';
+    case 'aborted':
+      return '已中止';
+    case 'completed':
+      return '已完成';
+    case 'interrupted':
+      return '中断待恢复';
+    default:
+      return status;
+  }
 }
