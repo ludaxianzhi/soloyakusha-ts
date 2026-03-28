@@ -53,6 +53,14 @@ export type PlotSummaryProgress = {
   errorMessage?: string;
 };
 
+export type ScanDictionaryProgress = {
+  status: 'running' | 'done' | 'error';
+  totalBatches: number;
+  completedBatches: number;
+  totalLines: number;
+  errorMessage?: string;
+};
+
 interface ProjectContextValue {
   project: TranslationProject | null;
   snapshot: TranslationProjectSnapshot | null;
@@ -60,6 +68,7 @@ interface ProjectContextValue {
   topology: StoryTopology | null;
   plotSummaryProgress: PlotSummaryProgress | null;
   plotSummaryReady: boolean;
+  scanDictionaryProgress: ScanDictionaryProgress | null;
   initializeProject: (input: InitializeProjectInput) => Promise<boolean>;
   refreshSnapshot: () => Promise<void>;
   startTranslation: () => Promise<void>;
@@ -100,6 +109,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [topology, setTopology] = useState<StoryTopology | null>(null);
   const [plotSummaryProgress, setPlotSummaryProgress] = useState<PlotSummaryProgress | null>(null);
   const [plotSummaryReady, setPlotSummaryReady] = useState(false);
+  const [scanDictionaryProgress, setScanDictionaryProgress] = useState<ScanDictionaryProgress | null>(null);
   const previousSnapshotRef = useRef<TranslationProjectSnapshot | null>(null);
   const processingTokenRef = useRef(0);
 
@@ -499,43 +509,97 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   );
 
   const scanDictionary = useCallback(
-    async () =>
-      runAction('扫描项目字典', async () => {
-        if (!project) {
-          throw new Error('当前没有已初始化的项目');
+    async () => {
+      if (isBusy) {
+        addLog('warning', '正在执行其他项目操作，请稍候后再试：扫描项目字典');
+        return;
+      }
+      if (!project) {
+        addLog('warning', '当前没有已初始化的项目');
+        return;
+      }
+
+      setIsBusy(true);
+      setScanDictionaryProgress({
+        status: 'running',
+        totalBatches: 0,
+        completedBatches: 0,
+        totalLines: 0,
+      });
+      addLog('info', '扫描项目字典...');
+
+      void (async () => {
+        try {
+          const manager = new GlobalConfigManager();
+          const globalConfig = await manager.getTranslationGlobalConfig();
+          const glossaryExtractorConfig = globalConfig.getGlossaryExtractorConfig();
+          if (!glossaryExtractorConfig?.modelName) {
+            throw new Error('未配置术语提取使用的 LLM，请先在翻译器配置中设置术语提取模型');
+          }
+
+          const provider = new TranslationGlobalConfig({ llm: globalConfig.llm }).createProvider();
+          const projectDir = project.getWorkspaceFileManifest().projectDir;
+          provider.setHistoryLogger(
+            new FileRequestHistoryLogger(join(projectDir, 'logs'), 'glossary_scan_requests'),
+          );
+
+          const scanner = new FullTextGlossaryScanner(
+            provider.getChatClient(glossaryExtractorConfig.modelName),
+            createTuiLogger(addLog),
+          );
+
+          // Pre-calculate batches to show accurate total progress
+          const lines = scanner.collectLinesFromDocumentManager(project.getDocumentManager());
+          const batches = scanner.buildBatches(lines, {
+            maxCharsPerBatch: glossaryExtractorConfig.maxCharsPerBatch,
+          });
+
+          addLog('info', `术语扫描开始，共 ${lines.length} 行，分 ${batches.length} 个批次`);
+          setScanDictionaryProgress({
+            status: 'running',
+            totalBatches: batches.length,
+            completedBatches: 0,
+            totalLines: lines.length,
+          });
+
+          const result = await scanner.scanLines(lines, {
+            maxCharsPerBatch: glossaryExtractorConfig.maxCharsPerBatch,
+            requestOptions: glossaryExtractorConfig.requestOptions,
+            seedTerms: project.getGlossary()?.getAllTerms(),
+            onBatchProgress: (completed, total) => {
+              setScanDictionaryProgress((prev) =>
+                prev ? { ...prev, completedBatches: completed } : prev,
+              );
+              addLog('info', `术语扫描批次 ${completed}/${total} 完成`);
+            },
+          });
+
+          project.replaceGlossary(result.glossary);
+          await project.saveProgress();
+          setSnapshot(project.getProjectSnapshot());
+          setScanDictionaryProgress({
+            status: 'done',
+            totalBatches: batches.length,
+            completedBatches: batches.length,
+            totalLines: lines.length,
+          });
+          addLog(
+            'success',
+            `术语提取完成，共识别 ${result.glossary.getAllTerms().length} 个条目（${result.batches.length} 批）`,
+          );
+        } catch (error) {
+          addLog('error', `扫描项目字典失败：${toErrorMessage(error)}`);
+          setScanDictionaryProgress((prev) =>
+            prev
+              ? { ...prev, status: 'error', errorMessage: toErrorMessage(error) }
+              : { status: 'error', totalBatches: 0, completedBatches: 0, totalLines: 0, errorMessage: toErrorMessage(error) },
+          );
+        } finally {
+          setIsBusy(false);
         }
-
-        const manager = new GlobalConfigManager();
-        const globalConfig = await manager.getTranslationGlobalConfig();
-        const glossaryExtractorConfig = globalConfig.getGlossaryExtractorConfig();
-        if (!glossaryExtractorConfig?.modelName) {
-          throw new Error('未配置术语提取使用的 LLM，请先在翻译器配置中设置术语提取模型');
-        }
-
-        const provider = new TranslationGlobalConfig({ llm: globalConfig.llm }).createProvider();
-        const projectDir = project.getWorkspaceFileManifest().projectDir;
-        provider.setHistoryLogger(
-          new FileRequestHistoryLogger(join(projectDir, 'logs'), 'glossary_scan_requests'),
-        );
-
-        const scanner = new FullTextGlossaryScanner(
-          provider.getChatClient(glossaryExtractorConfig.modelName),
-        );
-        const result = await scanner.scanDocumentManager(project.getDocumentManager(), {
-          maxCharsPerBatch: glossaryExtractorConfig.maxCharsPerBatch,
-          requestOptions: glossaryExtractorConfig.requestOptions,
-          seedTerms: project.getGlossary()?.getAllTerms(),
-        });
-
-        project.replaceGlossary(result.glossary);
-        await project.saveProgress();
-        setSnapshot(project.getProjectSnapshot());
-        addLog(
-          'success',
-          `术语提取完成，共识别 ${result.glossary.getAllTerms().length} 个条目（${result.batches.length} 批）`,
-        );
-      }),
-    [addLog, project, runAction],
+      })();
+    },
+    [addLog, isBusy, project],
   );
 
   const startPlotSummary = useCallback(
@@ -839,6 +903,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setTopology(null);
     setPlotSummaryProgress(null);
     setPlotSummaryReady(false);
+    setScanDictionaryProgress(null);
     setIsBusy(false);
     addLog('info', '已关闭当前工作区');
   }, [addLog]);
@@ -851,6 +916,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       topology,
       plotSummaryProgress,
       plotSummaryReady,
+      scanDictionaryProgress,
       initializeProject,
       refreshSnapshot,
       startTranslation,
@@ -891,6 +957,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       resumeTranslation,
       saveProgress,
       scanDictionary,
+      scanDictionaryProgress,
       snapshot,
       startPlotSummary,
       startTranslation,

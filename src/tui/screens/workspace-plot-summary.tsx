@@ -3,6 +3,7 @@ import { Text, useInput } from 'ink';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import { Select } from '../components/select.tsx';
 import { SafeBox } from '../components/safe-box.tsx';
+import { Spinner } from '../components/spinner.tsx';
 import { useNavigation } from '../context/navigation.tsx';
 import { useLog } from '../context/log.tsx';
 import { useProject } from '../context/project.tsx';
@@ -147,6 +148,7 @@ export function WorkspacePlotSummaryScreen() {
         <SafeBox flexDirection="column">
           <Text>
             状态：<Text color={statusColor}>{statusLabel}</Text>
+            {phase === 'running' ? <><Text> </Text><Spinner color="magenta" /></> : null}
           </Text>
           {progress ? (
             <>
@@ -162,6 +164,9 @@ export function WorkspacePlotSummaryScreen() {
               </Text>
               {progress.currentChapterId != null ? (
                 <Text dimColor>当前章节：Chapter {progress.currentChapterId}</Text>
+              ) : null}
+              {phase === 'running' ? (
+                <Text dimColor><Spinner color="magenta" label="正在请求 LLM，请稍候..." /></Text>
               ) : null}
               {progress.errorMessage ? <Text color="red">{progress.errorMessage}</Text> : null}
             </>

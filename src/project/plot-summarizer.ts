@@ -199,9 +199,12 @@ export class PlotSummarizer {
    */
   async summarizeAll(options?: { requestOptions?: ChatRequestOptions }): Promise<void> {
     const chapters = this.documentManager.getAllChapters();
-    for (const chapter of chapters) {
+    this.logger.info?.(`开始情节总结，共 ${chapters.length} 个章节`);
+    for (const [index, chapter] of chapters.entries()) {
+      this.logger.info?.(`开始总结第 ${index + 1}/${chapters.length} 章节（章节 ID: ${chapter.id}）`);
       await this.summarizeChapter(chapter.id, options);
     }
+    this.logger.info?.(`全部 ${chapters.length} 个章节情节总结完成`);
   }
 
   /**
@@ -222,17 +225,28 @@ export class PlotSummarizer {
     }
 
     const totalFragments = chapter.fragments.length;
-    const results: PlotSummaryEntry[] = [];
+    const estimatedBatches = Math.ceil(totalFragments / this.fragmentsPerBatch);
+    this.logger.info?.(
+      `章节 ${chapterId}：共 ${totalFragments} 个文本块，预计 ${estimatedBatches} 个批次`,
+    );
 
+    const results: PlotSummaryEntry[] = [];
+    let batchIndex = 0;
     let fragmentIndex = 0;
     while (fragmentIndex < totalFragments) {
       const remaining = totalFragments - fragmentIndex;
       const count = Math.min(this.fragmentsPerBatch, remaining);
+      batchIndex += 1;
+      this.logger.info?.(
+        `章节 ${chapterId} 第 ${batchIndex}/${estimatedBatches} 批次（片段 ${fragmentIndex}–${fragmentIndex + count - 1}）`,
+      );
       const entry = await this.summarizeFragments(chapterId, fragmentIndex, count, options);
       results.push(entry);
       fragmentIndex += count;
+      this.logger.info?.(`章节 ${chapterId} 第 ${batchIndex}/${estimatedBatches} 批次完成`);
     }
 
+    this.logger.info?.(`章节 ${chapterId} 总结完成（${batchIndex} 个批次）`);
     return results;
   }
 

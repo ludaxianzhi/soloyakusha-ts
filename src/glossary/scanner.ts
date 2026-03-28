@@ -13,6 +13,7 @@
 import type { ChatClient } from "../llm/base.ts";
 import type { ChatRequestOptions } from "../llm/types.ts";
 import { getDefaultPromptManager } from "../prompts/index.ts";
+import { NOOP_LOGGER, type Logger } from "../project/logger.ts";
 import type { TranslationDocumentManager } from "../project/translation-document-manager.ts";
 import {
   Glossary,
@@ -68,6 +69,8 @@ export type FullTextGlossaryScanOptions = {
   maxCharsPerBatch?: number;
   requestOptions?: ChatRequestOptions;
   seedTerms?: GlossaryTerm[];
+  /** 每个批次扫描完成后的回调，参数为（已完成批次数, 总批次数）*/
+  onBatchProgress?: (completed: number, total: number) => void;
 };
 
 export type FullTextGlossaryScanResult = {
@@ -83,7 +86,14 @@ type RawScannedEntity = {
 };
 
 export class FullTextGlossaryScanner {
-  constructor(private readonly chatClient: ChatClient) {}
+  private readonly logger: Logger;
+
+  constructor(
+    private readonly chatClient: ChatClient,
+    logger?: Logger,
+  ) {
+    this.logger = logger ?? NOOP_LOGGER;
+  }
 
   collectLinesFromDocumentManager(
     documentManager: TranslationDocumentManager,
@@ -162,7 +172,15 @@ export class FullTextGlossaryScanner {
     const batches = this.buildBatches(lines, options);
     const promptManager = await getDefaultPromptManager();
 
+    this.logger.info?.(
+      `开始全文术语扫描，共 ${lines.length} 行，分 ${batches.length} 个批次`,
+    );
+
     for (const batch of batches) {
+      this.logger.info?.(
+        `扫描批次 ${batch.batchIndex + 1}/${batches.length}（行 ${batch.startLineNumber}–${batch.endLineNumber}，约 ${batch.charCount} 字符）`,
+      );
+
       const renderedPrompt = promptManager.renderPrompt("glossary.fullTextScan", {
         startLineLabel: formatScanLineLabel(batch.startLineNumber),
         endLineLabel: formatScanLineLabel(batch.endLineNumber),
@@ -177,14 +195,21 @@ export class FullTextGlossaryScanner {
         const existing = glossary.getTerm(entity.term);
         glossary.addTerm(mergeScannedTerm(existing, entity));
       }
+
+      this.logger.info?.(
+        `批次 ${batch.batchIndex + 1}/${batches.length} 完成，本批提取 ${extractedEntities.length} 个候选术语（累计 ${glossary.getAllTerms().length} 项）`,
+      );
+      options.onBatchProgress?.(batch.batchIndex + 1, batches.length);
     }
 
+    this.logger.info?.("正在统计术语频次...");
     glossary.updateOccurrenceStats(
       lines.map<GlossaryTextBlock>((line) => ({
         blockId: line.blockId,
         text: line.text,
       })),
     );
+    this.logger.info?.(`术语扫描完成，共提取 ${glossary.getAllTerms().length} 个术语`);
 
     return {
       glossary,

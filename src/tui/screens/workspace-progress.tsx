@@ -2,6 +2,7 @@ import { Text, useInput } from 'ink';
 import type { TranslationProjectSnapshot, TranslationStepQueueSnapshot } from '../../project/types.ts';
 import { Select } from '../components/select.tsx';
 import { SafeBox } from '../components/safe-box.tsx';
+import { Spinner } from '../components/spinner.tsx';
 import { useNavigation } from '../context/navigation.tsx';
 import { useProject } from '../context/project.tsx';
 import type { SelectItem } from '../types.ts';
@@ -33,6 +34,7 @@ export function WorkspaceProgressScreen() {
     saveProgress,
     abortTranslation,
     scanDictionary,
+    scanDictionaryProgress,
     refreshSnapshot,
   } = useProject();
 
@@ -58,7 +60,7 @@ export function WorkspaceProgressScreen() {
               <Text color="cyan" bold>{snapshot.projectName}</Text>
               <Text dimColor> · </Text>
               <Text color={getStatusColor(snapshot.lifecycle.status)}>{formatRunStatus(snapshot.lifecycle.status)}</Text>
-              {isBusy ? <Text color="yellow"> · 处理中</Text> : null}
+              {isBusy ? <><Text color="yellow"> · </Text><Spinner color="yellow" label="处理中" /></> : null}
               {snapshot.lifecycle.lastSavedAt ? <Text dimColor> · 保存于 {snapshot.lifecycle.lastSavedAt}</Text> : null}
             </Text>
             <Text>
@@ -92,6 +94,31 @@ export function WorkspaceProgressScreen() {
               <Text dimColor> R{qs.progress.readyFragments} Q{qs.progress.queuedFragments} A{qs.progress.runningFragments} D{qs.progress.completedFragments}</Text>
             </Text>
           ))}
+        </SafeBox>
+      ) : null}
+
+      {scanDictionaryProgress ? (
+        <SafeBox flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+          <Text bold color="cyan">术语提取</Text>
+          {scanDictionaryProgress.status === 'running' ? (
+            <>
+              <Text>
+                <Spinner color="cyan" />
+                {' '}进度：
+                {renderProgressBar(
+                  scanDictionaryProgress.totalBatches > 0
+                    ? scanDictionaryProgress.completedBatches / scanDictionaryProgress.totalBatches
+                    : 0,
+                )}{' '}
+                {scanDictionaryProgress.completedBatches}/{scanDictionaryProgress.totalBatches} 批次
+              </Text>
+              <Text dimColor>总行数：{scanDictionaryProgress.totalLines}</Text>
+            </>
+          ) : scanDictionaryProgress.status === 'done' ? (
+            <Text color="green">✔ 完成（{scanDictionaryProgress.totalBatches} 批次，共 {scanDictionaryProgress.totalLines} 行）</Text>
+          ) : (
+            <Text color="red">✖ 出错：{scanDictionaryProgress.errorMessage}</Text>
+          )}
         </SafeBox>
       ) : null}
 
