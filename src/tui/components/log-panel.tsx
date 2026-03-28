@@ -13,7 +13,7 @@ export function LogPanel() {
   const visible = logs.slice(-MAX_VISIBLE);
 
   return (
-    <SafeBox flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} marginTop={1}>
+    <SafeBox flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} marginTop={1} height={8} overflow="hidden">
       <Text dimColor bold>
         日志{logs.length > 0 ? ` (${logs.length})` : ''}
       </Text>

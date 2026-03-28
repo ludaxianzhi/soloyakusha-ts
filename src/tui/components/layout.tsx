@@ -5,7 +5,6 @@ import { Keycap } from './keycap.tsx';
 import { LogPanel } from './log-panel.tsx';
 import { SafeBox } from './safe-box.tsx';
 import { useNavigation } from '../context/navigation.tsx';
-import { useMouse } from '../context/mouse.tsx';
 import { screenDescriptors } from '../screen-registry.ts';
 
 interface LayoutProps {
@@ -14,7 +13,6 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const { canGoBack, currentScreen, screenStack } = useNavigation();
-  const { enabled } = useMouse();
   const { width, height } = useScreenSize();
   const descriptor = screenDescriptors[currentScreen];
   const screenTrail = screenStack.map(screen => screenDescriptors[screen].title).join(' / ');
@@ -63,16 +61,7 @@ export function Layout({ children }: LayoutProps) {
         </SafeBox>
 
         <SafeBox gap={1}>
-          {enabled ? (
-            <SafeBox gap={1}>
-              <Keycap label="Wheel" active />
-              <Text dimColor>滚动</Text>
-              <Keycap label="Click" active />
-              <Text dimColor>操作</Text>
-            </SafeBox>
-          ) : (
-            <Text dimColor>Ctrl+C 退出</Text>
-          )}
+          <Text dimColor>Ctrl+C 退出</Text>
         </SafeBox>
       </SafeBox>
     </SafeBox>
