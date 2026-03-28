@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Text } from 'ink';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import { Form } from '../components/form.tsx';
-import { Panel } from '../components/panel.tsx';
 import { ReorderList, type ReorderItem } from '../components/reorder-list.tsx';
 import { Select } from '../components/select.tsx';
 import { SafeBox } from '../components/safe-box.tsx';
@@ -319,11 +318,8 @@ export function WorkspaceCreateScreen() {
 
     return (
       <SafeBox flexDirection="column" gap={1}>
-        <Panel
-          title="初始化项目 · 是否导入支线？"
-          subtitle="支线从主线的某个章节分叉，拥有独立的剧情路线。"
-          tone="blue"
-        >
+        <SafeBox flexDirection="column" borderStyle="round" borderColor="blue" paddingX={1}>
+          <Text bold color="blue">初始化项目 · 是否导入支线？</Text>
           <SafeBox flexDirection="column">
             <Text>
               主线章节数：<Text color="cyan">{draft.chapterPaths.length}</Text>
@@ -339,11 +335,10 @@ export function WorkspaceCreateScreen() {
               </Text>
             ) : null}
           </SafeBox>
-        </Panel>
+        </SafeBox>
 
         <Select
           title="选择操作"
-          description="支线添加完毕后可直接创建项目。"
           items={branchAskItems}
           isActive={!isBusy}
           onSelect={(item) => {
@@ -489,11 +484,8 @@ export function WorkspaceCreateScreen() {
 
   return (
     <SafeBox flexDirection="column" gap={1}>
-      <Panel
-        title="初始化项目 · 确认"
-        subtitle="确认项目初始化摘要后即可进入项目主页。"
-        tone="green"
-      >
+      <SafeBox flexDirection="column" borderStyle="round" borderColor="green" paddingX={1}>
+        <Text bold color="green">初始化项目 · 确认</Text>
         <SafeBox flexDirection="column">
           <Text>
             项目：<Text color="cyan">{draft.projectName}</Text>
@@ -526,11 +518,10 @@ export function WorkspaceCreateScreen() {
             </Text>
           ))}
         </SafeBox>
-      </Panel>
+      </SafeBox>
 
       <Select
         title="确认动作"
-        description="创建后会直接打开项目主页，并显示实时项目进度。"
         items={confirmItems}
         isActive={!isBusy}
         onSelect={(item) => {

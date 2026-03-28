@@ -2,7 +2,6 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { useEffect, useState } from 'react';
 import { Text, useInput } from 'ink';
-import { Panel } from '../components/panel.tsx';
 import { SafeBox } from '../components/safe-box.tsx';
 import { useLog } from '../context/log.tsx';
 import { useNavigation } from '../context/navigation.tsx';
@@ -40,11 +39,8 @@ export function WorkspaceHistoryScreen() {
 
   return (
     <SafeBox flexDirection="column" gap={1}>
-      <Panel
-        title="项目事件日志"
-        subtitle="当前 TUI 会话中记录的项目事件。"
-        tone="blue"
-      >
+      <SafeBox flexDirection="column" borderStyle="round" borderColor="blue" paddingX={1}>
+        <Text bold color="blue">项目事件日志</Text>
         {logs.length === 0 ? (
           <Text dimColor>当前还没有事件日志。</Text>
         ) : (
@@ -54,13 +50,10 @@ export function WorkspaceHistoryScreen() {
             </Text>
           ))
         )}
-      </Panel>
+      </SafeBox>
 
-      <Panel
-        title="LLM 请求历史"
-        subtitle="显示项目目录下最近的 LLM 请求历史尾部（如果存在）。"
-        tone="cyan"
-      >
+      <SafeBox flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+        <Text bold color="cyan">LLM 请求历史</Text>
         {llmHistory ? (
           llmHistory.split('\n').slice(-24).map((line, index) => (
             <Text key={`${index}:${line}`} dimColor={!line.trim()}>
@@ -70,7 +63,7 @@ export function WorkspaceHistoryScreen() {
         ) : (
           <Text dimColor>当前没有可显示的 LLM 请求历史日志。</Text>
         )}
-      </Panel>
+      </SafeBox>
     </SafeBox>
   );
 }

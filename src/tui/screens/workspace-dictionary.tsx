@@ -5,7 +5,6 @@ import {
   type ResolvedGlossaryTerm,
 } from '../../glossary/glossary.ts';
 import { Form } from '../components/form.tsx';
-import { Panel } from '../components/panel.tsx';
 import { Select } from '../components/select.tsx';
 import { SafeBox } from '../components/safe-box.tsx';
 import { useNavigation } from '../context/navigation.tsx';
@@ -135,27 +134,21 @@ export function WorkspaceDictionaryScreen() {
 
   return (
     <SafeBox flexDirection="column" gap={1}>
-      <Panel
-        title="项目字典"
-        subtitle="浏览并编辑项目中的术语。"
-        tone="yellow"
-      >
+      <SafeBox flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
+        <Text bold color="yellow">项目字典</Text>
         {!glossary ? (
           <Text dimColor>当前项目还没有字典，请先在项目主页执行“开始扫描字典”。</Text>
         ) : (
-          <SafeBox flexDirection="column">
-            <Text>总条目：{terms.length}</Text>
-            <Text dimColor>
-              已翻译 {terms.filter((term) => term.status === 'translated').length} · 未翻译{' '}
-              {terms.filter((term) => term.status === 'untranslated').length}
-            </Text>
-          </SafeBox>
+          <Text>
+            总条目：{terms.length}
+            {' · '}已翻译 {terms.filter((term) => term.status === 'translated').length}
+            {' · '}未翻译 {terms.filter((term) => term.status === 'untranslated').length}
+          </Text>
         )}
-      </Panel>
+      </SafeBox>
 
       <Select
         title="字典条目"
-        description="Enter 编辑条目；Esc 返回项目主页。"
         items={items}
         isActive={!isBusy}
         onSelect={(item) => {

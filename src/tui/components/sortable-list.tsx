@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Text, useInput } from 'ink';
-import { Panel } from './panel.tsx';
-import { Keycap } from './keycap.tsx';
 import { useMouse } from '../context/mouse.tsx';
 import { SafeBox } from './safe-box.tsx';
 
@@ -105,52 +103,34 @@ export function SortableList({ title, items: initial, onSave, onCancel }: Sortab
   }, [focusIndex, grabbed, initial, items, onCancel, onSave, saveIdx, subscribe, total]);
 
   return (
-    <Panel
-      title={title}
-      subtitle="Enter / 左键抓取项目；方向键或滚轮移动；再次确认即可放下。"
-      tone="magenta"
-    >
+    <SafeBox flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+      <Text bold color="magenta">{title}</Text>
       <SafeBox flexDirection="column">
         {items.map((item, i) => {
           const focused = i === focusIndex;
           const isGrabbed = focused && grabbed;
           return (
-            <SafeBox
+            <Text
               key={item.id}
-              borderStyle="round"
-              borderColor={isGrabbed ? 'yellow' : focused ? 'cyan' : 'gray'}
-              paddingX={1}
-              marginBottom={1}
+              backgroundColor={isGrabbed ? 'yellow' : focused ? 'white' : undefined}
+              color={isGrabbed ? 'black' : focused ? 'black' : undefined}
+              bold={focused}
             >
-              <Text
-                color={isGrabbed ? 'yellow' : focused ? 'cyan' : undefined}
-                bold={focused}
-              >
-                {isGrabbed ? '≡ ' : focused ? '❯ ' : '  '}
-                {item.label}
-                {isGrabbed ? '  ↕' : ''}
-              </Text>
-            </SafeBox>
+              {isGrabbed ? ' ≡ ' : focused ? ' ❯ ' : '   '}
+              {item.label}{isGrabbed ? ' ↕' : ''}
+            </Text>
           );
         })}
 
-        <SafeBox gap={2} marginBottom={1}>
-          <Text color={focusIndex === saveIdx ? 'green' : undefined} bold={focusIndex === saveIdx}>
-            {focusIndex === saveIdx ? '❯ ' : '  '}[保存]
+        <SafeBox gap={2}>
+          <Text backgroundColor={focusIndex === saveIdx ? 'green' : undefined} color={focusIndex === saveIdx ? 'white' : 'green'} bold={focusIndex === saveIdx}>
+            {' ✔ 保存 '}
           </Text>
-          <Text
-            color={focusIndex === cancelIdx ? 'yellow' : undefined}
-            bold={focusIndex === cancelIdx}
-          >
-            {focusIndex === cancelIdx ? '❯ ' : '  '}[取消]
+          <Text backgroundColor={focusIndex === cancelIdx ? 'yellow' : undefined} color={focusIndex === cancelIdx ? 'black' : 'yellow'} bold={focusIndex === cancelIdx}>
+            {' ✘ 取消 '}
           </Text>
-        </SafeBox>
-
-        <SafeBox gap={1}>
-          <Keycap label="Space" />
-          <Text dimColor>抓取 / 放下</Text>
         </SafeBox>
       </SafeBox>
-    </Panel>
+    </SafeBox>
   );
 }

@@ -1,6 +1,5 @@
 import { Text, useInput } from 'ink';
 import type { TranslationProjectSnapshot, TranslationStepQueueSnapshot } from '../../project/types.ts';
-import { Panel } from '../components/panel.tsx';
 import { Select } from '../components/select.tsx';
 import { SafeBox } from '../components/safe-box.tsx';
 import { useNavigation } from '../context/navigation.tsx';
@@ -49,143 +48,70 @@ export function WorkspaceProgressScreen() {
 
   return (
     <SafeBox flexDirection="column" gap={1}>
-      <Panel
-        title="项目基本信息"
-        subtitle={project ? '实时读取当前项目快照。' : '请先创建或打开一个工作区。'}
-        tone="green"
-      >
+      <SafeBox flexDirection="column" borderStyle="round" borderColor="green" paddingX={1}>
+        <Text bold color="green">项目信息</Text>
         {!snapshot ? (
-          <SafeBox flexDirection="column">
-            <Text dimColor>当前还没有激活的项目实例。</Text>
-            <Text dimColor>请先进入“创建工作区”完成初始化或打开已有工作区。</Text>
-          </SafeBox>
+          <Text dimColor>尚无激活项目，请先创建或打开工作区。</Text>
         ) : (
           <SafeBox flexDirection="column">
             <Text>
-              项目：<Text color="cyan">{snapshot.projectName}</Text>
+              <Text color="cyan" bold>{snapshot.projectName}</Text>
+              <Text dimColor> · </Text>
+              <Text color={getStatusColor(snapshot.lifecycle.status)}>{formatRunStatus(snapshot.lifecycle.status)}</Text>
+              {isBusy ? <Text color="yellow"> · 处理中</Text> : null}
+              {snapshot.lifecycle.lastSavedAt ? <Text dimColor> · 保存于 {snapshot.lifecycle.lastSavedAt}</Text> : null}
             </Text>
             <Text>
-              状态：<Text color={getStatusColor(snapshot.lifecycle.status)}>{formatRunStatus(snapshot.lifecycle.status)}</Text>
-              {snapshot.lifecycle.lastSavedAt ? (
-                <Text dimColor> · 最近保存：{snapshot.lifecycle.lastSavedAt}</Text>
-              ) : null}
+              章节 {snapshot.progress.translatedChapters}/{snapshot.progress.totalChapters}
+              {' · '}文本块 {snapshot.progress.translatedFragments}/{snapshot.progress.totalFragments}
+              {' · '}进度 {formatPercent(snapshot.progress.fragmentProgressRatio)}
+              {' · '}队列 {snapshot.lifecycle.queuedWorkItems}排队 / {snapshot.lifecycle.activeWorkItems}运行
             </Text>
             <Text>
-              章节：{snapshot.progress.translatedChapters}/{snapshot.progress.totalChapters} ·
-              文本块：{snapshot.progress.translatedFragments}/{snapshot.progress.totalFragments}
-            </Text>
-            <Text>
-              总进度：{formatPercent(snapshot.progress.fragmentProgressRatio)} ·
-              队列：排队 {snapshot.lifecycle.queuedWorkItems} / 运行中 {snapshot.lifecycle.activeWorkItems}
-            </Text>
-            <Text>
-              翻译器：
-              {' '}
-              {workspaceConfig?.translator.modelName ? (
+              翻译器：{workspaceConfig?.translator.modelName ? (
                 <Text color="magenta">{workspaceConfig.translator.modelName}</Text>
-              ) : (
-                <Text dimColor>未设置</Text>
-              )}
-              {' / '}
-              {workspaceConfig?.translator.workflow || 'default'}
-            </Text>
-            <Text>
-              字典：
-              {' '}
-              {snapshot.glossary ? (
-                <Text color="yellow">
-                  {snapshot.glossary.totalTerms} 项（已翻译 {snapshot.glossary.translatedTerms}）
-                </Text>
-              ) : (
-                <Text dimColor>尚未扫描</Text>
-              )}
-            </Text>
-            <Text>
-              情节大纲：
-              {' '}
-              {plotSummaryReady ? (
-                <Text color="green">已就绪</Text>
-              ) : (
-                <Text dimColor>未生成</Text>
-              )}
-            </Text>
-            <Text dimColor>
-              当前游标：
-              {snapshot.currentCursor.chapterId
-                ? ` Chapter ${snapshot.currentCursor.chapterId} / Fragment ${snapshot.currentCursor.fragmentIndex ?? 0}`
-                : ' 暂无'}
+              ) : <Text dimColor>未设置</Text>}
+              {' / '}{workspaceConfig?.translator.workflow || 'default'}
+              {' · '}字典：{snapshot.glossary ? (
+                <Text color="yellow">{snapshot.glossary.totalTerms}项（已翻译 {snapshot.glossary.translatedTerms}）</Text>
+              ) : <Text dimColor>未扫描</Text>}
+              {' · '}大纲：{plotSummaryReady ? <Text color="green">已就绪</Text> : <Text dimColor>未生成</Text>}
             </Text>
           </SafeBox>
         )}
-      </Panel>
+      </SafeBox>
 
-      <Panel title="步骤进度" subtitle="逐步查看当前 Pipeline 的排队与完成情况。" tone="blue">
-        {!snapshot ? (
-          <Text dimColor>项目初始化后，这里会显示每个步骤的实时进度。</Text>
-        ) : (
-          <SafeBox flexDirection="column">
-            {snapshot.queueSnapshots.map((queueSnapshot: TranslationStepQueueSnapshot) => (
-              <SafeBox key={queueSnapshot.stepId} flexDirection="column" marginBottom={1}>
-                <Text bold>
-                  {queueSnapshot.description} ({queueSnapshot.stepId})
-                  {queueSnapshot.isFinalStep ? ' · final' : ''}
-                </Text>
-                <Text dimColor>
-                  {renderProgressBar(queueSnapshot.progress.completionRatio)}{' '}
-                  {formatPercent(queueSnapshot.progress.completionRatio)}
-                </Text>
-                <Text dimColor>
-                  ready {queueSnapshot.progress.readyFragments} · queued {queueSnapshot.progress.queuedFragments} ·
-                  running {queueSnapshot.progress.runningFragments} · completed {queueSnapshot.progress.completedFragments}
-                </Text>
-              </SafeBox>
-            ))}
-          </SafeBox>
-        )}
-      </Panel>
+      {snapshot && snapshot.queueSnapshots.length > 0 ? (
+        <SafeBox flexDirection="column" borderStyle="round" borderColor="blue" paddingX={1}>
+          <Text bold color="blue">步骤进度</Text>
+          {snapshot.queueSnapshots.map((qs: TranslationStepQueueSnapshot) => (
+            <Text key={qs.stepId} wrap="truncate-end">
+              <Text bold>{qs.description}</Text>
+              <Text dimColor> {qs.stepId}{qs.isFinalStep ? '·final' : ''} </Text>
+              <Text>{renderProgressBar(qs.progress.completionRatio)} {formatPercent(qs.progress.completionRatio)}</Text>
+              <Text dimColor> R{qs.progress.readyFragments} Q{qs.progress.queuedFragments} A{qs.progress.runningFragments} D{qs.progress.completedFragments}</Text>
+            </Text>
+          ))}
+        </SafeBox>
+      ) : null}
 
       <Select<ActionValue>
         title={isBusy ? '项目菜单（处理中）' : '项目菜单'}
-        description="项目主页入口：翻译控制、字典操作与历史日志。"
         items={items}
         onSelect={(item) => {
           switch (item.value) {
-            case 'open':
-              navigate('workspace-create');
-              return;
-            case 'start':
-              void startTranslation();
-              return;
-            case 'pause':
-              void pauseTranslation();
-              return;
-            case 'resume':
-              void resumeTranslation();
-              return;
-            case 'save':
-              void saveProgress();
-              return;
-            case 'abort':
-              void abortTranslation();
-              return;
-            case 'scan-dictionary':
-              void scanDictionary();
-              return;
-            case 'dictionary':
-              navigate('workspace-dictionary');
-              return;
-            case 'history':
-              navigate('workspace-history');
-              return;
-            case 'plot-summary':
-              navigate('workspace-plot-summary');
-              return;
-            case 'refresh':
-              void refreshSnapshot();
-              return;
-            case 'back':
-              goBack();
-              return;
+            case 'open': navigate('workspace-create'); return;
+            case 'start': void startTranslation(); return;
+            case 'pause': void pauseTranslation(); return;
+            case 'resume': void resumeTranslation(); return;
+            case 'save': void saveProgress(); return;
+            case 'abort': void abortTranslation(); return;
+            case 'scan-dictionary': void scanDictionary(); return;
+            case 'dictionary': navigate('workspace-dictionary'); return;
+            case 'history': navigate('workspace-history'); return;
+            case 'plot-summary': navigate('workspace-plot-summary'); return;
+            case 'refresh': void refreshSnapshot(); return;
+            case 'back': goBack(); return;
           }
         }}
         isActive={!isBusy}

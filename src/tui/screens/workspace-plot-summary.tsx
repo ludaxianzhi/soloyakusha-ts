@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Text, useInput } from 'ink';
 import { GlobalConfigManager } from '../../config/manager.ts';
-import { Panel } from '../components/panel.tsx';
 import { Select } from '../components/select.tsx';
 import { SafeBox } from '../components/safe-box.tsx';
-import { LogPanel } from '../components/log-panel.tsx';
 import { useNavigation } from '../context/navigation.tsx';
 import { useLog } from '../context/log.tsx';
 import { useProject } from '../context/project.tsx';
@@ -79,9 +77,10 @@ export function WorkspacePlotSummaryScreen() {
   if (!project) {
     return (
       <SafeBox flexDirection="column" gap={1}>
-        <Panel title="情节大纲总结" tone="magenta">
+<SafeBox flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+          <Text bold color="magenta">情节大纲总结</Text>
           <Text dimColor>当前没有已初始化的项目，请先创建或打开项目。</Text>
-        </Panel>
+        </SafeBox>
       </SafeBox>
     );
   }
@@ -89,28 +88,13 @@ export function WorkspacePlotSummaryScreen() {
   if (phase === 'select-profile') {
     return (
       <SafeBox flexDirection="column" gap={1}>
-        <Panel
-          title="情节大纲总结"
-          subtitle="选择一个 LLM 预设来生成情节大纲总结。"
-          tone="magenta"
-        >
-          <SafeBox flexDirection="column">
-            <Text>
-              项目：<Text color="cyan">{project.getWorkspaceConfig().projectName}</Text>
-            </Text>
-            <Text dimColor>
-              总结将基于源语言文本，按章节批量生成结构化情节摘要。
-            </Text>
-          </SafeBox>
-        </Panel>
+        <SafeBox flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+          <Text bold color="magenta">情节大纲总结</Text>
+          <Text>项目：<Text color="cyan">{project.getWorkspaceConfig().projectName}</Text></Text>
+        </SafeBox>
 
         <Select
           title="选择 LLM 预设"
-          description={
-            profileOptions.length > 0
-              ? '选定后将立即开始生成。'
-              : '未找到可用的 LLM Profile，请先在全局配置中添加。'
-          }
           items={selectItems}
           isActive={!isBusy}
           onSelect={(item) => {
@@ -147,11 +131,9 @@ export function WorkspacePlotSummaryScreen() {
 
   return (
     <SafeBox flexDirection="column" gap={1}>
-      <Panel
-        title="情节大纲总结"
-        subtitle={progressText}
-        tone={phase === 'done' ? 'green' : phase === 'error' ? 'yellow' : 'magenta'}
-      >
+      <SafeBox flexDirection="column" borderStyle="round" borderColor={phase === 'done' ? 'green' : phase === 'error' ? 'yellow' : 'magenta'} paddingX={1}>
+        <Text bold color={phase === 'done' ? 'green' : phase === 'error' ? 'yellow' : 'magenta'}>情节大纲总结</Text>
+        <Text dimColor>{progressText}</Text>
         <SafeBox flexDirection="column">
           <Text>
             状态：<Text color={statusColor}>{statusLabel}</Text>
@@ -174,14 +156,11 @@ export function WorkspacePlotSummaryScreen() {
             </>
           ) : null}
         </SafeBox>
-      </Panel>
-
-      <LogPanel />
+      </SafeBox>
 
       {phase !== 'running' ? (
         <Select
           title="操作"
-          description={phase === 'done' ? '情节大纲总结已完成。' : '总结过程中出现错误。'}
           items={doneItems}
           isActive
           onSelect={() => goBack()}

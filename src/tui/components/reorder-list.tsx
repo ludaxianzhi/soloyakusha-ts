@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Text, useInput } from 'ink';
-import { Panel } from './panel.tsx';
 import { SafeBox } from './safe-box.tsx';
 import { useMouse } from '../context/mouse.tsx';
 
@@ -19,19 +18,30 @@ interface ReorderListProps {
   onConfirm: () => void;
   onCancel: () => void;
   isActive?: boolean;
+  visibleRows?: number;
 }
 
 export function ReorderList({
   title,
-  description,
   items,
   onChange,
   onConfirm,
   onCancel,
   isActive = true,
+  visibleRows = 12,
 }: ReorderListProps) {
   const [focusIndex, setFocusIndex] = useState(0);
   const { subscribe } = useMouse();
+
+  // Scrolling
+  const [scrollOffset, setScrollOffset] = useState(0);
+  useEffect(() => {
+    if (focusIndex < scrollOffset) {
+      setScrollOffset(focusIndex);
+    } else if (focusIndex >= scrollOffset + visibleRows) {
+      setScrollOffset(focusIndex - visibleRows + 1);
+    }
+  }, [focusIndex, scrollOffset, visibleRows]);
 
   useEffect(() => {
     if (focusIndex >= items.length) {
@@ -53,25 +63,15 @@ export function ReorderList({
       } else if (key.downArrow) {
         setFocusIndex((prev) => (prev + 1) % items.length);
       } else if (key.leftArrow) {
-        if (focusIndex === 0) {
-          return;
-        }
+        if (focusIndex === 0) return;
         const next = [...items];
-        [next[focusIndex - 1], next[focusIndex]] = [
-          next[focusIndex]!,
-          next[focusIndex - 1]!,
-        ];
+        [next[focusIndex - 1], next[focusIndex]] = [next[focusIndex]!, next[focusIndex - 1]!];
         onChange(next);
         setFocusIndex(focusIndex - 1);
       } else if (key.rightArrow) {
-        if (focusIndex >= items.length - 1) {
-          return;
-        }
+        if (focusIndex >= items.length - 1) return;
         const next = [...items];
-        [next[focusIndex], next[focusIndex + 1]] = [
-          next[focusIndex + 1]!,
-          next[focusIndex]!,
-        ];
+        [next[focusIndex], next[focusIndex + 1]] = [next[focusIndex + 1]!, next[focusIndex]!];
         onChange(next);
         setFocusIndex(focusIndex + 1);
       } else if (key.return) {
@@ -84,14 +84,10 @@ export function ReorderList({
   );
 
   useEffect(() => {
-    if (!isActive) {
-      return undefined;
-    }
+    if (!isActive) return undefined;
 
     return subscribe((event) => {
-      if (items.length === 0) {
-        return;
-      }
+      if (items.length === 0) return;
 
       if (event.action === 'scroll-up') {
         setFocusIndex((prev) => (prev - 1 + items.length) % items.length);
@@ -100,20 +96,14 @@ export function ReorderList({
       } else if (event.action === 'left') {
         if (focusIndex > 0) {
           const next = [...items];
-          [next[focusIndex - 1], next[focusIndex]] = [
-            next[focusIndex]!,
-            next[focusIndex - 1]!,
-          ];
+          [next[focusIndex - 1], next[focusIndex]] = [next[focusIndex]!, next[focusIndex - 1]!];
           onChange(next);
           setFocusIndex(focusIndex - 1);
         }
       } else if (event.action === 'right') {
         if (focusIndex < items.length - 1) {
           const next = [...items];
-          [next[focusIndex], next[focusIndex + 1]] = [
-            next[focusIndex + 1]!,
-            next[focusIndex]!,
-          ];
+          [next[focusIndex], next[focusIndex + 1]] = [next[focusIndex + 1]!, next[focusIndex]!];
           onChange(next);
           setFocusIndex(focusIndex + 1);
         }
@@ -121,49 +111,46 @@ export function ReorderList({
     });
   }, [focusIndex, isActive, items, onChange, subscribe]);
 
+  const visibleItems = items.slice(scrollOffset, scrollOffset + visibleRows);
+  const hasScrollUp = scrollOffset > 0;
+  const hasScrollDown = scrollOffset + visibleRows < items.length;
+
   return (
-    <Panel
-      title={title}
-      subtitle={description ?? '↑↓ 选择条目，←→ 调整顺序，Enter 确认。'}
-      tone="magenta"
-    >
+    <SafeBox flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+      <Text bold color="magenta">{title}</Text>
+      <Text dimColor>↑↓ 选择，←→ 调整顺序，Enter 确认</Text>
       {items.length === 0 ? (
-        <Text dimColor>当前没有可排序的章节条目。</Text>
+        <Text dimColor>当前没有可排序的条目。</Text>
       ) : (
         <SafeBox flexDirection="column">
-          {items.map((item, index) => {
-            const focused = index === focusIndex;
+          {hasScrollUp ? <Text dimColor>  ▲ 更多 ({scrollOffset})</Text> : null}
+          {visibleItems.map((item, vi) => {
+            const realIndex = scrollOffset + vi;
+            const focused = realIndex === focusIndex;
             return (
-              <SafeBox
-                key={item.id}
-                flexDirection="column"
-                borderStyle="round"
-                borderColor={focused ? 'magenta' : 'gray'}
-                paddingX={1}
-                marginBottom={1}
-              >
-                <SafeBox justifyContent="space-between">
-                  <Text color={focused ? 'magenta' : undefined} bold={focused}>
-                    {focused ? '❯ ' : '  '}
-                    {index + 1}. {item.label}
-                  </Text>
-                  {item.meta ? <Text dimColor>{item.meta}</Text> : null}
-                </SafeBox>
-                {item.description ? (
-                  <Text dimColor wrap="wrap">
-                    {item.description}
+              <SafeBox key={item.id} justifyContent="space-between">
+                <Text
+                  backgroundColor={focused ? 'magenta' : undefined}
+                  color={focused ? 'white' : undefined}
+                  bold={focused}
+                  wrap="truncate-end"
+                >
+                  {` ${realIndex + 1}. ${item.label} `}
+                </Text>
+                {item.meta ? (
+                  <Text
+                    backgroundColor={focused ? 'magenta' : undefined}
+                    color={focused ? 'white' : 'gray'}
+                  >
+                    {` ${item.meta} `}
                   </Text>
                 ) : null}
               </SafeBox>
             );
           })}
-
-          <SafeBox flexDirection="column">
-            <Text dimColor>操作逻辑类似老式 BIOS 启动顺序设置：</Text>
-            <Text dimColor>上/下键负责切换选择，左/右键负责调整该项顺序。</Text>
-          </SafeBox>
+          {hasScrollDown ? <Text dimColor>  ▼ 更多 ({items.length - scrollOffset - visibleRows})</Text> : null}
         </SafeBox>
       )}
-    </Panel>
+    </SafeBox>
   );
 }

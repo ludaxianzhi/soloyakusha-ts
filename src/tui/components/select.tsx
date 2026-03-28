@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Text, useInput } from 'ink';
 import type { SelectItem } from '../types.ts';
-import { Panel } from './panel.tsx';
 import { useMouse } from '../context/mouse.tsx';
 import { SafeBox } from './safe-box.tsx';
 
@@ -11,6 +10,7 @@ interface SelectProps<T extends string = string> {
   isActive?: boolean;
   title?: string;
   description?: string;
+  visibleRows?: number;
 }
 
 export function Select<T extends string = string>({
@@ -18,10 +18,20 @@ export function Select<T extends string = string>({
   onSelect,
   isActive = true,
   title,
-  description,
+  visibleRows = 12,
 }: SelectProps<T>) {
   const [focusIndex, setFocusIndex] = useState(0);
   const { subscribe } = useMouse();
+
+  // Scrolling
+  const [scrollOffset, setScrollOffset] = useState(0);
+  useEffect(() => {
+    if (focusIndex < scrollOffset) {
+      setScrollOffset(focusIndex);
+    } else if (focusIndex >= scrollOffset + visibleRows) {
+      setScrollOffset(focusIndex - visibleRows + 1);
+    }
+  }, [focusIndex, scrollOffset, visibleRows]);
 
   useInput(
     (_input, key) => {
@@ -56,40 +66,39 @@ export function Select<T extends string = string>({
     });
   }, [focusIndex, isActive, items, onSelect, subscribe]);
 
+  const visibleItems = items.slice(scrollOffset, scrollOffset + visibleRows);
+  const hasScrollUp = scrollOffset > 0;
+  const hasScrollDown = scrollOffset + visibleRows < items.length;
+
   return (
-    <Panel
-      title={title ?? '选择'}
-      subtitle={description ?? '使用方向键或滚轮切换，Enter / 左键确认。'}
-      tone="cyan"
-    >
-      <SafeBox flexDirection="column">
-        {items.map((item, index) => {
-          const focused = index === focusIndex;
-          return (
-            <SafeBox
-              key={item.value}
-              flexDirection="column"
-              borderStyle="round"
-              borderColor={focused ? 'cyan' : 'gray'}
-              paddingX={1}
-              marginBottom={1}
+    <SafeBox flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+      {title ? <Text bold color="cyan">{title}</Text> : null}
+      {hasScrollUp ? <Text dimColor>  ▲ 更多 ({scrollOffset})</Text> : null}
+      {visibleItems.map((item, vi) => {
+        const realIndex = scrollOffset + vi;
+        const focused = realIndex === focusIndex;
+        return (
+          <SafeBox key={item.value} justifyContent="space-between">
+            <Text
+              backgroundColor={focused ? 'white' : undefined}
+              color={focused ? 'black' : undefined}
+              bold={focused}
+              wrap="truncate-end"
             >
-              <SafeBox justifyContent="space-between">
-                <Text color={focused ? 'cyan' : undefined} bold={focused}>
-                  {focused ? '❯ ' : '  '}
-                  {item.label}
-                </Text>
-                {item.meta ? <Text dimColor>{item.meta}</Text> : null}
-              </SafeBox>
-              {item.description ? (
-                <Text dimColor wrap="wrap">
-                  {item.description}
-                </Text>
-              ) : null}
-            </SafeBox>
-          );
-        })}
-      </SafeBox>
-    </Panel>
+              {` ${item.label} `}
+            </Text>
+            {item.meta ? (
+              <Text
+                backgroundColor={focused ? 'white' : undefined}
+                color={focused ? 'black' : 'gray'}
+              >
+                {` ${item.meta} `}
+              </Text>
+            ) : null}
+          </SafeBox>
+        );
+      })}
+      {hasScrollDown ? <Text dimColor>  ▼ 更多 ({items.length - scrollOffset - visibleRows})</Text> : null}
+    </SafeBox>
   );
 }

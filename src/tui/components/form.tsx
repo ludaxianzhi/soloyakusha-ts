@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Text, useInput } from 'ink';
 import type { FormFieldDef } from '../types.ts';
-import { Panel } from './panel.tsx';
-import { Keycap } from './keycap.tsx';
 import { useMouse } from '../context/mouse.tsx';
 import { SafeBox } from './safe-box.tsx';
 
@@ -12,6 +10,7 @@ interface FormProps {
   onSubmit: (values: Record<string, string>) => void | Promise<void>;
   onCancel: () => void | Promise<void>;
   submitLabel?: string;
+  visibleRows?: number;
 }
 
 export function Form({
@@ -20,6 +19,7 @@ export function Form({
   onSubmit,
   onCancel,
   submitLabel = '确认',
+  visibleRows = 12,
 }: FormProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -36,6 +36,16 @@ export function Form({
   const submitIdx = fields.length;
   const cancelIdx = fields.length + 1;
   const total = fields.length + 2;
+
+  // Scrolling: compute visible window
+  const [scrollOffset, setScrollOffset] = useState(0);
+  useEffect(() => {
+    if (activeIndex < scrollOffset) {
+      setScrollOffset(activeIndex);
+    } else if (activeIndex >= scrollOffset + visibleRows) {
+      setScrollOffset(activeIndex - visibleRows + 1);
+    }
+  }, [activeIndex, scrollOffset, visibleRows]);
 
   useInput((input, key) => {
     // ── Editing mode ──
@@ -88,37 +98,28 @@ export function Form({
       if (event.action === 'scroll-up') {
         if (editing) {
           const field = fields[activeIndex];
-          if (field?.type !== 'select' || !field.options?.length) {
-            return;
-          }
-
+          if (field?.type !== 'select' || !field.options?.length) return;
           const cur = field.options.findIndex(option => option.value === values[field.key]);
           const next = (cur - 1 + field.options.length) % field.options.length;
           setValues(prev => ({ ...prev, [field.key]: field.options![next]!.value }));
           return;
         }
-
         setActiveIndex(prev => (prev - 1 + total) % total);
       } else if (event.action === 'scroll-down') {
         if (editing) {
           const field = fields[activeIndex];
-          if (field?.type !== 'select' || !field.options?.length) {
-            return;
-          }
-
+          if (field?.type !== 'select' || !field.options?.length) return;
           const cur = field.options.findIndex(option => option.value === values[field.key]);
           const next = (cur + 1) % field.options.length;
           setValues(prev => ({ ...prev, [field.key]: field.options![next]!.value }));
           return;
         }
-
         setActiveIndex(prev => (prev + 1) % total);
       } else if (event.action === 'left') {
         if (editing) {
           setEditing(false);
           return;
         }
-
         if (activeIndex === submitIdx) void onSubmit(values);
         else if (activeIndex === cancelIdx) void onCancel();
         else setEditing(true);
@@ -132,80 +133,85 @@ export function Form({
     });
   }, [activeIndex, editing, fields, onCancel, onSubmit, subscribe, total, values]);
 
-  return (
-    <Panel title={title} subtitle="Tabless form flow with keyboard-first interaction and mouse-assisted scrolling.">
-      <SafeBox flexDirection="column">
-        {fields.map((field, i) => {
-          const focused = i === activeIndex;
-          const isEditing = focused && editing;
-          const val = values[field.key] ?? '';
+  // Build all rows (fields + buttons)
+  const allRows: { index: number; node: React.ReactNode }[] = [];
 
-          return (
-            <SafeBox
-              key={field.key}
-              flexDirection="column"
-              borderStyle="round"
-              borderColor={focused ? 'cyan' : 'gray'}
-              paddingX={1}
-              marginBottom={1}
-            >
-              <SafeBox justifyContent="space-between">
-                <Text color={focused ? 'cyan' : undefined} bold>
-                  {focused ? '❯ ' : '  '}
-                  {field.label}
-                </Text>
-                <Text dimColor>{field.type === 'text' ? 'TEXT' : 'SELECT'}</Text>
-              </SafeBox>
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i]!;
+    const focused = i === activeIndex;
+    const isEditing = focused && editing;
+    const val = values[field.key] ?? '';
+    const displayVal = field.type === 'select'
+      ? (isEditing ? `◄ ${field.options?.find(o => o.value === val)?.label ?? val} ►` : field.options?.find(o => o.value === val)?.label ?? val)
+      : (isEditing ? `${val}█` : val || field.placeholder || '(空)');
 
-              {field.description ? (
-                <Text dimColor wrap="wrap">
-                  {field.description}
-                </Text>
-              ) : null}
-
-              {field.type === 'text' ? (
-                <SafeBox marginTop={1}>
-                  <Text dimColor={!val}>{val || field.placeholder || '(空)'}</Text>
-                  {isEditing ? <Text color="cyan">█</Text> : null}
-                </SafeBox>
-              ) : (
-                <SafeBox marginTop={1}>
-                  <Text>
-                    {isEditing ? '◄ ' : ''}
-                    {field.options?.find(o => o.value === val)?.label ?? val}
-                    {isEditing ? ' ►' : ''}
-                  </Text>
-                </SafeBox>
-              )}
-            </SafeBox>
-          );
-        })}
-
-        <SafeBox gap={2} marginBottom={1}>
-          <Text color={activeIndex === submitIdx ? 'green' : undefined} bold={activeIndex === submitIdx}>
-            {activeIndex === submitIdx ? '❯ ' : '  '}[{submitLabel}]
-          </Text>
+    allRows.push({
+      index: i,
+      node: (
+        <SafeBox key={field.key}>
           <Text
-            color={activeIndex === cancelIdx ? 'yellow' : undefined}
-            bold={activeIndex === cancelIdx}
+            backgroundColor={focused ? 'white' : undefined}
+            color={focused ? 'black' : undefined}
+            bold={focused}
+            wrap="truncate-end"
           >
-            {activeIndex === cancelIdx ? '❯ ' : '  '}[取消]
+            {` ${field.label}  `}
+            <Text
+              backgroundColor={focused ? 'white' : undefined}
+              color={focused ? (isEditing ? 'blue' : 'black') : 'gray'}
+              dimColor={!focused && !val}
+            >
+              {displayVal}
+            </Text>
+            {`  `}
+            <Text
+              backgroundColor={focused ? 'white' : undefined}
+              color={focused ? 'black' : 'gray'}
+              dimColor={!focused}
+            >
+              {field.type === 'text' ? '[文本]' : '[选择]'}
+            </Text>
           </Text>
         </SafeBox>
+      ),
+    });
+  }
 
-        <SafeBox gap={1}>
-          <Keycap label="Enter" />
-          <Text dimColor>{editing ? '完成当前字段编辑' : '进入字段或确认动作'}</Text>
-        </SafeBox>
-        <SafeBox gap={1}>
-          <Keycap label="Wheel" />
-          <Text dimColor>在字段与选项间滚动</Text>
-        </SafeBox>
-        <SafeBox gap={1}>
-          <Keycap label="Right Click" />
-          <Text dimColor>{editing ? '退出编辑' : '取消并返回'}</Text>
-        </SafeBox>
+  // Submit button
+  allRows.push({
+    index: submitIdx,
+    node: (
+      <SafeBox key="__submit">
+        <Text
+          backgroundColor={activeIndex === submitIdx ? 'green' : undefined}
+          color={activeIndex === submitIdx ? 'white' : 'green'}
+          bold={activeIndex === submitIdx}
+        >
+          {` ✔ ${submitLabel} `}
+        </Text>
+        <Text> </Text>
+        <Text
+          backgroundColor={activeIndex === cancelIdx ? 'yellow' : undefined}
+          color={activeIndex === cancelIdx ? 'black' : 'yellow'}
+          bold={activeIndex === cancelIdx}
+        >
+          {` ✘ 取消 `}
+        </Text>
       </SafeBox>
-    </Panel>
+    ),
+  });
+
+  // Visible window
+  const visibleItems = allRows.slice(scrollOffset, scrollOffset + visibleRows);
+  const hasScrollUp = scrollOffset > 0;
+  const hasScrollDown = scrollOffset + visibleRows < allRows.length;
+
+  return (
+    <SafeBox flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+      <Text bold color="cyan">{title}</Text>
+      {hasScrollUp ? <Text dimColor>  ▲ 更多 ({scrollOffset})</Text> : null}
+      {visibleItems.map(row => row.node)}
+      {hasScrollDown ? <Text dimColor>  ▼ 更多 ({allRows.length - scrollOffset - visibleRows})</Text> : null}
+    </SafeBox>
   );
 }
