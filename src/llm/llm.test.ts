@@ -32,6 +32,29 @@ describe("resolveRequestConfig", () => {
       },
     });
   });
+
+  test("does not inject maxTokens when neither default nor override specifies it", () => {
+    const resolved = resolveRequestConfig(
+      {
+        extraBody: {
+          response_format: "json_schema",
+        },
+      },
+      {
+        systemPrompt: "system",
+      },
+    );
+
+    expect(resolved).toEqual({
+      systemPrompt: "system",
+      temperature: 0.7,
+      topP: 1,
+      extraBody: {
+        response_format: "json_schema",
+      },
+    });
+    expect("maxTokens" in resolved).toBe(false);
+  });
 });
 
 describe("createLlmClientConfig", () => {
@@ -48,6 +71,23 @@ describe("createLlmClientConfig", () => {
     expect(config.provider).toBe("openai");
     expect(config.modelType).toBe("chat");
     expect(config.retries).toBe(3);
+  });
+
+  test("preserves sparse default request config without adding maxTokens", () => {
+    const config = createLlmClientConfig({
+      modelName: "gpt-test",
+      endpoint: "https://example.com/v1",
+      apiKey: "secret",
+      defaultRequestConfig: {
+        temperature: 0.2,
+      },
+    });
+
+    expect(config.defaultRequestConfig).toEqual({
+      temperature: 0.2,
+      topP: 1,
+    });
+    expect(config.defaultRequestConfig && "maxTokens" in config.defaultRequestConfig).toBe(false);
   });
 });
 

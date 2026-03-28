@@ -47,7 +47,7 @@ export interface FormAutocompleteDef {
 export interface FormFieldDef {
   key: string;
   label: string;
-  type: 'text' | 'select' | 'autocomplete';
+  type: 'text' | 'textarea' | 'select' | 'autocomplete';
   placeholder?: string;
   options?: SelectItem[];
   defaultValue?: string;

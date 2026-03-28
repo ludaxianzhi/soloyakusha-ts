@@ -120,6 +120,10 @@ export function Form({
           ? isEditing
             ? `◄ ${field.options?.find((option) => option.value === value)?.label ?? value} ►`
             : field.options?.find((option) => option.value === value)?.label ?? value
+          : field.type === 'textarea'
+            ? isEditing
+              ? `${formatMultilineValue(value)}█`
+              : formatMultilineValue(value) || field.placeholder || '(空)'
           : isEditing
             ? `${value}█`
             : value || field.placeholder || '(空)';
@@ -151,6 +155,8 @@ export function Form({
               >
                 {field.type === 'text'
                   ? '[文本]'
+                  : field.type === 'textarea'
+                    ? '[多行]'
                   : field.type === 'select'
                     ? '[选择]'
                     : '[Tab补全]'}
@@ -305,6 +311,22 @@ export function Form({
         return;
       }
 
+      if (field.type === 'textarea') {
+        if (key.escape) {
+          setEditing(false);
+          return;
+        }
+
+        if (key.backspace || key.delete) {
+          setValues((prev) => ({ ...prev, [field.key]: (prev[field.key] ?? '').slice(0, -1) }));
+        } else if (key.return) {
+          setValues((prev) => ({ ...prev, [field.key]: `${prev[field.key] ?? ''}\n` }));
+        } else if (input && !key.ctrl && !key.meta && !key.escape) {
+          setValues((prev) => ({ ...prev, [field.key]: (prev[field.key] ?? '') + input }));
+        }
+        return;
+      }
+
       if (key.return || (key.escape && field.type === 'text')) {
         setEditing(false);
         return;
@@ -427,7 +449,14 @@ export function Form({
       {editing && activeField?.type === 'autocomplete' ? (
         <Text dimColor>  Tab 切换补全，Enter 确认，继续输入后刷新候选</Text>
       ) : null}
+      {editing && activeField?.type === 'textarea' ? (
+        <Text dimColor>  Enter 换行，Esc 完成编辑</Text>
+      ) : null}
       {hasScrollDown ? <Text dimColor>  ▼ 更多 ({renderRows.length - scrollOffset - visibleRows})</Text> : null}
     </SafeBox>
   );
+}
+
+function formatMultilineValue(value: string): string {
+  return value.replace(/\n/g, ' ⏎ ');
 }

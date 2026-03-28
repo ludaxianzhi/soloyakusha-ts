@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Text, useInput } from 'ink';
+import YAML from 'yaml';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import type { PersistedLlmClientConfig } from '../../config/types.ts';
+import type { JsonObject, JsonValue } from '../../llm/types.ts';
 import { Form } from '../components/form.tsx';
 import { Select } from '../components/select.tsx';
 import { SafeBox } from '../components/safe-box.tsx';
@@ -266,6 +268,7 @@ export function SettingsLlmScreen() {
       title={mode.kind === 'create-profile' ? '新建 LLM 配置' : `编辑 LLM 配置 · ${mode.profileName}`}
       fields={fields}
       submitLabel="保存配置"
+      visibleRows={16}
       onSubmit={async (values) => {
         const profileName = values.profileName?.trim() ?? '';
         if (!profileName) {
@@ -325,6 +328,8 @@ function buildProfileFields(input: {
   config?: PersistedLlmClientConfig;
   isDefault?: boolean;
 }): FormFieldDef[] {
+  const defaultRequestConfig = input.config?.defaultRequestConfig;
+
   return [
     {
       key: 'profileName',
@@ -399,6 +404,41 @@ function buildProfileFields(input: {
       ],
       defaultValue: input.isDefault ? 'yes' : 'no',
     },
+    {
+      key: 'defaultSystemPrompt',
+      label: '默认系统提示词',
+      type: 'textarea',
+      placeholder: '可选，留空则不设置',
+      defaultValue: defaultRequestConfig?.systemPrompt ?? '',
+    },
+    {
+      key: 'defaultTemperature',
+      label: '默认 Temperature',
+      type: 'text',
+      placeholder: '可选，例如: 0.7',
+      defaultValue: formatOptionalNumber(defaultRequestConfig?.temperature),
+    },
+    {
+      key: 'defaultTopP',
+      label: '默认 Top P',
+      type: 'text',
+      placeholder: '可选，例如: 1',
+      defaultValue: formatOptionalNumber(defaultRequestConfig?.topP),
+    },
+    {
+      key: 'defaultMaxTokens',
+      label: '默认 Max Tokens',
+      type: 'text',
+      placeholder: '可选，留空则请求中不带该字段',
+      defaultValue: formatOptionalNumber(defaultRequestConfig?.maxTokens),
+    },
+    {
+      key: 'defaultExtraBody',
+      label: '默认 Extra Body (YAML)',
+      type: 'textarea',
+      placeholder: '例如:\nchat_template_kwargs:\n  enable_thinking: false',
+      defaultValue: formatExtraBodyYaml(defaultRequestConfig?.extraBody),
+    },
   ];
 }
 
@@ -463,7 +503,7 @@ function buildEmbeddingFields(config?: PersistedLlmClientConfig): FormFieldDef[]
   ];
 }
 
-function buildLlmConfigFromValues(
+export function buildLlmConfigFromValues(
   values: Record<string, string>,
   modelType: 'chat' | 'embedding',
 ):
@@ -487,6 +527,11 @@ function buildLlmConfigFromValues(
     return { ok: false, message: 'API 密钥和密钥环境变量只能填写一个' };
   }
 
+  const defaultRequestConfig = buildDefaultRequestConfig(values);
+  if (!defaultRequestConfig.ok) {
+    return defaultRequestConfig;
+  }
+
   return {
     ok: true,
     config: {
@@ -497,9 +542,52 @@ function buildLlmConfigFromValues(
       retries: parseInteger(values.retries, 3),
       qps: parseOptionalInteger(values.qps),
       maxParallelRequests: parseOptionalInteger(values.maxParallelRequests),
+      ...(modelType === 'chat' && defaultRequestConfig.config
+        ? { defaultRequestConfig: defaultRequestConfig.config }
+        : {}),
       ...(apiKey ? { apiKey } : {}),
       ...(apiKeyEnv ? { apiKeyEnv } : {}),
     },
+  };
+}
+
+function buildDefaultRequestConfig(
+  values: Record<string, string>,
+):
+  | { ok: true; config: PersistedLlmClientConfig['defaultRequestConfig'] }
+  | { ok: false; message: string } {
+  const systemPrompt = values.defaultSystemPrompt ?? '';
+  const temperature = parseOptionalFiniteNumber(values.defaultTemperature, '默认 Temperature');
+  if (!temperature.ok) {
+    return temperature;
+  }
+
+  const topP = parseOptionalFiniteNumber(values.defaultTopP, '默认 Top P');
+  if (!topP.ok) {
+    return topP;
+  }
+
+  const maxTokens = parseOptionalIntegerField(values.defaultMaxTokens, '默认 Max Tokens');
+  if (!maxTokens.ok) {
+    return maxTokens;
+  }
+
+  const extraBody = parseOptionalYamlJsonObject(values.defaultExtraBody);
+  if (!extraBody.ok) {
+    return extraBody;
+  }
+
+  const config = {
+    ...(systemPrompt.trim() ? { systemPrompt } : {}),
+    ...(temperature.value !== undefined ? { temperature: temperature.value } : {}),
+    ...(topP.value !== undefined ? { topP: topP.value } : {}),
+    ...(maxTokens.value !== undefined ? { maxTokens: maxTokens.value } : {}),
+    ...(extraBody.value !== undefined ? { extraBody: extraBody.value } : {}),
+  };
+
+  return {
+    ok: true,
+    config: Object.keys(config).length > 0 ? config : undefined,
   };
 }
 
@@ -514,6 +602,104 @@ function parseOptionalInteger(value: string | undefined): number | undefined {
   }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalFiniteNumber(
+  value: string | undefined,
+  label: string,
+): { ok: true; value: number | undefined } | { ok: false; message: string } {
+  if (!value?.trim()) {
+    return { ok: true, value: undefined };
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return { ok: false, message: `${label} 必须是合法数字` };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+function parseOptionalIntegerField(
+  value: string | undefined,
+  label: string,
+): { ok: true; value: number | undefined } | { ok: false; message: string } {
+  if (!value?.trim()) {
+    return { ok: true, value: undefined };
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || String(parsed) !== value.trim()) {
+    return { ok: false, message: `${label} 必须是整数` };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+function parseOptionalYamlJsonObject(
+  value: string | undefined,
+): { ok: true; value: JsonObject | undefined } | { ok: false; message: string } {
+  if (!value?.trim()) {
+    return { ok: true, value: undefined };
+  }
+
+  try {
+    const parsed = YAML.parse(value);
+    if (!isPlainObject(parsed)) {
+      return { ok: false, message: '默认 Extra Body 必须是 YAML 对象' };
+    }
+
+    return {
+      ok: true,
+      value: normalizeJsonObject(parsed, '默认 Extra Body'),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: `默认 Extra Body YAML 解析失败：${toErrorMessage(error)}`,
+    };
+  }
+}
+
+function normalizeJsonObject(value: Record<string, unknown>, source: string): JsonObject {
+  const result: JsonObject = {};
+  for (const [key, nestedValue] of Object.entries(value)) {
+    result[key] = normalizeJsonValue(nestedValue, `${source}.${key}`);
+  }
+  return result;
+}
+
+function normalizeJsonValue(value: unknown, source: string): JsonValue {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item, index) => normalizeJsonValue(item, `${source}[${index}]`));
+  }
+
+  if (isPlainObject(value)) {
+    return normalizeJsonObject(value, source);
+  }
+
+  throw new Error(`${source} 必须符合 JSON 嵌套结构`);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function formatOptionalNumber(value: number | undefined): string {
+  return value === undefined ? '' : String(value);
+}
+
+function formatExtraBodyYaml(value: JsonObject | undefined): string {
+  return value ? YAML.stringify(value).trimEnd() : '';
 }
 
 function toErrorMessage(error: unknown): string {

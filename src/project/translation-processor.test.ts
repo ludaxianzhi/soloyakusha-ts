@@ -356,7 +356,7 @@ describe("TranslationProcessor", () => {
     expect(translationClient.requests[0]?.options?.requestConfig?.topP).toBe(0.5);
     expect(glossaryClient.requests[0]?.options?.requestConfig?.topP).toBe(0.5);
     expect(glossaryClient.requests[0]?.options?.requestConfig?.temperature).toBe(0.7);
-    expect(glossaryClient.requests[0]?.options?.requestConfig?.maxTokens).toBe(4096);
+    expect(glossaryClient.requests[0]?.options?.requestConfig?.maxTokens).toBeUndefined();
     expect(glossaryClient.requests[0]?.options?.requestConfig?.topP).toBe(0.5);
     expect(glossary.getTerm("第一行")).toMatchObject({
       translation: "Line 1",

@@ -164,10 +164,9 @@ export type ClientHooks = {
 };
 
 const DEFAULT_REQUEST_CONFIG: Required<
-  Pick<LlmRequestConfig, "temperature" | "maxTokens" | "topP">
+  Pick<LlmRequestConfig, "temperature" | "topP">
 > = {
   temperature: 0.7,
-  maxTokens: 4096,
   topP: 1,
 };
 
