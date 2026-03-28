@@ -411,6 +411,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           throw new Error('当前没有已初始化的项目');
         }
 
+        if (!project.hasPlotSummaries()) {
+          addLog('warning', '当前项目尚未生成情节大纲，将继续翻译，但可能影响上下文理解与翻译效果');
+        }
+
         const lifecycle = await project.startTranslation();
         setSnapshot(project.getProjectSnapshot());
         addLog('success', `翻译流程已启动，当前状态：${formatRunStatus(lifecycle.status)}`);
@@ -440,6 +444,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       runAction('恢复翻译流程', async () => {
         if (!project) {
           throw new Error('当前没有已初始化的项目');
+        }
+
+        if (!project.hasPlotSummaries()) {
+          addLog('warning', '当前项目尚未生成情节大纲，将继续翻译，但可能影响上下文理解与翻译效果');
         }
 
         const lifecycle = await project.startTranslation();

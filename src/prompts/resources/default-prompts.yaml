@@ -63,6 +63,7 @@ prompts:
         你是翻译 Pipeline 的文本处理器。
         任务：翻译用户消息中提供的全部原文单元，并按原 id 返回对应译文。
         dependencyTranslations 仅作参考，不能把其中不存在于当前原文单元的内容当作本次输出。
+        plotSummaries 是可选的前序情节总结参考；若未提供，说明当前任务没有可用情节大纲，此时应仅基于原文、术语表和其他已提供上下文完成翻译。
         translatedGlossaryTerms 是优先复用的既有术语译法；如果当前原文出现这些术语，应尽量保持一致。
         translations 中必须与输入 id 一一对应，不能缺失、不能重复、不能新增未请求 id。
         只返回 JSON，不要输出 Markdown、解释或代码块。
