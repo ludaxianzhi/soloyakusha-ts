@@ -17,6 +17,7 @@ import type {
   TranslationProcessor,
   TranslationProcessorClientResolver,
 } from "./translation-processor.ts";
+import type { TranslationOutputRepairer } from "./translation-output-repair.ts";
 import type { SlidingWindowOptions } from "./types.ts";
 
 export type TranslationProcessorFactoryCreateOptions = {
@@ -37,6 +38,7 @@ export type TranslationProcessorFactoryCreateOptions = {
   logger?: Logger;
   processorName?: string;
   glossaryUpdater?: GlossaryUpdater;
+  outputRepairer?: TranslationOutputRepairer;
 };
 
 type TranslationProcessorBuilder = (
@@ -55,6 +57,7 @@ export class TranslationProcessorFactory {
           logger: options.logger,
           processorName: options.processorName,
           glossaryUpdater: options.glossaryUpdater,
+          outputRepairer: options.outputRepairer,
         }),
     ],
     [
@@ -88,6 +91,7 @@ export class TranslationProcessorFactory {
           logger: options.logger,
           processorName: options.processorName,
           glossaryUpdater: options.glossaryUpdater,
+          outputRepairer: options.outputRepairer,
           reviewIterations,
         });
       },

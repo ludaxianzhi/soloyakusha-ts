@@ -37,6 +37,10 @@ import type {
   TranslationProcessorTranslation,
 } from "./translation-processor.ts";
 import { TranslationDocumentManager } from "./translation-document-manager.ts";
+import {
+  repairTranslationOutputLines,
+  type TranslationOutputRepairer,
+} from "./translation-output-repair.ts";
 import type { SlidingWindowOptions, SlidingWindowFragment } from "./types.ts";
 
 /** multi-stage 工作流各步骤的解析器标识。 */
@@ -58,6 +62,7 @@ export type MultiStageTranslationProcessorOptions = {
   logger?: Logger;
   processorName?: string;
   glossaryUpdater?: GlossaryUpdater;
+  outputRepairer?: TranslationOutputRepairer;
   /** 评审迭代次数（大步骤二的重复次数）。默认值为 2。 */
   reviewIterations?: number;
 };
@@ -70,6 +75,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
   private readonly glossaryUpdater: GlossaryUpdater;
   private readonly promptManager: PromptManager;
   private readonly reviewIterations: number;
+  private readonly outputRepairer?: TranslationOutputRepairer;
 
   /**
    * 各步骤的 LLM 解析器。若未为某步骤显式提供，则回退至 defaultClientResolver。
@@ -88,6 +94,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     this.logger = options.logger ?? NOOP_LOGGER;
     this.processorName = options.processorName;
     this.reviewIterations = options.reviewIterations ?? 2;
+    this.outputRepairer = options.outputRepairer;
     this.glossaryUpdater =
       options.glossaryUpdater ??
       new DefaultGlossaryUpdater(this.resolveClient("reviser"), {
@@ -308,7 +315,18 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     // 等待术语表更新完成
     const glossaryUpdateResult = await glossaryUpdatePromise;
 
-    const outputText = buildOutputText(currentTranslations, window);
+    let outputText = buildOutputText(currentTranslations, window);
+    const repairedOutput = await repairTranslationOutputLines({
+      sourceUnits,
+      translations: currentTranslations,
+      outputText,
+      window,
+      outputRepairer: this.outputRepairer,
+      logger: this.logger,
+      processorName: this.processorName,
+    });
+    currentTranslations = repairedOutput.translations;
+    outputText = repairedOutput.outputText;
 
     this.logger.info?.("多步骤翻译完成", {
       processorName: this.processorName,

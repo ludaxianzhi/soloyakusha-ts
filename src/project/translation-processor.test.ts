@@ -2,14 +2,17 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AlignmentRepairResult } from "../utils/alignment-repair.ts";
 import { Glossary } from "../glossary/glossary.ts";
-import { ChatClient } from "../llm/base.ts";
+import { ChatClient, EmbeddingClient } from "../llm/base.ts";
 import { LlmClientProvider } from "../llm/provider.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "../llm/types.ts";
 import { GlobalConfigManager } from "../config/manager.ts";
 import { TranslationGlobalConfig } from "./config.ts";
 import { DefaultTranslationProcessor } from "./default-translation-processor.ts";
+import { MultiStageTranslationProcessor } from "./multi-stage-translation-processor.ts";
 import { DefaultTextSplitter } from "./translation-document-manager.ts";
+import type { TranslationOutputRepairer } from "./translation-output-repair.ts";
 import type { Logger, LoggerMetadata } from "./logger.ts";
 import { TranslationProject } from "./translation-project.ts";
 
@@ -272,6 +275,132 @@ describe("TranslationProcessor", () => {
     expect(logger.entries.some((entry) => entry.message === "翻译处理完成")).toBe(true);
   });
 
+  test("repairs minor output line mismatch using alignment repair from global config", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-alignment-runtime-"));
+    cleanupTargets.push(workspaceDir);
+
+    const configPath = join(workspaceDir, "config.json");
+    const manager = new GlobalConfigManager({ filePath: configPath });
+    await manager.setLlmProfile("shared-chat", {
+      provider: "openai",
+      modelType: "chat",
+      modelName: "gpt-4.1",
+      endpoint: "https://example.com/v1",
+      apiKey: "test-key",
+      retries: 3,
+    });
+    await manager.setLlmProfile("repair-chat", {
+      provider: "openai",
+      modelType: "chat",
+      modelName: "gpt-4.1-mini",
+      endpoint: "https://example.com/v1",
+      apiKey: "test-key",
+      retries: 3,
+    });
+    await manager.setEmbeddingConfig({
+      provider: "openai",
+      modelType: "embedding",
+      modelName: "text-embedding-3-small",
+      endpoint: "https://example.com/v1",
+      apiKey: "test-key",
+      retries: 3,
+    });
+    await manager.setTranslationProcessorConfig({
+      modelName: "shared-chat",
+    });
+    await manager.setAlignmentRepairConfig({
+      modelName: "repair-chat",
+    });
+
+    const config = await manager.getTranslationGlobalConfig();
+    const translationClient = new FakeChatClient([
+      JSON.stringify({
+        translations: createSequentialTranslations(7, {
+          3: "T3\nEXTRA",
+        }),
+      }),
+    ]);
+    const repairClient = new FakeChatClient([]);
+    const fakeProvider = new FakeLlmClientProvider(
+      {
+        "shared-chat": translationClient,
+        "repair-chat": repairClient,
+      },
+      {
+        "__global_embedding__": new FakeEmbeddingClient(),
+      },
+    );
+
+    const translator = config.createTranslationProcessor({
+      provider: fakeProvider,
+    });
+    const result = await translator.process({
+      sourceText: createSequentialLines("S", 7),
+    });
+
+    expect(result.outputText).toBe(createSequentialLines("T", 7));
+    expect(result.translations.map((entry) => entry.translation)).toEqual(
+      createSequentialLineArray("T", 7),
+    );
+    expect(repairClient.requests).toHaveLength(0);
+  });
+
+  test("throws when output line difference exceeds fifteen percent", async () => {
+    const client = new FakeChatClient([
+      JSON.stringify({
+        translations: createSequentialTranslations(6, {
+          3: "T3\nEXTRA",
+        }),
+      }),
+    ]);
+    const processor = new DefaultTranslationProcessor(client);
+
+    await expect(
+      processor.process({
+        sourceText: createSequentialLines("S", 6),
+      }),
+    ).rejects.toThrow("译文与原文行数差异过大");
+  });
+
+  test("multi-stage processor repairs minor output line mismatch", async () => {
+    const client = new FakeChatClient([
+      "分析结果",
+      JSON.stringify({
+        translations: createSequentialTranslations(7),
+      }),
+      JSON.stringify({
+        translations: createSequentialTranslations(7, {
+          4: "T4\nEXTRA",
+        }),
+      }),
+    ]);
+    const outputRepairer = new FakeOutputRepairer([
+      createResolvedRepairResult(createSequentialLineArray("T", 7), 7, 8),
+    ]);
+    const processor = new MultiStageTranslationProcessor(client, {}, {
+      reviewIterations: 0,
+      outputRepairer,
+    });
+
+    const result = await processor.process({
+      sourceText: createSequentialLines("S", 7),
+    });
+
+    expect(result.outputText).toBe(createSequentialLines("T", 7));
+    expect(outputRepairer.requests).toHaveLength(1);
+    expect(outputRepairer.requests[0]?.sourceLines).toEqual(createSequentialLineArray("S", 7));
+    expect(outputRepairer.requests[0]?.targetLines).toEqual([
+      "T1",
+      "T2",
+      "T3",
+      "T4",
+      "EXTRA",
+      "T5",
+      "T6",
+      "T7",
+    ]);
+  });
+
   test("creates processor from user global config and merges processor/updater request parameters", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-"));
     cleanupTargets.push(workspaceDir);
@@ -438,7 +567,10 @@ function createFakeChatConfig(): LlmClientConfig {
 }
 
 class FakeLlmClientProvider extends LlmClientProvider {
-  constructor(private readonly clients: Record<string, ChatClient>) {
+  constructor(
+    private readonly clients: Record<string, ChatClient>,
+    private readonly embeddingClients: Record<string, EmbeddingClient> = {},
+  ) {
     super();
   }
 
@@ -449,6 +581,54 @@ class FakeLlmClientProvider extends LlmClientProvider {
     }
 
     return client;
+  }
+
+  override getEmbeddingClient(name: string): EmbeddingClient {
+    const client = this.embeddingClients[name];
+    if (!client) {
+      throw new Error(`未找到测试 EmbeddingClient: ${name}`);
+    }
+
+    return client;
+  }
+}
+
+class FakeEmbeddingClient extends EmbeddingClient {
+  constructor() {
+    super(createFakeEmbeddingConfig());
+  }
+
+  override async getEmbedding(text: string): Promise<number[]> {
+    return [extractNumericSignal(text)];
+  }
+
+  override async getEmbeddings(texts: string[]): Promise<number[][]> {
+    return texts.map((text) => [extractNumericSignal(text)]);
+  }
+}
+
+class FakeOutputRepairer implements TranslationOutputRepairer {
+  readonly requests: Array<{
+    sourceLines: ReadonlyArray<string>;
+    targetLines: ReadonlyArray<string>;
+  }> = [];
+
+  constructor(private readonly results: AlignmentRepairResult[]) {}
+
+  async repairMissingTranslations(
+    sourceLines: ReadonlyArray<string>,
+    targetLines: ReadonlyArray<string>,
+  ): Promise<AlignmentRepairResult> {
+    this.requests.push({
+      sourceLines: [...sourceLines],
+      targetLines: [...targetLines],
+    });
+    const result = this.results.shift();
+    if (!result) {
+      throw new Error("缺少测试用对齐补翻结果");
+    }
+
+    return result;
   }
 }
 
@@ -474,4 +654,70 @@ class MemoryLogger implements Logger {
   error(message: string, metadata?: LoggerMetadata): void {
     this.entries.push({ level: "error", message, metadata });
   }
+}
+
+function createFakeEmbeddingConfig(): LlmClientConfig {
+  return {
+    provider: "openai",
+    modelName: "fake-embedding-model",
+    apiKey: "test-key",
+    endpoint: "https://example.com",
+    modelType: "embedding",
+    retries: 0,
+  };
+}
+
+function createSequentialLines(prefix: string, count: number): string {
+  return createSequentialLineArray(prefix, count).join("\n");
+}
+
+function createSequentialLineArray(prefix: string, count: number): string[] {
+  return Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`);
+}
+
+function createSequentialTranslations(
+  count: number,
+  overrides: Record<number, string> = {},
+): Array<{ id: string; translation: string }> {
+  return Array.from({ length: count }, (_, index) => ({
+    id: String(index + 1),
+    translation: overrides[index + 1] ?? `T${index + 1}`,
+  }));
+}
+
+function createResolvedRepairResult(
+  alignedTranslations: string[],
+  sourceLineCount: number,
+  targetLineCount: number,
+): AlignmentRepairResult {
+  const units = alignedTranslations.map((translation, index) => ({
+    id: `u${String(index + 1).padStart(4, "0")}`,
+    sourceIndex: index,
+    sourceText: `S${index + 1}`,
+    alignedTranslation: translation,
+    missing: false,
+  }));
+
+  return {
+    analysis: {
+      sourceLineCount,
+      targetLineCount,
+      lineCountMatches: sourceLineCount === targetLineCount,
+      missingUnitCount: 0,
+      missingUnitIds: [],
+      comparisonText: "",
+      units,
+    },
+    repairs: [],
+    unresolvedIds: [],
+  };
+}
+
+function extractNumericSignal(text: string): number {
+  if (text.includes("EXTRA")) {
+    return 999;
+  }
+
+  const matched = text.match(/\d+/);
+  return matched ? Number(matched[0]) : 999;
 }

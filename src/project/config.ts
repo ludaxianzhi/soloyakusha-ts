@@ -10,10 +10,12 @@ import YAML from "yaml";
 import { GlossaryUpdaterFactory, type GlossaryUpdater } from "../glossary/index.ts";
 import { createProviderFromConfigs, LlmClientProvider } from "../llm/provider.ts";
 import type { ChatRequestOptions, ClientHooks, LlmClientConfigInput } from "../llm/types.ts";
+import { AlignmentRepairTool, DefaultTextAligner } from "../utils/index.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
 import { PromptManager } from "./prompt-manager.ts";
 import { TranslationProcessorFactory } from "./translation-processor-factory.ts";
 import type { TranslationProcessor } from "./translation-processor.ts";
+import type { TranslationOutputRepairer } from "./translation-output-repair.ts";
 import type { SlidingWindowOptions } from "./types.ts";
 
 export const GLOBAL_EMBEDDING_CLIENT_NAME = "__global_embedding__";
@@ -79,6 +81,7 @@ export type TranslationGlobalConfigInput = {
   glossaryExtractor?: GlossaryExtractorConfig;
   glossaryUpdater?: GlossaryUpdaterConfig;
   plotSummary?: PlotSummaryConfig;
+  alignmentRepair?: AlignmentRepairConfig;
 };
 
 export class TranslationGlobalConfig {
@@ -92,6 +95,7 @@ export class TranslationGlobalConfig {
       glossaryExtractor: input.glossaryExtractor,
       glossaryUpdater: input.glossaryUpdater,
       plotSummary: input.plotSummary,
+      alignmentRepair: input.alignmentRepair,
     };
     this.translation = cloneTranslationRuntimeConfig(translation);
   }
@@ -144,6 +148,10 @@ export class TranslationGlobalConfig {
     return this.translation?.plotSummary ? { ...this.translation.plotSummary } : undefined;
   }
 
+  getAlignmentRepairConfig(): AlignmentRepairConfig | undefined {
+    return this.translation?.alignmentRepair ? { ...this.translation.alignmentRepair } : undefined;
+  }
+
   getEmbeddingConfig(): LlmClientConfigInput | undefined {
     return this.llm.embedding ? { ...this.llm.embedding } : undefined;
   }
@@ -184,6 +192,11 @@ export class TranslationGlobalConfig {
             logger,
           })
         : undefined);
+    const outputRepairer = createOutputRepairer(
+      provider,
+      this.getAlignmentRepairConfig(),
+      Boolean(this.llm.embedding),
+    );
 
     const additionalClientResolvers = buildAdditionalClientResolvers(config.models, provider);
 
@@ -202,6 +215,7 @@ export class TranslationGlobalConfig {
       defaultSlidingWindow: config.slidingWindow,
       logger,
       glossaryUpdater,
+      outputRepairer,
     });
   }
 }
@@ -223,6 +237,9 @@ function resolveTranslationRuntimeConfig(
         plotSummary: isRecord(input.translation.plotSummary)
           ? (input.translation.plotSummary as PlotSummaryConfig)
           : undefined,
+        alignmentRepair: isRecord(input.translation.alignmentRepair)
+          ? (input.translation.alignmentRepair as AlignmentRepairConfig)
+          : undefined,
       }
     : undefined;
 
@@ -239,6 +256,9 @@ function resolveTranslationRuntimeConfig(
     plotSummary: isRecord(input.plotSummary)
       ? (input.plotSummary as PlotSummaryConfig)
       : undefined,
+    alignmentRepair: isRecord(input.alignmentRepair)
+      ? (input.alignmentRepair as AlignmentRepairConfig)
+      : undefined,
   };
 
   return cloneTranslationRuntimeConfig({
@@ -248,6 +268,7 @@ function resolveTranslationRuntimeConfig(
       nestedTranslation?.glossaryExtractor ?? topLevelTranslation.glossaryExtractor,
     glossaryUpdater: nestedTranslation?.glossaryUpdater ?? topLevelTranslation.glossaryUpdater,
     plotSummary: nestedTranslation?.plotSummary ?? topLevelTranslation.plotSummary,
+    alignmentRepair: nestedTranslation?.alignmentRepair ?? topLevelTranslation.alignmentRepair,
   });
 }
 
@@ -264,7 +285,14 @@ function cloneTranslationRuntimeConfig(
   const glossaryExtractor = input.glossaryExtractor ? { ...input.glossaryExtractor } : undefined;
   const glossaryUpdater = input.glossaryUpdater ? { ...input.glossaryUpdater } : undefined;
   const plotSummary = input.plotSummary ? { ...input.plotSummary } : undefined;
-  if (!translationProcessor && !glossaryExtractor && !glossaryUpdater && !plotSummary) {
+  const alignmentRepair = input.alignmentRepair ? { ...input.alignmentRepair } : undefined;
+  if (
+    !translationProcessor &&
+    !glossaryExtractor &&
+    !glossaryUpdater &&
+    !plotSummary &&
+    !alignmentRepair
+  ) {
     return undefined;
   }
 
@@ -273,6 +301,34 @@ function cloneTranslationRuntimeConfig(
     glossaryExtractor,
     glossaryUpdater,
     plotSummary,
+    alignmentRepair,
+  };
+}
+
+function createOutputRepairer(
+  provider: LlmClientProvider,
+  config: AlignmentRepairConfig | undefined,
+  hasEmbeddingConfig: boolean,
+): TranslationOutputRepairer | undefined {
+  if (!config) {
+    return undefined;
+  }
+
+  if (!hasEmbeddingConfig) {
+    throw new Error("已配置对齐补翻，但未配置 llm.embedding，无法执行文本对齐。");
+  }
+
+  const tool = new AlignmentRepairTool(
+    new DefaultTextAligner(provider.getEmbeddingClient(GLOBAL_EMBEDDING_CLIENT_NAME)),
+    provider.getChatClient(config.modelName),
+  );
+
+  return {
+    repairMissingTranslations(sourceLines, targetLines) {
+      return tool.repairMissingTranslations(sourceLines, targetLines, {
+        requestOptions: config.requestOptions,
+      });
+    },
   };
 }
 

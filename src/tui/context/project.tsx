@@ -1079,6 +1079,7 @@ async function createProcessorForProject(
     translation: {
       translationProcessor: processorConfig,
       glossaryUpdater: globalConfig.getGlossaryUpdaterConfig(),
+      alignmentRepair: globalConfig.getAlignmentRepairConfig(),
     },
   });
 

@@ -24,6 +24,10 @@ import type {
   TranslationProcessorTranslation,
 } from "./translation-processor.ts";
 import { TranslationDocumentManager } from "./translation-document-manager.ts";
+import {
+  repairTranslationOutputLines,
+  type TranslationOutputRepairer,
+} from "./translation-output-repair.ts";
 import type { SlidingWindowOptions, SlidingWindowFragment } from "./types.ts";
 
 export class DefaultTranslationProcessor implements TranslationProcessor {
@@ -43,6 +47,7 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
       logger?: Logger;
       processorName?: string;
       glossaryUpdater?: GlossaryUpdater;
+      outputRepairer?: TranslationOutputRepairer;
     } = {},
   ) {
     this.promptManager = options.promptManager ?? new PromptManager();
@@ -57,7 +62,10 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
         logger: this.logger,
         updaterName: this.processorName ? `${this.processorName}:glossary` : undefined,
       });
+    this.outputRepairer = options.outputRepairer;
   }
+
+  private readonly outputRepairer?: TranslationOutputRepairer;
 
   async processWorkItem(
     workItem: TranslationWorkItem,
@@ -130,11 +138,22 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
         renderedPrompt,
       ),
     );
-    const translations = parseTranslationResponse(
+    let translations = parseTranslationResponse(
       responseText,
       sourceUnits.map((unit) => unit.id),
     );
-    const outputText = buildOutputText(translations, window);
+    let outputText = buildOutputText(translations, window);
+    const repairedOutput = await repairTranslationOutputLines({
+      sourceUnits,
+      translations,
+      outputText,
+      window,
+      outputRepairer: this.outputRepairer,
+      logger: this.logger,
+      processorName: this.processorName,
+    });
+    translations = repairedOutput.translations;
+    outputText = repairedOutput.outputText;
 
     let glossaryUpdates: TranslationProcessorResult["glossaryUpdates"] = [];
     let glossaryUpdateResult = undefined;
