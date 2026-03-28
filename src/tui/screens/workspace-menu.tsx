@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { access } from 'node:fs/promises';
 import { useInput } from 'ink';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import type { WorkspaceEntry } from '../../config/types.ts';
@@ -47,14 +48,26 @@ export function WorkspaceMenuScreen() {
       try {
         const manager = new GlobalConfigManager();
         const list = await manager.getRecentWorkspaces();
-        setWorkspaces(list);
+
+        // 过滤掉目录已不存在的工作区，并自动从注册表中移除
+        const valid: WorkspaceEntry[] = [];
+        for (const entry of list) {
+          try {
+            await access(entry.dir);
+            valid.push(entry);
+          } catch {
+            await manager.removeRecentWorkspace(entry.dir).catch(() => undefined);
+            addLog('warning', `工作区目录已不存在，已自动移除：${entry.dir}`);
+          }
+        }
+        setWorkspaces(valid);
       } catch {
         setWorkspaces([]);
       } finally {
         setIsLoading(false);
       }
     })();
-  }, []);
+  }, [addLog]);
 
   const handleSelect = useCallback(
     (item: SelectItem<MenuValue>) => {

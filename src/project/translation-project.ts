@@ -236,9 +236,18 @@ export class TranslationProject
     const glossaryPath = this.workspaceConfig.glossary.path?.trim();
     if (!this.glossary && glossaryPath) {
       const resolvedGlossaryPath = resolveChapterPath(this.projectDir, glossaryPath);
-      this.glossary = await GlossaryPersisterFactory.getPersister(resolvedGlossaryPath).loadGlossary(
-        resolvedGlossaryPath,
-      );
+      try {
+        this.glossary = await GlossaryPersisterFactory.getPersister(resolvedGlossaryPath).loadGlossary(
+          resolvedGlossaryPath,
+        );
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          // 术语表文件尚不存在（首次使用默认路径），初始化为空术语表
+          this.glossary = new Glossary([]);
+        } else {
+          throw error;
+        }
+      }
     }
 
     await this.reloadNarrativeArtifacts();

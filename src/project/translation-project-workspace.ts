@@ -343,6 +343,9 @@ export function resolveChapterPath(projectDir: string, path: string): string {
   return resolve(projectDir, path);
 }
 
+/** 未指定术语表路径时的默认路径（相对于工作区目录）。 */
+export const DEFAULT_GLOSSARY_FILE_PATH = 'Data/glossary.json';
+
 export function buildInitialWorkspaceConfig(
   config: TranslationProjectConfig,
   chapters: Chapter[],
@@ -352,8 +355,8 @@ export function buildInitialWorkspaceConfig(
     projectName: config.projectName,
     chapters: chapters.map((chapter) => ({ id: chapter.id, filePath: chapter.filePath })),
     glossary: {
-      path: config.glossary?.path,
-      autoFilter: config.glossary?.autoFilter,
+      path: config.glossary?.path ?? DEFAULT_GLOSSARY_FILE_PATH,
+      autoFilter: config.glossary?.autoFilter ?? true,
     },
     translator: {},
     slidingWindow: {},

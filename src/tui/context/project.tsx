@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises';
+import { access, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   createContext,
@@ -924,6 +924,15 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       } catch {
         addLog('error', '移除工作区记录失败');
       }
+      for (const subDir of ['Data', 'logs']) {
+        const target = join(dir, subDir);
+        try {
+          await rm(target, { recursive: true, force: true });
+        } catch {
+          // 忽略不存在或无法删除的子目录
+        }
+      }
+      addLog('info', `已删除工作区数据目录：${dir}`);
     }
     addLog('info', '已关闭并移除当前工作区');
   }, [addLog, project]);
