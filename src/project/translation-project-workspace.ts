@@ -231,9 +231,7 @@ export class TranslationProjectWorkspace {
   }
 
   getWorkspaceFileManifest(): WorkspaceFileManifest {
-    const glossaryPath = this.config.glossary?.path
-      ? resolveChapterPath(this.projectDir, this.config.glossary.path)
-      : undefined;
+    const glossaryPath = this.getResolvedGlossaryPath();
 
     return {
       projectDir: this.projectDir,
@@ -250,15 +248,24 @@ export class TranslationProjectWorkspace {
 
   async saveGlossaryIfNeeded(): Promise<void> {
     const glossary = this.getGlossaryState();
-    if (!glossary || !this.config.glossary?.path) {
+    const glossaryPath = this.getResolvedGlossaryPath();
+    if (!glossary || !glossaryPath) {
       return;
     }
 
-    const glossaryPath = resolveChapterPath(this.projectDir, this.config.glossary.path);
     await GlossaryPersisterFactory.getPersister(glossaryPath).saveGlossary(
       glossary,
       glossaryPath,
     );
+  }
+
+  private getResolvedGlossaryPath(): string | undefined {
+    const glossaryPath = this.getWorkspaceConfigState().glossary.path?.trim();
+    if (!glossaryPath) {
+      return undefined;
+    }
+
+    return resolveChapterPath(this.projectDir, glossaryPath);
   }
 
   private async persistChapterOrder(): Promise<void> {
@@ -360,6 +367,10 @@ export function mergePersistedWorkspaceConfig(
 ): WorkspaceConfig {
   return {
     ...current,
+    glossary: {
+      ...current.glossary,
+      ...persisted.glossary,
+    },
     translator: {
       ...current.translator,
       ...persisted.translator,
