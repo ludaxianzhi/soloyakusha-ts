@@ -233,10 +233,11 @@ export class TranslationProject
       (await this.documentManager.loadProjectState()) ?? createDefaultProjectState(this.pipeline);
     this.projectState = normalizeProjectStateForPipeline(this.projectState, this.pipeline);
 
-    if (!this.glossary && this.config.glossary?.path) {
-      const glossaryPath = resolveChapterPath(this.projectDir, this.config.glossary.path);
-      this.glossary = await GlossaryPersisterFactory.getPersister(glossaryPath).loadGlossary(
-        glossaryPath,
+    const glossaryPath = this.workspaceConfig.glossary.path?.trim();
+    if (!this.glossary && glossaryPath) {
+      const resolvedGlossaryPath = resolveChapterPath(this.projectDir, glossaryPath);
+      this.glossary = await GlossaryPersisterFactory.getPersister(resolvedGlossaryPath).loadGlossary(
+        resolvedGlossaryPath,
       );
     }
 

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Glossary } from "../glossary/glossary.ts";
+import { GlossaryPersisterFactory } from "../glossary/persister.ts";
 import type { TranslationPipelineDefinition } from "./pipeline.ts";
 import { TranslationProject } from "./translation-project.ts";
 
@@ -713,5 +714,115 @@ describe("TranslationProject", () => {
       await readFile(join(workspaceDir, "Data", "project-state.json"), "utf8"),
     ) as { lifecycle?: { lastSavedAt?: string } };
     expect(persistedState.lifecycle?.lastSavedAt).toBe(lifecycle.lastSavedAt);
+  });
+
+  test("saves glossary using the current workspace glossary path", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-glossary-save-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n", "utf8");
+
+    const glossary = new Glossary([
+      {
+        term: "勇者",
+        translation: "Hero",
+        status: "translated",
+      },
+    ]);
+
+    const project = new TranslationProject(
+      {
+        projectName: "glossary-save",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        glossary,
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.updateWorkspaceConfig({
+      glossary: {
+        path: "glossary.json",
+      },
+    });
+
+    expect(project.getWorkspaceFileManifest().glossaryPath).toBe(join(workspaceDir, "glossary.json"));
+
+    await project.saveProgress();
+
+    const persistedGlossary = await GlossaryPersisterFactory.getPersister(
+      join(workspaceDir, "glossary.json"),
+    ).loadGlossary(join(workspaceDir, "glossary.json"));
+    expect(persistedGlossary.getTerm("勇者")?.translation).toBe("Hero");
+  });
+
+  test("loads glossary from the persisted workspace glossary path", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-glossary-load-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(join(workspaceDir, "Data"), { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n", "utf8");
+
+    const glossaryPath = join(workspaceDir, "glossary.json");
+    await GlossaryPersisterFactory.getPersister(glossaryPath).saveGlossary(
+      new Glossary([
+        {
+          term: "王都",
+          translation: "Royal Capital",
+          status: "translated",
+        },
+      ]),
+      glossaryPath,
+    );
+
+    await writeFile(
+      join(workspaceDir, "Data", "workspace-config.json"),
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          projectName: "glossary-load",
+          chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+          glossary: {
+            path: "glossary.json",
+          },
+          translator: {},
+          slidingWindow: {},
+          customRequirements: [],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const project = new TranslationProject(
+      {
+        projectName: "glossary-load",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+
+    await project.initialize();
+
+    expect(project.getGlossary()?.getTerm("王都")?.translation).toBe("Royal Capital");
+    expect(project.getWorkspaceFileManifest().glossaryPath).toBe(glossaryPath);
   });
 });
