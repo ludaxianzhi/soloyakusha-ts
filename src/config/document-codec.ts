@@ -228,6 +228,14 @@ export function normalizeGlossaryExtractorConfig(
       value.maxCharsPerBatch,
       `${sourceLabel}.maxCharsPerBatch`,
     ),
+    occurrenceTopK: readOptionalPositiveInteger(
+      value.occurrenceTopK,
+      `${sourceLabel}.occurrenceTopK`,
+    ),
+    occurrenceTopP: readOptionalUnitInterval(
+      value.occurrenceTopP,
+      `${sourceLabel}.occurrenceTopP`,
+    ),
     requestOptions:
       value.requestOptions === undefined
         ? undefined
@@ -456,6 +464,8 @@ export function cloneGlossaryExtractorConfig(
   return {
     modelName: config.modelName,
     maxCharsPerBatch: config.maxCharsPerBatch,
+    occurrenceTopK: config.occurrenceTopK,
+    occurrenceTopP: config.occurrenceTopP,
     requestOptions: config.requestOptions
       ? clonePersistedChatRequestOptions(config.requestOptions)
       : undefined,
@@ -773,6 +783,19 @@ function readOptionalPositiveNumber(value: unknown, sourceLabel: string): number
 
   if (result <= 0) {
     throw new Error(`字段必须大于 0: ${sourceLabel}`);
+  }
+
+  return result;
+}
+
+function readOptionalUnitInterval(value: unknown, sourceLabel: string): number | undefined {
+  const result = readOptionalFiniteNumber(value, sourceLabel);
+  if (result === undefined) {
+    return undefined;
+  }
+
+  if (result <= 0 || result > 1) {
+    throw new Error(`字段必须大于 0 且不超过 1: ${sourceLabel}`);
   }
 
   return result;

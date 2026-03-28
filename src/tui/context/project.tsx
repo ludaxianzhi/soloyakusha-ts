@@ -564,6 +564,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
           const result = await scanner.scanLines(lines, {
             maxCharsPerBatch: glossaryExtractorConfig.maxCharsPerBatch,
+            occurrenceTopK: glossaryExtractorConfig.occurrenceTopK,
+            occurrenceTopP: glossaryExtractorConfig.occurrenceTopP,
             requestOptions: glossaryExtractorConfig.requestOptions,
             seedTerms: project.getGlossary()?.getAllTerms(),
             onBatchProgress: (completed, total) => {

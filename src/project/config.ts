@@ -28,6 +28,8 @@ export type TranslationProcessorConfig = {
 export type GlossaryExtractorConfig = {
   modelName: string;
   maxCharsPerBatch?: number;
+  occurrenceTopK?: number;
+  occurrenceTopP?: number;
   requestOptions?: ChatRequestOptions;
 };
 

@@ -278,6 +278,46 @@ describe("glossary", () => {
     expect(client.requests[0]?.prompt).toContain("L00003: 第三行");
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("严格 JSON");
   });
+
+  test("applies occurrence top-k and top-p filtering after base scan filtering", async () => {
+    const client = new FakeChatClient([
+      JSON.stringify({
+        entities: [
+          { term: "勇者", category: "personName" },
+          { term: "王都", category: "placeName" },
+          { term: "公爵", category: "personTitle" },
+          { term: "圣剑", category: "properNoun" },
+        ],
+      }),
+    ]);
+    const scanner = new FullTextGlossaryScanner(client);
+
+    const result = await scanner.scanLines(
+      [
+        { lineNumber: 1, text: "勇者 勇者 勇者 王都 公爵 圣剑", blockId: "block-1" },
+        { lineNumber: 2, text: "勇者 勇者 王都 王都 公爵 圣剑", blockId: "block-2" },
+        { lineNumber: 3, text: "勇者 王都 公爵 公爵", blockId: "block-3" },
+        { lineNumber: 4, text: "王都 公爵 公爵", blockId: "block-4" },
+      ],
+      {
+        maxCharsPerBatch: 200,
+        occurrenceTopK: 3,
+        occurrenceTopP: 0.5,
+      },
+    );
+
+    expect(result.glossary.getTerm("公爵")).toMatchObject({
+      totalOccurrenceCount: 6,
+      textBlockOccurrenceCount: 4,
+    });
+    expect(result.glossary.getTerm("勇者")).toMatchObject({
+      totalOccurrenceCount: 6,
+      textBlockOccurrenceCount: 3,
+    });
+    expect(result.glossary.getTerm("王都")).toBeUndefined();
+    expect(result.glossary.getTerm("圣剑")).toBeUndefined();
+    expect(result.glossary.getAllTerms()).toHaveLength(2);
+  });
 });
 
 class FakeChatClient extends ChatClient {

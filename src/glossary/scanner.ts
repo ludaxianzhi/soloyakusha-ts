@@ -6,6 +6,7 @@
  * - 默认每批最多 8192 字符，尽可能提供更大的上下文
  * - 仅抽取五类术语：人名、地名、专有名词、人物称呼、口癖
  * - 扫描完成后自动回填术语出现总次数与出现文本块数
+ * - 支持按出现次数排序后的 TopK / TopP 结果裁剪
  *
  * @module glossary/scanner
  */
@@ -67,6 +68,8 @@ export type FullTextGlossaryScanBatch = {
 
 export type FullTextGlossaryScanOptions = {
   maxCharsPerBatch?: number;
+  occurrenceTopK?: number;
+  occurrenceTopP?: number;
   requestOptions?: ChatRequestOptions;
   seedTerms?: GlossaryTerm[];
   /** 每个批次扫描完成后的回调，参数为（已完成批次数, 总批次数）*/
@@ -209,14 +212,28 @@ export class FullTextGlossaryScanner {
         text: line.text,
       })),
     );
-    this.logger.info?.(`术语扫描完成，共提取 ${glossary.getAllTerms().length} 个术语`);
+    const filteredTerms = glossary
+      .getAllTerms()
+      .filter(
+        (term) => term.totalOccurrenceCount > 0 && term.textBlockOccurrenceCount > 1,
+      )
+      .sort(compareFormattedTerms);
+    const retainedTerms = applyOccurrenceRankingFilters(filteredTerms, options);
+    const retainedTermSet = new Set(retainedTerms.map((term) => term.term));
 
-    // 过滤：术语在文本中不存在，或全文只在一个文本块中出现
     for (const term of glossary.getAllTerms()) {
-      if (term.totalOccurrenceCount === 0 || term.textBlockOccurrenceCount <= 1) {
+      if (!retainedTermSet.has(term.term)) {
         glossary.removeTerm(term.term);
       }
     }
+
+    if (retainedTerms.length < filteredTerms.length) {
+      this.logger.info?.(
+        `频次裁剪完成，按排名保留 ${retainedTerms.length}/${filteredTerms.length} 个术语`,
+      );
+    }
+
+    this.logger.info?.(`术语扫描完成，共提取 ${glossary.getAllTerms().length} 个术语`);
 
     return {
       glossary,
@@ -449,4 +466,49 @@ function compareFormattedTerms(
     right.textBlockOccurrenceCount - left.textBlockOccurrenceCount ||
     left.term.localeCompare(right.term)
   );
+}
+
+function applyOccurrenceRankingFilters<T extends {
+  totalOccurrenceCount: number;
+  textBlockOccurrenceCount: number;
+  term: string;
+}>(
+  terms: ReadonlyArray<T>,
+  options: Pick<FullTextGlossaryScanOptions, "occurrenceTopK" | "occurrenceTopP">,
+): T[] {
+  if (terms.length === 0) {
+    validateOccurrenceRankingOptions(options);
+    return [];
+  }
+
+  validateOccurrenceRankingOptions(options);
+
+  let retainCount = terms.length;
+  if (options.occurrenceTopK !== undefined) {
+    retainCount = Math.min(retainCount, options.occurrenceTopK);
+  }
+  if (options.occurrenceTopP !== undefined) {
+    retainCount = Math.min(retainCount, Math.ceil(terms.length * options.occurrenceTopP));
+  }
+
+  return terms.slice(0, retainCount);
+}
+
+function validateOccurrenceRankingOptions(
+  options: Pick<FullTextGlossaryScanOptions, "occurrenceTopK" | "occurrenceTopP">,
+): void {
+  const { occurrenceTopK, occurrenceTopP } = options;
+  if (
+    occurrenceTopK !== undefined &&
+    (!Number.isInteger(occurrenceTopK) || occurrenceTopK <= 0)
+  ) {
+    throw new Error("occurrenceTopK 必须为正整数");
+  }
+
+  if (
+    occurrenceTopP !== undefined &&
+    (!Number.isFinite(occurrenceTopP) || occurrenceTopP <= 0 || occurrenceTopP > 1)
+  ) {
+    throw new Error("occurrenceTopP 必须大于 0 且不超过 1");
+  }
 }

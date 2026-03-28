@@ -79,6 +79,20 @@ export function buildGlossaryExtractorFields(
       ],
       defaultValue: config?.maxCharsPerBatch ? String(config.maxCharsPerBatch) : '',
     },
+    {
+      key: 'occurrenceTopK',
+      label: '频次 Top K',
+      type: 'text',
+      placeholder: '例如 100',
+      defaultValue: config?.occurrenceTopK ? String(config.occurrenceTopK) : '',
+    },
+    {
+      key: 'occurrenceTopP',
+      label: '频次 Top P',
+      type: 'text',
+      placeholder: '例如 0.2（前 20%）',
+      defaultValue: config?.occurrenceTopP ? String(config.occurrenceTopP) : '',
+    },
   ];
 }
 
@@ -155,6 +169,39 @@ export function parseOptionalInteger(value: string | undefined): number | undefi
 
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function parseOptionalPositiveIntegerField(
+  value: string | undefined,
+  label: string,
+): { ok: true; value: number | undefined } | { ok: false; message: string } {
+  if (!value?.trim()) {
+    return { ok: true, value: undefined };
+  }
+
+  const normalized = value.trim();
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isFinite(parsed) || String(parsed) !== normalized || parsed <= 0) {
+    return { ok: false, message: `${label} 必须是正整数` };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+export function parseOptionalUnitIntervalField(
+  value: string | undefined,
+  label: string,
+): { ok: true; value: number | undefined } | { ok: false; message: string } {
+  if (!value?.trim()) {
+    return { ok: true, value: undefined };
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) {
+    return { ok: false, message: `${label} 必须大于 0 且不超过 1` };
+  }
+
+  return { ok: true, value: parsed };
 }
 
 export function toErrorMessage(error: unknown): string {

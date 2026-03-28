@@ -203,6 +203,8 @@ describe("GlobalConfigManager", () => {
     await manager.setGlossaryExtractorConfig({
       modelName: "glossary",
       maxCharsPerBatch: 4096,
+      occurrenceTopK: 128,
+      occurrenceTopP: 0.25,
     });
     await manager.setGlossaryUpdaterConfig({
       modelName: "glossary",
@@ -246,6 +248,8 @@ describe("GlobalConfigManager", () => {
     expect(await reloaded.getGlossaryExtractorConfig()).toEqual({
       modelName: "glossary",
       maxCharsPerBatch: 4096,
+      occurrenceTopK: 128,
+      occurrenceTopP: 0.25,
       requestOptions: undefined,
     });
     expect(await reloaded.getGlossaryUpdaterConfig()).toEqual({
@@ -269,7 +273,11 @@ describe("GlobalConfigManager", () => {
     expect(translationGlobalConfig).toBeInstanceOf(TranslationGlobalConfig);
     expect(translationGlobalConfig.getTranslationProcessorConfig().modelName).toBe("translator");
     expect(translationGlobalConfig.getEmbeddingConfig()?.modelName).toBe("text-embedding-3-small");
-    expect(translationGlobalConfig.getGlossaryExtractorConfig()?.modelName).toBe("glossary");
+    expect(translationGlobalConfig.getGlossaryExtractorConfig()).toMatchObject({
+      modelName: "glossary",
+      occurrenceTopK: 128,
+      occurrenceTopP: 0.25,
+    });
     expect(translationGlobalConfig.getGlossaryUpdaterConfig()?.modelName).toBe("glossary");
     expect(translationGlobalConfig.getPlotSummaryConfig()?.modelName).toBe("summary");
 
@@ -279,7 +287,11 @@ describe("GlobalConfigManager", () => {
       };
       translation?: {
         translationProcessor?: { modelName: string };
-        glossaryExtractor?: { modelName: string };
+        glossaryExtractor?: {
+          modelName: string;
+          occurrenceTopK?: number;
+          occurrenceTopP?: number;
+        };
         glossaryUpdater?: { modelName: string };
         plotSummary?: { modelName: string };
       };
@@ -287,6 +299,8 @@ describe("GlobalConfigManager", () => {
     expect(saved.llm?.embedding?.modelName).toBe("text-embedding-3-small");
     expect(saved.translation?.translationProcessor?.modelName).toBe("translator");
     expect(saved.translation?.glossaryExtractor?.modelName).toBe("glossary");
+    expect(saved.translation?.glossaryExtractor?.occurrenceTopK).toBe(128);
+    expect(saved.translation?.glossaryExtractor?.occurrenceTopP).toBe(0.25);
     expect(saved.translation?.glossaryUpdater?.modelName).toBe("glossary");
     expect(saved.translation?.plotSummary?.modelName).toBe("summary");
   });

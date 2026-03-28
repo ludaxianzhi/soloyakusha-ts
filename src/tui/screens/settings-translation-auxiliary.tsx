@@ -17,7 +17,8 @@ import {
   buildGlossaryUpdaterFields,
   buildLlmOptions,
   buildPlotSummaryFields,
-  parseOptionalInteger,
+  parseOptionalPositiveIntegerField,
+  parseOptionalUnitIntervalField,
   toErrorMessage,
 } from './settings-translation-shared.ts';
 
@@ -159,11 +160,40 @@ export function SettingsTranslationAuxiliaryScreen() {
             return;
           }
 
+          const maxCharsPerBatch = parseOptionalPositiveIntegerField(
+            values.maxCharsPerBatch,
+            '批次字符数',
+          );
+          if (!maxCharsPerBatch.ok) {
+            addLog('warning', maxCharsPerBatch.message);
+            return;
+          }
+
+          const occurrenceTopK = parseOptionalPositiveIntegerField(
+            values.occurrenceTopK,
+            '频次 Top K',
+          );
+          if (!occurrenceTopK.ok) {
+            addLog('warning', occurrenceTopK.message);
+            return;
+          }
+
+          const occurrenceTopP = parseOptionalUnitIntervalField(
+            values.occurrenceTopP,
+            '频次 Top P',
+          );
+          if (!occurrenceTopP.ok) {
+            addLog('warning', occurrenceTopP.message);
+            return;
+          }
+
           try {
             const manager = new GlobalConfigManager();
             await manager.setGlossaryExtractorConfig({
               modelName: values.modelName,
-              maxCharsPerBatch: parseOptionalInteger(values.maxCharsPerBatch),
+              maxCharsPerBatch: maxCharsPerBatch.value,
+              occurrenceTopK: occurrenceTopK.value,
+              occurrenceTopP: occurrenceTopP.value,
               requestOptions: glossaryExtractorConfig?.requestOptions,
             });
             await reload();
@@ -220,12 +250,30 @@ export function SettingsTranslationAuxiliaryScreen() {
           return;
         }
 
+        const fragmentsPerBatch = parseOptionalPositiveIntegerField(
+          values.fragmentsPerBatch,
+          '每批片段数',
+        );
+        if (!fragmentsPerBatch.ok) {
+          addLog('warning', fragmentsPerBatch.message);
+          return;
+        }
+
+        const maxContextSummaries = parseOptionalPositiveIntegerField(
+          values.maxContextSummaries,
+          '上下文总结数',
+        );
+        if (!maxContextSummaries.ok) {
+          addLog('warning', maxContextSummaries.message);
+          return;
+        }
+
         try {
           const manager = new GlobalConfigManager();
           await manager.setPlotSummaryConfig({
             modelName: values.modelName,
-            fragmentsPerBatch: parseOptionalInteger(values.fragmentsPerBatch),
-            maxContextSummaries: parseOptionalInteger(values.maxContextSummaries),
+            fragmentsPerBatch: fragmentsPerBatch.value,
+            maxContextSummaries: maxContextSummaries.value,
             requestOptions: plotSummaryConfig?.requestOptions,
           });
           await reload();
