@@ -4,7 +4,7 @@ import { useNavigation } from '../context/navigation.tsx';
 import { useProject } from '../context/project.tsx';
 import type { SelectItem, ScreenName } from '../types.ts';
 
-type MenuItem = SelectItem<ScreenName | 'close'>;
+type MenuItem = SelectItem<ScreenName | 'close' | 'remove'>;
 
 const menuItems: MenuItem[] = [
   {
@@ -61,11 +61,17 @@ const menuItems: MenuItem[] = [
     description: '关闭当前工作区，返回工作区列表。',
     meta: 'esc',
   },
+  {
+    label: '🗑️ 移除工作区',
+    value: 'remove',
+    description: '从最近列表中移除当前工作区，并返回工作区列表。',
+    meta: 'del',
+  },
 ];
 
 export function WorkspaceOpsMenuScreen() {
   const { navigate, goBack } = useNavigation();
-  const { snapshot, closeWorkspace } = useProject();
+  const { snapshot, closeWorkspace, removeWorkspace } = useProject();
 
   const title = snapshot ? `${snapshot.projectName} — 工作区操作` : '工作区操作';
 
@@ -82,6 +88,9 @@ export function WorkspaceOpsMenuScreen() {
         if (item.value === 'close') {
           closeWorkspace();
           goBack();
+        }
+        else if (item.value === 'remove') {
+          void removeWorkspace().then(() => goBack());
         }
         else navigate(item.value);
       }}
