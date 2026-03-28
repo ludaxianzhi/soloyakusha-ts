@@ -29,10 +29,37 @@ describe("TranslationProcessor", () => {
     cleanupTargets.push(workspaceDir);
 
     const sourceDir = join(workspaceDir, "sources");
+    const dataDir = join(workspaceDir, "Data");
     await mkdir(sourceDir, { recursive: true });
+    await mkdir(dataDir, { recursive: true });
     await writeFile(
       join(sourceDir, "chapter-1.txt"),
       "前文原文标记\n勇者看着王都\n",
+      "utf8",
+    );
+    await writeFile(
+      join(dataDir, "plot-summaries.json"),
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          entries: [
+            {
+              chapterId: 1,
+              startFragmentIndex: 0,
+              endFragmentIndex: 1,
+              summary: {
+                mainEvents: "前文原文标记对应的情节总结",
+                keyCharacters: "叙述者",
+                setting: "序章",
+                notes: "这是前序情节",
+              },
+              createdAt: "2025-01-01T00:00:00.000Z",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
       "utf8",
     );
 
@@ -82,6 +109,12 @@ describe("TranslationProcessor", () => {
     if (glossaryContext?.type === "glossary") {
       expect(glossaryContext.content).not.toContain("王都");
     }
+    const plotSummaryContext = secondItem.contextView?.getContext("plotSummary");
+    expect(plotSummaryContext?.type).toBe("plotSummary");
+    if (plotSummaryContext?.type === "plotSummary") {
+      expect(plotSummaryContext.summaries).toHaveLength(1);
+      expect(plotSummaryContext.summaries[0]).toContain("前文原文标记对应的情节总结");
+    }
 
     const client = new FakeChatClient([
       JSON.stringify({
@@ -105,7 +138,9 @@ describe("TranslationProcessor", () => {
     });
     expect(client.requests[0]?.prompt).toContain("保持术语一致");
     expect(client.requests[0]?.prompt).toContain("Previous translated line");
-    expect(client.requests[0]?.prompt).not.toContain("前文原文标记");
+    expect(client.requests[0]?.prompt).toContain("前序情节总结参考");
+    expect(client.requests[0]?.prompt).toContain("前文原文标记对应的情节总结");
+    expect(client.requests[0]?.prompt).not.toContain("text: 前文原文标记");
     expect(client.requests[0]?.prompt).toContain("Hero");
     expect(client.requests[0]?.prompt).not.toContain("term: 王都");
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("JSON Schema");

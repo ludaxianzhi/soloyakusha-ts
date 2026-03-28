@@ -19,6 +19,7 @@ export type PromptTranslationUnit = {
 export type TranslationStepPromptInput = {
   sourceUnits: PromptTranslationUnit[];
   dependencyTranslations: string[];
+  plotSummaries: string[];
   translatedGlossaryTerms: ResolvedGlossaryTerm[];
   requirements: string[];
 };
@@ -50,6 +51,7 @@ export class PromptManager {
     const renderedPrompt = promptManager.renderPrompt(TRANSLATION_PIPELINE_PROMPT_ID, {
       sourceUnits: input.sourceUnits,
       dependencyTranslations: input.dependencyTranslations,
+      plotSummaries: input.plotSummaries,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
       requirements: input.requirements,
       responseSchemaJson: JSON.stringify(responseSchema, null, 2),

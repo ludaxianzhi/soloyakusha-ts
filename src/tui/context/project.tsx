@@ -203,17 +203,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         if (hasWorkspaceConfig) {
           addLog('info', `检测到已有工作区，正在打开：${normalizedDir}`);
           nextProject = await TranslationProject.openWorkspace(normalizedDir);
-
-          // Try to load existing topology
-          const topologyPath = join(normalizedDir, 'Data', 'story-topology.json');
-          if (await fileExists(topologyPath)) {
-            nextTopology = await StoryTopology.loadFromFile(topologyPath);
+          nextTopology = nextProject.getStoryTopology() ?? null;
+          if (nextTopology) {
             addLog('info', `已加载剧情拓扑（${nextTopology.getAllRoutes().length} 条路线）`);
           }
-
-          // Check if plot summary file exists
-          const summaryPath = join(normalizedDir, 'Data', 'plot-summaries.json');
-          setPlotSummaryReady(await fileExists(summaryPath));
+          setPlotSummaryReady(nextProject.hasPlotSummaries());
         } else {
           const chapterPaths = input.chapterPaths.map((item) => item.trim()).filter(Boolean);
           if (!input.projectName.trim()) {
@@ -274,8 +268,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
               addLog('info', `已添加支线"${branch.routeName}"（${branchChapterIds.length} 章节，从章节 ${branch.forkAfterChapterId} 分叉）`);
             }
 
-            const topologyPath = join(normalizedDir, 'Data', 'story-topology.json');
-            await nextTopology.saveToFile(topologyPath);
+            await nextProject.saveStoryTopology(nextTopology);
             addLog('success', '剧情拓扑已保存');
           }
 
@@ -539,13 +532,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           provider.setHistoryLogger(historyLogger);
 
           const summaryPath = join(projectDir, 'Data', 'plot-summaries.json');
-          const topologyPath = join(projectDir, 'Data', 'story-topology.json');
-
-          // Load topology if available
-          let currentTopology: StoryTopology | undefined;
-          if (await fileExists(topologyPath)) {
-            currentTopology = await StoryTopology.loadFromFile(topologyPath);
-          }
+          const currentTopology = project.getStoryTopology();
 
           const summarizer = new PlotSummarizer(
             { provider, modelName: llmProfileName },
@@ -618,7 +605,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
             totalBatches,
             completedBatches,
           });
-          setPlotSummaryReady(true);
+          await project.reloadNarrativeArtifacts();
+          setTopology(project.getStoryTopology() ?? null);
+          setPlotSummaryReady(project.hasPlotSummaries());
           addLog('success', `情节大纲总结完成（共 ${totalChapters} 个章节，${completedBatches} 个批次）`);
         } catch (error) {
           addLog('error', `情节总结失败：${toErrorMessage(error)}`);

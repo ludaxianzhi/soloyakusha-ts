@@ -161,7 +161,12 @@ export class PlotSummarizer {
    * @param fragmentIndex - 当前文本块索引（可选，不传则只按章节粒度过滤）
    */
   getSummariesForPosition(chapterId: number, fragmentIndex?: number): PlotSummaryEntry[] {
-    return this.filterPredecessorEntries(chapterId, fragmentIndex);
+    return getPlotSummariesForPosition(
+      this.entries,
+      chapterId,
+      fragmentIndex,
+      this.topology,
+    );
   }
 
   // ===== 持久化 =====
@@ -170,19 +175,7 @@ export class PlotSummarizer {
    * 从文件加载已有的总结结果。若文件不存在则初始化为空列表。
    */
   async loadSummaries(): Promise<void> {
-    try {
-      const content = await readFile(this.outputPath, "utf8");
-      const doc = JSON.parse(content) as PlotSummaryDocument;
-      if (doc.schemaVersion === PLOT_SUMMARY_SCHEMA_VERSION && Array.isArray(doc.entries)) {
-        this.entries = doc.entries;
-      }
-    } catch (error) {
-      if (isMissingFileError(error)) {
-        this.entries = [];
-        return;
-      }
-      throw error;
-    }
+    this.entries = await loadPlotSummaryEntriesFromFile(this.outputPath);
   }
 
   /**
@@ -340,51 +333,15 @@ export class PlotSummarizer {
    * 先通过拓扑（或全量回退）筛选前序条目，再截取最近 N 条并格式化。
    */
   private buildContextSummaries(chapterId: number, startFragmentIndex: number): string[] {
-    const predecessorEntries = this.filterPredecessorEntries(chapterId, startFragmentIndex);
+    const predecessorEntries = getPlotSummariesForPosition(
+      this.entries,
+      chapterId,
+      startFragmentIndex,
+      this.topology,
+    );
     return predecessorEntries
       .slice(-this.maxContextSummaries)
-      .map((entry) => formatSummaryForContext(entry));
-  }
-
-  /**
-   * 筛选指定位置的前序总结条目。
-   *
-   * 有拓扑时：仅保留前序章节 + 同章节中更早片段的条目。
-   * 无拓扑时：保留其他章节全部条目 + 同章节中更早片段的条目。
-   */
-  private filterPredecessorEntries(
-    chapterId: number,
-    fragmentIndex?: number,
-  ): PlotSummaryEntry[] {
-    if (this.topology) {
-      const predecessorChapterIds = new Set(
-        this.topology.getPredecessorChapterIds(chapterId),
-      );
-      return this.entries.filter((entry) => {
-        if (predecessorChapterIds.has(entry.chapterId)) {
-          return true;
-        }
-        if (
-          entry.chapterId === chapterId &&
-          fragmentIndex != null &&
-          entry.endFragmentIndex <= fragmentIndex
-        ) {
-          return true;
-        }
-        return false;
-      });
-    }
-
-    // 无拓扑：保留所有其他章节 + 同章节中更早片段
-    return this.entries.filter((entry) => {
-      if (entry.chapterId !== chapterId) {
-        return true;
-      }
-      if (fragmentIndex != null && entry.endFragmentIndex <= fragmentIndex) {
-        return true;
-      }
-      return false;
-    });
+      .map((entry) => formatPlotSummaryForContext(entry));
   }
 
   private resolveChatClient(): ChatClient {
@@ -437,7 +394,7 @@ function buildPlotSummaryResponseSchema(): JsonObject {
 /**
  * 将总结条目格式化为可读的上下文字符串，供 LLM 参考。
  */
-function formatSummaryForContext(entry: PlotSummaryEntry): string {
+export function formatPlotSummaryForContext(entry: PlotSummaryEntry): string {
   const { summary } = entry;
   const lines = [
     `[章节 ${entry.chapterId} 片段 ${entry.startFragmentIndex}–${entry.endFragmentIndex - 1}]`,
@@ -451,6 +408,58 @@ function formatSummaryForContext(entry: PlotSummaryEntry): string {
   }
 
   return lines.join("\n");
+}
+
+export function getPlotSummariesForPosition(
+  entries: ReadonlyArray<PlotSummaryEntry>,
+  chapterId: number,
+  fragmentIndex?: number,
+  topology?: StoryTopology,
+): PlotSummaryEntry[] {
+  if (topology) {
+    const predecessorChapterIds = new Set(topology.getPredecessorChapterIds(chapterId));
+    return entries.filter((entry) => {
+      if (predecessorChapterIds.has(entry.chapterId)) {
+        return true;
+      }
+      if (
+        entry.chapterId === chapterId &&
+        fragmentIndex != null &&
+        entry.endFragmentIndex <= fragmentIndex
+      ) {
+        return true;
+      }
+      return false;
+    });
+  }
+
+  return entries.filter((entry) => {
+    if (entry.chapterId !== chapterId) {
+      return true;
+    }
+    if (fragmentIndex != null && entry.endFragmentIndex <= fragmentIndex) {
+      return true;
+    }
+    return false;
+  });
+}
+
+export async function loadPlotSummaryEntriesFromFile(
+  filePath: string,
+): Promise<PlotSummaryEntry[]> {
+  try {
+    const content = await readFile(filePath, "utf8");
+    const doc = JSON.parse(content) as PlotSummaryDocument;
+    if (doc.schemaVersion === PLOT_SUMMARY_SCHEMA_VERSION && Array.isArray(doc.entries)) {
+      return doc.entries;
+    }
+    return [];
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return [];
+    }
+    throw error;
+  }
 }
 
 /**

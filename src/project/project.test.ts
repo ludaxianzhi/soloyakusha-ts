@@ -173,6 +173,141 @@ describe("TranslationProject", () => {
     }
   });
 
+  test("loads plot summaries into context view and filters branch predecessors by topology", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-plot-context-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    const dataDir = join(workspaceDir, "Data");
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(dataDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "主线第一章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-2.txt"), "主线第二章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-3.txt"), "支线章节\n", "utf8");
+    await writeFile(
+      join(dataDir, "story-topology.json"),
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          routes: [
+            {
+              id: "main",
+              name: "主线",
+              parentRouteId: null,
+              forkAfterChapterId: null,
+              chapters: [1, 2],
+            },
+            {
+              id: "branch-a",
+              name: "支线A",
+              parentRouteId: "main",
+              forkAfterChapterId: 1,
+              chapters: [3],
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await writeFile(
+      join(dataDir, "plot-summaries.json"),
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          entries: [
+            {
+              chapterId: 1,
+              startFragmentIndex: 0,
+              endFragmentIndex: 1,
+              summary: {
+                mainEvents: "主线第一章总结",
+                keyCharacters: "主角",
+                setting: "城门前",
+                notes: "",
+              },
+              createdAt: "2025-01-01T00:00:00.000Z",
+            },
+            {
+              chapterId: 2,
+              startFragmentIndex: 0,
+              endFragmentIndex: 1,
+              summary: {
+                mainEvents: "主线第二章总结",
+                keyCharacters: "配角",
+                setting: "城内",
+                notes: "",
+              },
+              createdAt: "2025-01-01T00:01:00.000Z",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const project = new TranslationProject(
+      {
+        projectName: "plot-context",
+        projectDir: workspaceDir,
+        chapters: [
+          { id: 1, filePath: "sources\\chapter-1.txt" },
+          { id: 2, filePath: "sources\\chapter-2.txt" },
+          { id: 3, filePath: "sources\\chapter-3.txt" },
+        ],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.startTranslation();
+
+    expect(project.hasPlotSummaries()).toBe(true);
+    expect(project.getStoryTopology()?.getAllRoutes()).toHaveLength(2);
+
+    const queue = project.getWorkQueue("translation");
+    const firstBatch = await queue.dispatchReadyItems();
+    await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Main 1",
+    });
+
+    const secondBatch = await queue.dispatchReadyItems();
+    await project.submitWorkResult({
+      runId: secondBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 2,
+      fragmentIndex: 0,
+      outputText: "Main 2",
+    });
+
+    const thirdBatch = await queue.dispatchReadyItems();
+    expect(thirdBatch).toHaveLength(1);
+    expect(thirdBatch[0]?.chapterId).toBe(3);
+
+    const plotSummaryContext = thirdBatch[0]?.contextView?.getContext("plotSummary");
+    expect(plotSummaryContext?.type).toBe("plotSummary");
+    if (plotSummaryContext?.type === "plotSummary") {
+      expect(plotSummaryContext.summaries).toHaveLength(1);
+      expect(plotSummaryContext.summaries[0]).toContain("主线第一章总结");
+      expect(plotSummaryContext.summaries[0]).not.toContain("主线第二章总结");
+    }
+
+    const predecessorSummaries = project.getPlotSummariesForPosition(3, 0);
+    expect(predecessorSummaries.map((entry) => entry.chapterId)).toEqual([1]);
+  });
+
   test("allows different fragments to run at different pipeline steps asynchronously", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-pipeline-"));
     cleanupTargets.push(workspaceDir);

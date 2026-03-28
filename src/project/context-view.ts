@@ -5,6 +5,12 @@
  */
 
 import type { Glossary, ResolvedGlossaryTerm } from "../glossary/glossary.ts";
+import type { PlotSummaryEntry } from "./plot-summarizer.ts";
+import {
+  formatPlotSummaryForContext,
+  getPlotSummariesForPosition,
+} from "./plot-summarizer.ts";
+import type { StoryTopology } from "./story-topology.ts";
 import { TranslationDocumentManager } from "./translation-document-manager.ts";
 import type {
   Chapter,
@@ -31,6 +37,9 @@ export class TranslationContextView {
       traversalChapters: Chapter[];
       glossary?: Glossary;
       glossaryConfig?: GlossarySettings;
+      plotSummaryEntries?: ReadonlyArray<PlotSummaryEntry>;
+      storyTopology?: StoryTopology;
+      maxPlotSummaryEntries?: number;
     },
   ) {}
 
@@ -49,6 +58,11 @@ export class TranslationContextView {
       contexts.push(glossaryContext);
     }
 
+    const plotSummaryContext = this.getPlotSummaryContext();
+    if (plotSummaryContext) {
+      contexts.push(plotSummaryContext);
+    }
+
     const dependencyContext = this.getDependencyContext();
     if (dependencyContext) {
       contexts.push(dependencyContext);
@@ -64,6 +78,10 @@ export class TranslationContextView {
 
     if (type === "dependencyTranslation") {
       return this.getDependencyContext();
+    }
+
+    if (type === "plotSummary") {
+      return this.getPlotSummaryContext();
     }
 
     return undefined;
@@ -107,6 +125,37 @@ export class TranslationContextView {
 
   getUntranslatedGlossaryTerms(): ResolvedGlossaryTerm[] {
     return this.getMatchedGlossaryTerms().filter((term) => term.status === "untranslated");
+  }
+
+  getPlotSummaryContext(): TranslationContextEntry | undefined {
+    const summaries = this.getPlotSummaryTexts();
+    if (summaries.length === 0) {
+      return undefined;
+    }
+
+    return {
+      type: "plotSummary",
+      description: "前序情节总结",
+      priority: 80,
+      summaries,
+    };
+  }
+
+  getPlotSummaryTexts(): string[] {
+    const entries = this.options.plotSummaryEntries;
+    if (!entries || entries.length === 0) {
+      return [];
+    }
+
+    const maxEntries = this.options.maxPlotSummaryEntries ?? 20;
+    return getPlotSummariesForPosition(
+      entries,
+      this.chapterId,
+      this.fragmentIndex,
+      this.options.storyTopology,
+    )
+      .slice(-maxEntries)
+      .map((entry) => formatPlotSummaryForContext(entry));
   }
 
   getDependencyContext(): TranslationContextEntry | undefined {

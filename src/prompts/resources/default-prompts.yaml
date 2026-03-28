@@ -91,6 +91,13 @@ prompts:
         {% endfor %}
 
         {% endif %}
+        {% if plotSummaries.size > 0 %}
+        前序情节总结参考：
+        {% for summary in plotSummaries %}
+        - {{ summary }}
+        {% endfor %}
+
+        {% endif %}
         {% if translatedGlossaryTerms.size > 0 %}
         可复用术语表：
         {% for term in translatedGlossaryTerms %}

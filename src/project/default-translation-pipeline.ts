@@ -1,4 +1,6 @@
 import { Glossary } from "../glossary/index.ts";
+import type { PlotSummaryEntry } from "./plot-summarizer.ts";
+import type { StoryTopology } from "./story-topology.ts";
 import { TranslationContextView } from "./context-view.ts";
 import type { GlobalAssociationPattern } from "./global-pattern-scanner.ts";
 import type {
@@ -17,6 +19,9 @@ type DefaultTranslationPipelineOptions = {
   getGlossary: () => Glossary | undefined;
   glossaryConfig?: GlossarySettings;
   getTraversalChapters: () => Chapter[];
+  getPlotSummaryEntries?: () => ReadonlyArray<PlotSummaryEntry>;
+  getStoryTopology?: () => StoryTopology | undefined;
+  maxPlotSummaryEntries?: number;
   isStepCompleted: (chapterId: number, fragmentIndex: number, stepId: string) => boolean;
 };
 
@@ -75,6 +80,9 @@ export function createDefaultTranslationPipelineDefinition(
             traversalChapters: options.getTraversalChapters(),
             glossary: options.getGlossary(),
             glossaryConfig: options.glossaryConfig,
+            plotSummaryEntries: options.getPlotSummaryEntries?.(),
+            storyTopology: options.getStoryTopology?.(),
+            maxPlotSummaryEntries: options.maxPlotSummaryEntries,
           });
         },
       },

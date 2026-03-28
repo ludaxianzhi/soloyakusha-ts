@@ -123,7 +123,10 @@ export type ContextPair = {
 
 export type TranslationDependencyMode = "previousTranslations" | "glossaryTerms";
 
-export type TranslationContextType = "glossary" | "dependencyTranslation";
+export type TranslationContextType =
+  | "glossary"
+  | "dependencyTranslation"
+  | "plotSummary";
 
 export type GlossaryContextEntry = {
   type: "glossary";
@@ -139,7 +142,17 @@ export type DependencyPairContextEntry = {
   pairs: ContextPair[];
 };
 
-export type TranslationContextEntry = GlossaryContextEntry | DependencyPairContextEntry;
+export type PlotSummaryContextEntry = {
+  type: "plotSummary";
+  description: string;
+  priority: number;
+  summaries: string[];
+};
+
+export type TranslationContextEntry =
+  | GlossaryContextEntry
+  | DependencyPairContextEntry
+  | PlotSummaryContextEntry;
 
 export type ProjectCursor = {
   chapterId?: number;

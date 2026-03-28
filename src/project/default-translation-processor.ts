@@ -115,9 +115,11 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
     const untranslatedGlossaryTerms = resolveUntranslatedGlossaryTerms(request);
     const dependencyTranslations =
       request.contextView?.getDependencyTranslatedTexts() ?? [];
+    const plotSummaries = request.contextView?.getPlotSummaryTexts() ?? [];
     const renderedPrompt = await this.promptManager.renderTranslationStepPrompt({
       sourceUnits,
       dependencyTranslations,
+      plotSummaries,
       translatedGlossaryTerms,
       requirements: [...(request.requirements ?? [])],
     });

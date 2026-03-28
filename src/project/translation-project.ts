@@ -6,7 +6,14 @@
 
 import type { TranslationFileHandler, TranslationFileHandlerResolver } from "../file-handlers/base.ts";
 import { Glossary, GlossaryPersisterFactory } from "../glossary/index.ts";
-import { resolve } from "node:path";
+import { access } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import {
+  getPlotSummariesForPosition,
+  loadPlotSummaryEntriesFromFile,
+  type PlotSummaryEntry,
+} from "./plot-summarizer.ts";
+import { StoryTopology } from "./story-topology.ts";
 import type {
   GlobalAssociationPatternScanOptions,
   GlobalAssociationPatternScanResult,
@@ -82,6 +89,8 @@ export class TranslationProject
   private readonly lifecycleManager: TranslationProjectLifecycleManager;
   private readonly snapshotBuilder: TranslationProjectSnapshotBuilder;
   private glossary?: Glossary;
+  private storyTopology?: StoryTopology;
+  private plotSummaryEntries: PlotSummaryEntry[] = [];
   private projectState: TranslationProjectState;
   private workspaceConfig!: WorkspaceConfig;
   private initialized = false;
@@ -117,6 +126,9 @@ export class TranslationProject
                 getGlossary: () => this.glossary,
                 glossaryConfig: this.config.glossary,
                 getTraversalChapters: () => this.getTraversalChapters(),
+                getPlotSummaryEntries: () => this.plotSummaryEntries,
+                getStoryTopology: () => this.storyTopology,
+                maxPlotSummaryEntries: 20,
                 isStepCompleted: (chapterId, fragmentIndex, stepId) =>
                   this.isStepCompleted(chapterId, fragmentIndex, stepId),
               }),
@@ -224,6 +236,7 @@ export class TranslationProject
       );
     }
 
+    await this.reloadNarrativeArtifacts();
     this.initialized = true;
     await this.initializePipelineQueues();
     await this.lifecycleManager.recoverInterruptedRunIfNeeded();
@@ -578,6 +591,51 @@ export class TranslationProject
     return this.glossary;
   }
 
+  getStoryTopology(): StoryTopology | undefined {
+    this.ensureInitialized();
+    return this.storyTopology;
+  }
+
+  async saveStoryTopology(topology: StoryTopology): Promise<void> {
+    this.ensureInitialized();
+    await topology.saveToFile(this.getStoryTopologyFilePath());
+    this.storyTopology = topology;
+  }
+
+  getPlotSummaryEntries(): PlotSummaryEntry[] {
+    this.ensureInitialized();
+    return [...this.plotSummaryEntries];
+  }
+
+  hasPlotSummaries(): boolean {
+    this.ensureInitialized();
+    return this.plotSummaryEntries.length > 0;
+  }
+
+  getPlotSummariesForPosition(
+    chapterId: number,
+    fragmentIndex?: number,
+  ): PlotSummaryEntry[] {
+    this.ensureInitialized();
+    return getPlotSummariesForPosition(
+      this.plotSummaryEntries,
+      chapterId,
+      fragmentIndex,
+      this.storyTopology,
+    );
+  }
+
+  async reloadNarrativeArtifacts(): Promise<void> {
+    const topologyPath = this.getStoryTopologyFilePath();
+    this.storyTopology = (await fileExists(topologyPath))
+      ? await StoryTopology.loadFromFile(topologyPath)
+      : undefined;
+
+    this.plotSummaryEntries = await loadPlotSummaryEntriesFromFile(
+      this.getPlotSummaryFilePath(),
+    );
+  }
+
   getSourceText(chapterId: number, fragmentIndex: number): string {
     return this.documentManager.getSourceText(chapterId, fragmentIndex);
   }
@@ -907,9 +965,26 @@ export class TranslationProject
     return [...this.chapters];
   }
 
+  private getStoryTopologyFilePath(): string {
+    return join(this.projectDir, "Data", "story-topology.json");
+  }
+
+  private getPlotSummaryFilePath(): string {
+    return join(this.projectDir, "Data", "plot-summaries.json");
+  }
+
   private ensureInitialized(): void {
     if (!this.initialized) {
       throw new Error("项目尚未初始化，请先调用 initialize()");
     }
+  }
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
   }
 }
