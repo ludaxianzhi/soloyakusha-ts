@@ -378,15 +378,22 @@ export function applyWorkspaceConfigPatch(
   config: WorkspaceConfig,
   patch: WorkspaceConfigPatch,
 ): WorkspaceConfig {
+  let nextTranslator = config.translator;
+  if (patch.translator !== undefined) {
+    const translatorName =
+      patch.translator.translatorName === null
+        ? undefined
+        : (patch.translator.translatorName ?? config.translator.translatorName);
+    nextTranslator = { translatorName };
+  }
+
   return {
     ...config,
     projectName: patch.projectName ?? config.projectName,
     glossary: patch.glossary
       ? { ...config.glossary, ...patch.glossary }
       : config.glossary,
-    translator: patch.translator
-      ? { ...config.translator, ...patch.translator }
-      : config.translator,
+    translator: nextTranslator,
     slidingWindow: patch.slidingWindow
       ? { ...config.slidingWindow, ...patch.slidingWindow }
       : config.slidingWindow,

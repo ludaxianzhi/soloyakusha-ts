@@ -37,8 +37,7 @@ type DraftState = {
   srcLang: string;
   tgtLang: string;
   chapterPaths: string[];
-  translatorModelName: string;
-  translatorWorkflow: string;
+  translatorName: string;
   branches: BranchDraft[];
 };
 
@@ -60,8 +59,7 @@ export function WorkspaceCreateScreen() {
     srcLang: 'ja',
     tgtLang: 'zh-CN',
     chapterPaths: [],
-    translatorModelName: '',
-    translatorWorkflow: 'default',
+    translatorName: '',
     branches: [],
   });
 
@@ -69,29 +67,15 @@ export function WorkspaceCreateScreen() {
     void (async () => {
       try {
         const manager = new GlobalConfigManager();
-        const profileNames = await manager.listLlmProfileNames();
-        const defaultProfile = await manager.getDefaultLlmProfileName();
-        const defaultTranslationProcessor = await manager
-          .getTranslationProcessorConfig()
-          .catch(() => undefined);
-
-        const nextOptions = profileNames.map((name) => ({
-          label: name === defaultProfile ? `${name} (默认)` : name,
+        const translatorNames = await manager.listTranslatorNames();
+        const nextOptions = translatorNames.map((name) => ({
+          label: name,
           value: name,
         }));
         setTranslatorOptions(nextOptions);
         setDraft((prev) => ({
           ...prev,
-          translatorModelName:
-            prev.translatorModelName ||
-            defaultTranslationProcessor?.modelName ||
-            defaultProfile ||
-            nextOptions[0]?.value ||
-            '',
-          translatorWorkflow:
-            prev.translatorWorkflow ||
-            defaultTranslationProcessor?.workflow ||
-            'default',
+          translatorName: prev.translatorName || nextOptions[0]?.value || '',
         }));
       } catch (error) {
         addLog('warning', `读取翻译器配置失败：${toErrorMessage(error)}`);
@@ -189,33 +173,25 @@ export function WorkspaceCreateScreen() {
   const translatorFields = useMemo<FormFieldDef[]>(
     () => [
       {
-        key: 'translatorModelName',
-        label: '翻译器 Profile',
+        key: 'translatorName',
+        label: '翻译器',
         type: 'autocomplete',
-        description: '来自全局配置中的 LLM Profile。',
-        defaultValue: draft.translatorModelName || translatorOptions[0]?.value || '__none__',
+        description: '选择全局翻译器目录中已配置的翻译器。如未配置，请先前往「设置 → 翻译器目录」创建。',
+        defaultValue: draft.translatorName || translatorOptions[0]?.value || '__none__',
         autocomplete: {
           maxItems: 5,
           showWhenEmpty: true,
           getSuggestions: (input) =>
-            getModelSuggestions(
+            getTranslatorSuggestions(
               input,
               translatorOptions.length > 0
                 ? translatorOptions
-                : [{ label: '未找到可用 Profile', value: '__none__' }],
+                : [{ label: '未找到可用翻译器', value: '__none__' }],
             ),
         },
       },
-      {
-        key: 'translatorWorkflow',
-        label: '翻译流程',
-        type: 'select',
-        description: '当前仓库提供的翻译处理工作流。',
-        defaultValue: draft.translatorWorkflow,
-        options: [{ label: 'default', value: 'default' }],
-      },
     ],
-    [draft.translatorModelName, draft.translatorWorkflow, translatorOptions],
+    [draft.translatorName, translatorOptions],
   );
 
   if (step === 'basics') {
@@ -253,8 +229,7 @@ export function WorkspaceCreateScreen() {
             srcLang: values.srcLang || 'ja',
             tgtLang: values.tgtLang || 'zh-CN',
             chapterPaths: matchedFiles,
-            translatorModelName: draft.translatorModelName,
-            translatorWorkflow: draft.translatorWorkflow,
+            translatorName: draft.translatorName,
             branches: draft.branches,
           });
           addLog('success', `已匹配 ${matchedFiles.length} 个章节文件，进入排序步骤`);
@@ -299,18 +274,17 @@ export function WorkspaceCreateScreen() {
         fields={translatorFields}
         submitLabel="确认翻译器"
         onSubmit={async (values) => {
-          const translatorModelName = values.translatorModelName;
-          if (!translatorModelName || translatorModelName === '__none__') {
-            addLog('warning', '当前没有可用的翻译器 Profile，请先配置全局 LLM Profile');
+          const translatorName = values.translatorName;
+          if (!translatorName || translatorName === '__none__') {
+            addLog('warning', '请先在「设置 → 翻译器目录」中创建翻译器，再初始化项目');
             return;
           }
 
           setDraft((prev) => ({
             ...prev,
-            translatorModelName,
-            translatorWorkflow: values.translatorWorkflow || 'default',
+            translatorName,
           }));
-          addLog('success', `已选择翻译器 ${translatorModelName}`);
+          addLog('success', `已选择翻译器「${translatorName}」`);
           setStep('branch-ask');
         }}
         onCancel={() => setStep('order')}
@@ -513,8 +487,7 @@ export function WorkspaceCreateScreen() {
           <Text>目录：{draft.projectDir}</Text>
           <Text>Pattern：{draft.importPattern}</Text>
           <Text>导入格式：{draft.importFormat}</Text>
-          <Text>翻译器：{draft.translatorModelName || '未选择'}</Text>
-          <Text>Workflow：{draft.translatorWorkflow}</Text>
+          <Text>翻译器：{draft.translatorName || '未选择'}</Text>
           <Text>主线章节数：{draft.chapterPaths.length}</Text>
           {draft.branches.length > 0 ? (
             <Text>
@@ -570,8 +543,7 @@ export function WorkspaceCreateScreen() {
               srcLang: draft.srcLang,
               tgtLang: draft.tgtLang,
               importFormat: draft.importFormat,
-              translatorModelName: draft.translatorModelName,
-              translatorWorkflow: draft.translatorWorkflow,
+              translatorName: draft.translatorName,
               branches: branches.length > 0 ? branches : undefined,
             });
 
@@ -671,7 +643,7 @@ function resolvePathForAutocomplete(input: string, baseDir?: string): string {
   return resolve(input);
 }
 
-function getModelSuggestions(
+function getTranslatorSuggestions(
   input: string,
   options: ReadonlyArray<TranslatorOption>,
 ): AutocompleteItem[] {

@@ -18,6 +18,7 @@ import type {
   GlobalTranslationConfig,
   PersistedLlmClientConfig,
   PersistedLlmRequestConfig,
+  TranslatorEntry,
   WorkspaceEntry,
 } from "./types.ts";
 import { GLOBAL_CONFIG_VERSION } from "./types.ts";
@@ -175,6 +176,44 @@ export function normalizeTranslationProcessorConfig(
   };
 }
 
+export function normalizeTranslatorEntry(
+  value: unknown,
+  sourceLabel: string,
+): TranslatorEntry {
+  if (!isRecord(value)) {
+    throw new Error(`翻译器条目必须是对象: ${sourceLabel}`);
+  }
+
+  return {
+    type: readOptionalString(value.type, `${sourceLabel}.type`),
+    modelName: readRequiredString(value.modelName, `${sourceLabel}.modelName`),
+    slidingWindow:
+      value.slidingWindow === undefined
+        ? undefined
+        : normalizeSlidingWindowOptions(value.slidingWindow, `${sourceLabel}.slidingWindow`),
+    requestOptions:
+      value.requestOptions === undefined
+        ? undefined
+        : normalizePersistedChatRequestOptions(value.requestOptions, `${sourceLabel}.requestOptions`),
+  };
+}
+
+export function normalizeTranslators(
+  value: unknown,
+  sourceLabel: string,
+): Record<string, TranslatorEntry> {
+  if (!isRecord(value)) {
+    throw new Error(`翻译器目录必须是对象: ${sourceLabel}`);
+  }
+
+  const result: Record<string, TranslatorEntry> = {};
+  for (const [name, entry] of Object.entries(value)) {
+    result[name] = normalizeTranslatorEntry(entry, `${sourceLabel}.${name}`);
+  }
+
+  return result;
+}
+
 export function normalizeGlossaryExtractorConfig(
   value: unknown,
   sourceLabel: string,
@@ -279,6 +318,10 @@ export function normalizeOptionalTranslationConfig(
   }
 
   return pruneEmptyTranslationConfig({
+    translators:
+      value.translators === undefined
+        ? undefined
+        : normalizeTranslators(value.translators, `${sourceLabel}.translators`),
     translationProcessor:
       value.translationProcessor === undefined
         ? undefined
@@ -307,7 +350,9 @@ export function normalizeOptionalTranslationConfig(
 export function pruneEmptyTranslationConfig(
   config: GlobalTranslationConfig | undefined,
 ): GlobalTranslationConfig | undefined {
+  const hasTranslators = config?.translators && Object.keys(config.translators).length > 0;
   if (
+    !hasTranslators &&
     !config?.translationProcessor &&
     !config?.glossaryExtractor &&
     !config?.glossaryUpdater &&
@@ -317,10 +362,11 @@ export function pruneEmptyTranslationConfig(
   }
 
   return {
-    translationProcessor: cloneTranslationProcessorConfig(config.translationProcessor),
-    glossaryExtractor: cloneGlossaryExtractorConfig(config.glossaryExtractor),
-    glossaryUpdater: cloneGlossaryUpdaterConfig(config.glossaryUpdater),
-    plotSummary: clonePlotSummaryConfig(config.plotSummary),
+    translators: cloneTranslators(config?.translators),
+    translationProcessor: cloneTranslationProcessorConfig(config?.translationProcessor),
+    glossaryExtractor: cloneGlossaryExtractorConfig(config?.glossaryExtractor),
+    glossaryUpdater: cloneGlossaryUpdaterConfig(config?.glossaryUpdater),
+    plotSummary: clonePlotSummaryConfig(config?.plotSummary),
   };
 }
 
@@ -349,11 +395,38 @@ export function cloneTranslationConfig(
   }
 
   return {
+    translators: cloneTranslators(config.translators),
     translationProcessor: cloneTranslationProcessorConfig(config.translationProcessor),
     glossaryExtractor: cloneGlossaryExtractorConfig(config.glossaryExtractor),
     glossaryUpdater: cloneGlossaryUpdaterConfig(config.glossaryUpdater),
     plotSummary: clonePlotSummaryConfig(config.plotSummary),
   };
+}
+
+export function cloneTranslatorEntry(entry: TranslatorEntry): TranslatorEntry {
+  return {
+    type: entry.type,
+    modelName: entry.modelName,
+    slidingWindow: entry.slidingWindow ? { ...entry.slidingWindow } : undefined,
+    requestOptions: entry.requestOptions
+      ? clonePersistedChatRequestOptions(entry.requestOptions)
+      : undefined,
+  };
+}
+
+export function cloneTranslators(
+  translators: Record<string, TranslatorEntry> | undefined,
+): Record<string, TranslatorEntry> | undefined {
+  if (!translators) {
+    return undefined;
+  }
+
+  const result: Record<string, TranslatorEntry> = {};
+  for (const [name, entry] of Object.entries(translators)) {
+    result[name] = cloneTranslatorEntry(entry);
+  }
+
+  return result;
 }
 
 export function cloneTranslationProcessorConfig(

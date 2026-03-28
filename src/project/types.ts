@@ -317,14 +317,18 @@ export function fragmentToText(fragment: TextFragment): string {
 // ===== Workspace Config Types =====
 
 /**
- * 工作区翻译器配置，覆盖全局默认的翻译器设置。
+ * 工作区翻译器配置，指定当前项目使用的命名翻译器。
  *
  * 职责边界：
- * - 全局配置（GlobalConfigManager）：LLM profiles、API keys、endpoints、默认模型
- * - 工作区配置（WorkspaceTranslatorConfig）：当前项目使用的模型名和工作流
+ * - 全局配置（GlobalConfigManager）：LLM profiles、API keys、endpoints、命名翻译器目录
+ * - 工作区配置（WorkspaceTranslatorConfig）：当前项目引用的翻译器名称
  */
 export type WorkspaceTranslatorConfig = {
+  /** 引用全局翻译器目录中的翻译器名称。 */
+  translatorName?: string;
+  /** @deprecated 旧格式兼容字段，新项目请使用 translatorName。 */
   modelName?: string;
+  /** @deprecated 旧格式兼容字段，新项目请使用 translatorName。 */
   workflow?: string;
 };
 
@@ -368,7 +372,7 @@ export type WorkspaceConfig = {
 export type WorkspaceConfigPatch = {
   projectName?: string;
   glossary?: Partial<GlossarySettings>;
-  translator?: Partial<WorkspaceTranslatorConfig>;
+  translator?: { translatorName?: string | null };
   slidingWindow?: Partial<WorkspaceSlidingWindowConfig>;
   contextSize?: number | null;
   customRequirements?: string[];

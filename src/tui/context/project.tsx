@@ -15,6 +15,7 @@ import { FullTextGlossaryScanner } from '../../glossary/index.ts';
 import type { GlossaryTermCategory } from '../../glossary/glossary.ts';
 import { FileRequestHistoryLogger } from '../../llm/history.ts';
 import { TranslationGlobalConfig } from '../../project/config.ts';
+import type { TranslationProcessorConfig } from '../../project/config.ts';
 import type { Logger } from '../../project/logger.ts';
 import { PlotSummarizer } from '../../project/plot-summarizer.ts';
 import { StoryTopology, MAIN_ROUTE_ID } from '../../project/story-topology.ts';
@@ -38,8 +39,7 @@ export interface InitializeProjectInput {
   srcLang?: string;
   tgtLang?: string;
   importFormat?: string;
-  translatorModelName?: string;
-  translatorWorkflow?: string;
+  translatorName?: string;
   branches?: BranchImportInput[];
 }
 
@@ -287,8 +287,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
         await applyWorkspacePreferences(nextProject, {
           importFormat: input.importFormat,
-          translatorModelName: input.translatorModelName,
-          translatorWorkflow: input.translatorWorkflow,
+          translatorName: input.translatorName,
         });
 
         const nextSnapshot = nextProject.getProjectSnapshot();
@@ -925,19 +924,15 @@ async function applyWorkspacePreferences(
   project: TranslationProject,
   options: {
     importFormat?: string;
-    translatorModelName?: string;
-    translatorWorkflow?: string;
+    translatorName?: string;
   },
 ): Promise<void> {
   const patch: Parameters<TranslationProject['updateWorkspaceConfig']>[0] = {};
   if (options.importFormat) {
     patch.defaultImportFormat = options.importFormat;
   }
-  if (options.translatorModelName || options.translatorWorkflow) {
-    patch.translator = {
-      ...(options.translatorModelName ? { modelName: options.translatorModelName } : {}),
-      ...(options.translatorWorkflow ? { workflow: options.translatorWorkflow } : {}),
-    };
+  if (options.translatorName) {
+    patch.translator = { translatorName: options.translatorName };
   }
 
   if (Object.keys(patch).length > 0) {
@@ -951,27 +946,47 @@ async function createProcessorForProject(
 ) {
   const manager = new GlobalConfigManager();
   const globalConfig = await manager.getTranslationGlobalConfig();
-  const baseProcessorConfig = await manager.getTranslationProcessorConfig().catch(() => undefined);
   const workspaceConfig = project.getWorkspaceConfig();
-  const translatorModelName =
-    workspaceConfig.translator.modelName ?? baseProcessorConfig?.modelName;
 
-  if (!translatorModelName) {
-    throw new Error('未在全局配置或项目工作区中找到可用翻译器 Profile');
+  let processorConfig: TranslationProcessorConfig;
+
+  const translatorName = workspaceConfig.translator.translatorName;
+  if (translatorName) {
+    const translatorEntry = await manager.getTranslator(translatorName);
+    if (!translatorEntry) {
+      throw new Error(`未在翻译器目录中找到翻译器「${translatorName}」，请检查全局配置`);
+    }
+    processorConfig = {
+      workflow: translatorEntry.type,
+      modelName: translatorEntry.modelName,
+      slidingWindow: translatorEntry.slidingWindow,
+      requestOptions: translatorEntry.requestOptions,
+    };
+  } else {
+    // 兼容旧版工作区：使用 workspace 内联 modelName 或全局 translationProcessor
+    const baseProcessorConfig = await manager.getTranslationProcessorConfig().catch(() => undefined);
+    const translatorModelName =
+      workspaceConfig.translator.modelName ?? baseProcessorConfig?.modelName;
+
+    if (!translatorModelName) {
+      throw new Error(
+        '未找到可用翻译器。请在「设置 → 翻译器目录」中创建翻译器，并在项目配置中选择。',
+      );
+    }
+
+    addLog('warning', '当前项目使用旧版翻译器配置，建议在「工作区配置」中选择命名翻译器');
+    processorConfig = {
+      modelName: translatorModelName,
+      workflow: workspaceConfig.translator.workflow ?? baseProcessorConfig?.workflow ?? 'default',
+      slidingWindow: baseProcessorConfig?.slidingWindow,
+      requestOptions: baseProcessorConfig?.requestOptions,
+    };
   }
 
   const runtimeConfig = new TranslationGlobalConfig({
     llm: globalConfig.llm,
     translation: {
-      translationProcessor: {
-        modelName: translatorModelName,
-        workflow:
-          workspaceConfig.translator.workflow ??
-          baseProcessorConfig?.workflow ??
-          'default',
-        slidingWindow: baseProcessorConfig?.slidingWindow,
-        requestOptions: baseProcessorConfig?.requestOptions,
-      },
+      translationProcessor: processorConfig,
       glossaryUpdater: globalConfig.getGlossaryUpdaterConfig(),
     },
   });

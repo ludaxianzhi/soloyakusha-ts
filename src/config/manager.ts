@@ -27,6 +27,7 @@ import type {
   GlobalLlmConfig,
   GlobalTranslationConfig,
   PersistedLlmClientConfig,
+  TranslatorEntry,
   WorkspaceEntry,
 } from "./types.ts";
 import {
@@ -43,6 +44,7 @@ import {
   cloneProfiles,
   cloneTranslationConfig,
   cloneTranslationProcessorConfig,
+  cloneTranslatorEntry,
   createEmptyDocument,
   normalizeGlossaryExtractorConfig,
   normalizeGlossaryUpdaterConfig,
@@ -50,6 +52,7 @@ import {
   normalizePersistedLlmClientConfig,
   normalizePlotSummaryConfig,
   normalizeTranslationProcessorConfig,
+  normalizeTranslatorEntry,
   pruneEmptyTranslationConfig,
 } from "./document-codec.ts";
 
@@ -164,6 +167,48 @@ export class GlobalConfigManager {
       },
       translation: cloneTranslationConfig(document.translation),
     });
+  }
+
+  async listTranslatorNames(): Promise<string[]> {
+    const translators = (await this.loadDocument()).translation?.translators ?? {};
+    return Object.keys(translators).sort();
+  }
+
+  async getTranslator(name: string): Promise<TranslatorEntry | undefined> {
+    const translators = (await this.loadDocument()).translation?.translators ?? {};
+    const entry = translators[name];
+    return entry ? cloneTranslatorEntry(entry) : undefined;
+  }
+
+  async setTranslator(
+    name: string,
+    entry: TranslatorEntry,
+  ): Promise<TranslatorEntry> {
+    validateTranslatorName(name);
+    const document = await this.loadDocument();
+    const translation = document.translation ?? {};
+    translation.translators = translation.translators ?? {};
+    const normalized = normalizeTranslatorEntry(
+      entry,
+      `translation.translators.${name}`,
+    );
+    translation.translators[name] = normalized;
+    document.translation = pruneEmptyTranslationConfig(translation);
+    await this.persistDocument(document);
+    return cloneTranslatorEntry(normalized);
+  }
+
+  async removeTranslator(name: string): Promise<boolean> {
+    const document = await this.loadDocument();
+    const translators = document.translation?.translators;
+    if (!translators || !translators[name]) {
+      return false;
+    }
+
+    delete translators[name];
+    document.translation = pruneEmptyTranslationConfig(document.translation);
+    await this.persistDocument(document);
+    return true;
   }
 
   async listLlmProfileNames(): Promise<string[]> {
@@ -373,6 +418,12 @@ export function getDefaultGlobalConfigFilePath(appDirName?: string): string {
 function validateProfileName(profileName: string): void {
   if (profileName.trim().length === 0) {
     throw new Error("LLM profile 名称不能为空字符串");
+  }
+}
+
+function validateTranslatorName(name: string): void {
+  if (name.trim().length === 0) {
+    throw new Error("翻译器名称不能为空字符串");
   }
 }
 

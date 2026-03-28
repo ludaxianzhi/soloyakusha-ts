@@ -1,10 +1,11 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
+import { GlobalConfigManager } from '../../config/manager.ts';
 import { Form } from '../components/form.tsx';
 import { useNavigation } from '../context/navigation.tsx';
 import { useLog } from '../context/log.tsx';
 import { useProject } from '../context/project.tsx';
-import type { FormFieldDef } from '../types.ts';
+import type { FormFieldDef, SelectItem } from '../types.ts';
 
 const FORMAT_OPTIONS = [
   { label: 'Plain Text', value: 'plain_text' },
@@ -18,6 +19,22 @@ export function WorkspaceConfigScreen() {
   const { goBack } = useNavigation();
   const { addLog } = useLog();
   const { project, getWorkspaceConfig, updateWorkspaceConfig, isBusy } = useProject();
+  const [translatorOptions, setTranslatorOptions] = useState<SelectItem[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const manager = new GlobalConfigManager();
+        const names = await manager.listTranslatorNames();
+        setTranslatorOptions([
+          { label: '(使用默认)', value: '' },
+          ...names.map((name) => ({ label: name, value: name })),
+        ]);
+      } catch {
+        setTranslatorOptions([{ label: '(暂无可用翻译器)', value: '' }]);
+      }
+    })();
+  }, []);
 
   const config = getWorkspaceConfig();
 
@@ -39,20 +56,14 @@ export function WorkspaceConfigScreen() {
       defaultValue: config?.glossary?.path ?? '',
     },
     {
-      key: 'translatorModel',
-      label: '翻译器模型',
-      type: 'text',
-      placeholder: '输入 LLM profile 名称…',
-      description: '覆盖全局默认的翻译器模型名称。',
-      defaultValue: config?.translator?.modelName ?? '',
-    },
-    {
-      key: 'translatorWorkflow',
-      label: '翻译工作流',
-      type: 'text',
-      placeholder: 'default',
-      description: '翻译处理工作流名称。',
-      defaultValue: config?.translator?.workflow ?? 'default',
+      key: 'translatorName',
+      label: '翻译器',
+      type: 'select',
+      description: '从全局翻译器目录中选择本项目使用的翻译器（留空则在启动时自动选择）。',
+      options: translatorOptions.length > 0
+        ? translatorOptions
+        : [{ label: '(暂无可用翻译器)', value: '' }],
+      defaultValue: config?.translator?.translatorName ?? '',
     },
     {
       key: 'defaultImportFormat',
@@ -70,7 +81,7 @@ export function WorkspaceConfigScreen() {
       options: FORMAT_OPTIONS,
       defaultValue: config?.defaultExportFormat ?? 'naturedialog',
     },
-  ], [config]);
+  ], [config, translatorOptions]);
 
   const handleSubmit = useCallback(
     async (values: Record<string, string>) => {
@@ -80,8 +91,7 @@ export function WorkspaceConfigScreen() {
           ? { path: values.glossaryPath.trim() }
           : { path: undefined },
         translator: {
-          modelName: values.translatorModel?.trim() || undefined,
-          workflow: values.translatorWorkflow?.trim() || undefined,
+          translatorName: values.translatorName?.trim() || null,
         },
         defaultImportFormat: values.defaultImportFormat || null,
         defaultExportFormat: values.defaultExportFormat || null,

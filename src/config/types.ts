@@ -6,6 +6,7 @@
  */
 
 import type {
+  ChatRequestOptions,
   JsonObject,
   JsonValue,
   LlmModelType,
@@ -18,6 +19,7 @@ import type {
   PlotSummaryConfig,
   TranslationProcessorConfig,
 } from "../project/config.ts";
+import type { SlidingWindowOptions } from "../project/types.ts";
 
 export const GLOBAL_CONFIG_VERSION = 1;
 export const DEFAULT_GLOBAL_CONFIG_DIR_NAME = ".soloyakusha-ts";
@@ -51,7 +53,20 @@ export type GlobalLlmConfig = {
   embedding?: PersistedLlmClientConfig;
 };
 
+/** 命名翻译器注册条目，对应一种翻译工作流 + 参数组合。 */
+export type TranslatorEntry = {
+  /** 工作流类型，对应翻译处理器 workflow 参数，留空则使用 "default"。 */
+  type?: string;
+  /** 引用的 LLM Profile 名称。 */
+  modelName: string;
+  slidingWindow?: SlidingWindowOptions;
+  requestOptions?: ChatRequestOptions;
+};
+
 export type GlobalTranslationConfig = {
+  /** 命名翻译器目录，key 为翻译器名称。 */
+  translators?: Record<string, TranslatorEntry>;
+  /** @deprecated 迁移前的单一翻译处理器配置，新代码请使用 translators。 */
   translationProcessor?: TranslationProcessorConfig;
   glossaryExtractor?: GlossaryExtractorConfig;
   glossaryUpdater?: GlossaryUpdaterConfig;
