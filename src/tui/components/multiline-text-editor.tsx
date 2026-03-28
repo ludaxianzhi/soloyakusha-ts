@@ -58,7 +58,7 @@ export function MultilineTextEditor({
     }
 
     if (key.return && key.shift) {
-      onConfirm();
+      onChange(`${value}\n`);
       return;
     }
 
@@ -82,8 +82,13 @@ export function MultilineTextEditor({
       return;
     }
 
-    if (key.return) {
+    if (key.ctrl && input === 'n') {
       onChange(`${value}\n`);
+      return;
+    }
+
+    if (key.return) {
+      onConfirm();
       return;
     }
 
@@ -117,7 +122,7 @@ export function MultilineTextEditor({
       linePrefixWidth={2}
       scrollOffset={scrollOffset}
       onScrollOffsetChange={setScrollOffset}
-      footerHint="  Enter 换行 · Shift+Enter 确认 · Tab 输入制表符 · Esc 取消"
+      footerHint="  Enter 确认 · Ctrl+N 换行 · Shift+Enter(若终端支持)换行 · Tab 输入制表符 · Esc 取消"
     />
   );
 }
