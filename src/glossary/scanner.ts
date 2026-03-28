@@ -6,7 +6,7 @@
  * - 默认每批最多 8192 字符，尽可能提供更大的上下文
  * - 仅抽取五类术语：人名、地名、专有名词、人物称呼、口癖
  * - 扫描完成后自动回填术语出现总次数与出现文本块数
- * - 支持按出现次数排序后的 TopK / TopP 结果裁剪
+ * - 支持按出现文本块数排序后的 TopK / TopP 结果裁剪
  *
  * @module glossary/scanner
  */
@@ -462,8 +462,8 @@ function compareFormattedTerms(
   },
 ): number {
   return (
-    right.totalOccurrenceCount - left.totalOccurrenceCount ||
     right.textBlockOccurrenceCount - left.textBlockOccurrenceCount ||
+    right.totalOccurrenceCount - left.totalOccurrenceCount ||
     left.term.localeCompare(right.term)
   );
 }

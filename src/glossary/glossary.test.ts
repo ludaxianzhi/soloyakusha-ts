@@ -306,15 +306,17 @@ describe("glossary", () => {
       },
     );
 
+    // 公爵和王都各出现在 4 个文本块中，文本块数最高，应被保留
     expect(result.glossary.getTerm("公爵")).toMatchObject({
       totalOccurrenceCount: 6,
       textBlockOccurrenceCount: 4,
     });
-    expect(result.glossary.getTerm("勇者")).toMatchObject({
-      totalOccurrenceCount: 6,
-      textBlockOccurrenceCount: 3,
+    expect(result.glossary.getTerm("王都")).toMatchObject({
+      totalOccurrenceCount: 5,
+      textBlockOccurrenceCount: 4,
     });
-    expect(result.glossary.getTerm("王都")).toBeUndefined();
+    // 勇者文本块数较少（3），被裁剪掉
+    expect(result.glossary.getTerm("勇者")).toBeUndefined();
     expect(result.glossary.getTerm("圣剑")).toBeUndefined();
     expect(result.glossary.getAllTerms()).toHaveLength(2);
   });
