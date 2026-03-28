@@ -16,6 +16,7 @@ import { createLlmClientConfig } from "../llm/types.ts";
 import type { LlmClientConfig } from "../llm/types.ts";
 import { TranslationGlobalConfig } from "../project/config.ts";
 import type {
+  AlignmentRepairConfig,
   GlossaryExtractorConfig,
   GlossaryUpdaterConfig,
   PlotSummaryConfig,
@@ -41,6 +42,7 @@ import {
   cloneLlmConfig,
   clonePersistedLlmClientConfig,
   clonePlotSummaryConfig,
+  cloneAlignmentRepairConfig,
   cloneProfiles,
   cloneTranslationConfig,
   cloneTranslationProcessorConfig,
@@ -51,6 +53,7 @@ import {
   normalizeGlobalConfigDocument,
   normalizePersistedLlmClientConfig,
   normalizePlotSummaryConfig,
+  normalizeAlignmentRepairConfig,
   normalizeTranslationProcessorConfig,
   normalizeTranslatorEntry,
   pruneEmptyTranslationConfig,
@@ -154,6 +157,23 @@ export class GlobalConfigManager {
     document.translation = pruneEmptyTranslationConfig(translation);
     await this.persistDocument(document);
     return clonePlotSummaryConfig(document.translation?.plotSummary);
+  }
+
+  async getAlignmentRepairConfig(): Promise<AlignmentRepairConfig | undefined> {
+    return cloneAlignmentRepairConfig((await this.loadDocument()).translation?.alignmentRepair);
+  }
+
+  async setAlignmentRepairConfig(
+    config?: AlignmentRepairConfig,
+  ): Promise<AlignmentRepairConfig | undefined> {
+    const document = await this.loadDocument();
+    const translation = document.translation ?? {};
+    translation.alignmentRepair = config
+      ? normalizeAlignmentRepairConfig(config, "translation.alignmentRepair")
+      : undefined;
+    document.translation = pruneEmptyTranslationConfig(translation);
+    await this.persistDocument(document);
+    return cloneAlignmentRepairConfig(document.translation?.alignmentRepair);
   }
 
   async getTranslationGlobalConfig(): Promise<TranslationGlobalConfig> {

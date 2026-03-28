@@ -6,6 +6,7 @@ import type {
   LlmRequestConfigInput,
 } from "../llm/types.ts";
 import type {
+  AlignmentRepairConfig,
   GlossaryExtractorConfig,
   GlossaryUpdaterConfig,
   PlotSummaryConfig,
@@ -322,6 +323,23 @@ export function normalizePlotSummaryConfig(
   };
 }
 
+export function normalizeAlignmentRepairConfig(
+  value: unknown,
+  sourceLabel: string,
+): AlignmentRepairConfig {
+  if (!isRecord(value)) {
+    throw new Error(`对齐补翻配置必须是对象: ${sourceLabel}`);
+  }
+
+  return {
+    modelName: readRequiredString(value.modelName, `${sourceLabel}.modelName`),
+    requestOptions:
+      value.requestOptions === undefined
+        ? undefined
+        : normalizePersistedChatRequestOptions(value.requestOptions, `${sourceLabel}.requestOptions`),
+  };
+}
+
 export function normalizePersistedChatRequestOptions(
   value: unknown,
   sourceLabel: string,
@@ -388,6 +406,13 @@ export function normalizeOptionalTranslationConfig(
       value.plotSummary === undefined
         ? undefined
         : normalizePlotSummaryConfig(value.plotSummary, `${sourceLabel}.plotSummary`),
+    alignmentRepair:
+      value.alignmentRepair === undefined
+        ? undefined
+        : normalizeAlignmentRepairConfig(
+            value.alignmentRepair,
+            `${sourceLabel}.alignmentRepair`,
+          ),
   });
 }
 
@@ -400,7 +425,8 @@ export function pruneEmptyTranslationConfig(
     !config?.translationProcessor &&
     !config?.glossaryExtractor &&
     !config?.glossaryUpdater &&
-    !config?.plotSummary
+    !config?.plotSummary &&
+    !config?.alignmentRepair
   ) {
     return undefined;
   }
@@ -411,6 +437,7 @@ export function pruneEmptyTranslationConfig(
     glossaryExtractor: cloneGlossaryExtractorConfig(config?.glossaryExtractor),
     glossaryUpdater: cloneGlossaryUpdaterConfig(config?.glossaryUpdater),
     plotSummary: clonePlotSummaryConfig(config?.plotSummary),
+    alignmentRepair: cloneAlignmentRepairConfig(config?.alignmentRepair),
   };
 }
 
@@ -444,6 +471,7 @@ export function cloneTranslationConfig(
     glossaryExtractor: cloneGlossaryExtractorConfig(config.glossaryExtractor),
     glossaryUpdater: cloneGlossaryUpdaterConfig(config.glossaryUpdater),
     plotSummary: clonePlotSummaryConfig(config.plotSummary),
+    alignmentRepair: cloneAlignmentRepairConfig(config.alignmentRepair),
   };
 }
 
@@ -539,6 +567,21 @@ export function clonePlotSummaryConfig(
     modelName: config.modelName,
     fragmentsPerBatch: config.fragmentsPerBatch,
     maxContextSummaries: config.maxContextSummaries,
+    requestOptions: config.requestOptions
+      ? clonePersistedChatRequestOptions(config.requestOptions)
+      : undefined,
+  };
+}
+
+export function cloneAlignmentRepairConfig(
+  config: AlignmentRepairConfig | undefined,
+): AlignmentRepairConfig | undefined {
+  if (!config) {
+    return undefined;
+  }
+
+  return {
+    modelName: config.modelName,
     requestOptions: config.requestOptions
       ? clonePersistedChatRequestOptions(config.requestOptions)
       : undefined,

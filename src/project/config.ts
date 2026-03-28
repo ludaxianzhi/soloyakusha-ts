@@ -53,11 +53,18 @@ export type PlotSummaryConfig = {
   requestOptions?: ChatRequestOptions;
 };
 
+export type AlignmentRepairConfig = {
+  /** 用于对齐补翻 LLM 调用的命名 Chat 配置。 */
+  modelName: string;
+  requestOptions?: ChatRequestOptions;
+};
+
 export type TranslationRuntimeConfig = {
   translationProcessor?: TranslationProcessorConfig;
   glossaryExtractor?: GlossaryExtractorConfig;
   glossaryUpdater?: GlossaryUpdaterConfig;
   plotSummary?: PlotSummaryConfig;
+  alignmentRepair?: AlignmentRepairConfig;
 };
 
 export type TranslationGlobalLlmConfig = {

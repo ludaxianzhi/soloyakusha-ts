@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Text, useInput } from 'ink';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import type {
+  AlignmentRepairConfig,
   GlossaryExtractorConfig,
   GlossaryUpdaterConfig,
   PlotSummaryConfig,
@@ -13,6 +14,7 @@ import { useNavigation } from '../context/navigation.tsx';
 import { useLog } from '../context/log.tsx';
 import type { SelectItem } from '../types.ts';
 import {
+  buildAlignmentRepairFields,
   buildGlossaryExtractorFields,
   buildGlossaryUpdaterFields,
   buildLlmOptions,
@@ -27,7 +29,8 @@ type Mode =
   | { kind: 'menu' }
   | { kind: 'glossary-extractor' }
   | { kind: 'glossary-updater' }
-  | { kind: 'plot-summary' };
+  | { kind: 'plot-summary' }
+  | { kind: 'alignment-repair' };
 
 export function SettingsTranslationAuxiliaryScreen() {
   const { goBack } = useNavigation();
@@ -39,16 +42,18 @@ export function SettingsTranslationAuxiliaryScreen() {
     useState<GlossaryExtractorConfig>();
   const [glossaryUpdaterConfig, setGlossaryUpdaterConfig] = useState<GlossaryUpdaterConfig>();
   const [plotSummaryConfig, setPlotSummaryConfig] = useState<PlotSummaryConfig>();
+  const [alignmentRepairConfig, setAlignmentRepairConfig] = useState<AlignmentRepairConfig>();
 
   const reload = useCallback(async () => {
     const manager = new GlobalConfigManager();
-    const [names, defaultName, glossaryExtractor, glossaryUpdater, plotSummary] =
+    const [names, defaultName, glossaryExtractor, glossaryUpdater, plotSummary, alignmentRepair] =
       await Promise.all([
         manager.listLlmProfileNames(),
         manager.getDefaultLlmProfileName(),
         manager.getGlossaryExtractorConfig(),
         manager.getGlossaryUpdaterConfig(),
         manager.getPlotSummaryConfig(),
+        manager.getAlignmentRepairConfig(),
       ]);
 
     setProfileNames(names);
@@ -56,6 +61,7 @@ export function SettingsTranslationAuxiliaryScreen() {
     setGlossaryExtractorConfig(glossaryExtractor);
     setGlossaryUpdaterConfig(glossaryUpdater);
     setPlotSummaryConfig(plotSummary);
+    setAlignmentRepairConfig(alignmentRepair);
   }, []);
 
   useEffect(() => {
@@ -115,6 +121,11 @@ export function SettingsTranslationAuxiliaryScreen() {
         meta: plotSummaryConfig?.modelName ?? 'unset',
       },
       {
+        label: '🔧 对齐补翻',
+        value: 'alignment-repair',
+        meta: alignmentRepairConfig?.modelName ?? 'unset',
+      },
+      {
         label: '↩️ 返回',
         value: '__back__',
         meta: 'esc',
@@ -127,7 +138,7 @@ export function SettingsTranslationAuxiliaryScreen() {
           <Text bold color="magenta">翻译辅助配置</Text>
           <Text>可用 LLM 预设：{profileNames.length}</Text>
           {profileNames.length === 0 ? (
-            <Text color="yellow">请先在“LLM 配置”中创建至少一个命名配置。</Text>
+            <Text color="yellow">请先在"LLM 配置"中创建至少一个命名配置。</Text>
           ) : null}
         </SafeBox>
 
@@ -142,6 +153,7 @@ export function SettingsTranslationAuxiliaryScreen() {
             if (item.value === 'glossary-extractor') setMode({ kind: 'glossary-extractor' });
             else if (item.value === 'glossary-updater') setMode({ kind: 'glossary-updater' });
             else if (item.value === 'plot-summary') setMode({ kind: 'plot-summary' });
+            else if (item.value === 'alignment-repair') setMode({ kind: 'alignment-repair' });
           }}
         />
       </SafeBox>
@@ -239,48 +251,78 @@ export function SettingsTranslationAuxiliaryScreen() {
     );
   }
 
+  if (mode.kind === 'plot-summary') {
+    return (
+      <Form
+        title="情节总结配置"
+        fields={buildPlotSummaryFields(plotSummaryConfig, llmOptions)}
+        submitLabel="保存情节总结配置"
+        onSubmit={async (values) => {
+          if (!values.modelName) {
+            addLog('warning', '请选择情节总结使用的 LLM 配置');
+            return;
+          }
+
+          const fragmentsPerBatch = parseOptionalPositiveIntegerField(
+            values.fragmentsPerBatch,
+            '每批片段数',
+          );
+          if (!fragmentsPerBatch.ok) {
+            addLog('warning', fragmentsPerBatch.message);
+            return;
+          }
+
+          const maxContextSummaries = parseOptionalPositiveIntegerField(
+            values.maxContextSummaries,
+            '上下文总结数',
+          );
+          if (!maxContextSummaries.ok) {
+            addLog('warning', maxContextSummaries.message);
+            return;
+          }
+
+          try {
+            const manager = new GlobalConfigManager();
+            await manager.setPlotSummaryConfig({
+              modelName: values.modelName,
+              fragmentsPerBatch: fragmentsPerBatch.value,
+              maxContextSummaries: maxContextSummaries.value,
+              requestOptions: plotSummaryConfig?.requestOptions,
+            });
+            await reload();
+            addLog('success', `情节总结配置已更新：${values.modelName}`);
+            setMode({ kind: 'menu' });
+          } catch (error) {
+            addLog('error', `保存情节总结配置失败：${toErrorMessage(error)}`);
+          }
+        }}
+        onCancel={() => setMode({ kind: 'menu' })}
+      />
+    );
+  }
+
   return (
     <Form
-      title="情节总结配置"
-      fields={buildPlotSummaryFields(plotSummaryConfig, llmOptions)}
-      submitLabel="保存情节总结配置"
+      title="对齐补翻配置"
+      fields={buildAlignmentRepairFields(alignmentRepairConfig, llmOptions)}
+      submitLabel="保存对齐补翻配置"
       onSubmit={async (values) => {
         if (!values.modelName) {
-          addLog('warning', '请选择情节总结使用的 LLM 配置');
-          return;
-        }
-
-        const fragmentsPerBatch = parseOptionalPositiveIntegerField(
-          values.fragmentsPerBatch,
-          '每批片段数',
-        );
-        if (!fragmentsPerBatch.ok) {
-          addLog('warning', fragmentsPerBatch.message);
-          return;
-        }
-
-        const maxContextSummaries = parseOptionalPositiveIntegerField(
-          values.maxContextSummaries,
-          '上下文总结数',
-        );
-        if (!maxContextSummaries.ok) {
-          addLog('warning', maxContextSummaries.message);
+          addLog('warning', '请选择对齐补翻使用的 LLM 配置');
           return;
         }
 
         try {
           const manager = new GlobalConfigManager();
-          await manager.setPlotSummaryConfig({
+          await manager.setAlignmentRepairConfig({
             modelName: values.modelName,
-            fragmentsPerBatch: fragmentsPerBatch.value,
-            maxContextSummaries: maxContextSummaries.value,
-            requestOptions: plotSummaryConfig?.requestOptions,
+            requestOptions: alignmentRepairConfig?.requestOptions,
           });
           await reload();
-          addLog('success', `情节总结配置已更新：${values.modelName}`);
+          addLog('success', `对齐补翻配置已更新：${values.modelName}`);
           setMode({ kind: 'menu' });
         } catch (error) {
-          addLog('error', `保存情节总结配置失败：${toErrorMessage(error)}`);
+          addLog('error', `保存对齐补翻配置失败：${toErrorMessage(error)}`);
         }
       }}
       onCancel={() => setMode({ kind: 'menu' })}

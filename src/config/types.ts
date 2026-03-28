@@ -14,6 +14,7 @@ import type {
   LlmRequestConfigInput,
 } from "../llm/types.ts";
 import type {
+  AlignmentRepairConfig,
   GlossaryUpdaterConfig,
   GlossaryExtractorConfig,
   PlotSummaryConfig,
@@ -88,6 +89,7 @@ export type GlobalTranslationConfig = {
   glossaryExtractor?: GlossaryExtractorConfig;
   glossaryUpdater?: GlossaryUpdaterConfig;
   plotSummary?: PlotSummaryConfig;
+  alignmentRepair?: AlignmentRepairConfig;
 };
 
 export type GlobalConfigDocument = {

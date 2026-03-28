@@ -1,4 +1,5 @@
 import type {
+  AlignmentRepairConfig,
   GlossaryExtractorConfig,
   GlossaryUpdaterConfig,
   PlotSummaryConfig,
@@ -183,6 +184,22 @@ export function buildPlotSummaryFields(
       type: 'text',
       placeholder: '留空使用默认，例如 50',
       defaultValue: config?.maxContextSummaries ? String(config.maxContextSummaries) : '',
+    },
+  ];
+}
+
+export function buildAlignmentRepairFields(
+  config: AlignmentRepairConfig | undefined,
+  llmOptions: SelectItem[],
+): FormFieldDef[] {
+  return [
+    {
+      key: 'modelName',
+      label: 'LLM 配置',
+      type: 'select',
+      options: llmOptions,
+      defaultValue: config?.modelName ?? llmOptions[0]?.value ?? '',
+      description: '用于对齐补翻的 Chat LLM（补全行数不一致时漏翻的原文行）。',
     },
   ];
 }
