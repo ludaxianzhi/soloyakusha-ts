@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { useEffect, useState } from 'react';
-import { Text, useInput } from 'ink';
-import { SafeBox } from '../components/safe-box.tsx';
+import { useInput } from 'ink';
+import { ScrollableTextBox } from '../components/scrollable-text-box.tsx';
 import { useLog } from '../context/log.tsx';
 import { useNavigation } from '../context/navigation.tsx';
 import { useProject } from '../context/project.tsx';
@@ -37,33 +37,29 @@ export function WorkspaceHistoryScreen() {
     })();
   }, [project]);
 
-  return (
-    <SafeBox flexDirection="column" gap={1}>
-      <SafeBox flexDirection="column" borderStyle="round" borderColor="blue" paddingX={1}>
-        <Text bold color="blue">项目事件日志</Text>
-        {logs.length === 0 ? (
-          <Text dimColor>当前还没有事件日志。</Text>
-        ) : (
-          logs.slice(-18).map((entry) => (
-            <Text key={entry.id} dimColor>
-              [{entry.timestamp.toLocaleTimeString('zh-CN', { hour12: false })}] {entry.message}
-            </Text>
-          ))
-        )}
-      </SafeBox>
+  const lines = [
+    '== 项目事件日志 ==',
+    ...(logs.length === 0
+      ? ['当前还没有事件日志。']
+      : logs.map(
+          (entry) =>
+            `[${entry.timestamp.toLocaleTimeString('zh-CN', { hour12: false })}] ${entry.message}`,
+        )),
+    '',
+    '== LLM 请求历史 ==',
+    ...(llmHistory
+      ? llmHistory.split('\n')
+      : ['当前没有可显示的 LLM 请求历史日志。']),
+  ];
 
-      <SafeBox flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-        <Text bold color="cyan">LLM 请求历史</Text>
-        {llmHistory ? (
-          llmHistory.split('\n').slice(-24).map((line, index) => (
-            <Text key={`${index}:${line}`} dimColor={!line.trim()}>
-              {line || ' '}
-            </Text>
-          ))
-        ) : (
-          <Text dimColor>当前没有可显示的 LLM 请求历史日志。</Text>
-        )}
-      </SafeBox>
-    </SafeBox>
+  return (
+    <ScrollableTextBox
+      title="历史日志"
+      lines={lines}
+      visibleRows={24}
+      borderColor="blue"
+      titleColor="blue"
+      footerHint="  ↑↓ 或滚轮滚动 · Esc 返回"
+    />
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Text, useInput } from 'ink';
 import type { AutocompleteItem, FormFieldDef } from '../types.ts';
 import { useMouse } from '../context/mouse.tsx';
+import { MultilineTextEditor } from './multiline-text-editor.tsx';
 import { SafeBox } from './safe-box.tsx';
 
 interface FormProps {
@@ -57,6 +58,7 @@ export function Form({
   const activeField = activeIndex < fields.length ? fields[activeIndex] : undefined;
   const activeAutocomplete =
     editing && activeField?.type === 'autocomplete' ? activeField.autocomplete : undefined;
+  const textareaEditing = editing && activeField?.type === 'textarea';
 
   useEffect(() => {
     if (!activeAutocomplete || !activeField) {
@@ -121,9 +123,7 @@ export function Form({
             ? `◄ ${field.options?.find((option) => option.value === value)?.label ?? value} ►`
             : field.options?.find((option) => option.value === value)?.label ?? value
           : field.type === 'textarea'
-            ? isEditing
-              ? `${formatMultilineValue(value)}█`
-              : formatMultilineValue(value) || field.placeholder || '(空)'
+            ? describeTextareaValue(value, field.placeholder)
           : isEditing
             ? `${value}█`
             : value || field.placeholder || '(空)';
@@ -262,6 +262,10 @@ export function Form({
   }, [activeAutocomplete, activeRowIndex, autocompleteItems.length, renderRows.length, scrollOffset, visibleRows]);
 
   useInput((input, key) => {
+    if (textareaEditing) {
+      return;
+    }
+
     if (editing) {
       const field = fields[activeIndex];
       if (!field) {
@@ -307,22 +311,6 @@ export function Form({
             values: nextValues,
           });
           setAutocompleteRevision((prev) => prev + 1);
-        }
-        return;
-      }
-
-      if (field.type === 'textarea') {
-        if (key.escape) {
-          setEditing(false);
-          return;
-        }
-
-        if (key.backspace || key.delete) {
-          setValues((prev) => ({ ...prev, [field.key]: (prev[field.key] ?? '').slice(0, -1) }));
-        } else if (key.return) {
-          setValues((prev) => ({ ...prev, [field.key]: `${prev[field.key] ?? ''}\n` }));
-        } else if (input && !key.ctrl && !key.meta && !key.escape) {
-          setValues((prev) => ({ ...prev, [field.key]: (prev[field.key] ?? '') + input }));
         }
         return;
       }
@@ -437,6 +425,22 @@ export function Form({
     });
   }, [activeIndex, cancelIdx, editing, fields, onCancel, onSubmit, submitIdx, subscribe, total, values]);
 
+  if (textareaEditing && activeField) {
+    return (
+      <MultilineTextEditor
+        title={`${title} · ${activeField.label}`}
+        value={values[activeField.key] ?? ''}
+        placeholder={activeField.placeholder}
+        visibleRows={Math.max(8, visibleRows - 2)}
+        onChange={(nextValue) => {
+          setValues((prev) => ({ ...prev, [activeField.key]: nextValue }));
+        }}
+        onConfirm={() => setEditing(false)}
+        onCancel={() => setEditing(false)}
+      />
+    );
+  }
+
   const visibleItems = renderRows.slice(scrollOffset, scrollOffset + visibleRows);
   const hasScrollUp = scrollOffset > 0;
   const hasScrollDown = scrollOffset + visibleRows < renderRows.length;
@@ -449,14 +453,17 @@ export function Form({
       {editing && activeField?.type === 'autocomplete' ? (
         <Text dimColor>  Tab 切换补全，Enter 确认，继续输入后刷新候选</Text>
       ) : null}
-      {editing && activeField?.type === 'textarea' ? (
-        <Text dimColor>  Enter 换行，Esc 完成编辑</Text>
-      ) : null}
       {hasScrollDown ? <Text dimColor>  ▼ 更多 ({renderRows.length - scrollOffset - visibleRows})</Text> : null}
     </SafeBox>
   );
 }
 
-function formatMultilineValue(value: string): string {
-  return value.replace(/\n/g, ' ⏎ ');
+function describeTextareaValue(value: string, placeholder?: string): string {
+  if (!value) {
+    return placeholder || '(空)';
+  }
+
+  const lines = value.split('\n');
+  const preview = lines[0]?.trim() || '(空行)';
+  return `${preview}${lines.length > 1 ? ` … (${lines.length} 行)` : ''}`;
 }
