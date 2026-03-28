@@ -10,36 +10,25 @@ import { useLog } from '../context/log.tsx';
 import {
   buildLlmOptions,
   parseOptionalPositiveIntegerField,
+  buildTranslatorFields,
+  MULTI_STAGE_STEP_LABELS,
+  TRANSLATOR_WORKFLOW_OPTIONS,
   toErrorMessage,
 } from './settings-translation-shared.ts';
 import type { FormFieldDef, SelectItem } from '../types.ts';
+import type { TranslatorWorkflowType } from './settings-translation-shared.ts';
 
 type Mode =
   | { kind: 'loading' }
   | { kind: 'menu' }
-  | { kind: 'create' }
+  | { kind: 'workflow-select'; translatorName?: string }
   | { kind: 'translator-actions'; translatorName: string }
-  | { kind: 'edit-translator'; translatorName: string };
+  | { kind: 'edit-translator'; workflow: TranslatorWorkflowType; translatorName?: string };
 
 type TranslatorSummary = {
   name: string;
   entry: TranslatorEntry;
 };
-
-const WORKFLOW_OPTIONS: SelectItem[] = [
-  { label: 'default', value: 'default', description: '单步翻译（默认）' },
-  { label: 'multi-stage', value: 'multi-stage', description: '多步骤文学翻译：分析→翻译→润色→[编辑+校对→修改]×N' },
-];
-
-/** multi-stage 工作流的六个步骤标识与标签。 */
-const MULTI_STAGE_STEP_LABELS: { key: string; label: string; description: string }[] = [
-  { key: 'analyzer',    label: 'LLM1 · 分析器',   description: '分析场景、视角、风格和翻译难点' },
-  { key: 'translator',  label: 'LLM2 · 翻译器',   description: '初步翻译' },
-  { key: 'polisher',    label: 'LLM3 · 润色师',   description: '润色译文使其更自然' },
-  { key: 'editor',      label: 'LLM4 · 中文编辑', description: '指出表达问题并提供改进建议' },
-  { key: 'proofreader', label: 'LLM5 · 校对专家', description: '校对理解错误（尊重文学性）' },
-  { key: 'reviser',     label: 'LLM6 · 修改器',   description: '综合编辑和校对意见修改译文' },
-];
 
 export function SettingsTranslatorScreen() {
   const { goBack } = useNavigation();
@@ -93,7 +82,16 @@ export function SettingsTranslatorScreen() {
     }
 
     if (mode.kind === 'edit-translator') {
-      setMode({ kind: 'translator-actions', translatorName: mode.translatorName });
+      setMode({ kind: 'workflow-select', translatorName: mode.translatorName });
+      return;
+    }
+
+    if (mode.kind === 'workflow-select') {
+      if (mode.translatorName) {
+        setMode({ kind: 'translator-actions', translatorName: mode.translatorName });
+        return;
+      }
+      setMode({ kind: 'menu' });
       return;
     }
 
@@ -143,7 +141,7 @@ export function SettingsTranslatorScreen() {
               return;
             }
             if (item.value === '__new__') {
-              setMode({ kind: 'create' });
+              setMode({ kind: 'workflow-select' });
               return;
             }
             const name = item.value.slice('translator:'.length);
@@ -180,7 +178,7 @@ export function SettingsTranslatorScreen() {
               return;
             }
             if (item.value === '__edit__') {
-              setMode({ kind: 'edit-translator', translatorName: mode.translatorName });
+              setMode({ kind: 'workflow-select', translatorName: mode.translatorName });
               return;
             }
             void (async () => {
@@ -200,8 +198,38 @@ export function SettingsTranslatorScreen() {
     );
   }
 
-  const isEdit = mode.kind === 'edit-translator';
-  const originalTranslator = isEdit
+  if (mode.kind === 'workflow-select') {
+    const translator = mode.translatorName
+      ? translators.find((t) => t.name === mode.translatorName)
+      : undefined;
+    const initialWorkflow = normalizeWorkflowType(translator?.entry.type);
+
+    return (
+      <SafeBox flexDirection="column" gap={1}>
+        <SafeBox flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+          <Text bold color="magenta">
+            {mode.translatorName ? `编辑翻译器 · ${mode.translatorName}` : '新建翻译器'}
+          </Text>
+          <Text>请选择工作流类型，不同工作流会使用不同配置 Schema。</Text>
+        </SafeBox>
+        <Select
+          title="工作流类型"
+          items={TRANSLATOR_WORKFLOW_OPTIONS}
+          initialValue={initialWorkflow}
+          onSelect={(item) => {
+            setMode({
+              kind: 'edit-translator',
+              translatorName: mode.translatorName,
+              workflow: item.value as TranslatorWorkflowType,
+            });
+          }}
+        />
+      </SafeBox>
+    );
+  }
+
+  const isEdit = mode.kind === 'edit-translator' && Boolean(mode.translatorName);
+  const originalTranslator = mode.kind === 'edit-translator' && mode.translatorName
     ? translators.find((t) => t.name === mode.translatorName)
     : undefined;
 
@@ -209,10 +237,12 @@ export function SettingsTranslatorScreen() {
     translatorName: originalTranslator?.name,
     entry: originalTranslator?.entry,
     llmOptions,
+    workflow: mode.workflow,
   });
 
   return (
     <Form
+      key={`${mode.kind}:${mode.translatorName ?? '__new__'}:${mode.workflow}`}
       title={isEdit ? `编辑翻译器 · ${mode.translatorName}` : '新建翻译器'}
       fields={fields}
       submitLabel="保存翻译器"
@@ -236,7 +266,7 @@ export function SettingsTranslatorScreen() {
           return;
         }
 
-        const workflowType = values.type?.trim() || undefined;
+        const workflowType = mode.workflow;
         const isMultiStage = workflowType === 'multi-stage';
 
         const overlapChars = parseOptionalPositiveIntegerField(
@@ -267,7 +297,7 @@ export function SettingsTranslatorScreen() {
         }
 
         const entry: TranslatorEntry = {
-          type: workflowType,
+          type: workflowType === 'default' ? undefined : workflowType,
           modelName: values.modelName,
           slidingWindow: overlapChars.value !== undefined
             ? { overlapChars: overlapChars.value }
@@ -292,11 +322,7 @@ export function SettingsTranslatorScreen() {
         }
       }}
       onCancel={() => {
-        if (isEdit) {
-          setMode({ kind: 'translator-actions', translatorName: mode.translatorName });
-          return;
-        }
-        setMode({ kind: 'menu' });
+        setMode({ kind: 'workflow-select', translatorName: mode.translatorName });
       }}
     />
   );
@@ -306,11 +332,17 @@ function buildTranslatorEntryFields(input: {
   translatorName?: string;
   entry?: TranslatorEntry;
   llmOptions: SelectItem[];
+  workflow: TranslatorWorkflowType;
 }): FormFieldDef[] {
-  const workflowType = input.entry?.type ?? 'default';
-  const isMultiStage = workflowType === 'multi-stage';
+  const processorConfig = {
+    workflow: input.workflow,
+    modelName: input.entry?.modelName ?? input.llmOptions[0]?.value ?? '',
+    slidingWindow: input.entry?.slidingWindow,
+    models: input.workflow === 'multi-stage' ? input.entry?.models : undefined,
+    reviewIterations: input.workflow === 'multi-stage' ? input.entry?.reviewIterations : undefined,
+  };
 
-  const baseFields: FormFieldDef[] = [
+  return [
     {
       key: 'translatorName',
       label: '翻译器名称',
@@ -319,58 +351,10 @@ function buildTranslatorEntryFields(input: {
       description: '唯一标识，供翻译项目引用。',
       defaultValue: input.translatorName ?? '',
     },
-    {
-      key: 'type',
-      label: '工作流类型',
-      type: 'select',
-      options: WORKFLOW_OPTIONS,
-      defaultValue: workflowType,
-    },
-    {
-      key: 'modelName',
-      label: isMultiStage ? 'LLM 配置（默认，各步骤未指定时使用）' : 'LLM 配置',
-      type: 'select',
-      options: input.llmOptions,
-      defaultValue: input.entry?.modelName ?? input.llmOptions[0]?.value ?? '',
-    },
-    {
-      key: 'overlapChars',
-      label: '滑窗重叠',
-      type: 'text',
-      placeholder: '留空使用默认，例如 64',
-      defaultValue: input.entry?.slidingWindow?.overlapChars
-        ? String(input.entry.slidingWindow.overlapChars)
-        : '',
-    },
+    ...buildTranslatorFields(processorConfig, input.llmOptions, input.workflow),
   ];
+}
 
-  if (!isMultiStage) {
-    return baseFields;
-  }
-
-  // multi-stage 专用字段
-  const multiStageFields: FormFieldDef[] = MULTI_STAGE_STEP_LABELS.map((step) => ({
-    key: `model_${step.key}`,
-    label: step.label,
-    type: 'select' as const,
-    options: [
-      { label: '(使用默认 LLM)', value: '' },
-      ...input.llmOptions,
-    ],
-    defaultValue: input.entry?.models?.[step.key] ?? '',
-    description: step.description,
-  }));
-
-  const reviewIterationsField: FormFieldDef = {
-    key: 'reviewIterations',
-    label: '评审迭代次数',
-    type: 'text',
-    placeholder: '留空使用默认，例如 3',
-    defaultValue: input.entry?.reviewIterations !== undefined
-      ? String(input.entry.reviewIterations)
-      : '',
-    description: '大步骤二（编辑+校对→修改）的重复次数。',
-  };
-
-  return [...baseFields, ...multiStageFields, reviewIterationsField];
+function normalizeWorkflowType(type: string | undefined): TranslatorWorkflowType {
+  return type === 'multi-stage' ? 'multi-stage' : 'default';
 }
