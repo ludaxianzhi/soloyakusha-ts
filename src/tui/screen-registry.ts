@@ -190,4 +190,19 @@ export const screenDescriptors: Record<ScreenName, ScreenDescriptor> = {
 - 未来扩展更多翻译器的空间
 `,
   },
+  'workspace-plot-summary': {
+    eyebrow: 'PLOT',
+    title: '情节大纲总结',
+    subtitle: '基于 LLM 自动生成情节大纲总结，支持多分线拓扑感知。',
+    tone: 'magenta',
+    mdx: String.raw`
+## Plot summary generation
+
+这里提供：
+
+- 选择 LLM 预设开始生成情节大纲
+- 按章节批量总结，实时显示进度
+- 总结结果独立保存，不影响翻译文件
+`,
+  },
 };

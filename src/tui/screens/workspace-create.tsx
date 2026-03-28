@@ -9,13 +9,22 @@ import { SafeBox } from '../components/safe-box.tsx';
 import { useNavigation } from '../context/navigation.tsx';
 import { useLog } from '../context/log.tsx';
 import { useProject } from '../context/project.tsx';
+import type { BranchImportInput } from '../context/project.tsx';
 import type { FormFieldDef, SelectItem } from '../types.ts';
 
-type WizardStep = 'basics' | 'order' | 'translator' | 'confirm';
+type WizardStep = 'basics' | 'order' | 'translator' | 'branch-ask' | 'branch-setup' | 'branch-order' | 'confirm';
 
 type TranslatorOption = {
   label: string;
   value: string;
+};
+
+type BranchDraft = {
+  routeId: string;
+  routeName: string;
+  forkAfterChapterId: number;
+  importPattern: string;
+  chapterPaths: string[];
 };
 
 type DraftState = {
@@ -29,6 +38,7 @@ type DraftState = {
   chapterPaths: string[];
   translatorModelName: string;
   translatorWorkflow: string;
+  branches: BranchDraft[];
 };
 
 const DEFAULT_IMPORT_FORMAT = 'plain_text';
@@ -39,6 +49,7 @@ export function WorkspaceCreateScreen() {
   const { initializeProject, isBusy } = useProject();
   const [step, setStep] = useState<WizardStep>('basics');
   const [translatorOptions, setTranslatorOptions] = useState<TranslatorOption[]>([]);
+  const [pendingBranch, setPendingBranch] = useState<BranchDraft | null>(null);
   const [draft, setDraft] = useState<DraftState>({
     projectName: '',
     projectDir: '',
@@ -50,6 +61,7 @@ export function WorkspaceCreateScreen() {
     chapterPaths: [],
     translatorModelName: '',
     translatorWorkflow: 'default',
+    branches: [],
   });
 
   useEffect(() => {
@@ -190,7 +202,7 @@ export function WorkspaceCreateScreen() {
   if (step === 'basics') {
     return (
       <Form
-        title="初始化项目 · Step 1 / 4"
+        title="初始化项目 · 导入主线"
         fields={basicsFields}
         submitLabel="扫描导入文件"
         onSubmit={async (values) => {
@@ -224,6 +236,7 @@ export function WorkspaceCreateScreen() {
             chapterPaths: matchedFiles,
             translatorModelName: draft.translatorModelName,
             translatorWorkflow: draft.translatorWorkflow,
+            branches: draft.branches,
           });
           addLog('success', `已匹配 ${matchedFiles.length} 个章节文件，进入排序步骤`);
           setStep('order');
@@ -236,7 +249,7 @@ export function WorkspaceCreateScreen() {
   if (step === 'order') {
     return (
       <ReorderList
-        title="初始化项目 · Step 2 / 4"
+        title="初始化项目 · 主线章节排序"
         description="像老式 BIOS 调整启动顺序一样，先用 ↑↓ 选择，再用 ←→ 调整章节顺序。"
         items={draft.chapterPaths.map((chapterPath, index) => ({
           id: `${index}:${chapterPath}`,
@@ -263,7 +276,7 @@ export function WorkspaceCreateScreen() {
   if (step === 'translator') {
     return (
       <Form
-        title="初始化项目 · Step 3 / 4"
+        title="初始化项目 · 翻译器选择"
         fields={translatorFields}
         submitLabel="确认翻译器"
         onSubmit={async (values) => {
@@ -279,9 +292,176 @@ export function WorkspaceCreateScreen() {
             translatorWorkflow: values.translatorWorkflow || 'default',
           }));
           addLog('success', `已选择翻译器 ${translatorModelName}`);
-          setStep('confirm');
+          setStep('branch-ask');
         }}
         onCancel={() => setStep('order')}
+      />
+    );
+  }
+
+  if (step === 'branch-ask') {
+    const branchAskItems: SelectItem<'add' | 'skip'>[] = [
+      {
+        label: '📌 添加支线',
+        value: 'add',
+        description: '选择一个主线章节作为分支点，导入另一组文件作为支线。',
+        meta: 'branch',
+      },
+      {
+        label: '⏭️ 跳过，直接创建',
+        value: 'skip',
+        description: draft.branches.length > 0
+          ? `已添加 ${draft.branches.length} 条支线，进入最终确认。`
+          : '不添加支线，直接进入确认步骤。',
+        meta: 'skip',
+      },
+    ];
+
+    return (
+      <SafeBox flexDirection="column" gap={1}>
+        <Panel
+          title="初始化项目 · 是否导入支线？"
+          subtitle="支线从主线的某个章节分叉，拥有独立的剧情路线。"
+          tone="blue"
+        >
+          <SafeBox flexDirection="column">
+            <Text>
+              主线章节数：<Text color="cyan">{draft.chapterPaths.length}</Text>
+            </Text>
+            {draft.branches.length > 0 ? (
+              <Text>
+                已添加支线：<Text color="yellow">{draft.branches.length}</Text> 条
+                {draft.branches.map((branch, index) => (
+                  <Text key={branch.routeId} dimColor>
+                    {`\n  ${index + 1}. ${branch.routeName}（${branch.chapterPaths.length} 章节，从章节 ${branch.forkAfterChapterId} 分叉）`}
+                  </Text>
+                ))}
+              </Text>
+            ) : null}
+          </SafeBox>
+        </Panel>
+
+        <Select
+          title="选择操作"
+          description="支线添加完毕后可直接创建项目。"
+          items={branchAskItems}
+          isActive={!isBusy}
+          onSelect={(item) => {
+            if (item.value === 'skip') {
+              setStep('confirm');
+            } else {
+              setStep('branch-setup');
+            }
+          }}
+        />
+      </SafeBox>
+    );
+  }
+
+  if (step === 'branch-setup') {
+    const forkPointOptions = draft.chapterPaths.map((chapterPath, index) => ({
+      label: `CH${index + 1}: ${chapterPath}`,
+      value: String(index + 1),
+    }));
+
+    const branchFields: FormFieldDef[] = [
+      {
+        key: 'routeName',
+        label: '支线名称',
+        type: 'text',
+        placeholder: '例如：Heroine A Route',
+        description: '用于标识这条分支路线的名称。',
+        defaultValue: '',
+      },
+      {
+        key: 'forkAfterChapterId',
+        label: '分叉点（主线章节）',
+        type: 'select',
+        description: '选择主线中的一个章节作为分叉点，支线从该章节之后开始。',
+        defaultValue: forkPointOptions[0]?.value ?? '',
+        options: forkPointOptions,
+      },
+      {
+        key: 'importPattern',
+        label: '支线导入 Pattern',
+        type: 'text',
+        placeholder: 'sources/branch-a/**/*.txt',
+        description: '使用 glob 模式匹配支线的章节文件。基于项目目录。',
+        defaultValue: '',
+      },
+    ];
+
+    return (
+      <Form
+        title="初始化项目 · 支线配置"
+        fields={branchFields}
+        submitLabel="扫描支线文件"
+        onSubmit={async (values) => {
+          if (!values.routeName?.trim()) {
+            addLog('warning', '支线名称不能为空');
+            return;
+          }
+          if (!values.importPattern?.trim()) {
+            addLog('warning', '支线导入 Pattern 不能为空');
+            return;
+          }
+
+          const forkChapterId = parseInt(values.forkAfterChapterId || '1', 10);
+          const matchedFiles = await findMatchedFiles(draft.projectDir, values.importPattern.trim());
+          if (matchedFiles.length === 0) {
+            addLog('warning', '未匹配到任何支线文件，请调整 Pattern');
+            return;
+          }
+
+          const routeId = `branch-${draft.branches.length + 1}`;
+          setPendingBranch({
+            routeId,
+            routeName: values.routeName.trim(),
+            forkAfterChapterId: forkChapterId,
+            importPattern: values.importPattern.trim(),
+            chapterPaths: matchedFiles,
+          });
+          addLog('success', `已匹配 ${matchedFiles.length} 个支线文件，进入支线排序`);
+          setStep('branch-order');
+        }}
+        onCancel={() => {
+          setPendingBranch(null);
+          setStep('branch-ask');
+        }}
+      />
+    );
+  }
+
+  if (step === 'branch-order' && pendingBranch) {
+    return (
+      <ReorderList
+        title={`初始化项目 · 支线「${pendingBranch.routeName}」章节排序`}
+        description="调整支线章节顺序后确认。"
+        items={pendingBranch.chapterPaths.map((chapterPath, index) => ({
+          id: `${index}:${chapterPath}`,
+          label: chapterPath,
+          meta: `B${draft.branches.length + 1}-CH${index + 1}`,
+          description: `支线 · 导入格式：${draft.importFormat}`,
+        }))}
+        onChange={(items) => {
+          setPendingBranch((prev) =>
+            prev ? { ...prev, chapterPaths: items.map((item) => item.label) } : prev,
+          );
+        }}
+        onConfirm={() => {
+          setDraft((prev) => ({
+            ...prev,
+            branches: [...prev.branches, pendingBranch],
+          }));
+          addLog('success', `支线「${pendingBranch.routeName}」已添加（${pendingBranch.chapterPaths.length} 章节）`);
+          setPendingBranch(null);
+          setStep('branch-ask');
+        }}
+        onCancel={() => {
+          setPendingBranch(null);
+          setStep('branch-setup');
+        }}
+        isActive={!isBusy}
       />
     );
   }
@@ -310,7 +490,7 @@ export function WorkspaceCreateScreen() {
   return (
     <SafeBox flexDirection="column" gap={1}>
       <Panel
-        title="初始化项目 · Step 4 / 4"
+        title="初始化项目 · 确认"
         subtitle="确认项目初始化摘要后即可进入项目主页。"
         tone="green"
       >
@@ -323,17 +503,28 @@ export function WorkspaceCreateScreen() {
           <Text>导入格式：{draft.importFormat}</Text>
           <Text>翻译器：{draft.translatorModelName || '未选择'}</Text>
           <Text>Workflow：{draft.translatorWorkflow}</Text>
-          <Text>章节数：{draft.chapterPaths.length}</Text>
+          <Text>主线章节数：{draft.chapterPaths.length}</Text>
+          {draft.branches.length > 0 ? (
+            <Text>
+              支线：<Text color="yellow">{draft.branches.length}</Text> 条
+              （共 {draft.branches.reduce((sum, b) => sum + b.chapterPaths.length, 0)} 章节）
+            </Text>
+          ) : null}
           {draft.glossaryPath ? <Text>字典路径：{draft.glossaryPath}</Text> : null}
-          <Text dimColor>章节预览：</Text>
-          {draft.chapterPaths.slice(0, 8).map((chapterPath, index) => (
-            <Text key={`${index}:${chapterPath}`} dimColor>
+          <Text dimColor>主线章节预览：</Text>
+          {draft.chapterPaths.slice(0, 6).map((chapterPath, index) => (
+            <Text key={`main-${index}:${chapterPath}`} dimColor>
               {index + 1}. {chapterPath}
             </Text>
           ))}
-          {draft.chapterPaths.length > 8 ? (
-            <Text dimColor>... 还有 {draft.chapterPaths.length - 8} 个章节</Text>
+          {draft.chapterPaths.length > 6 ? (
+            <Text dimColor>... 还有 {draft.chapterPaths.length - 6} 个主线章节</Text>
           ) : null}
+          {draft.branches.map((branch) => (
+            <Text key={branch.routeId} dimColor>
+              支线「{branch.routeName}」：{branch.chapterPaths.length} 章节，从 CH{branch.forkAfterChapterId} 分叉
+            </Text>
+          ))}
         </SafeBox>
       </Panel>
 
@@ -344,7 +535,7 @@ export function WorkspaceCreateScreen() {
         isActive={!isBusy}
         onSelect={(item) => {
           if (item.value === 'back') {
-            setStep('translator');
+            setStep('branch-ask');
             return;
           }
           if (item.value === 'cancel') {
@@ -353,6 +544,13 @@ export function WorkspaceCreateScreen() {
           }
 
           void (async () => {
+            const branches: BranchImportInput[] = draft.branches.map((branch) => ({
+              routeId: branch.routeId,
+              routeName: branch.routeName,
+              forkAfterChapterId: branch.forkAfterChapterId,
+              chapterPaths: branch.chapterPaths,
+            }));
+
             const opened = await initializeProject({
               projectName: draft.projectName,
               projectDir: draft.projectDir,
@@ -363,6 +561,7 @@ export function WorkspaceCreateScreen() {
               importFormat: draft.importFormat,
               translatorModelName: draft.translatorModelName,
               translatorWorkflow: draft.translatorWorkflow,
+              branches: branches.length > 0 ? branches : undefined,
             });
 
             if (opened) {

@@ -16,6 +16,7 @@ type ActionValue =
   | 'scan-dictionary'
   | 'dictionary'
   | 'history'
+  | 'plot-summary'
   | 'refresh'
   | 'open'
   | 'back';
@@ -26,6 +27,7 @@ export function WorkspaceProgressScreen() {
     project,
     snapshot,
     isBusy,
+    plotSummaryReady,
     startTranslation,
     pauseTranslation,
     resumeTranslation,
@@ -43,7 +45,7 @@ export function WorkspaceProgressScreen() {
 
   const workspaceConfig = project?.getWorkspaceConfig();
   const glossaryTerms = project?.getGlossary()?.getAllTerms().length ?? 0;
-  const items = buildActionItems(snapshot, Boolean(project), glossaryTerms > 0);
+  const items = buildActionItems(snapshot, Boolean(project), glossaryTerms > 0, plotSummaryReady);
 
   return (
     <SafeBox flexDirection="column" gap={1}>
@@ -96,6 +98,15 @@ export function WorkspaceProgressScreen() {
                 </Text>
               ) : (
                 <Text dimColor>尚未扫描</Text>
+              )}
+            </Text>
+            <Text>
+              情节大纲：
+              {' '}
+              {plotSummaryReady ? (
+                <Text color="green">已就绪</Text>
+              ) : (
+                <Text dimColor>未生成</Text>
               )}
             </Text>
             <Text dimColor>
@@ -166,6 +177,9 @@ export function WorkspaceProgressScreen() {
             case 'history':
               navigate('workspace-history');
               return;
+            case 'plot-summary':
+              navigate('workspace-plot-summary');
+              return;
             case 'refresh':
               void refreshSnapshot();
               return;
@@ -184,6 +198,7 @@ function buildActionItems(
   snapshot: TranslationProjectSnapshot | null,
   hasProject: boolean,
   hasDictionary: boolean,
+  plotSummaryReady: boolean,
 ): SelectItem<ActionValue>[] {
   if (!snapshot || !hasProject) {
     return [
@@ -238,6 +253,15 @@ function buildActionItems(
       ? '浏览并编辑当前项目字典。'
       : '基于项目内容执行字典扫描，生成候选术语。',
     meta: hasDictionary ? 'glossary' : 'scan',
+  });
+
+  items.push({
+    label: plotSummaryReady ? '📝 情节大纲（已就绪）' : '📝 总结情节大纲',
+    value: 'plot-summary',
+    description: plotSummaryReady
+      ? '查看或重新生成情节大纲总结。'
+      : '选择 LLM 预设开始生成情节大纲总结。',
+    meta: 'plot',
   });
 
   if (snapshot.lifecycle.canSave) {

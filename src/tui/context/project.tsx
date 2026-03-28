@@ -15,10 +15,19 @@ import type { GlossaryTermCategory } from '../../glossary/glossary.ts';
 import { FileRequestHistoryLogger } from '../../llm/history.ts';
 import { TranslationGlobalConfig } from '../../project/config.ts';
 import type { Logger } from '../../project/logger.ts';
+import { PlotSummarizer } from '../../project/plot-summarizer.ts';
+import { StoryTopology, MAIN_ROUTE_ID } from '../../project/story-topology.ts';
 import { TranslationProject } from '../../project/translation-project.ts';
 import type { TranslationProcessorResult } from '../../project/translation-processor.ts';
 import type { TranslationProjectSnapshot } from '../../project/types.ts';
 import { useLog } from './log.tsx';
+
+export interface BranchImportInput {
+  routeId: string;
+  routeName: string;
+  forkAfterChapterId: number;
+  chapterPaths: string[];
+}
 
 export interface InitializeProjectInput {
   projectName: string;
@@ -30,12 +39,26 @@ export interface InitializeProjectInput {
   importFormat?: string;
   translatorModelName?: string;
   translatorWorkflow?: string;
+  branches?: BranchImportInput[];
 }
+
+export type PlotSummaryProgress = {
+  status: 'running' | 'done' | 'error';
+  totalChapters: number;
+  completedChapters: number;
+  totalBatches: number;
+  completedBatches: number;
+  currentChapterId?: number;
+  errorMessage?: string;
+};
 
 interface ProjectContextValue {
   project: TranslationProject | null;
   snapshot: TranslationProjectSnapshot | null;
   isBusy: boolean;
+  topology: StoryTopology | null;
+  plotSummaryProgress: PlotSummaryProgress | null;
+  plotSummaryReady: boolean;
   initializeProject: (input: InitializeProjectInput) => Promise<boolean>;
   refreshSnapshot: () => Promise<void>;
   startTranslation: () => Promise<void>;
@@ -44,6 +67,7 @@ interface ProjectContextValue {
   saveProgress: () => Promise<void>;
   abortTranslation: () => Promise<void>;
   scanDictionary: () => Promise<void>;
+  startPlotSummary: (llmProfileName: string) => Promise<void>;
   updateDictionaryTerm: (args: {
     originalTerm?: string;
     term: string;
@@ -63,6 +87,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [project, setProject] = useState<TranslationProject | null>(null);
   const [snapshot, setSnapshot] = useState<TranslationProjectSnapshot | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [topology, setTopology] = useState<StoryTopology | null>(null);
+  const [plotSummaryProgress, setPlotSummaryProgress] = useState<PlotSummaryProgress | null>(null);
+  const [plotSummaryReady, setPlotSummaryReady] = useState(false);
   const previousSnapshotRef = useRef<TranslationProjectSnapshot | null>(null);
   const processingTokenRef = useRef(0);
 
@@ -171,9 +198,22 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         const hasWorkspaceConfig = await fileExists(join(normalizedDir, 'Data', 'workspace-config.json'));
 
         let nextProject: TranslationProject;
+        let nextTopology: StoryTopology | null = null;
+
         if (hasWorkspaceConfig) {
           addLog('info', `检测到已有工作区，正在打开：${normalizedDir}`);
           nextProject = await TranslationProject.openWorkspace(normalizedDir);
+
+          // Try to load existing topology
+          const topologyPath = join(normalizedDir, 'Data', 'story-topology.json');
+          if (await fileExists(topologyPath)) {
+            nextTopology = await StoryTopology.loadFromFile(topologyPath);
+            addLog('info', `已加载剧情拓扑（${nextTopology.getAllRoutes().length} 条路线）`);
+          }
+
+          // Check if plot summary file exists
+          const summaryPath = join(normalizedDir, 'Data', 'plot-summaries.json');
+          setPlotSummaryReady(await fileExists(summaryPath));
         } else {
           const chapterPaths = input.chapterPaths.map((item) => item.trim()).filter(Boolean);
           if (!input.projectName.trim()) {
@@ -185,11 +225,18 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
             return false;
           }
 
+          // Collect all chapter paths (main + branches)
+          const allChapterPaths = [...chapterPaths];
+          const branches = input.branches ?? [];
+          for (const branch of branches) {
+            allChapterPaths.push(...branch.chapterPaths);
+          }
+
           addLog('info', `正在初始化项目：${input.projectName.trim()}`);
           nextProject = new TranslationProject({
             projectName: input.projectName.trim(),
             projectDir: normalizedDir,
-            chapters: chapterPaths.map((filePath, index) => ({
+            chapters: allChapterPaths.map((filePath, index) => ({
               id: index + 1,
               filePath,
             })),
@@ -205,6 +252,34 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
             ].filter((value): value is string => Boolean(value)),
           });
           await nextProject.initialize();
+
+          // Build topology from main + branches
+          if (branches.length > 0) {
+            nextTopology = StoryTopology.createEmpty();
+            const mainChapterIds = chapterPaths.map((_, index) => index + 1);
+            nextTopology.setMainRouteChapters(mainChapterIds);
+
+            let chapterIdOffset = chapterPaths.length;
+            for (const branch of branches) {
+              const branchChapterIds = branch.chapterPaths.map(
+                (_, index) => chapterIdOffset + index + 1,
+              );
+              chapterIdOffset += branch.chapterPaths.length;
+              nextTopology.addBranch({
+                id: branch.routeId,
+                name: branch.routeName,
+                forkAfterChapterId: branch.forkAfterChapterId,
+                chapters: branchChapterIds,
+              });
+              addLog('info', `已添加支线"${branch.routeName}"（${branchChapterIds.length} 章节，从章节 ${branch.forkAfterChapterId} 分叉）`);
+            }
+
+            const topologyPath = join(normalizedDir, 'Data', 'story-topology.json');
+            await nextTopology.saveToFile(topologyPath);
+            addLog('success', '剧情拓扑已保存');
+          }
+
+          setPlotSummaryReady(false);
         }
 
         await applyWorkspacePreferences(nextProject, {
@@ -217,6 +292,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         previousSnapshotRef.current = nextSnapshot;
         setProject(nextProject);
         setSnapshot(nextSnapshot);
+        setTopology(nextTopology);
         addLog(
           'success',
           `${hasWorkspaceConfig ? '已打开工作区' : '已初始化项目'}：${nextSnapshot.projectName}`,
@@ -427,6 +503,138 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     [addLog, project, runAction],
   );
 
+  const startPlotSummary = useCallback(
+    async (llmProfileName: string) => {
+      if (isBusy) {
+        addLog('warning', '正在执行其他项目操作，请稍候后再试');
+        return;
+      }
+      if (!project) {
+        addLog('warning', '当前没有已初始化的项目');
+        return;
+      }
+
+      setIsBusy(true);
+      setPlotSummaryProgress({
+        status: 'running',
+        totalChapters: 0,
+        completedChapters: 0,
+        totalBatches: 0,
+        completedBatches: 0,
+      });
+
+      void (async () => {
+        try {
+          const manager = new GlobalConfigManager();
+          const globalConfig = await manager.getTranslationGlobalConfig();
+          const runtimeConfig = new TranslationGlobalConfig({ llm: globalConfig.llm });
+          const provider = runtimeConfig.createProvider();
+          const documentManager = project.getDocumentManager();
+          const projectDir = project.getWorkspaceFileManifest().projectDir;
+
+          const historyLogger = new FileRequestHistoryLogger(
+            join(projectDir, 'logs'),
+            'plot_summary_requests',
+          );
+          provider.setHistoryLogger(historyLogger);
+
+          const summaryPath = join(projectDir, 'Data', 'plot-summaries.json');
+          const topologyPath = join(projectDir, 'Data', 'story-topology.json');
+
+          // Load topology if available
+          let currentTopology: StoryTopology | undefined;
+          if (await fileExists(topologyPath)) {
+            currentTopology = await StoryTopology.loadFromFile(topologyPath);
+          }
+
+          const summarizer = new PlotSummarizer(
+            { provider, modelName: llmProfileName },
+            documentManager,
+            summaryPath,
+            {
+              logger: createTuiLogger(addLog),
+              topology: currentTopology,
+            },
+          );
+          await summarizer.loadSummaries();
+
+          const chapters = documentManager.getAllChapters();
+          const totalChapters = chapters.length;
+
+          // Estimate total batches
+          let totalBatches = 0;
+          const fragmentsPerBatch = 5;
+          for (const chapter of chapters) {
+            totalBatches += Math.ceil(chapter.fragments.length / fragmentsPerBatch);
+          }
+
+          let completedChapters = 0;
+          let completedBatches = 0;
+
+          setPlotSummaryProgress({
+            status: 'running',
+            totalChapters,
+            completedChapters: 0,
+            totalBatches,
+            completedBatches: 0,
+          });
+
+          for (const chapter of chapters) {
+            addLog('info', `开始总结章节 ${chapter.id}（${chapter.fragments.length} 个文本块）`);
+            setPlotSummaryProgress((prev) =>
+              prev
+                ? { ...prev, currentChapterId: chapter.id }
+                : prev,
+            );
+
+            const chapterFragments = chapter.fragments.length;
+            let fragmentIndex = 0;
+            while (fragmentIndex < chapterFragments) {
+              const count = Math.min(fragmentsPerBatch, chapterFragments - fragmentIndex);
+              await summarizer.summarizeFragments(chapter.id, fragmentIndex, count);
+              fragmentIndex += count;
+              completedBatches += 1;
+
+              setPlotSummaryProgress((prev) =>
+                prev
+                  ? { ...prev, completedBatches, completedChapters }
+                  : prev,
+              );
+            }
+
+            completedChapters += 1;
+            addLog('success', `章节 ${chapter.id} 总结完成`);
+            setPlotSummaryProgress((prev) =>
+              prev
+                ? { ...prev, completedChapters }
+                : prev,
+            );
+          }
+
+          setPlotSummaryProgress({
+            status: 'done',
+            totalChapters,
+            completedChapters,
+            totalBatches,
+            completedBatches,
+          });
+          setPlotSummaryReady(true);
+          addLog('success', `情节大纲总结完成（共 ${totalChapters} 个章节，${completedBatches} 个批次）`);
+        } catch (error) {
+          addLog('error', `情节总结失败：${toErrorMessage(error)}`);
+          setPlotSummaryProgress((prev) =>
+            prev
+              ? { ...prev, status: 'error', errorMessage: toErrorMessage(error) }
+              : { status: 'error', totalChapters: 0, completedChapters: 0, totalBatches: 0, completedBatches: 0, errorMessage: toErrorMessage(error) },
+          );
+        } finally {
+          setIsBusy(false);
+        }
+      })();
+    },
+    [addLog, isBusy, project],
+  );
+
   const updateDictionaryTerm = useCallback(
     async ({
       originalTerm,
@@ -482,6 +690,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       project,
       snapshot,
       isBusy,
+      topology,
+      plotSummaryProgress,
+      plotSummaryReady,
       initializeProject,
       refreshSnapshot,
       startTranslation,
@@ -490,6 +701,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       saveProgress,
       abortTranslation,
       scanDictionary,
+      startPlotSummary,
       updateDictionaryTerm,
     }),
     [
@@ -497,13 +709,17 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       initializeProject,
       isBusy,
       pauseTranslation,
+      plotSummaryProgress,
+      plotSummaryReady,
       project,
       refreshSnapshot,
       resumeTranslation,
       saveProgress,
       scanDictionary,
       snapshot,
+      startPlotSummary,
       startTranslation,
+      topology,
       updateDictionaryTerm,
     ],
   );

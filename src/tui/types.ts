@@ -8,6 +8,7 @@ export type ScreenName =
   | 'workspace-import'
   | 'workspace-config'
   | 'workspace-sort'
+  | 'workspace-plot-summary'
   | 'settings-menu'
   | 'settings-llm'
   | 'settings-translator';
