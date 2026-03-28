@@ -74,7 +74,7 @@ interface ProjectContextValue {
   startTranslation: () => Promise<void>;
   pauseTranslation: () => Promise<void>;
   resumeTranslation: () => Promise<void>;
-  saveProgress: () => Promise<void>;
+
   abortTranslation: () => Promise<void>;
   scanDictionary: () => Promise<void>;
   startPlotSummary: () => Promise<void>;
@@ -477,20 +477,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         }
       }),
     [addLog, project, runAction, startTranslationLoop],
-  );
-
-  const saveProgress = useCallback(
-    async () =>
-      runAction('保存项目进度', async () => {
-        if (!project) {
-          throw new Error('当前没有已初始化的项目');
-        }
-
-        await project.saveProgress();
-        setSnapshot(project.getProjectSnapshot());
-        addLog('success', '项目进度已保存');
-      }),
-    [addLog, project, runAction],
   );
 
   const abortTranslation = useCallback(
@@ -924,7 +910,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       startTranslation,
       pauseTranslation,
       resumeTranslation,
-      saveProgress,
       abortTranslation,
       scanDictionary,
       startPlotSummary,
@@ -957,7 +942,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       removeChapter,
       reorderChapters,
       resumeTranslation,
-      saveProgress,
       scanDictionary,
       scanDictionaryProgress,
       snapshot,
@@ -1073,20 +1057,9 @@ async function createProcessorForProject(
 
 async function maybePersistProgress(
   project: TranslationProject,
-  result: TranslationProcessorResult,
+  _result: TranslationProcessorResult,
 ): Promise<void> {
-  if (result.glossaryUpdates.length > 0) {
-    await project.saveProgress();
-    return;
-  }
-
-  const snapshot = project.getProjectSnapshot();
-  if (
-    snapshot.progress.translatedFragments === snapshot.progress.totalFragments ||
-    snapshot.progress.translatedFragments % 5 === 0
-  ) {
-    await project.saveProgress();
-  }
+  await project.saveProgress();
 }
 
 function createTuiLogger(
