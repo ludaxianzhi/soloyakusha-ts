@@ -1,6 +1,9 @@
+import { useCallback, useState } from 'react';
+import { Box, Text } from 'ink';
 import { Form } from '../components/form.tsx';
 import { useNavigation } from '../context/navigation.tsx';
 import { useLog } from '../context/log.tsx';
+import { useProject } from '../context/project.tsx';
 import type { FormFieldDef } from '../types.ts';
 
 const fields: FormFieldDef[] = [
@@ -8,14 +11,14 @@ const fields: FormFieldDef[] = [
     key: 'filePath',
     label: '文件路径',
     type: 'text',
-    placeholder: '输入文件路径或通配符...',
-    description: '支持未来的单文件导入和批量匹配模式。',
+    placeholder: '输入文件的相对或绝对路径…',
+    description: '要导入到当前工作区的翻译源文件路径。',
   },
   {
     key: 'format',
     label: '文件格式',
     type: 'select',
-    description: '后续会根据这里的选择切换对应的解析器与预览行为。',
+    description: '文件格式决定使用的解析器；留空则使用工作区默认格式。',
     options: [
       { label: 'Plain Text', value: 'plain_text' },
       { label: 'Nature Dialog', value: 'naturedialog' },
@@ -25,38 +28,65 @@ const fields: FormFieldDef[] = [
     ],
     defaultValue: 'plain_text',
   },
-  {
-    key: 'encoding',
-    label: '文件编码',
-    type: 'select',
-    description: '用于决定文本读取时的默认编码策略。',
-    options: [
-      { label: 'UTF-8', value: 'utf-8' },
-      { label: 'Shift_JIS', value: 'shift_jis' },
-      { label: 'GBK', value: 'gbk' },
-    ],
-    defaultValue: 'utf-8',
-  },
 ];
 
 export function WorkspaceImportScreen() {
   const { goBack } = useNavigation();
   const { addLog } = useLog();
+  const { project, getChapterDescriptors, isBusy } = useProject();
+  const [isImporting, setIsImporting] = useState(false);
+
+  const handleSubmit = useCallback(
+    async (values: Record<string, string>) => {
+      if (!project) {
+        addLog('warning', '请先打开或新建一个工作区，再导入文件');
+        return;
+      }
+
+      const filePath = values.filePath?.trim();
+      if (!filePath) {
+        addLog('warning', '请输入文件路径');
+        return;
+      }
+
+      const descriptors = getChapterDescriptors();
+      const nextId = descriptors.length > 0
+        ? Math.max(...descriptors.map((d) => d.id)) + 1
+        : 1;
+
+      setIsImporting(true);
+      try {
+        const result = await project.addChapter(nextId, filePath, {
+          format: values.format || undefined,
+        });
+        addLog(
+          'success',
+          `已导入章节 ${result.chapterId}：${result.filePath}（${result.fragmentCount} 块，${result.unitCount} 行）`,
+        );
+        goBack();
+      } catch (error) {
+        addLog('error', `导入失败：${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        setIsImporting(false);
+      }
+    },
+    [addLog, getChapterDescriptors, goBack, project],
+  );
+
+  if (!project) {
+    return (
+      <Box flexDirection="column" paddingX={2} paddingY={1}>
+        <Text color="yellow">⚠ 请先打开或新建一个工作区，再导入文件。</Text>
+      </Box>
+    );
+  }
 
   return (
     <Form
       title="导入翻译文件"
       fields={fields}
-      submitLabel="导入"
-      onSubmit={values => {
-        if (!values.filePath?.trim()) {
-          addLog('warning', '请输入文件路径');
-          return;
-        }
-        // TODO: 调用 TranslationFileHandler 导入文件
-        addLog('warning', `文件导入功能尚未接入 (${values.filePath})`);
-        goBack();
-      }}
+      submitLabel={isImporting || isBusy ? '导入中…' : '导入'}
+      onSubmit={handleSubmit}
       onCancel={goBack}
     />
   );

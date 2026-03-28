@@ -27,6 +27,7 @@ import type {
   GlobalLlmConfig,
   GlobalTranslationConfig,
   PersistedLlmClientConfig,
+  WorkspaceEntry,
 } from "./types.ts";
 import {
   DEFAULT_GLOBAL_CONFIG_DIR_NAME,
@@ -304,6 +305,32 @@ export class GlobalConfigManager {
 
   async getResolvedEmbeddingConfig(): Promise<LlmClientConfig> {
     return createLlmClientConfig(await this.getRequiredEmbeddingConfig());
+  }
+
+  async getRecentWorkspaces(): Promise<WorkspaceEntry[]> {
+    const document = await this.loadDocument();
+    return document.recentWorkspaces ? [...document.recentWorkspaces] : [];
+  }
+
+  /** 将工作区记录到注册表（已存在时更新 lastOpenedAt，并将其移到列表最前）。 */
+  async addRecentWorkspace(entry: { name: string; dir: string }): Promise<void> {
+    const document = await this.loadDocument();
+    const entries = document.recentWorkspaces ?? [];
+    const existing = entries.findIndex((e) => e.dir === entry.dir);
+    const updated: WorkspaceEntry = { ...entry, lastOpenedAt: new Date().toISOString() };
+    if (existing !== -1) {
+      entries.splice(existing, 1);
+    }
+    entries.unshift(updated);
+    document.recentWorkspaces = entries.slice(0, 20);
+    await this.persistDocument(document);
+  }
+
+  async removeRecentWorkspace(dir: string): Promise<void> {
+    const document = await this.loadDocument();
+    const entries = document.recentWorkspaces ?? [];
+    document.recentWorkspaces = entries.filter((e) => e.dir !== dir);
+    await this.persistDocument(document);
   }
 
   private async loadDocument(): Promise<GlobalConfigDocument> {

@@ -20,7 +20,7 @@ import { PlotSummarizer } from '../../project/plot-summarizer.ts';
 import { StoryTopology, MAIN_ROUTE_ID } from '../../project/story-topology.ts';
 import { TranslationProject } from '../../project/translation-project.ts';
 import type { TranslationProcessorResult } from '../../project/translation-processor.ts';
-import type { TranslationProjectSnapshot, ProjectExportResult } from '../../project/types.ts';
+import type { TranslationProjectSnapshot, ProjectExportResult, WorkspaceChapterDescriptor, WorkspaceConfig, WorkspaceConfigPatch } from '../../project/types.ts';
 import { useLog } from './log.tsx';
 
 export interface BranchImportInput {
@@ -78,6 +78,10 @@ interface ProjectContextValue {
     category?: string;
     status?: 'translated' | 'untranslated';
   }) => Promise<void>;
+  getWorkspaceConfig: () => WorkspaceConfig | null;
+  getChapterDescriptors: () => WorkspaceChapterDescriptor[];
+  reorderChapters: (chapterIds: number[]) => Promise<void>;
+  updateWorkspaceConfig: (patch: WorkspaceConfigPatch) => Promise<void>;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -738,6 +742,43 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     [addLog, project, runAction],
   );
 
+  const getWorkspaceConfig = useCallback(
+    (): WorkspaceConfig | null => project?.getWorkspaceConfig() ?? null,
+    [project],
+  );
+
+  const getChapterDescriptors = useCallback(
+    (): WorkspaceChapterDescriptor[] => project?.getChapterDescriptors() ?? [],
+    [project],
+  );
+
+  const reorderChapters = useCallback(
+    async (chapterIds: number[]): Promise<void> => {
+      if (!project) {
+        addLog('warning', '当前没有已初始化的项目');
+        return;
+      }
+      await runAction('保存章节排序', async () => {
+        await project.reorderChapters(chapterIds);
+      });
+    },
+    [addLog, project, runAction],
+  );
+
+  const updateWorkspaceConfig = useCallback(
+    async (patch: WorkspaceConfigPatch): Promise<void> => {
+      if (!project) {
+        addLog('warning', '当前没有已初始化的项目');
+        return;
+      }
+      await runAction('保存工作区配置', async () => {
+        await project.updateWorkspaceConfig(patch);
+        setSnapshot(project.getProjectSnapshot());
+      });
+    },
+    [addLog, project, runAction],
+  );
+
   const value = useMemo<ProjectContextValue>(
     () => ({
       project,
@@ -757,10 +798,16 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       startPlotSummary,
       exportProject,
       updateDictionaryTerm,
+      getWorkspaceConfig,
+      getChapterDescriptors,
+      reorderChapters,
+      updateWorkspaceConfig,
     }),
     [
       abortTranslation,
       exportProject,
+      getChapterDescriptors,
+      getWorkspaceConfig,
       initializeProject,
       isBusy,
       pauseTranslation,
@@ -768,6 +815,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       plotSummaryReady,
       project,
       refreshSnapshot,
+      reorderChapters,
       resumeTranslation,
       saveProgress,
       scanDictionary,
@@ -776,6 +824,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       startTranslation,
       topology,
       updateDictionaryTerm,
+      updateWorkspaceConfig,
     ],
   );
 

@@ -1,6 +1,7 @@
 export type ScreenName =
   | 'main-menu'
   | 'workspace-menu'
+  | 'workspace-ops'
   | 'workspace-create'
   | 'workspace-progress'
   | 'workspace-dictionary'

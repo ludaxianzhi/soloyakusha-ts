@@ -576,8 +576,17 @@ export function WorkspaceCreateScreen() {
             });
 
             if (opened) {
-              addLog('success', '初始化工作流完成，已进入项目主页');
-              navigate('workspace-progress');
+              try {
+                const configManager = new GlobalConfigManager();
+                await configManager.addRecentWorkspace({
+                  name: draft.projectName,
+                  dir: draft.projectDir,
+                });
+              } catch {
+                // 注册表写入失败不阻断流程
+              }
+              addLog('success', '初始化工作流完成，已进入工作区操作面板');
+              navigate('workspace-ops');
             }
           })();
         }}

@@ -23,6 +23,13 @@ export const GLOBAL_CONFIG_VERSION = 1;
 export const DEFAULT_GLOBAL_CONFIG_DIR_NAME = ".soloyakusha-ts";
 export const DEFAULT_GLOBAL_CONFIG_FILE_NAME = "config.json";
 
+/** 全局工作区注册表条目，记录已知工作区的基本信息。 */
+export type WorkspaceEntry = {
+  name: string;
+  dir: string;
+  lastOpenedAt: string;
+};
+
 export type PersistedLlmRequestConfig = LlmRequestConfigInput;
 
 export type PersistedLlmClientConfig = {
@@ -55,6 +62,7 @@ export type GlobalConfigDocument = {
   version: typeof GLOBAL_CONFIG_VERSION;
   llm: GlobalLlmConfig;
   translation?: GlobalTranslationConfig;
+  recentWorkspaces?: WorkspaceEntry[];
 };
 
 export type GlobalConfigManagerOptions = {

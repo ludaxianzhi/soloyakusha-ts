@@ -16,8 +16,14 @@ export const screenDescriptors: Record<ScreenName, ScreenDescriptor> = {
   },
   'workspace-menu': {
     eyebrow: 'WORKSPACE',
-    title: '工作区流程',
-    subtitle: '工作区生命周期管理',
+    title: '工作区管理',
+    subtitle: '选择或新建工作区',
+    tone: 'green',
+  },
+  'workspace-ops': {
+    eyebrow: 'WORKSPACE',
+    title: '工作区操作',
+    subtitle: '当前工作区的翻译生命周期操作',
     tone: 'green',
   },
   'workspace-create': {

@@ -1,69 +1,111 @@
+import { useEffect, useState, useCallback } from 'react';
 import { useInput } from 'ink';
+import { GlobalConfigManager } from '../../config/manager.ts';
+import type { WorkspaceEntry } from '../../config/types.ts';
 import { Select } from '../components/select.tsx';
 import { useNavigation } from '../context/navigation.tsx';
-import type { SelectItem, ScreenName } from '../types.ts';
+import { useLog } from '../context/log.tsx';
+import { useProject } from '../context/project.tsx';
+import type { SelectItem } from '../types.ts';
 
-const menuItems: SelectItem<ScreenName | 'back'>[] = [
-  {
-    label: '📊 项目进度与控制',
-    value: 'workspace-progress',
-    description: '查看实时项目状态，并执行开始、暂停、保存和中止等动作。',
-    meta: 'live',
-  },
-  {
+type MenuValue = 'create' | 'back' | `ws:${string}`;
+
+function buildMenuItems(workspaces: WorkspaceEntry[]): SelectItem<MenuValue>[] {
+  const items: SelectItem<MenuValue>[] = workspaces.map((ws) => ({
+    label: `📂 ${ws.name}`,
+    value: `ws:${ws.dir}` as MenuValue,
+    description: ws.dir,
+    meta: new Date(ws.lastOpenedAt).toLocaleDateString('zh-CN'),
+  }));
+
+  items.push({
     label: '✨ 新建工作区',
-    value: 'workspace-create',
-    description: '初始化新项目，或打开已有工作区。',
-    meta: 'form',
-  },
-  {
-    label: '📥 导入翻译文件',
-    value: 'workspace-import',
-    description: '检查导入向导风格的字段布局和状态提示。',
-    meta: 'import',
-  },
-  {
-    label: '📤 导出翻译文件',
-    value: 'workspace-export',
-    description: '将已翻译章节按分线拓扑结构批量导出到 export/ 目录。',
-    meta: 'export',
-  },
-  {
-    label: '📝 编辑工作区配置',
-    value: 'workspace-config',
-    description: '体验配置表单在新版 shell 中的视觉层次。',
-    meta: 'config',
-  },
-  {
-    label: '🔀 章节排序',
-    value: 'workspace-sort',
-    description: '体验 grab 状态更明显的排序交互。',
-    meta: 'list',
-  },
-  {
+    value: 'create',
+    description: '初始化新项目，配置章节、语言和翻译器。',
+    meta: 'new',
+  });
+
+  items.push({
     label: '↩️ 返回',
     value: 'back',
     description: '回到主菜单。',
     meta: 'esc',
-  },
-];
+  });
+
+  return items;
+}
 
 export function WorkspaceMenuScreen() {
   const { navigate, goBack } = useNavigation();
+  const { addLog } = useLog();
+  const { initializeProject } = useProject();
+  const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const manager = new GlobalConfigManager();
+        const list = await manager.getRecentWorkspaces();
+        setWorkspaces(list);
+      } catch {
+        setWorkspaces([]);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, []);
+
+  const handleSelect = useCallback(
+    (item: SelectItem<MenuValue>) => {
+      if (item.value === 'back') {
+        goBack();
+        return;
+      }
+      if (item.value === 'create') {
+        navigate('workspace-create');
+        return;
+      }
+
+      const dir = item.value.slice(3);
+      void (async () => {
+        addLog('info', `正在打开工作区：${dir}`);
+        const opened = await initializeProject({ projectName: '', projectDir: dir, chapterPaths: [] });
+        if (opened) {
+          try {
+            const manager = new GlobalConfigManager();
+            const list = await manager.getRecentWorkspaces();
+            const entry = list.find((e) => e.dir === dir);
+            if (entry) {
+              await manager.addRecentWorkspace({ name: entry.name, dir });
+            }
+          } catch {
+            // 注册表更新失败不阻断流程
+          }
+          navigate('workspace-ops');
+        }
+      })();
+    },
+    [addLog, goBack, initializeProject, navigate],
+  );
 
   useInput((_input, key) => {
     if (key.escape) goBack();
   });
 
+  const description = isLoading
+    ? '正在加载工作区列表…'
+    : workspaces.length > 0
+      ? `共有 ${workspaces.length} 个工作区，选择后进入操作面板，或新建工作区。`
+      : '暂无工作区记录，请新建一个工作区。';
+
   return (
     <Select
       title="工作区管理"
-      description="围绕工作区生命周期组织的流程入口。"
-      items={menuItems}
-      onSelect={item => {
-        if (item.value === 'back') goBack();
-        else navigate(item.value);
-      }}
+      description={description}
+      items={isLoading ? [] : buildMenuItems(workspaces)}
+      onSelect={handleSelect}
     />
   );
 }
+

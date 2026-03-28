@@ -2,6 +2,7 @@ import { useNavigation } from './context/navigation.tsx';
 
 import { MainMenuScreen } from './screens/main-menu.tsx';
 import { WorkspaceMenuScreen } from './screens/workspace-menu.tsx';
+import { WorkspaceOpsMenuScreen } from './screens/workspace-ops-menu.tsx';
 import { WorkspaceCreateScreen } from './screens/workspace-create.tsx';
 import { WorkspaceProgressScreen } from './screens/workspace-progress.tsx';
 import { WorkspaceDictionaryScreen } from './screens/workspace-dictionary.tsx';
@@ -21,6 +22,7 @@ import type { JSX } from 'react';
 const screenMap: Record<ScreenName, () => JSX.Element> = {
   'main-menu': MainMenuScreen,
   'workspace-menu': WorkspaceMenuScreen,
+  'workspace-ops': WorkspaceOpsMenuScreen,
   'workspace-create': WorkspaceCreateScreen,
   'workspace-progress': WorkspaceProgressScreen,
   'workspace-dictionary': WorkspaceDictionaryScreen,

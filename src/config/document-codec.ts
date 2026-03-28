@@ -18,6 +18,7 @@ import type {
   GlobalTranslationConfig,
   PersistedLlmClientConfig,
   PersistedLlmRequestConfig,
+  WorkspaceEntry,
 } from "./types.ts";
 import { GLOBAL_CONFIG_VERSION } from "./types.ts";
 
@@ -88,6 +89,11 @@ export function normalizeGlobalConfigDocument(
     `${sourceLabel}:translation`,
   );
 
+  const recentWorkspaces = normalizeOptionalWorkspaceEntries(
+    value.recentWorkspaces,
+    `${sourceLabel}:recentWorkspaces`,
+  );
+
   return {
     version: GLOBAL_CONFIG_VERSION,
     llm: {
@@ -96,6 +102,7 @@ export function normalizeGlobalConfigDocument(
       embedding,
     },
     translation,
+    recentWorkspaces,
   };
 }
 
@@ -322,6 +329,7 @@ export function cloneDocument(document: GlobalConfigDocument): GlobalConfigDocum
     version: document.version,
     llm: cloneLlmConfig(document.llm),
     translation: cloneTranslationConfig(document.translation),
+    recentWorkspaces: document.recentWorkspaces ? [...document.recentWorkspaces.map(cloneWorkspaceEntry)] : undefined,
   };
 }
 
@@ -759,4 +767,35 @@ function isJsonValue(value: unknown): value is JsonValue {
   }
 
   return isJsonObject(value);
+}
+
+function normalizeOptionalWorkspaceEntries(
+  value: unknown,
+  sourceLabel: string,
+): WorkspaceEntry[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const entries: WorkspaceEntry[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const item = value[i];
+    if (!isRecord(item)) continue;
+    const name = readOptionalString(item.name, `${sourceLabel}[${i}].name`);
+    const dir = readOptionalString(item.dir, `${sourceLabel}[${i}].dir`);
+    const lastOpenedAt = readOptionalString(item.lastOpenedAt, `${sourceLabel}[${i}].lastOpenedAt`);
+    if (name && dir && lastOpenedAt) {
+      entries.push({ name, dir, lastOpenedAt });
+    }
+  }
+
+  return entries.length > 0 ? entries : undefined;
+}
+
+function cloneWorkspaceEntry(entry: WorkspaceEntry): WorkspaceEntry {
+  return { name: entry.name, dir: entry.dir, lastOpenedAt: entry.lastOpenedAt };
 }
