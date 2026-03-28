@@ -95,6 +95,7 @@ interface ProjectContextValue {
   importGlossary: (filePath: string) => Promise<void>;
   exportGlossary: (outputPath: string) => Promise<void>;
   closeWorkspace: () => void;
+  removeWorkspace: () => Promise<void>;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -896,6 +897,29 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     addLog('info', '已关闭当前工作区');
   }, [addLog]);
 
+  const removeWorkspace = useCallback(async () => {
+    const dir = project?.getWorkspaceFileManifest().projectDir;
+    processingTokenRef.current += 1;
+    previousSnapshotRef.current = null;
+    setProject(null);
+    setSnapshot(null);
+    setTopology(null);
+    setPlotSummaryProgress(null);
+    setPlotSummaryReady(false);
+    setScanDictionaryProgress(null);
+    setIsBusy(false);
+    if (dir) {
+      try {
+        const manager = new GlobalConfigManager();
+        await manager.removeRecentWorkspace(dir);
+        addLog('success', `工作区已从最近列表中移除：${dir}`);
+      } catch {
+        addLog('error', '移除工作区记录失败');
+      }
+    }
+    addLog('info', '已关闭并移除当前工作区');
+  }, [addLog, project]);
+
   const value = useMemo<ProjectContextValue>(
     () => ({
       project,
@@ -923,10 +947,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       importGlossary,
       exportGlossary,
       closeWorkspace,
+      removeWorkspace,
     }),
     [
       abortTranslation,
       closeWorkspace,
+      removeWorkspace,
       exportProject,
       exportGlossary,
       getChapterDescriptors,
