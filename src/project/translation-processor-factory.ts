@@ -9,6 +9,10 @@ import type { ChatRequestOptions } from "../llm/types.ts";
 import type { Logger } from "./logger.ts";
 import type { PromptManager } from "./prompt-manager.ts";
 import { DefaultTranslationProcessor } from "./default-translation-processor.ts";
+import {
+  MultiStageTranslationProcessor,
+  type MultiStageStepName,
+} from "./multi-stage-translation-processor.ts";
 import type {
   TranslationProcessor,
   TranslationProcessorClientResolver,
@@ -18,6 +22,15 @@ import type { SlidingWindowOptions } from "./types.ts";
 export type TranslationProcessorFactoryCreateOptions = {
   workflow?: string;
   clientResolver: TranslationProcessorClientResolver;
+  /**
+   * 各步骤的 LLM 解析器覆盖，供多步骤工作流（如 multi-stage）使用。
+   * key 为步骤标识（如 "analyzer"、"translator" 等），value 为对应的 client resolver。
+   */
+  additionalClientResolvers?: Record<string, TranslationProcessorClientResolver>;
+  /**
+   * 工作流专用选项，供特定工作流读取（如 multi-stage 的 reviewIterations）。
+   */
+  workflowOptions?: Record<string, unknown>;
   promptManager?: PromptManager;
   defaultRequestOptions?: ChatRequestOptions;
   defaultSlidingWindow?: SlidingWindowOptions;
@@ -43,6 +56,41 @@ export class TranslationProcessorFactory {
           processorName: options.processorName,
           glossaryUpdater: options.glossaryUpdater,
         }),
+    ],
+    [
+      "multi-stage",
+      (options) => {
+        const stepResolvers: Partial<Record<MultiStageStepName, TranslationProcessorClientResolver>> =
+          {};
+        const additionalResolvers = options.additionalClientResolvers ?? {};
+        for (const step of [
+          "analyzer",
+          "translator",
+          "polisher",
+          "editor",
+          "proofreader",
+          "reviser",
+        ] as MultiStageStepName[]) {
+          if (additionalResolvers[step]) {
+            stepResolvers[step] = additionalResolvers[step];
+          }
+        }
+
+        const reviewIterations =
+          typeof options.workflowOptions?.reviewIterations === "number"
+            ? options.workflowOptions.reviewIterations
+            : undefined;
+
+        return new MultiStageTranslationProcessor(options.clientResolver, stepResolvers, {
+          promptManager: options.promptManager,
+          defaultRequestOptions: options.defaultRequestOptions,
+          defaultSlidingWindow: options.defaultSlidingWindow,
+          logger: options.logger,
+          processorName: options.processorName,
+          glossaryUpdater: options.glossaryUpdater,
+          reviewIterations,
+        });
+      },
     ],
   ]);
 

@@ -53,14 +53,31 @@ export type GlobalLlmConfig = {
   embedding?: PersistedLlmClientConfig;
 };
 
+/**
+ * 多步骤工作流的各步骤 LLM Profile 名称覆盖。
+ * key 为步骤标识（如 "analyzer"、"translator" 等），value 为 LLM Profile 名称。
+ * 未指定的步骤使用 TranslatorEntry.modelName 作为默认值。
+ */
+export type TranslatorModelOverrides = Record<string, string>;
+
 /** 命名翻译器注册条目，对应一种翻译工作流 + 参数组合。 */
 export type TranslatorEntry = {
   /** 工作流类型，对应翻译处理器 workflow 参数，留空则使用 "default"。 */
   type?: string;
-  /** 引用的 LLM Profile 名称。 */
+  /** 引用的 LLM Profile 名称（同时作为所有步骤的默认模型）。 */
   modelName: string;
   slidingWindow?: SlidingWindowOptions;
   requestOptions?: ChatRequestOptions;
+  /**
+   * 各步骤的 LLM Profile 名称覆盖，供多步骤工作流使用。
+   * 例如 multi-stage 工作流支持 analyzer/translator/polisher/editor/proofreader/reviser。
+   */
+  models?: TranslatorModelOverrides;
+  /**
+   * 评审迭代次数（仅 multi-stage 工作流使用）。
+   * 默认值为 2。
+   */
+  reviewIterations?: number;
 };
 
 export type GlobalTranslationConfig = {

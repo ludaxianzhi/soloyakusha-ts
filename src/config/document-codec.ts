@@ -173,6 +173,11 @@ export function normalizeTranslationProcessorConfig(
       value.requestOptions === undefined
         ? undefined
         : normalizePersistedChatRequestOptions(value.requestOptions, `${sourceLabel}.requestOptions`),
+    models: normalizeTranslatorModelOverrides(value.models, `${sourceLabel}.models`),
+    reviewIterations: readOptionalNonNegativeInteger(
+      value.reviewIterations,
+      `${sourceLabel}.reviewIterations`,
+    ),
   };
 }
 
@@ -183,6 +188,12 @@ export function normalizeTranslatorEntry(
   if (!isRecord(value)) {
     throw new Error(`翻译器条目必须是对象: ${sourceLabel}`);
   }
+
+  const models = normalizeTranslatorModelOverrides(value.models, `${sourceLabel}.models`);
+  const reviewIterations = readOptionalNonNegativeInteger(
+    value.reviewIterations,
+    `${sourceLabel}.reviewIterations`,
+  );
 
   return {
     type: readOptionalString(value.type, `${sourceLabel}.type`),
@@ -195,7 +206,32 @@ export function normalizeTranslatorEntry(
       value.requestOptions === undefined
         ? undefined
         : normalizePersistedChatRequestOptions(value.requestOptions, `${sourceLabel}.requestOptions`),
+    models,
+    reviewIterations,
   };
+}
+
+function normalizeTranslatorModelOverrides(
+  value: unknown,
+  sourceLabel: string,
+): Record<string, string> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`翻译器步骤模型覆盖必须是对象: ${sourceLabel}`);
+  }
+
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== "string" || entry.trim().length === 0) {
+      throw new Error(`${sourceLabel}.${key} 必须是非空字符串`);
+    }
+    result[key] = entry;
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 export function normalizeTranslators(
@@ -411,6 +447,8 @@ export function cloneTranslatorEntry(entry: TranslatorEntry): TranslatorEntry {
     requestOptions: entry.requestOptions
       ? clonePersistedChatRequestOptions(entry.requestOptions)
       : undefined,
+    models: entry.models ? { ...entry.models } : undefined,
+    reviewIterations: entry.reviewIterations,
   };
 }
 
@@ -443,6 +481,8 @@ export function cloneTranslationProcessorConfig(
     requestOptions: config.requestOptions
       ? clonePersistedChatRequestOptions(config.requestOptions)
       : undefined,
+    models: config.models ? { ...config.models } : undefined,
+    reviewIterations: config.reviewIterations,
   };
 }
 
