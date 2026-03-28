@@ -140,6 +140,7 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
     const updates = parseGlossaryUpdateResponse(
       responseText,
       request.untranslatedTerms.map((term) => term.term),
+      request.translationUnits.map((unit) => unit.translatedText),
     );
     const appliedTerms = request.glossary.applyTranslations(updates);
 
@@ -270,6 +271,7 @@ function buildEmptyGlossaryUpdateResponseSchema(): JsonObject {
 function parseGlossaryUpdateResponse(
   responseText: string,
   allowedGlossaryTerms: ReadonlyArray<string>,
+  translatedTexts: ReadonlyArray<string>,
 ): GlossaryTranslationUpdate[] {
   let parsed: unknown;
   try {
@@ -291,7 +293,9 @@ function parseGlossaryUpdateResponse(
 
   const allowedGlossaryTermSet = new Set(allowedGlossaryTerms);
   const seenGlossaryTerms = new Set<string>();
-  return glossaryValues.map<GlossaryTranslationUpdate>((entry, index) => {
+  const results: GlossaryTranslationUpdate[] = [];
+
+  for (const [index, entry] of glossaryValues.entries()) {
     if (!isRecord(entry)) {
       throw new Error(`glossaryUpdates[${index}] 必须是对象`);
     }
@@ -302,8 +306,9 @@ function parseGlossaryUpdateResponse(
     if (!term) {
       throw new Error(`glossaryUpdates[${index}].term 必须是非空字符串`);
     }
+    // 过滤：术语不在术语表中
     if (!allowedGlossaryTermSet.has(term)) {
-      throw new Error(`glossaryUpdates 返回了未请求的术语: ${term}`);
+      continue;
     }
     if (seenGlossaryTerms.has(term)) {
       throw new Error(`glossaryUpdates 返回了重复术语: ${term}`);
@@ -311,10 +316,16 @@ function parseGlossaryUpdateResponse(
     if (!translation) {
       throw new Error(`glossaryUpdates[${index}].translation 必须是非空字符串`);
     }
+    // 过滤：术语译文在译文中不存在
+    if (!translatedTexts.some((text) => text.includes(translation))) {
+      continue;
+    }
 
     seenGlossaryTerms.add(term);
-    return { term, translation };
-  });
+    results.push({ term, translation });
+  }
+
+  return results;
 }
 
 function getResolvedModelName(

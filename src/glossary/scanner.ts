@@ -211,6 +211,13 @@ export class FullTextGlossaryScanner {
     );
     this.logger.info?.(`术语扫描完成，共提取 ${glossary.getAllTerms().length} 个术语`);
 
+    // 过滤：术语在文本中不存在，或全文只在一个文本块中出现
+    for (const term of glossary.getAllTerms()) {
+      if (term.totalOccurrenceCount === 0 || term.textBlockOccurrenceCount <= 1) {
+        glossary.removeTerm(term.term);
+      }
+    }
+
     return {
       glossary,
       lines: [...lines],

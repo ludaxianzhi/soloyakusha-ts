@@ -241,15 +241,12 @@ describe("glossary", () => {
       totalOccurrenceCount: 4,
       textBlockOccurrenceCount: 2,
     });
-    expect(result.glossary.getTerm("陛下")).toMatchObject({
-      category: "personTitle",
-      totalOccurrenceCount: 1,
-      textBlockOccurrenceCount: 1,
-    });
+    // 陛下 只出现在一个文本块中，应被过滤
+    expect(result.glossary.getTerm("陛下")).toBeUndefined();
 
     const formatted = scanner.formatResult(result);
     expect(formatted).toContain("[人名]");
-    expect(formatted).toContain("[人物称呼]");
+    expect(formatted).not.toContain("[人物称呼]");
     expect(formatted).toContain("总出现: 4");
   });
 
