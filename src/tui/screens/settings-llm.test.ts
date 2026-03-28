@@ -62,4 +62,38 @@ describe("buildLlmConfigFromValues", () => {
       message: "默认 Extra Body 必须是 YAML 对象",
     });
   });
+
+  test("accepts leading tab indentation in yaml extraBody", () => {
+    const result = buildLlmConfigFromValues(
+      {
+        provider: "openai",
+        endpoint: "https://example.com/v1",
+        apiKey: "secret",
+        apiKeyEnv: "",
+        modelName: "gpt-4.1",
+        retries: "3",
+        qps: "",
+        maxParallelRequests: "",
+        defaultSystemPrompt: "",
+        defaultTemperature: "",
+        defaultTopP: "",
+        defaultMaxTokens: "",
+        defaultExtraBody: "chat_template_kwargs:\n\tenable_thinking: false\n",
+      },
+      "chat",
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.config.defaultRequestConfig).toEqual({
+      extraBody: {
+        chat_template_kwargs: {
+          enable_thinking: false,
+        },
+      },
+    });
+  });
 });

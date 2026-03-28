@@ -644,7 +644,7 @@ function parseOptionalYamlJsonObject(
   }
 
   try {
-    const parsed = YAML.parse(value);
+    const parsed = YAML.parse(normalizeYamlIndentation(value));
     if (!isPlainObject(parsed)) {
       return { ok: false, message: '默认 Extra Body 必须是 YAML 对象' };
     }
@@ -659,6 +659,12 @@ function parseOptionalYamlJsonObject(
       message: `默认 Extra Body YAML 解析失败：${toErrorMessage(error)}`,
     };
   }
+}
+
+function normalizeYamlIndentation(value: string): string {
+  return value.replace(/(^|\n)(\t+)/g, (_match, prefix: string, tabs: string) => {
+    return `${prefix}${'  '.repeat(tabs.length)}`;
+  });
 }
 
 function normalizeJsonObject(value: Record<string, unknown>, source: string): JsonObject {
