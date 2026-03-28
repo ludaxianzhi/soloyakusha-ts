@@ -11,13 +11,13 @@ export const screenDescriptors: Record<ScreenName, ScreenDescriptor> = {
   'main-menu': {
     eyebrow: 'HOME',
     title: 'SoloYakusha TUI',
-    subtitle: '沉浸式控制台骨架',
+    subtitle: '工作区与配置首页',
     tone: 'cyan',
   },
   'workspace-menu': {
     eyebrow: 'WORKSPACE',
-    title: '工作区管理',
-    subtitle: '选择或新建工作区',
+    title: '最近工作区',
+    subtitle: '打开最近工作区或继续新建项目',
     tone: 'green',
   },
   'workspace-ops': {
@@ -74,12 +74,6 @@ export const screenDescriptors: Record<ScreenName, ScreenDescriptor> = {
     subtitle: '调整章节顺序',
     tone: 'magenta',
   },
-  'settings-menu': {
-    eyebrow: 'SETTINGS',
-    title: '全局设置',
-    subtitle: '全局配置中心',
-    tone: 'blue',
-  },
   'settings-llm': {
     eyebrow: 'LLM',
     title: 'LLM 配置',
@@ -90,6 +84,12 @@ export const screenDescriptors: Record<ScreenName, ScreenDescriptor> = {
     eyebrow: 'TRANSLATOR',
     title: '翻译器配置',
     subtitle: '翻译处理器参数',
+    tone: 'magenta',
+  },
+  'settings-translation-auxiliary': {
+    eyebrow: 'AUX',
+    title: '翻译辅助配置',
+    subtitle: '术语提取、字典更新与情节总结',
     tone: 'magenta',
   },
   'workspace-plot-summary': {

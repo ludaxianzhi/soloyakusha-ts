@@ -11,9 +11,9 @@ export type ScreenName =
   | 'workspace-config'
   | 'workspace-sort'
   | 'workspace-plot-summary'
-  | 'settings-menu'
   | 'settings-llm'
-  | 'settings-translator';
+  | 'settings-translator'
+  | 'settings-translation-auxiliary';
 
 export interface LogEntry {
   id: number;

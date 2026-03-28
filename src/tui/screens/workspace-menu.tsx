@@ -96,12 +96,12 @@ export function WorkspaceMenuScreen() {
   const description = isLoading
     ? '正在加载工作区列表…'
     : workspaces.length > 0
-      ? `共有 ${workspaces.length} 个工作区，选择后进入操作面板，或新建工作区。`
-      : '暂无工作区记录，请新建一个工作区。';
+      ? `共有 ${workspaces.length} 个最近工作区，可直接打开，或继续新建工作区。`
+      : '暂无最近工作区记录，请先新建一个工作区。';
 
   return (
     <Select
-      title="工作区管理"
+      title="打开最近工作区"
       description={description}
       items={isLoading ? [] : buildMenuItems(workspaces)}
       onSelect={handleSelect}

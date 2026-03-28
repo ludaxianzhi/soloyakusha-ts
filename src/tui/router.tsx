@@ -12,9 +12,9 @@ import { WorkspaceExportScreen } from './screens/workspace-export.tsx';
 import { WorkspaceConfigScreen } from './screens/workspace-config.tsx';
 import { WorkspaceSortScreen } from './screens/workspace-sort.tsx';
 import { WorkspacePlotSummaryScreen } from './screens/workspace-plot-summary.tsx';
-import { SettingsMenuScreen } from './screens/settings-menu.tsx';
 import { SettingsLlmScreen } from './screens/settings-llm.tsx';
 import { SettingsTranslatorScreen } from './screens/settings-translator.tsx';
+import { SettingsTranslationAuxiliaryScreen } from './screens/settings-translation-auxiliary.tsx';
 
 import type { ScreenName } from './types.ts';
 import type { JSX } from 'react';
@@ -32,9 +32,9 @@ const screenMap: Record<ScreenName, () => JSX.Element> = {
   'workspace-config': WorkspaceConfigScreen,
   'workspace-sort': WorkspaceSortScreen,
   'workspace-plot-summary': WorkspacePlotSummaryScreen,
-  'settings-menu': SettingsMenuScreen,
   'settings-llm': SettingsLlmScreen,
   'settings-translator': SettingsTranslatorScreen,
+  'settings-translation-auxiliary': SettingsTranslationAuxiliaryScreen,
 };
 
 export function Router() {

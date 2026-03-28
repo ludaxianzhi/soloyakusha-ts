@@ -5,16 +5,34 @@ import type { SelectItem, ScreenName } from '../types.ts';
 
 const menuItems: SelectItem<ScreenName | 'exit'>[] = [
   {
-    label: '📁 工作区管理',
+    label: '📂 打开最近工作区',
     value: 'workspace-menu',
-    description: '进入工作区创建、导入、配置和章节排序相关的交互骨架。',
-    meta: '4 flows',
+    description: '查看最近打开的工作区，并进入工作区操作面板。',
+    meta: 'recent',
   },
   {
-    label: '⚙️ 全局配置',
-    value: 'settings-menu',
-    description: '查看 LLM 与翻译器设置页的新版视觉与表单框架。',
-    meta: '2 panels',
+    label: '✨ 新建工作区',
+    value: 'workspace-create',
+    description: '初始化新项目，配置章节、语言和默认翻译器。',
+    meta: 'new',
+  },
+  {
+    label: '🤖 LLM 配置',
+    value: 'settings-llm',
+    description: '管理聊天模型和嵌入模型的全局配置。',
+    meta: 'llm',
+  },
+  {
+    label: '📝 翻译器配置',
+    value: 'settings-translator',
+    description: '直接配置默认翻译器使用的模型、工作流和滑窗参数。',
+    meta: 'translator',
+  },
+  {
+    label: '🧰 翻译辅助配置',
+    value: 'settings-translation-auxiliary',
+    description: '集中管理术语提取、字典更新和情节总结配置。',
+    meta: 'aux',
   },
   {
     label: '🚪 退出',
@@ -31,7 +49,7 @@ export function MainMenuScreen() {
   return (
     <Select
       title="主菜单"
-      description="新的首页把导航入口包装成更清晰的卡片列表。"
+      description="从首页直接进入工作区和各类全局配置。"
       items={menuItems}
       onSelect={item => {
         if (item.value === 'exit') exit();
