@@ -423,6 +423,30 @@ export type TranslationExportResult = {
 };
 
 /**
+ * 单条路线的导出结果。
+ */
+export type RouteExportResult = {
+  routeId: string;
+  routeName: string;
+  exportDir: string;
+  chapters: TranslationExportResult[];
+};
+
+/**
+ * 按拓扑结构导出整个项目的结果。
+ */
+export type ProjectExportResult = {
+  /** 导出根目录（固定为 {projectDir}/export） */
+  exportDir: string;
+  /** 各路线的导出结果 */
+  routes: RouteExportResult[];
+  /** 总导出章节数 */
+  totalChapters: number;
+  /** 总导出翻译单元数 */
+  totalUnits: number;
+};
+
+/**
  * 术语表导入结果。
  */
 export type GlossaryImportResult = {

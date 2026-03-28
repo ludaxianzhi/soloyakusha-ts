@@ -19,7 +19,7 @@ import { PlotSummarizer } from '../../project/plot-summarizer.ts';
 import { StoryTopology, MAIN_ROUTE_ID } from '../../project/story-topology.ts';
 import { TranslationProject } from '../../project/translation-project.ts';
 import type { TranslationProcessorResult } from '../../project/translation-processor.ts';
-import type { TranslationProjectSnapshot } from '../../project/types.ts';
+import type { TranslationProjectSnapshot, ProjectExportResult } from '../../project/types.ts';
 import { useLog } from './log.tsx';
 
 export interface BranchImportInput {
@@ -68,6 +68,7 @@ interface ProjectContextValue {
   abortTranslation: () => Promise<void>;
   scanDictionary: () => Promise<void>;
   startPlotSummary: (llmProfileName: string) => Promise<void>;
+  exportProject: (formatName: string) => Promise<ProjectExportResult | null>;
   updateDictionaryTerm: (args: {
     originalTerm?: string;
     term: string;
@@ -632,6 +633,27 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     [addLog, isBusy, project],
   );
 
+  const exportProject = useCallback(
+    async (formatName: string): Promise<ProjectExportResult | null> => {
+      if (!project) {
+        addLog('warning', '当前没有已初始化的项目');
+        return null;
+      }
+
+      let result: ProjectExportResult | null = null;
+      await runAction('导出翻译文件', async () => {
+        const exported = await project.exportProject(formatName);
+        result = exported;
+        addLog(
+          'success',
+          `导出完成：共 ${exported.totalChapters} 个章节，${exported.totalUnits} 个翻译单元 → ${exported.exportDir}`,
+        );
+      });
+      return result;
+    },
+    [addLog, project, runAction],
+  );
+
   const updateDictionaryTerm = useCallback(
     async ({
       originalTerm,
@@ -699,10 +721,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       abortTranslation,
       scanDictionary,
       startPlotSummary,
+      exportProject,
       updateDictionaryTerm,
     }),
     [
       abortTranslation,
+      exportProject,
       initializeProject,
       isBusy,
       pauseTranslation,

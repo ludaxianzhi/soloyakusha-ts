@@ -6,6 +6,7 @@ export type ScreenName =
   | 'workspace-dictionary'
   | 'workspace-history'
   | 'workspace-import'
+  | 'workspace-export'
   | 'workspace-config'
   | 'workspace-sort'
   | 'workspace-plot-summary'

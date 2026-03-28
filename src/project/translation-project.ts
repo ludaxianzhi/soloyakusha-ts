@@ -5,9 +5,11 @@
  */
 
 import type { TranslationFileHandler, TranslationFileHandlerResolver } from "../file-handlers/base.ts";
+import { TranslationFileHandlerFactory } from "../file-handlers/factory.ts";
 import { Glossary, GlossaryPersisterFactory } from "../glossary/index.ts";
+import { mkdir } from "node:fs/promises";
 import { access } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, extname, join, resolve } from "node:path";
 import {
   getPlotSummariesForPosition,
   loadPlotSummaryEntriesFromFile,
@@ -38,7 +40,9 @@ import type {
   GlossaryImportResult,
   GlossaryProgressSnapshot,
   ProjectCursor,
+  ProjectExportResult,
   ProjectProgressSnapshot,
+  RouteExportResult,
   TranslationExportResult,
   TranslationImportResult,
   TranslationProjectConfig,
@@ -339,6 +343,109 @@ export class TranslationProject
   ): Promise<TranslationExportResult[]> {
     this.ensureInitialized();
     return this.workspaceManager.exportAllChapters(outputDir, options);
+  }
+
+  /**
+   * 按分线拓扑结构将已翻译章节批量导出到 export/ 目录。
+   *
+   * 导出规则：
+   * - 导出根目录固定为 `{projectDir}/export/`
+   * - 若项目只有主线，所有章节文件直接导出到 `export/`
+   * - 若存在分支，主线导出到 `export/main/`，各分支导出到 `export/{routeId}/`
+   * - 只导出「含已翻译文本块」的章节（至少有一个 fragment 有非空译文）
+   * - 未翻译的 fragment 对应译文留空
+   *
+   * @param formatName - 文件格式名，如 "naturedialog"、"plain_text"、"galtransl_json" 等
+   */
+  async exportProject(formatName: string): Promise<ProjectExportResult> {
+    this.ensureInitialized();
+
+    const handler = TranslationFileHandlerFactory.getHandler(formatName);
+    const exportRootDir = join(this.projectDir, "export");
+    const topology = this.storyTopology;
+    const hasBranches = topology ? topology.getBranches().length > 0 : false;
+
+    const routes: RouteExportResult[] = [];
+
+    if (!topology) {
+      // 无拓扑结构，按 chapters 线性导出到根目录
+      const chapterResults = await this.exportChaptersToDir(
+        this.chapters,
+        exportRootDir,
+        handler,
+      );
+      routes.push({
+        routeId: "main",
+        routeName: "主线",
+        exportDir: exportRootDir,
+        chapters: chapterResults,
+      });
+    } else {
+      for (const route of topology.getAllRoutes()) {
+        const routeExportDir = hasBranches
+          ? join(exportRootDir, route.id)
+          : exportRootDir;
+
+        const routeChapters = this.chapters.filter((ch) =>
+          route.chapters.includes(ch.id),
+        );
+        const chapterResults = await this.exportChaptersToDir(
+          routeChapters,
+          routeExportDir,
+          handler,
+        );
+        routes.push({
+          routeId: route.id,
+          routeName: route.name,
+          exportDir: routeExportDir,
+          chapters: chapterResults,
+        });
+      }
+    }
+
+    const totalChapters = routes.reduce((sum, r) => sum + r.chapters.length, 0);
+    const totalUnits = routes.reduce(
+      (sum, r) => r.chapters.reduce((s, c) => s + c.unitCount, 0) + sum,
+      0,
+    );
+
+    return { exportDir: exportRootDir, routes, totalChapters, totalUnits };
+  }
+
+  /**
+   * 将指定章节列表导出到目标目录，跳过无译文的章节。
+   */
+  private async exportChaptersToDir(
+    chapters: Chapter[],
+    outputDir: string,
+    handler: TranslationFileHandler,
+  ): Promise<TranslationExportResult[]> {
+    await mkdir(outputDir, { recursive: true });
+
+    const results: TranslationExportResult[] = [];
+    for (const chapter of chapters) {
+      const chapterEntry = this.documentManager.getChapterById(chapter.id);
+      if (!chapterEntry) {
+        continue;
+      }
+
+      const hasTranslation = chapterEntry.fragments.some((fragment) =>
+        fragment.translation.lines.some((line) => line.trim().length > 0),
+      );
+      if (!hasTranslation) {
+        continue;
+      }
+
+      const base = basename(chapter.filePath, extname(chapter.filePath));
+      const ext = extname(chapter.filePath) || ".txt";
+      const outputPath = join(outputDir, `${base}${ext}`);
+      await this.documentManager.exportChapter(chapter.id, outputPath, handler);
+
+      const unitCount = this.documentManager.getChapterTranslationUnits(chapter.id).length;
+      results.push({ chapterId: chapter.id, outputPath, unitCount });
+    }
+
+    return results;
   }
 
   async importGlossary(filePath: string): Promise<GlossaryImportResult> {

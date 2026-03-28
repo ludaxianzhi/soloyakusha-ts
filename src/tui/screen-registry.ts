@@ -115,6 +115,22 @@ export const screenDescriptors: Record<ScreenName, ScreenDescriptor> = {
 - 预览导入计划与校验结果
 `,
   },
+  'workspace-export': {
+    eyebrow: 'EXPORT',
+    title: '导出翻译文件',
+    subtitle: '按分线拓扑结构将已翻译章节批量导出到 export/ 目录。',
+    tone: 'green',
+    mdx: String.raw`
+## Export your translation
+
+导出规则：
+
+- 只导出含已翻译文本块的章节
+- 未翻译的文本块译文留空
+- 仅有主线时直接导出到 **export/** 目录
+- 存在分线时各自导出到 **export/{routeId}/** 子目录
+`,
+  },
   'workspace-config': {
     eyebrow: 'CONFIG',
     title: '工作区配置',

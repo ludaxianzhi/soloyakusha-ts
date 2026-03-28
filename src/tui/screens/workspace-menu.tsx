@@ -23,6 +23,12 @@ const menuItems: SelectItem<ScreenName | 'back'>[] = [
     meta: 'import',
   },
   {
+    label: '📤 导出翻译文件',
+    value: 'workspace-export',
+    description: '将已翻译章节按分线拓扑结构批量导出到 export/ 目录。',
+    meta: 'export',
+  },
+  {
     label: '📝 编辑工作区配置',
     value: 'workspace-config',
     description: '体验配置表单在新版 shell 中的视觉层次。',
