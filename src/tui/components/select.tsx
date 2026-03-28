@@ -34,12 +34,20 @@ export function Select<T extends string = string>({
 
   // Scrolling
   const [scrollOffset, setScrollOffset] = useState(0);
+  // Only sync focus when initialValue itself changes, not when items reference changes.
+  // Resetting on every new items reference caused focus to jump to 0 every polling cycle.
   useEffect(() => {
-    const nextIndex = initialValue
-      ? items.findIndex((item) => item.value === initialValue)
-      : 0;
+    if (initialValue === undefined) return;
+    const nextIndex = items.findIndex((item) => item.value === initialValue);
     setFocusIndex(nextIndex >= 0 ? nextIndex : 0);
-  }, [initialValue, items]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValue]);
+
+  // Clamp focus within bounds when the items list shrinks.
+  useEffect(() => {
+    if (items.length === 0) return;
+    setFocusIndex((prev) => Math.min(prev, items.length - 1));
+  }, [items.length]);
 
   useEffect(() => {
     if (focusIndex < scrollOffset) {

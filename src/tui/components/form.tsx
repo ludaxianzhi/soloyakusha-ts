@@ -263,7 +263,8 @@ export function Form({
     }
   }, [activeAutocomplete, activeRowIndex, autocompleteItems.length, renderRows.length, scrollOffset, visibleRows]);
 
-  // 导航到 text/autocomplete 字段时自动进入编辑模式
+  // 导航到 text/autocomplete 字段时自动进入编辑模式。
+  // 仅在 activeIndex 改变时触发，避免 fields 引用变更（如每秒轮询触发重渲染）导致编辑模式被意外退出。
   useEffect(() => {
     const field = fields[activeIndex];
     if (field?.type === 'text' || field?.type === 'autocomplete') {
@@ -275,7 +276,7 @@ export function Form({
       setEditing(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIndex, fields]);
+  }, [activeIndex]);
 
   useInput((input, key) => {
     if (textareaEditing) {

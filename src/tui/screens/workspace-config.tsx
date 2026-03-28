@@ -36,7 +36,9 @@ export function WorkspaceConfigScreen() {
     })();
   }, []);
 
-  const config = getWorkspaceConfig();
+  // Memoize so that a new object from getWorkspaceConfig() each render doesn't
+  // invalidate the fields memo and cause Form to receive unstable props every second.
+  const config = useMemo(() => getWorkspaceConfig(), [getWorkspaceConfig]);
 
   const fields = useMemo<FormFieldDef[]>(() => [
     {
