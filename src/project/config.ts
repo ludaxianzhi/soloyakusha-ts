@@ -23,6 +23,13 @@ export type TranslationProcessorConfig = {
   modelName: string;
   slidingWindow?: SlidingWindowOptions;
   requestOptions?: ChatRequestOptions;
+  /**
+   * 各步骤的 LLM Profile 名称覆盖（供 multi-stage 等多步骤工作流使用）。
+   * key 为步骤标识，value 为 LLM Profile 名称；未指定的步骤使用 modelName 作为默认值。
+   */
+  models?: Record<string, string>;
+  /** 评审迭代次数（仅 multi-stage 工作流使用，默认值为 2）。 */
+  reviewIterations?: number;
 };
 
 export type GlossaryExtractorConfig = {
@@ -171,12 +178,18 @@ export class TranslationGlobalConfig {
           })
         : undefined);
 
+    const additionalClientResolvers = buildAdditionalClientResolvers(config.models, provider);
+
     return TranslationProcessorFactory.createProcessor({
       workflow: config.workflow,
       clientResolver: {
         provider,
         modelName: config.modelName,
       },
+      additionalClientResolvers,
+      workflowOptions: config.reviewIterations !== undefined
+        ? { reviewIterations: config.reviewIterations }
+        : undefined,
       promptManager: options.promptManager,
       defaultRequestOptions: config.requestOptions,
       defaultSlidingWindow: config.slidingWindow,
@@ -299,4 +312,20 @@ function resolveLlmConfig(value: unknown): TranslationGlobalLlmConfig {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function buildAdditionalClientResolvers(
+  models: Record<string, string> | undefined,
+  provider: LlmClientProvider,
+): Record<string, { provider: LlmClientProvider; modelName: string }> | undefined {
+  if (!models || Object.keys(models).length === 0) {
+    return undefined;
+  }
+
+  const result: Record<string, { provider: LlmClientProvider; modelName: string }> = {};
+  for (const [step, modelName] of Object.entries(models)) {
+    result[step] = { provider, modelName };
+  }
+
+  return result;
 }

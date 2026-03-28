@@ -10,6 +10,7 @@ export * from "./src/prompts/index.ts";
 export * from "./src/project/context-view.ts";
 export * from "./src/project/config.ts";
 export * from "./src/project/default-translation-processor.ts";
+export * from "./src/project/multi-stage-translation-processor.ts";
 export * from "./src/project/global-pattern-scanner.ts";
 export * from "./src/project/logger.ts";
 export * from "./src/project/pipeline.ts";

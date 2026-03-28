@@ -10,6 +10,7 @@ import { useLog } from '../context/log.tsx';
 import {
   buildLlmOptions,
   parseInteger,
+  parseOptionalInteger,
   toErrorMessage,
 } from './settings-translation-shared.ts';
 import type { FormFieldDef, SelectItem } from '../types.ts';
@@ -25,6 +26,21 @@ type TranslatorSummary = {
   name: string;
   entry: TranslatorEntry;
 };
+
+const WORKFLOW_OPTIONS: SelectItem[] = [
+  { label: 'default', value: 'default', description: '单步翻译（默认）' },
+  { label: 'multi-stage', value: 'multi-stage', description: '多步骤文学翻译：分析→翻译→润色→[编辑+校对→修改]×N' },
+];
+
+/** multi-stage 工作流的六个步骤标识与标签。 */
+const MULTI_STAGE_STEP_LABELS: { key: string; label: string; description: string }[] = [
+  { key: 'analyzer',    label: 'LLM1 · 分析器',   description: '分析场景、视角、风格和翻译难点' },
+  { key: 'translator',  label: 'LLM2 · 翻译器',   description: '初步翻译' },
+  { key: 'polisher',    label: 'LLM3 · 润色师',   description: '润色译文使其更自然' },
+  { key: 'editor',      label: 'LLM4 · 中文编辑', description: '指出表达问题并提供改进建议' },
+  { key: 'proofreader', label: 'LLM5 · 校对专家', description: '校对理解错误（尊重文学性）' },
+  { key: 'reviser',     label: 'LLM6 · 修改器',   description: '综合编辑和校对意见修改译文' },
+];
 
 export function SettingsTranslatorScreen() {
   const { goBack } = useNavigation();
@@ -221,11 +237,28 @@ export function SettingsTranslatorScreen() {
           return;
         }
 
+        const workflowType = values.type?.trim() || undefined;
+        const isMultiStage = workflowType === 'multi-stage';
+
+        const models: Record<string, string> = {};
+        if (isMultiStage) {
+          for (const step of MULTI_STAGE_STEP_LABELS) {
+            const val = values[`model_${step.key}`]?.trim();
+            if (val && val !== values.modelName) {
+              models[step.key] = val;
+            }
+          }
+        }
+
         const entry: TranslatorEntry = {
-          type: values.type?.trim() || undefined,
+          type: workflowType,
           modelName: values.modelName,
           slidingWindow: values.overlapChars
             ? { overlapChars: parseInteger(values.overlapChars, 0) }
+            : undefined,
+          models: Object.keys(models).length > 0 ? models : undefined,
+          reviewIterations: isMultiStage
+            ? parseOptionalInteger(values.reviewIterations)
             : undefined,
         };
 
@@ -260,7 +293,10 @@ function buildTranslatorEntryFields(input: {
   entry?: TranslatorEntry;
   llmOptions: SelectItem[];
 }): FormFieldDef[] {
-  return [
+  const workflowType = input.entry?.type ?? 'default';
+  const isMultiStage = workflowType === 'multi-stage';
+
+  const baseFields: FormFieldDef[] = [
     {
       key: 'translatorName',
       label: '翻译器名称',
@@ -273,12 +309,12 @@ function buildTranslatorEntryFields(input: {
       key: 'type',
       label: '工作流类型',
       type: 'select',
-      options: [{ label: 'default', value: 'default' }],
-      defaultValue: input.entry?.type ?? 'default',
+      options: WORKFLOW_OPTIONS,
+      defaultValue: workflowType,
     },
     {
       key: 'modelName',
-      label: 'LLM 配置',
+      label: isMultiStage ? 'LLM 配置（默认，各步骤未指定时使用）' : 'LLM 配置',
       type: 'select',
       options: input.llmOptions,
       defaultValue: input.entry?.modelName ?? input.llmOptions[0]?.value ?? '',
@@ -299,4 +335,40 @@ function buildTranslatorEntryFields(input: {
         : '',
     },
   ];
+
+  if (!isMultiStage) {
+    return baseFields;
+  }
+
+  // multi-stage 专用字段
+  const multiStageFields: FormFieldDef[] = MULTI_STAGE_STEP_LABELS.map((step) => ({
+    key: `model_${step.key}`,
+    label: step.label,
+    type: 'select' as const,
+    options: [
+      { label: '(使用默认 LLM)', value: '' },
+      ...input.llmOptions,
+    ],
+    defaultValue: input.entry?.models?.[step.key] ?? '',
+    description: step.description,
+  }));
+
+  const reviewIterationsField: FormFieldDef = {
+    key: 'reviewIterations',
+    label: '评审迭代次数',
+    type: 'select',
+    options: [
+      { label: '(默认 2 次)', value: '' },
+      { label: '1 次', value: '1' },
+      { label: '2 次', value: '2' },
+      { label: '3 次', value: '3' },
+      { label: '4 次', value: '4' },
+    ],
+    defaultValue: input.entry?.reviewIterations !== undefined
+      ? String(input.entry.reviewIterations)
+      : '',
+    description: '大步骤二（编辑+校对→修改）的重复次数。',
+  };
+
+  return [...baseFields, ...multiStageFields, reviewIterationsField];
 }
