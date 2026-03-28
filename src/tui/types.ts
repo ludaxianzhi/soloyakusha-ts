@@ -28,14 +28,30 @@ export interface SelectItem<T extends string = string> {
   meta?: string;
 }
 
+export interface AutocompleteItem {
+  label: string;
+  value: string;
+  meta?: string;
+}
+
+export interface FormAutocompleteDef {
+  maxItems?: number;
+  showWhenEmpty?: boolean;
+  getSuggestions: (
+    input: string,
+    values: Record<string, string>,
+  ) => Promise<AutocompleteItem[]> | AutocompleteItem[];
+}
+
 export interface FormFieldDef {
   key: string;
   label: string;
-  type: 'text' | 'select';
+  type: 'text' | 'select' | 'autocomplete';
   placeholder?: string;
   options?: SelectItem[];
   defaultValue?: string;
   description?: string;
+  autocomplete?: FormAutocompleteDef;
 }
 
 /** 翻译器类型注册表条目 */

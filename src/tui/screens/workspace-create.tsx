@@ -1,3 +1,5 @@
+import { readdir } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { useEffect, useMemo, useState } from 'react';
 import { Text } from 'ink';
 import { GlobalConfigManager } from '../../config/manager.ts';
@@ -9,7 +11,7 @@ import { useNavigation } from '../context/navigation.tsx';
 import { useLog } from '../context/log.tsx';
 import { useProject } from '../context/project.tsx';
 import type { BranchImportInput } from '../context/project.tsx';
-import type { FormFieldDef, SelectItem } from '../types.ts';
+import type { AutocompleteItem, FormFieldDef, SelectItem } from '../types.ts';
 
 type WizardStep = 'basics' | 'order' | 'translator' | 'branch-ask' | 'branch-setup' | 'branch-order' | 'confirm';
 
@@ -110,10 +112,14 @@ export function WorkspaceCreateScreen() {
       {
         key: 'dir',
         label: '项目目录',
-        type: 'text',
+        type: 'autocomplete',
         placeholder: '输入项目目录...',
         description: '项目根目录。Pattern 匹配会基于此目录查找文件。',
         defaultValue: draft.projectDir,
+        autocomplete: {
+          maxItems: 5,
+          getSuggestions: (input) => getShallowPathSuggestions(input, { directoriesOnly: true }),
+        },
       },
       {
         key: 'importPattern',
@@ -140,10 +146,17 @@ export function WorkspaceCreateScreen() {
       {
         key: 'glossaryPath',
         label: '字典路径（可选）',
-        type: 'text',
+        type: 'autocomplete',
         placeholder: 'glossary.csv',
         description: '如果提供，项目会尝试按此路径加载已有字典。',
         defaultValue: draft.glossaryPath,
+        autocomplete: {
+          maxItems: 5,
+          getSuggestions: (input, values) =>
+            getShallowPathSuggestions(input, {
+              baseDir: values.dir?.trim() || undefined,
+            }),
+        },
       },
       {
         key: 'srcLang',
@@ -178,13 +191,20 @@ export function WorkspaceCreateScreen() {
       {
         key: 'translatorModelName',
         label: '翻译器 Profile',
-        type: 'select',
+        type: 'autocomplete',
         description: '来自全局配置中的 LLM Profile。',
         defaultValue: draft.translatorModelName || translatorOptions[0]?.value || '__none__',
-        options:
-          translatorOptions.length > 0
-            ? translatorOptions
-            : [{ label: '未找到可用 Profile', value: '__none__' }],
+        autocomplete: {
+          maxItems: 5,
+          showWhenEmpty: true,
+          getSuggestions: (input) =>
+            getModelSuggestions(
+              input,
+              translatorOptions.length > 0
+                ? translatorOptions
+                : [{ label: '未找到可用 Profile', value: '__none__' }],
+            ),
+        },
       },
       {
         key: 'translatorWorkflow',
@@ -579,6 +599,90 @@ async function findMatchedFiles(projectDir: string, pattern: string): Promise<st
   }
 
   return results.sort((left, right) => left.localeCompare(right, 'zh-CN'));
+}
+
+async function getShallowPathSuggestions(
+  input: string,
+  options: {
+    baseDir?: string;
+    directoriesOnly?: boolean;
+    maxItems?: number;
+  } = {},
+): Promise<AutocompleteItem[]> {
+  const trimmedInput = input.trim().replace(/\//g, '\\');
+  if (!trimmedInput) {
+    return [];
+  }
+
+  const hasTrailingSlash = /[\\/]$/.test(trimmedInput);
+  const baseDir = options.baseDir?.trim();
+  const resolvedInput = resolvePathForAutocomplete(trimmedInput, baseDir);
+  const searchDir = hasTrailingSlash ? resolvedInput : dirname(resolvedInput);
+  const partialName = hasTrailingSlash ? '' : basename(trimmedInput);
+  const displayPrefix = hasTrailingSlash
+    ? trimmedInput
+    : trimmedInput.slice(0, Math.max(0, trimmedInput.length - partialName.length));
+  const maxItems = Math.max(1, options.maxItems ?? 5);
+
+  try {
+    const entries = await readdir(searchDir, { withFileTypes: true });
+    return entries
+      .filter((entry) => {
+        if (options.directoriesOnly && !entry.isDirectory()) {
+          return false;
+        }
+        return entry.name.toLowerCase().startsWith(partialName.toLowerCase());
+      })
+      .sort((left, right) => {
+        if (left.isDirectory() !== right.isDirectory()) {
+          return left.isDirectory() ? -1 : 1;
+        }
+        return left.name.localeCompare(right.name, 'zh-CN');
+      })
+      .slice(0, maxItems)
+      .map((entry) => ({
+        label: `${displayPrefix}${entry.name}${entry.isDirectory() ? '\\' : ''}`,
+        value: `${displayPrefix}${entry.name}${entry.isDirectory() ? '\\' : ''}`,
+        meta: entry.isDirectory() ? 'dir' : 'file',
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function resolvePathForAutocomplete(input: string, baseDir?: string): string {
+  if (isAbsolute(input)) {
+    return resolve(input);
+  }
+
+  if (baseDir) {
+    return resolve(baseDir, input);
+  }
+
+  return resolve(input);
+}
+
+function getModelSuggestions(
+  input: string,
+  options: ReadonlyArray<TranslatorOption>,
+): AutocompleteItem[] {
+  const query = input.trim().toLowerCase();
+  return options
+    .filter((option) => {
+      if (!query) {
+        return true;
+      }
+      return (
+        option.value.toLowerCase().includes(query) ||
+        option.label.toLowerCase().includes(query)
+      );
+    })
+    .slice(0, 5)
+    .map((option) => ({
+      label: option.value,
+      value: option.value,
+      meta: option.label === option.value ? undefined : option.label,
+    }));
 }
 
 function toErrorMessage(error: unknown): string {

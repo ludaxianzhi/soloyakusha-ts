@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Text, useInput } from 'ink';
-import type { FormFieldDef } from '../types.ts';
+import type { AutocompleteItem, FormFieldDef } from '../types.ts';
 import { useMouse } from '../context/mouse.tsx';
 import { SafeBox } from './safe-box.tsx';
 
@@ -12,6 +12,18 @@ interface FormProps {
   submitLabel?: string;
   visibleRows?: number;
 }
+
+type RenderRow = {
+  key: string;
+  focusableIndex?: number;
+  node: React.ReactNode;
+};
+
+type AutocompleteQuery = {
+  fieldKey: string;
+  input: string;
+  values: Record<string, string>;
+};
 
 export function Form({
   title,
@@ -26,32 +38,272 @@ export function Form({
   const { subscribe } = useMouse();
   const [values, setValues] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
-    for (const f of fields) {
-      init[f.key] =
-        f.defaultValue ?? (f.type === 'select' ? (f.options?.[0]?.value ?? '') : '');
+    for (const field of fields) {
+      init[field.key] =
+        field.defaultValue ??
+        ((field.type === 'select' ? field.options?.[0]?.value : '') ?? '');
     }
     return init;
   });
+  const [autocompleteRevision, setAutocompleteRevision] = useState(0);
+  const [autocompleteQuery, setAutocompleteQuery] = useState<AutocompleteQuery | null>(null);
+  const [autocompleteLoading, setAutocompleteLoading] = useState(false);
+  const [autocompleteItems, setAutocompleteItems] = useState<AutocompleteItem[]>([]);
+  const [autocompleteSelectedIndex, setAutocompleteSelectedIndex] = useState(-1);
 
   const submitIdx = fields.length;
   const cancelIdx = fields.length + 1;
   const total = fields.length + 2;
+  const activeField = activeIndex < fields.length ? fields[activeIndex] : undefined;
+  const activeAutocomplete =
+    editing && activeField?.type === 'autocomplete' ? activeField.autocomplete : undefined;
 
-  // Scrolling: compute visible window
-  const [scrollOffset, setScrollOffset] = useState(0);
   useEffect(() => {
-    if (activeIndex < scrollOffset) {
-      setScrollOffset(activeIndex);
-    } else if (activeIndex >= scrollOffset + visibleRows) {
-      setScrollOffset(activeIndex - visibleRows + 1);
+    if (!activeAutocomplete || !activeField) {
+      setAutocompleteItems([]);
+      setAutocompleteSelectedIndex(-1);
+      setAutocompleteLoading(false);
+      return;
     }
-  }, [activeIndex, scrollOffset, visibleRows]);
+
+    const currentInput = autocompleteQuery?.fieldKey === activeField.key
+      ? autocompleteQuery.input
+      : values[activeField.key] ?? '';
+    const queryValues = autocompleteQuery?.fieldKey === activeField.key
+      ? autocompleteQuery.values
+      : values;
+    if (!activeAutocomplete.showWhenEmpty && currentInput.trim().length === 0) {
+      setAutocompleteItems([]);
+      setAutocompleteSelectedIndex(-1);
+      setAutocompleteLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setAutocompleteLoading(true);
+    void Promise.resolve(activeAutocomplete.getSuggestions(currentInput, queryValues))
+      .then((items) => {
+        if (cancelled) {
+          return;
+        }
+        const maxItems = Math.max(1, activeAutocomplete.maxItems ?? 5);
+        setAutocompleteItems(items.slice(0, maxItems));
+        setAutocompleteSelectedIndex(-1);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAutocompleteItems([]);
+          setAutocompleteSelectedIndex(-1);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAutocompleteLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAutocomplete, activeField, autocompleteQuery, autocompleteRevision, editing, values]);
+
+  const renderRows = useMemo<RenderRow[]>(() => {
+    const rows: RenderRow[] = [];
+
+    for (let i = 0; i < fields.length; i += 1) {
+      const field = fields[i]!;
+      const focused = i === activeIndex;
+      const isEditing = focused && editing;
+      const value = values[field.key] ?? '';
+      const displayValue =
+        field.type === 'select'
+          ? isEditing
+            ? `◄ ${field.options?.find((option) => option.value === value)?.label ?? value} ►`
+            : field.options?.find((option) => option.value === value)?.label ?? value
+          : isEditing
+            ? `${value}█`
+            : value || field.placeholder || '(空)';
+
+      rows.push({
+        key: `field:${field.key}`,
+        focusableIndex: i,
+        node: (
+          <SafeBox key={field.key}>
+            <Text
+              backgroundColor={focused ? 'white' : undefined}
+              color={focused ? 'black' : undefined}
+              bold={focused}
+              wrap="truncate-end"
+            >
+              {` ${field.label}  `}
+              <Text
+                backgroundColor={focused ? 'white' : undefined}
+                color={focused ? (isEditing ? 'blue' : 'black') : 'gray'}
+                dimColor={!focused && !value}
+              >
+                {displayValue}
+              </Text>
+              {`  `}
+              <Text
+                backgroundColor={focused ? 'white' : undefined}
+                color={focused ? 'black' : 'gray'}
+                dimColor={!focused}
+              >
+                {field.type === 'text'
+                  ? '[文本]'
+                  : field.type === 'select'
+                    ? '[选择]'
+                    : '[Tab补全]'}
+              </Text>
+            </Text>
+          </SafeBox>
+        ),
+      });
+
+      if (focused && isEditing && field.type === 'autocomplete') {
+        if (autocompleteLoading) {
+          rows.push({
+            key: `${field.key}:loading`,
+            node: <Text dimColor>{'   … 正在补全'}</Text>,
+          });
+        } else {
+          for (let suggestionIndex = 0; suggestionIndex < autocompleteItems.length; suggestionIndex += 1) {
+            const suggestion = autocompleteItems[suggestionIndex]!;
+            const selected = suggestionIndex === autocompleteSelectedIndex;
+            rows.push({
+              key: `${field.key}:suggestion:${suggestion.value}:${suggestionIndex}`,
+              node: (
+                <SafeBox key={`${field.key}:${suggestion.value}:${suggestionIndex}`} justifyContent="space-between">
+                  <Text
+                    backgroundColor={selected ? 'cyan' : undefined}
+                    color={selected ? 'black' : 'gray'}
+                    wrap="truncate-end"
+                  >
+                    {`   ${selected ? '❯' : ' '} ${suggestion.label}`}
+                  </Text>
+                  {suggestion.meta ? (
+                    <Text
+                      backgroundColor={selected ? 'cyan' : undefined}
+                      color={selected ? 'black' : 'gray'}
+                    >
+                      {` ${suggestion.meta} `}
+                    </Text>
+                  ) : null}
+                </SafeBox>
+              ),
+            });
+          }
+        }
+      }
+    }
+
+    rows.push({
+      key: '__submit',
+      focusableIndex: submitIdx,
+      node: (
+        <SafeBox key="__submit">
+          <Text
+            backgroundColor={activeIndex === submitIdx ? 'green' : undefined}
+            color={activeIndex === submitIdx ? 'white' : 'green'}
+            bold={activeIndex === submitIdx}
+          >
+            {` ✔ ${submitLabel} `}
+          </Text>
+          <Text> </Text>
+          <Text
+            backgroundColor={activeIndex === cancelIdx ? 'yellow' : undefined}
+            color={activeIndex === cancelIdx ? 'black' : 'yellow'}
+            bold={activeIndex === cancelIdx}
+          >
+            {` ✘ 取消 `}
+          </Text>
+        </SafeBox>
+      ),
+    });
+
+    return rows;
+  }, [
+    activeIndex,
+    autocompleteItems,
+    autocompleteLoading,
+    autocompleteSelectedIndex,
+    cancelIdx,
+    editing,
+    fields,
+    submitIdx,
+    submitLabel,
+    values,
+  ]);
+
+  const activeRowIndex = renderRows.findIndex((row) => row.focusableIndex === activeIndex);
+  const [scrollOffset, setScrollOffset] = useState(0);
+
+  useEffect(() => {
+    const focusRow = activeRowIndex >= 0 ? activeRowIndex : 0;
+    let requiredLastVisibleRow = focusRow;
+    if (activeAutocomplete && autocompleteItems.length > 0) {
+      requiredLastVisibleRow = Math.min(
+        renderRows.length - 1,
+        focusRow + autocompleteItems.length,
+      );
+    }
+
+    if (focusRow < scrollOffset) {
+      setScrollOffset(focusRow);
+    } else if (requiredLastVisibleRow >= scrollOffset + visibleRows) {
+      setScrollOffset(requiredLastVisibleRow - visibleRows + 1);
+    }
+  }, [activeAutocomplete, activeRowIndex, autocompleteItems.length, renderRows.length, scrollOffset, visibleRows]);
 
   useInput((input, key) => {
-    // ── Editing mode ──
     if (editing) {
       const field = fields[activeIndex];
-      if (!field) return;
+      if (!field) {
+        return;
+      }
+
+      const isTab = input === '\t' || key.tab === true;
+      if (field.type === 'autocomplete') {
+        if (isTab) {
+          if (autocompleteItems.length === 0) {
+            return;
+          }
+          const nextIndex = (autocompleteSelectedIndex + 1 + autocompleteItems.length) % autocompleteItems.length;
+          const nextItem = autocompleteItems[nextIndex]!;
+          setAutocompleteSelectedIndex(nextIndex);
+          setValues((prev) => ({ ...prev, [field.key]: nextItem.value }));
+          return;
+        }
+
+        if (key.return || key.escape) {
+          setEditing(false);
+          return;
+        }
+
+        if (key.backspace || key.delete) {
+          const nextValues = { ...values, [field.key]: (values[field.key] ?? '').slice(0, -1) };
+          setValues(nextValues);
+          setAutocompleteQuery({
+            fieldKey: field.key,
+            input: nextValues[field.key] ?? '',
+            values: nextValues,
+          });
+          setAutocompleteRevision((prev) => prev + 1);
+          return;
+        }
+
+        if (input && !key.ctrl && !key.meta && !key.escape) {
+          const nextValues = { ...values, [field.key]: (values[field.key] ?? '') + input };
+          setValues(nextValues);
+          setAutocompleteQuery({
+            fieldKey: field.key,
+            input: nextValues[field.key] ?? '',
+            values: nextValues,
+          });
+          setAutocompleteRevision((prev) => prev + 1);
+        }
+        return;
+      }
 
       if (key.return || (key.escape && field.type === 'text')) {
         setEditing(false);
@@ -60,22 +312,21 @@ export function Form({
 
       if (field.type === 'text') {
         if (key.backspace || key.delete) {
-          setValues(p => ({ ...p, [field.key]: (p[field.key] ?? '').slice(0, -1) }));
+          setValues((prev) => ({ ...prev, [field.key]: (prev[field.key] ?? '').slice(0, -1) }));
         } else if (input && !key.ctrl && !key.meta && !key.escape) {
-          setValues(p => ({ ...p, [field.key]: (p[field.key] ?? '') + input }));
+          setValues((prev) => ({ ...prev, [field.key]: (prev[field.key] ?? '') + input }));
         }
         return;
       }
 
-      // select type
       if (field.options && field.options.length > 0) {
-        const cur = field.options.findIndex(o => o.value === values[field.key]);
+        const currentIndex = field.options.findIndex((option) => option.value === values[field.key]);
         if (key.leftArrow || key.upArrow) {
-          const next = (cur - 1 + field.options.length) % field.options.length;
-          setValues(p => ({ ...p, [field.key]: field.options![next]!.value }));
+          const next = (currentIndex - 1 + field.options.length) % field.options.length;
+          setValues((prev) => ({ ...prev, [field.key]: field.options![next]!.value }));
         } else if (key.rightArrow || key.downArrow) {
-          const next = (cur + 1) % field.options.length;
-          setValues(p => ({ ...p, [field.key]: field.options![next]!.value }));
+          const next = (currentIndex + 1) % field.options.length;
+          setValues((prev) => ({ ...prev, [field.key]: field.options![next]!.value }));
         } else if (key.return || key.escape) {
           setEditing(false);
         }
@@ -83,46 +334,77 @@ export function Form({
       return;
     }
 
-    // ── Navigation mode ──
-      if (key.upArrow) setActiveIndex(p => (p - 1 + total) % total);
-      else if (key.downArrow) setActiveIndex(p => (p + 1) % total);
-      else if (key.return) {
-        if (activeIndex === submitIdx) void onSubmit(values);
-        else if (activeIndex === cancelIdx) void onCancel();
-        else setEditing(true);
-      } else if (key.escape) void onCancel();
+    if (key.upArrow) {
+      setActiveIndex((prev) => (prev - 1 + total) % total);
+    } else if (key.downArrow) {
+      setActiveIndex((prev) => (prev + 1) % total);
+    } else if (key.return) {
+      if (activeIndex === submitIdx) {
+        void onSubmit(values);
+      } else if (activeIndex === cancelIdx) {
+        void onCancel();
+      } else {
+        setEditing(true);
+        if (fields[activeIndex]?.type === 'autocomplete') {
+          setAutocompleteQuery({
+            fieldKey: fields[activeIndex]!.key,
+            input: values[fields[activeIndex]!.key] ?? '',
+            values: { ...values },
+          });
+        }
+        setAutocompleteRevision((prev) => prev + 1);
+      }
+    } else if (key.escape) {
+      void onCancel();
+    }
   });
 
   useEffect(() => {
-    return subscribe(event => {
+    return subscribe((event) => {
       if (event.action === 'scroll-up') {
         if (editing) {
           const field = fields[activeIndex];
-          if (field?.type !== 'select' || !field.options?.length) return;
-          const cur = field.options.findIndex(option => option.value === values[field.key]);
-          const next = (cur - 1 + field.options.length) % field.options.length;
-          setValues(prev => ({ ...prev, [field.key]: field.options![next]!.value }));
+          if (field?.type !== 'select' || !field.options?.length) {
+            return;
+          }
+          const currentIndex = field.options.findIndex((option) => option.value === values[field.key]);
+          const next = (currentIndex - 1 + field.options.length) % field.options.length;
+          setValues((prev) => ({ ...prev, [field.key]: field.options![next]!.value }));
           return;
         }
-        setActiveIndex(prev => (prev - 1 + total) % total);
+        setActiveIndex((prev) => (prev - 1 + total) % total);
       } else if (event.action === 'scroll-down') {
         if (editing) {
           const field = fields[activeIndex];
-          if (field?.type !== 'select' || !field.options?.length) return;
-          const cur = field.options.findIndex(option => option.value === values[field.key]);
-          const next = (cur + 1) % field.options.length;
-          setValues(prev => ({ ...prev, [field.key]: field.options![next]!.value }));
+          if (field?.type !== 'select' || !field.options?.length) {
+            return;
+          }
+          const currentIndex = field.options.findIndex((option) => option.value === values[field.key]);
+          const next = (currentIndex + 1) % field.options.length;
+          setValues((prev) => ({ ...prev, [field.key]: field.options![next]!.value }));
           return;
         }
-        setActiveIndex(prev => (prev + 1) % total);
+        setActiveIndex((prev) => (prev + 1) % total);
       } else if (event.action === 'left') {
         if (editing) {
           setEditing(false);
           return;
         }
-        if (activeIndex === submitIdx) void onSubmit(values);
-        else if (activeIndex === cancelIdx) void onCancel();
-        else setEditing(true);
+        if (activeIndex === submitIdx) {
+          void onSubmit(values);
+        } else if (activeIndex === cancelIdx) {
+          void onCancel();
+        } else {
+          setEditing(true);
+          if (fields[activeIndex]?.type === 'autocomplete') {
+            setAutocompleteQuery({
+              fieldKey: fields[activeIndex]!.key,
+              input: values[fields[activeIndex]!.key] ?? '',
+              values: { ...values },
+            });
+          }
+          setAutocompleteRevision((prev) => prev + 1);
+        }
       } else if (event.action === 'right') {
         if (editing) {
           setEditing(false);
@@ -131,87 +413,21 @@ export function Form({
         }
       }
     });
-  }, [activeIndex, editing, fields, onCancel, onSubmit, subscribe, total, values]);
+  }, [activeIndex, cancelIdx, editing, fields, onCancel, onSubmit, submitIdx, subscribe, total, values]);
 
-  // Build all rows (fields + buttons)
-  const allRows: { index: number; node: React.ReactNode }[] = [];
-
-  for (let i = 0; i < fields.length; i++) {
-    const field = fields[i]!;
-    const focused = i === activeIndex;
-    const isEditing = focused && editing;
-    const val = values[field.key] ?? '';
-    const displayVal = field.type === 'select'
-      ? (isEditing ? `◄ ${field.options?.find(o => o.value === val)?.label ?? val} ►` : field.options?.find(o => o.value === val)?.label ?? val)
-      : (isEditing ? `${val}█` : val || field.placeholder || '(空)');
-
-    allRows.push({
-      index: i,
-      node: (
-        <SafeBox key={field.key}>
-          <Text
-            backgroundColor={focused ? 'white' : undefined}
-            color={focused ? 'black' : undefined}
-            bold={focused}
-            wrap="truncate-end"
-          >
-            {` ${field.label}  `}
-            <Text
-              backgroundColor={focused ? 'white' : undefined}
-              color={focused ? (isEditing ? 'blue' : 'black') : 'gray'}
-              dimColor={!focused && !val}
-            >
-              {displayVal}
-            </Text>
-            {`  `}
-            <Text
-              backgroundColor={focused ? 'white' : undefined}
-              color={focused ? 'black' : 'gray'}
-              dimColor={!focused}
-            >
-              {field.type === 'text' ? '[文本]' : '[选择]'}
-            </Text>
-          </Text>
-        </SafeBox>
-      ),
-    });
-  }
-
-  // Submit button
-  allRows.push({
-    index: submitIdx,
-    node: (
-      <SafeBox key="__submit">
-        <Text
-          backgroundColor={activeIndex === submitIdx ? 'green' : undefined}
-          color={activeIndex === submitIdx ? 'white' : 'green'}
-          bold={activeIndex === submitIdx}
-        >
-          {` ✔ ${submitLabel} `}
-        </Text>
-        <Text> </Text>
-        <Text
-          backgroundColor={activeIndex === cancelIdx ? 'yellow' : undefined}
-          color={activeIndex === cancelIdx ? 'black' : 'yellow'}
-          bold={activeIndex === cancelIdx}
-        >
-          {` ✘ 取消 `}
-        </Text>
-      </SafeBox>
-    ),
-  });
-
-  // Visible window
-  const visibleItems = allRows.slice(scrollOffset, scrollOffset + visibleRows);
+  const visibleItems = renderRows.slice(scrollOffset, scrollOffset + visibleRows);
   const hasScrollUp = scrollOffset > 0;
-  const hasScrollDown = scrollOffset + visibleRows < allRows.length;
+  const hasScrollDown = scrollOffset + visibleRows < renderRows.length;
 
   return (
     <SafeBox flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
       <Text bold color="cyan">{title}</Text>
       {hasScrollUp ? <Text dimColor>  ▲ 更多 ({scrollOffset})</Text> : null}
-      {visibleItems.map(row => row.node)}
-      {hasScrollDown ? <Text dimColor>  ▼ 更多 ({allRows.length - scrollOffset - visibleRows})</Text> : null}
+      {visibleItems.map((row) => row.node)}
+      {editing && activeField?.type === 'autocomplete' ? (
+        <Text dimColor>  Tab 切换补全，Enter 确认，继续输入后刷新候选</Text>
+      ) : null}
+      {hasScrollDown ? <Text dimColor>  ▼ 更多 ({renderRows.length - scrollOffset - visibleRows})</Text> : null}
     </SafeBox>
   );
 }
