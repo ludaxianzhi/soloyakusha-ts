@@ -7,25 +7,81 @@ import {
 import { Form } from '../components/form.tsx';
 import { Select } from '../components/select.tsx';
 import { SafeBox } from '../components/safe-box.tsx';
+import { useLog } from '../context/log.tsx';
 import { useNavigation } from '../context/navigation.tsx';
 import { useProject } from '../context/project.tsx';
 import type { FormFieldDef, SelectItem } from '../types.ts';
 
-type DictionaryAction = '__add__' | '__back__' | string;
+type DictionaryAction =
+  | '__add__'
+  | '__import__'
+  | '__export__'
+  | '__back__'
+  | string;
+type GlossaryMode = 'import' | 'export' | null;
 
 export function WorkspaceDictionaryScreen() {
   const { goBack } = useNavigation();
-  const { project, updateDictionaryTerm, isBusy } = useProject();
+  const { addLog } = useLog();
+  const {
+    project,
+    updateDictionaryTerm,
+    importGlossary,
+    exportGlossary,
+    isBusy,
+  } = useProject();
   const glossary = project?.getGlossary();
   const terms = glossary?.getAllTerms() ?? [];
   const [editingTerm, setEditingTerm] = useState<ResolvedGlossaryTerm | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [glossaryMode, setGlossaryMode] = useState<GlossaryMode>(null);
 
   useInput((_input, key) => {
-    if (key.escape && !editingTerm && !isCreating) {
+    if (key.escape && !editingTerm && !isCreating && !glossaryMode) {
       goBack();
     }
   });
+
+  if (glossaryMode) {
+    const isImport = glossaryMode === 'import';
+    const fields: FormFieldDef[] = [
+      {
+        key: 'filePath',
+        label: isImport ? '术语表文件路径' : '导出文件路径',
+        type: 'text',
+        placeholder: isImport ? 'glossary.csv' : 'export\\glossary.csv',
+        description: isImport
+          ? '支持导入 CSV / JSON / YAML 等术语表文件。'
+          : '导出术语表到指定文件。',
+        defaultValue: isImport
+          ? ''
+          : project?.getWorkspaceFileManifest().glossaryPath ?? 'export\\glossary.csv',
+      },
+    ];
+
+    return (
+      <Form
+        title={isImport ? '导入术语表' : '导出术语表'}
+        fields={fields}
+        submitLabel={isImport ? '导入' : '导出'}
+        onSubmit={async (values) => {
+          const filePath = values.filePath?.trim();
+          if (!filePath) {
+            addLog('warning', isImport ? '请输入术语表文件路径' : '请输入导出文件路径');
+            return;
+          }
+
+          if (isImport) {
+            await importGlossary(filePath);
+          } else {
+            await exportGlossary(filePath);
+          }
+          setGlossaryMode(null);
+        }}
+        onCancel={() => setGlossaryMode(null)}
+      />
+    );
+  }
 
   const selectedTerm = editingTerm;
   if (selectedTerm || isCreating) {
@@ -111,19 +167,35 @@ export function WorkspaceDictionaryScreen() {
 
   const items: SelectItem<DictionaryAction>[] = [
     {
-      label: '➕ 新增术语',
-      value: '__add__',
-      description: '手动新增一个字典条目。',
-      meta: 'new',
+      label: '📥 导入术语表',
+      value: '__import__',
+      description: '从外部文件导入项目术语表。',
+      meta: 'import',
     },
-    ...terms.map((term) => ({
-      label: `${term.term}${term.translation ? ` → ${term.translation}` : ''}`,
-      value: term.term,
-      description:
-        term.description ??
-        `状态：${term.status} · 出现次数 ${term.totalOccurrenceCount}/${term.textBlockOccurrenceCount}`,
-      meta: term.status,
-    })),
+    ...(glossary
+      ? [
+          {
+            label: '📤 导出术语表',
+            value: '__export__' as DictionaryAction,
+            description: '将当前项目术语表导出到文件。',
+            meta: 'export',
+          },
+          {
+            label: '➕ 新增术语',
+            value: '__add__' as DictionaryAction,
+            description: '手动新增一个字典条目。',
+            meta: 'new',
+          },
+          ...terms.map((term) => ({
+            label: `${term.term}${term.translation ? ` → ${term.translation}` : ''}`,
+            value: term.term,
+            description:
+              term.description ??
+              `状态：${term.status} · 出现次数 ${term.totalOccurrenceCount}/${term.textBlockOccurrenceCount}`,
+            meta: term.status,
+          })),
+        ]
+      : []),
     {
       label: '↩️ 返回',
       value: '__back__',
@@ -156,7 +228,19 @@ export function WorkspaceDictionaryScreen() {
             goBack();
             return;
           }
+          if (item.value === '__import__') {
+            setGlossaryMode('import');
+            return;
+          }
+          if (item.value === '__export__') {
+            setGlossaryMode('export');
+            return;
+          }
           if (item.value === '__add__') {
+            if (!glossary) {
+              addLog('warning', '请先导入术语表或执行术语扫描，再新增术语');
+              return;
+            }
             setIsCreating(true);
             return;
           }

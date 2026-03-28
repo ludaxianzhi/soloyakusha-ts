@@ -15,7 +15,7 @@ import {
   loadPlotSummaryEntriesFromFile,
   type PlotSummaryEntry,
 } from "./plot-summarizer.ts";
-import { StoryTopology } from "./story-topology.ts";
+import { MAIN_ROUTE_ID, StoryTopology } from "./story-topology.ts";
 import type {
   GlobalAssociationPatternScanOptions,
   GlobalAssociationPatternScanResult,
@@ -308,12 +308,33 @@ export class TranslationProject
     },
   ): Promise<TranslationImportResult> {
     this.ensureInitialized();
-    return this.workspaceManager.addChapter(chapterId, filePath, options);
+    const result = await this.workspaceManager.addChapter(chapterId, filePath, options);
+    if (this.storyTopology) {
+      this.storyTopology.appendChapter(MAIN_ROUTE_ID, chapterId);
+      await this.saveStoryTopology(this.storyTopology);
+    }
+    return result;
   }
 
   async removeChapter(chapterId: number): Promise<void> {
     this.ensureInitialized();
+    if (this.storyTopology) {
+      const blockingBranch = this.storyTopology
+        .getBranches()
+        .find((route) => route.forkAfterChapterId === chapterId);
+      if (blockingBranch) {
+        throw new Error(
+          `章节 ${chapterId} 是分支“${blockingBranch.name}”的分叉点，暂时不能删除`,
+        );
+      }
+    }
+
+    const routeId = this.storyTopology?.findRouteForChapter(chapterId)?.id;
     await this.workspaceManager.removeChapter(chapterId);
+    if (this.storyTopology && routeId) {
+      this.storyTopology.removeChapter(routeId, chapterId);
+      await this.saveStoryTopology(this.storyTopology);
+    }
   }
 
   async reorderChapters(chapterIds: number[]): Promise<void> {

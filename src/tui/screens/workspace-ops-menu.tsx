@@ -65,7 +65,7 @@ const menuItems: MenuItem[] = [
 
 export function WorkspaceOpsMenuScreen() {
   const { navigate, goBack } = useNavigation();
-  const { snapshot } = useProject();
+  const { snapshot, closeWorkspace } = useProject();
 
   const title = snapshot ? `${snapshot.projectName} — 工作区操作` : '工作区操作';
 
@@ -79,7 +79,10 @@ export function WorkspaceOpsMenuScreen() {
       description="围绕当前工作区的翻译生命周期操作。"
       items={menuItems}
       onSelect={item => {
-        if (item.value === 'close') goBack();
+        if (item.value === 'close') {
+          closeWorkspace();
+          goBack();
+        }
         else navigate(item.value);
       }}
     />

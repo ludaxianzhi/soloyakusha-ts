@@ -81,7 +81,11 @@ interface ProjectContextValue {
   getWorkspaceConfig: () => WorkspaceConfig | null;
   getChapterDescriptors: () => WorkspaceChapterDescriptor[];
   reorderChapters: (chapterIds: number[]) => Promise<void>;
+  removeChapter: (chapterId: number) => Promise<void>;
   updateWorkspaceConfig: (patch: WorkspaceConfigPatch) => Promise<void>;
+  importGlossary: (filePath: string) => Promise<void>;
+  exportGlossary: (outputPath: string) => Promise<void>;
+  closeWorkspace: () => void;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -765,6 +769,22 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     [addLog, project, runAction],
   );
 
+  const removeChapter = useCallback(
+    async (chapterId: number): Promise<void> => {
+      if (!project) {
+        addLog('warning', '当前没有已初始化的项目');
+        return;
+      }
+      await runAction('删除章节', async () => {
+        await project.removeChapter(chapterId);
+        setSnapshot(project.getProjectSnapshot());
+        setTopology(project.getStoryTopology() ?? null);
+        addLog('success', `章节 ${chapterId} 已从工作区移除`);
+      });
+    },
+    [addLog, project, runAction],
+  );
+
   const updateWorkspaceConfig = useCallback(
     async (patch: WorkspaceConfigPatch): Promise<void> => {
       if (!project) {
@@ -778,6 +798,51 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     },
     [addLog, project, runAction],
   );
+
+  const importGlossary = useCallback(
+    async (filePath: string): Promise<void> => {
+      if (!project) {
+        addLog('warning', '当前没有已初始化的项目');
+        return;
+      }
+      await runAction('导入术语表', async () => {
+        const result = await project.importGlossary(filePath);
+        await project.saveProgress();
+        setSnapshot(project.getProjectSnapshot());
+        addLog(
+          'success',
+          `术语表导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
+        );
+      });
+    },
+    [addLog, project, runAction],
+  );
+
+  const exportGlossary = useCallback(
+    async (outputPath: string): Promise<void> => {
+      if (!project) {
+        addLog('warning', '当前没有已初始化的项目');
+        return;
+      }
+      await runAction('导出术语表', async () => {
+        await project.exportGlossary(outputPath);
+        addLog('success', `术语表已导出到：${outputPath}`);
+      });
+    },
+    [addLog, project, runAction],
+  );
+
+  const closeWorkspace = useCallback(() => {
+    processingTokenRef.current += 1;
+    previousSnapshotRef.current = null;
+    setProject(null);
+    setSnapshot(null);
+    setTopology(null);
+    setPlotSummaryProgress(null);
+    setPlotSummaryReady(false);
+    setIsBusy(false);
+    addLog('info', '已关闭当前工作区');
+  }, [addLog]);
 
   const value = useMemo<ProjectContextValue>(
     () => ({
@@ -801,13 +866,20 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       getWorkspaceConfig,
       getChapterDescriptors,
       reorderChapters,
+      removeChapter,
       updateWorkspaceConfig,
+      importGlossary,
+      exportGlossary,
+      closeWorkspace,
     }),
     [
       abortTranslation,
+      closeWorkspace,
       exportProject,
+      exportGlossary,
       getChapterDescriptors,
       getWorkspaceConfig,
+      importGlossary,
       initializeProject,
       isBusy,
       pauseTranslation,
@@ -815,6 +887,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       plotSummaryReady,
       project,
       refreshSnapshot,
+      removeChapter,
       reorderChapters,
       resumeTranslation,
       saveProgress,
