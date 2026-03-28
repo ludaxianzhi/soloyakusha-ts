@@ -134,7 +134,7 @@ describe("GlobalConfigManager", () => {
       filePath: join(rootDir, "settings.json"),
     });
 
-    await manager.setLlmProfile("embedding", {
+    await manager.setEmbeddingConfig({
       provider: "openai",
       modelType: "embedding",
       modelName: "text-embedding-3-small",
@@ -143,14 +143,14 @@ describe("GlobalConfigManager", () => {
       retries: 3,
     });
 
-    const resolved = await manager.getResolvedLlmProfile("embedding");
+    const resolved = await manager.getResolvedEmbeddingConfig();
     expect(resolved.apiKey).toBe("env-secret");
     expect(resolved.modelType).toBe("embedding");
 
     delete process.env.SOLOYAKUSHA_GLOBAL_TEST_KEY;
   });
 
-  test("persists translation processor and glossary updater config in global file", async () => {
+  test("persists embedding and feature configs in global file", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-"));
     cleanupTargets.push(rootDir);
 
@@ -173,6 +173,22 @@ describe("GlobalConfigManager", () => {
       apiKey: "secret",
       retries: 3,
     });
+    await manager.setLlmProfile("summary", {
+      provider: "openai",
+      modelType: "chat",
+      modelName: "gpt-4.1-nano",
+      endpoint: "https://example.com/v1",
+      apiKey: "secret",
+      retries: 3,
+    });
+    await manager.setEmbeddingConfig({
+      provider: "openai",
+      modelType: "embedding",
+      modelName: "text-embedding-3-small",
+      endpoint: "https://example.com/v1",
+      apiKey: "secret",
+      retries: 3,
+    });
 
     await manager.setTranslationProcessorConfig({
       modelName: "translator",
@@ -184,6 +200,10 @@ describe("GlobalConfigManager", () => {
         },
       },
     });
+    await manager.setGlossaryExtractorConfig({
+      modelName: "glossary",
+      maxCharsPerBatch: 4096,
+    });
     await manager.setGlossaryUpdaterConfig({
       modelName: "glossary",
       requestOptions: {
@@ -192,8 +212,25 @@ describe("GlobalConfigManager", () => {
         },
       },
     });
+    await manager.setPlotSummaryConfig({
+      modelName: "summary",
+      fragmentsPerBatch: 8,
+      maxContextSummaries: 10,
+    });
 
     const reloaded = new GlobalConfigManager({ filePath });
+    expect(await reloaded.getEmbeddingConfig()).toEqual({
+      provider: "openai",
+      modelType: "embedding",
+      modelName: "text-embedding-3-small",
+      endpoint: "https://example.com/v1",
+      apiKey: "secret",
+      retries: 3,
+      qps: undefined,
+      maxParallelRequests: undefined,
+      apiKeyEnv: undefined,
+      defaultRequestConfig: undefined,
+    });
     expect(await reloaded.getTranslationProcessorConfig()).toEqual({
       modelName: "translator",
       workflow: undefined,
@@ -206,6 +243,11 @@ describe("GlobalConfigManager", () => {
         outputValidationContext: undefined,
       },
     });
+    expect(await reloaded.getGlossaryExtractorConfig()).toEqual({
+      modelName: "glossary",
+      maxCharsPerBatch: 4096,
+      requestOptions: undefined,
+    });
     expect(await reloaded.getGlossaryUpdaterConfig()).toEqual({
       modelName: "glossary",
       workflow: undefined,
@@ -216,19 +258,36 @@ describe("GlobalConfigManager", () => {
         outputValidationContext: undefined,
       },
     });
+    expect(await reloaded.getPlotSummaryConfig()).toEqual({
+      modelName: "summary",
+      fragmentsPerBatch: 8,
+      maxContextSummaries: 10,
+      requestOptions: undefined,
+    });
 
     const translationGlobalConfig = await reloaded.getTranslationGlobalConfig();
     expect(translationGlobalConfig).toBeInstanceOf(TranslationGlobalConfig);
     expect(translationGlobalConfig.getTranslationProcessorConfig().modelName).toBe("translator");
+    expect(translationGlobalConfig.getEmbeddingConfig()?.modelName).toBe("text-embedding-3-small");
+    expect(translationGlobalConfig.getGlossaryExtractorConfig()?.modelName).toBe("glossary");
     expect(translationGlobalConfig.getGlossaryUpdaterConfig()?.modelName).toBe("glossary");
+    expect(translationGlobalConfig.getPlotSummaryConfig()?.modelName).toBe("summary");
 
     const saved = JSON.parse(await readFile(filePath, "utf8")) as {
+      llm?: {
+        embedding?: { modelName: string };
+      };
       translation?: {
         translationProcessor?: { modelName: string };
+        glossaryExtractor?: { modelName: string };
         glossaryUpdater?: { modelName: string };
+        plotSummary?: { modelName: string };
       };
     };
+    expect(saved.llm?.embedding?.modelName).toBe("text-embedding-3-small");
     expect(saved.translation?.translationProcessor?.modelName).toBe("translator");
+    expect(saved.translation?.glossaryExtractor?.modelName).toBe("glossary");
     expect(saved.translation?.glossaryUpdater?.modelName).toBe("glossary");
+    expect(saved.translation?.plotSummary?.modelName).toBe("summary");
   });
 });

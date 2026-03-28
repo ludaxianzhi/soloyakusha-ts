@@ -14,6 +14,8 @@ import type {
 } from "../llm/types.ts";
 import type {
   GlossaryUpdaterConfig,
+  GlossaryExtractorConfig,
+  PlotSummaryConfig,
   TranslationProcessorConfig,
 } from "../project/config.ts";
 
@@ -39,11 +41,14 @@ export type PersistedLlmClientConfig = {
 export type GlobalLlmConfig = {
   defaultProfileName?: string;
   profiles: Record<string, PersistedLlmClientConfig>;
+  embedding?: PersistedLlmClientConfig;
 };
 
 export type GlobalTranslationConfig = {
   translationProcessor?: TranslationProcessorConfig;
+  glossaryExtractor?: GlossaryExtractorConfig;
   glossaryUpdater?: GlossaryUpdaterConfig;
+  plotSummary?: PlotSummaryConfig;
 };
 
 export type GlobalConfigDocument = {

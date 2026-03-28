@@ -8,19 +8,14 @@ import { useLog } from '../context/log.tsx';
 import { useProject } from '../context/project.tsx';
 import type { SelectItem } from '../types.ts';
 
-type ProfileOption = {
-  label: string;
-  value: string;
-};
-
-type ScreenPhase = 'select-profile' | 'running' | 'done' | 'error';
+type ScreenPhase = 'ready' | 'running' | 'done' | 'error';
 
 export function WorkspacePlotSummaryScreen() {
   const { goBack } = useNavigation();
   const { addLog } = useLog();
   const { project, isBusy, startPlotSummary, plotSummaryProgress } = useProject();
-  const [profileOptions, setProfileOptions] = useState<ProfileOption[]>([]);
-  const [phase, setPhase] = useState<ScreenPhase>('select-profile');
+  const [phase, setPhase] = useState<ScreenPhase>('ready');
+  const [configuredModelName, setConfiguredModelName] = useState<string>('');
 
   useInput((_input, key) => {
     if (key.escape && phase !== 'running') {
@@ -32,20 +27,14 @@ export function WorkspacePlotSummaryScreen() {
     void (async () => {
       try {
         const manager = new GlobalConfigManager();
-        const profileNames = await manager.listLlmProfileNames();
-        const defaultProfile = await manager.getDefaultLlmProfileName();
-        const options = profileNames.map((name) => ({
-          label: name === defaultProfile ? `${name} (默认)` : name,
-          value: name,
-        }));
-        setProfileOptions(options);
+        const config = await manager.getPlotSummaryConfig();
+        setConfiguredModelName(config?.modelName ?? '');
       } catch (error) {
-        addLog('warning', `读取 LLM 配置失败：${toErrorMessage(error)}`);
+        addLog('warning', `读取情节总结配置失败：${toErrorMessage(error)}`);
       }
     })();
   }, [addLog]);
 
-  // Watch for progress completion
   useEffect(() => {
     if (phase === 'running' && plotSummaryProgress) {
       if (plotSummaryProgress.status === 'done') {
@@ -56,28 +45,35 @@ export function WorkspacePlotSummaryScreen() {
     }
   }, [phase, plotSummaryProgress]);
 
-  const selectItems = useMemo<SelectItem<string>[]>(() => {
-    const items: SelectItem<string>[] = profileOptions.map((option) => ({
-      label: `🤖 ${option.label}`,
-      value: option.value,
-      description: `使用 ${option.value} 生成情节大纲总结`,
-      meta: 'profile',
-    }));
+  const readyItems = useMemo<SelectItem<string>[]>(() => {
+    if (!configuredModelName) {
+      return [
+        {
+          label: '↩️ 返回',
+          value: '__back__',
+          meta: 'esc',
+        },
+      ];
+    }
 
-    items.push({
-      label: '↩️ 返回',
-      value: '__back__',
-      description: '回到项目主页。',
-      meta: 'esc',
-    });
-
-    return items;
-  }, [profileOptions]);
+    return [
+      {
+        label: '▶️ 开始生成情节总结',
+        value: '__start__',
+        meta: 'run',
+      },
+      {
+        label: '↩️ 返回',
+        value: '__back__',
+        meta: 'esc',
+      },
+    ];
+  }, [configuredModelName]);
 
   if (!project) {
     return (
       <SafeBox flexDirection="column" gap={1}>
-<SafeBox flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+        <SafeBox flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
           <Text bold color="magenta">情节大纲总结</Text>
           <Text dimColor>当前没有已初始化的项目，请先创建或打开项目。</Text>
         </SafeBox>
@@ -85,17 +81,27 @@ export function WorkspacePlotSummaryScreen() {
     );
   }
 
-  if (phase === 'select-profile') {
+  if (phase === 'ready') {
     return (
       <SafeBox flexDirection="column" gap={1}>
         <SafeBox flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
           <Text bold color="magenta">情节大纲总结</Text>
           <Text>项目：<Text color="cyan">{project.getWorkspaceConfig().projectName}</Text></Text>
+          <Text>
+            模型：{configuredModelName ? (
+              <Text color="green">{configuredModelName}</Text>
+            ) : (
+              <Text color="yellow">未配置</Text>
+            )}
+          </Text>
+          {!configuredModelName ? (
+            <Text dimColor>请先在“翻译器配置”中设置情节总结使用的 LLM。</Text>
+          ) : null}
         </SafeBox>
 
         <Select
-          title="选择 LLM 预设"
-          items={selectItems}
+          title="操作"
+          items={readyItems}
           isActive={!isBusy}
           onSelect={(item) => {
             if (item.value === '__back__') {
@@ -104,36 +110,40 @@ export function WorkspacePlotSummaryScreen() {
             }
 
             setPhase('running');
-            void startPlotSummary(item.value);
+            void startPlotSummary();
           }}
         />
       </SafeBox>
     );
   }
 
-  // Running / Done / Error phases
   const progress = plotSummaryProgress;
   const progressText = progress
     ? `${progress.completedChapters}/${progress.totalChapters} 章节 · ${progress.completedBatches}/${progress.totalBatches} 批次`
     : '准备中...';
-
   const statusColor = phase === 'done' ? 'green' : phase === 'error' ? 'red' : 'yellow';
   const statusLabel = phase === 'done' ? '已完成' : phase === 'error' ? '出错' : '总结中';
-
   const doneItems: SelectItem<string>[] = [
     {
       label: '↩️ 返回项目主页',
       value: '__back__',
-      description: '回到项目主页。',
       meta: 'esc',
     },
   ];
 
   return (
     <SafeBox flexDirection="column" gap={1}>
-      <SafeBox flexDirection="column" borderStyle="round" borderColor={phase === 'done' ? 'green' : phase === 'error' ? 'yellow' : 'magenta'} paddingX={1}>
-        <Text bold color={phase === 'done' ? 'green' : phase === 'error' ? 'yellow' : 'magenta'}>情节大纲总结</Text>
+      <SafeBox
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={phase === 'done' ? 'green' : phase === 'error' ? 'yellow' : 'magenta'}
+        paddingX={1}
+      >
+        <Text bold color={phase === 'done' ? 'green' : phase === 'error' ? 'yellow' : 'magenta'}>
+          情节大纲总结
+        </Text>
         <Text dimColor>{progressText}</Text>
+        <Text>模型：{configuredModelName || '(未配置)'}</Text>
         <SafeBox flexDirection="column">
           <Text>
             状态：<Text color={statusColor}>{statusLabel}</Text>
@@ -141,30 +151,26 @@ export function WorkspacePlotSummaryScreen() {
           {progress ? (
             <>
               <Text>
-                章节进度：{renderProgressBar(progress.totalChapters > 0 ? progress.completedChapters / progress.totalChapters : 0)}{' '}
+                章节进度：
+                {renderProgressBar(progress.totalChapters > 0 ? progress.completedChapters / progress.totalChapters : 0)}{' '}
                 {progress.completedChapters}/{progress.totalChapters}
               </Text>
               <Text>
-                批次进度：{renderProgressBar(progress.totalBatches > 0 ? progress.completedBatches / progress.totalBatches : 0)}{' '}
+                批次进度：
+                {renderProgressBar(progress.totalBatches > 0 ? progress.completedBatches / progress.totalBatches : 0)}{' '}
                 {progress.completedBatches}/{progress.totalBatches}
               </Text>
               {progress.currentChapterId != null ? (
-                <Text dimColor>
-                  当前章节：Chapter {progress.currentChapterId}
-                </Text>
+                <Text dimColor>当前章节：Chapter {progress.currentChapterId}</Text>
               ) : null}
+              {progress.errorMessage ? <Text color="red">{progress.errorMessage}</Text> : null}
             </>
           ) : null}
         </SafeBox>
       </SafeBox>
 
       {phase !== 'running' ? (
-        <Select
-          title="操作"
-          items={doneItems}
-          isActive
-          onSelect={() => goBack()}
-        />
+        <Select title="操作" items={doneItems} isActive onSelect={() => goBack()} />
       ) : null}
     </SafeBox>
   );

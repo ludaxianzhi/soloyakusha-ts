@@ -698,6 +698,11 @@ export class TranslationProject
     return this.glossary;
   }
 
+  replaceGlossary(glossary: Glossary): void {
+    this.ensureInitialized();
+    this.glossary = glossary;
+  }
+
   getStoryTopology(): StoryTopology | undefined {
     this.ensureInitialized();
     return this.storyTopology;

@@ -173,11 +173,11 @@ function buildActionItems(
   }
 
   items.push({
-    label: hasDictionary ? '📚 字典编辑' : '🔍 开始扫描字典',
+    label: hasDictionary ? '📚 字典编辑' : '🔍 开始术语提取',
     value: hasDictionary ? 'dictionary' : 'scan-dictionary',
     description: hasDictionary
       ? '浏览并编辑当前项目字典。'
-      : '基于项目内容执行字典扫描，生成候选术语。',
+      : '基于 LLM 执行全文术语提取，生成字典候选条目。',
     meta: hasDictionary ? 'glossary' : 'scan',
   });
 

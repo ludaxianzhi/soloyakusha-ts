@@ -16,10 +16,18 @@ import { TranslationProcessorFactory } from "./translation-processor-factory.ts"
 import type { TranslationProcessor } from "./translation-processor.ts";
 import type { SlidingWindowOptions } from "./types.ts";
 
+export const GLOBAL_EMBEDDING_CLIENT_NAME = "__global_embedding__";
+
 export type TranslationProcessorConfig = {
   workflow?: string;
   modelName: string;
   slidingWindow?: SlidingWindowOptions;
+  requestOptions?: ChatRequestOptions;
+};
+
+export type GlossaryExtractorConfig = {
+  modelName: string;
+  maxCharsPerBatch?: number;
   requestOptions?: ChatRequestOptions;
 };
 
@@ -29,27 +37,45 @@ export type GlossaryUpdaterConfig = {
   requestOptions?: ChatRequestOptions;
 };
 
+export type PlotSummaryConfig = {
+  modelName: string;
+  fragmentsPerBatch?: number;
+  maxContextSummaries?: number;
+  requestOptions?: ChatRequestOptions;
+};
+
 export type TranslationRuntimeConfig = {
   translationProcessor?: TranslationProcessorConfig;
+  glossaryExtractor?: GlossaryExtractorConfig;
   glossaryUpdater?: GlossaryUpdaterConfig;
+  plotSummary?: PlotSummaryConfig;
+};
+
+export type TranslationGlobalLlmConfig = {
+  profiles: Record<string, LlmClientConfigInput>;
+  embedding?: LlmClientConfigInput;
 };
 
 export type TranslationGlobalConfigInput = {
-  llm?: Record<string, LlmClientConfigInput>;
+  llm?: TranslationGlobalLlmConfig | Record<string, LlmClientConfigInput>;
   translation?: TranslationRuntimeConfig;
   translationProcessor?: TranslationProcessorConfig;
+  glossaryExtractor?: GlossaryExtractorConfig;
   glossaryUpdater?: GlossaryUpdaterConfig;
+  plotSummary?: PlotSummaryConfig;
 };
 
 export class TranslationGlobalConfig {
-  readonly llm: Record<string, LlmClientConfigInput>;
+  readonly llm: TranslationGlobalLlmConfig;
   readonly translation?: TranslationRuntimeConfig;
 
   constructor(input: TranslationGlobalConfigInput = {}) {
-    this.llm = { ...(input.llm ?? {}) };
+    this.llm = normalizeLlmConfigInput(input.llm);
     const translation = input.translation ?? {
       translationProcessor: input.translationProcessor,
+      glossaryExtractor: input.glossaryExtractor,
       glossaryUpdater: input.glossaryUpdater,
+      plotSummary: input.plotSummary,
     };
     this.translation = cloneTranslationRuntimeConfig(translation);
   }
@@ -71,10 +97,7 @@ export class TranslationGlobalConfig {
 
   static fromParsedObject(parsed: Record<string, unknown>): TranslationGlobalConfig {
     const llmValue = parsed.llm;
-    const llm =
-      isRecord(llmValue) && isRecord(llmValue.profiles)
-        ? (llmValue.profiles as Record<string, LlmClientConfigInput>)
-        : ((llmValue as Record<string, LlmClientConfigInput> | undefined) ?? {});
+    const llm = resolveLlmConfig(llmValue);
 
     return new TranslationGlobalConfig({
       llm,
@@ -95,8 +118,30 @@ export class TranslationGlobalConfig {
     return this.translation?.glossaryUpdater ? { ...this.translation.glossaryUpdater } : undefined;
   }
 
+  getGlossaryExtractorConfig(): GlossaryExtractorConfig | undefined {
+    return this.translation?.glossaryExtractor
+      ? { ...this.translation.glossaryExtractor }
+      : undefined;
+  }
+
+  getPlotSummaryConfig(): PlotSummaryConfig | undefined {
+    return this.translation?.plotSummary ? { ...this.translation.plotSummary } : undefined;
+  }
+
+  getEmbeddingConfig(): LlmClientConfigInput | undefined {
+    return this.llm.embedding ? { ...this.llm.embedding } : undefined;
+  }
+
   createProvider(hooks?: ClientHooks): LlmClientProvider {
-    return createProviderFromConfigs(this.llm, hooks);
+    return createProviderFromConfigs(
+      {
+        ...this.llm.profiles,
+        ...(this.llm.embedding
+          ? { [GLOBAL_EMBEDDING_CLIENT_NAME]: this.llm.embedding }
+          : {}),
+      },
+      hooks,
+    );
   }
 
   createTranslationProcessor(options: {
@@ -147,8 +192,14 @@ function resolveTranslationRuntimeConfig(
         translationProcessor: isRecord(input.translation.translationProcessor)
           ? (input.translation.translationProcessor as TranslationProcessorConfig)
           : undefined,
+        glossaryExtractor: isRecord(input.translation.glossaryExtractor)
+          ? (input.translation.glossaryExtractor as GlossaryExtractorConfig)
+          : undefined,
         glossaryUpdater: isRecord(input.translation.glossaryUpdater)
           ? (input.translation.glossaryUpdater as GlossaryUpdaterConfig)
+          : undefined,
+        plotSummary: isRecord(input.translation.plotSummary)
+          ? (input.translation.plotSummary as PlotSummaryConfig)
           : undefined,
       }
     : undefined;
@@ -157,15 +208,24 @@ function resolveTranslationRuntimeConfig(
     translationProcessor: isRecord(input.translationProcessor)
       ? (input.translationProcessor as TranslationProcessorConfig)
       : undefined,
+    glossaryExtractor: isRecord(input.glossaryExtractor)
+      ? (input.glossaryExtractor as GlossaryExtractorConfig)
+      : undefined,
     glossaryUpdater: isRecord(input.glossaryUpdater)
       ? (input.glossaryUpdater as GlossaryUpdaterConfig)
+      : undefined,
+    plotSummary: isRecord(input.plotSummary)
+      ? (input.plotSummary as PlotSummaryConfig)
       : undefined,
   };
 
   return cloneTranslationRuntimeConfig({
     translationProcessor:
       nestedTranslation?.translationProcessor ?? topLevelTranslation.translationProcessor,
+    glossaryExtractor:
+      nestedTranslation?.glossaryExtractor ?? topLevelTranslation.glossaryExtractor,
     glossaryUpdater: nestedTranslation?.glossaryUpdater ?? topLevelTranslation.glossaryUpdater,
+    plotSummary: nestedTranslation?.plotSummary ?? topLevelTranslation.plotSummary,
   });
 }
 
@@ -179,14 +239,59 @@ function cloneTranslationRuntimeConfig(
   const translationProcessor = input.translationProcessor
     ? { ...input.translationProcessor }
     : undefined;
+  const glossaryExtractor = input.glossaryExtractor ? { ...input.glossaryExtractor } : undefined;
   const glossaryUpdater = input.glossaryUpdater ? { ...input.glossaryUpdater } : undefined;
-  if (!translationProcessor && !glossaryUpdater) {
+  const plotSummary = input.plotSummary ? { ...input.plotSummary } : undefined;
+  if (!translationProcessor && !glossaryExtractor && !glossaryUpdater && !plotSummary) {
     return undefined;
   }
 
   return {
     translationProcessor,
+    glossaryExtractor,
     glossaryUpdater,
+    plotSummary,
+  };
+}
+
+function normalizeLlmConfigInput(
+  llm: TranslationGlobalConfigInput["llm"],
+): TranslationGlobalLlmConfig {
+  if (!llm) {
+    return { profiles: {} };
+  }
+
+  if ("profiles" in llm || "embedding" in llm) {
+    const typed = llm as TranslationGlobalLlmConfig;
+    return {
+      profiles: { ...(typed.profiles ?? {}) },
+      embedding: typed.embedding ? { ...typed.embedding } : undefined,
+    };
+  }
+
+  return {
+    profiles: { ...(llm as Record<string, LlmClientConfigInput>) },
+  };
+}
+
+function resolveLlmConfig(value: unknown): TranslationGlobalLlmConfig {
+  if (!isRecord(value)) {
+    return { profiles: {} };
+  }
+
+  if (isRecord(value.profiles) || value.embedding !== undefined) {
+    return {
+      profiles: isRecord(value.profiles)
+        ? (value.profiles as Record<string, LlmClientConfigInput>)
+        : {},
+      embedding: isRecord(value.embedding)
+        ? (value.embedding as LlmClientConfigInput)
+        : undefined,
+    };
+  }
+
+  return {
+    profiles: value as Record<string, LlmClientConfigInput>,
   };
 }
 

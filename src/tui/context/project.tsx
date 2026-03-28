@@ -11,6 +11,7 @@ import {
 } from 'react';
 import type { ReactNode } from 'react';
 import { GlobalConfigManager } from '../../config/manager.ts';
+import { FullTextGlossaryScanner } from '../../glossary/index.ts';
 import type { GlossaryTermCategory } from '../../glossary/glossary.ts';
 import { FileRequestHistoryLogger } from '../../llm/history.ts';
 import { TranslationGlobalConfig } from '../../project/config.ts';
@@ -67,7 +68,7 @@ interface ProjectContextValue {
   saveProgress: () => Promise<void>;
   abortTranslation: () => Promise<void>;
   scanDictionary: () => Promise<void>;
-  startPlotSummary: (llmProfileName: string) => Promise<void>;
+  startPlotSummary: () => Promise<void>;
   exportProject: (formatName: string) => Promise<ProjectExportResult | null>;
   updateDictionaryTerm: (args: {
     originalTerm?: string;
@@ -497,16 +498,41 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           throw new Error('当前没有已初始化的项目');
         }
 
-        const result = project.scanGlobalAssociationPatterns();
+        const manager = new GlobalConfigManager();
+        const globalConfig = await manager.getTranslationGlobalConfig();
+        const glossaryExtractorConfig = globalConfig.getGlossaryExtractorConfig();
+        if (!glossaryExtractorConfig?.modelName) {
+          throw new Error('未配置术语提取使用的 LLM，请先在翻译器配置中设置术语提取模型');
+        }
+
+        const provider = new TranslationGlobalConfig({ llm: globalConfig.llm }).createProvider();
+        const projectDir = project.getWorkspaceFileManifest().projectDir;
+        provider.setHistoryLogger(
+          new FileRequestHistoryLogger(join(projectDir, 'logs'), 'glossary_scan_requests'),
+        );
+
+        const scanner = new FullTextGlossaryScanner(
+          provider.getChatClient(glossaryExtractorConfig.modelName),
+        );
+        const result = await scanner.scanDocumentManager(project.getDocumentManager(), {
+          maxCharsPerBatch: glossaryExtractorConfig.maxCharsPerBatch,
+          requestOptions: glossaryExtractorConfig.requestOptions,
+          seedTerms: project.getGlossary()?.getAllTerms(),
+        });
+
+        project.replaceGlossary(result.glossary);
         await project.saveProgress();
         setSnapshot(project.getProjectSnapshot());
-        addLog('success', `字典扫描完成，识别到 ${result.patterns.length} 个候选条目`);
+        addLog(
+          'success',
+          `术语提取完成，共识别 ${result.glossary.getAllTerms().length} 个条目（${result.batches.length} 批）`,
+        );
       }),
     [addLog, project, runAction],
   );
 
   const startPlotSummary = useCallback(
-    async (llmProfileName: string) => {
+    async () => {
       if (isBusy) {
         addLog('warning', '正在执行其他项目操作，请稍候后再试');
         return;
@@ -529,6 +555,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         try {
           const manager = new GlobalConfigManager();
           const globalConfig = await manager.getTranslationGlobalConfig();
+          const plotSummaryConfig = globalConfig.getPlotSummaryConfig();
+          if (!plotSummaryConfig?.modelName) {
+            throw new Error('未配置情节总结使用的 LLM，请先在翻译器配置中设置情节总结模型');
+          }
+
           const runtimeConfig = new TranslationGlobalConfig({ llm: globalConfig.llm });
           const provider = runtimeConfig.createProvider();
           const documentManager = project.getDocumentManager();
@@ -544,10 +575,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           const currentTopology = project.getStoryTopology();
 
           const summarizer = new PlotSummarizer(
-            { provider, modelName: llmProfileName },
+            { provider, modelName: plotSummaryConfig.modelName },
             documentManager,
             summaryPath,
             {
+              fragmentsPerBatch: plotSummaryConfig.fragmentsPerBatch,
+              maxContextSummaries: plotSummaryConfig.maxContextSummaries,
+              requestOptions: plotSummaryConfig.requestOptions,
               logger: createTuiLogger(addLog),
               topology: currentTopology,
             },
@@ -559,7 +593,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
           // Estimate total batches
           let totalBatches = 0;
-          const fragmentsPerBatch = 5;
+          const fragmentsPerBatch = plotSummaryConfig.fragmentsPerBatch ?? 5;
           for (const chapter of chapters) {
             totalBatches += Math.ceil(chapter.fragments.length / fragmentsPerBatch);
           }
