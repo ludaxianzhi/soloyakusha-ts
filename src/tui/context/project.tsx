@@ -19,6 +19,7 @@ import type { TranslationProcessorConfig } from '../../project/config.ts';
 import type { Logger } from '../../project/logger.ts';
 import { PlotSummarizer } from '../../project/plot-summarizer.ts';
 import { StoryTopology, MAIN_ROUTE_ID } from '../../project/story-topology.ts';
+import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { TranslationProject } from '../../project/translation-project.ts';
 import type { TranslationProcessorResult } from '../../project/translation-processor.ts';
 import type { TranslationProjectSnapshot, ProjectExportResult, WorkspaceChapterDescriptor, WorkspaceConfig, WorkspaceConfigPatch } from '../../project/types.ts';
@@ -248,24 +249,31 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           }
 
           addLog('info', `正在初始化项目：${input.projectName.trim()}`);
-          nextProject = new TranslationProject({
-            projectName: input.projectName.trim(),
-            projectDir: normalizedDir,
-            chapters: allChapterPaths.map((filePath, index) => ({
-              id: index + 1,
-              filePath,
-            })),
-            glossary: input.glossaryPath?.trim()
-              ? {
-                  path: input.glossaryPath.trim(),
-                  autoFilter: true,
-                }
-              : undefined,
-            customRequirements: [
-              input.srcLang?.trim() ? `源语言: ${input.srcLang.trim()}` : undefined,
-              input.tgtLang?.trim() ? `目标语言: ${input.tgtLang.trim()}` : undefined,
-            ].filter((value): value is string => Boolean(value)),
-          });
+          nextProject = new TranslationProject(
+            {
+              projectName: input.projectName.trim(),
+              projectDir: normalizedDir,
+              chapters: allChapterPaths.map((filePath, index) => ({
+                id: index + 1,
+                filePath,
+              })),
+              glossary: input.glossaryPath?.trim()
+                ? {
+                    path: input.glossaryPath.trim(),
+                    autoFilter: true,
+                  }
+                : undefined,
+              customRequirements: [
+                input.srcLang?.trim() ? `源语言: ${input.srcLang.trim()}` : undefined,
+                input.tgtLang?.trim() ? `目标语言: ${input.tgtLang.trim()}` : undefined,
+              ].filter((value): value is string => Boolean(value)),
+            },
+            {
+              fileHandlerResolver: input.importFormat
+                ? () => TranslationFileHandlerFactory.getHandler(input.importFormat!)
+                : undefined,
+            },
+          );
           await nextProject.initialize();
 
           // Build topology from main + branches
