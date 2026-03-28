@@ -8,15 +8,25 @@ import { useLog } from '../context/log.tsx';
 import { useProject } from '../context/project.tsx';
 import type { SelectItem } from '../types.ts';
 
-type MenuValue = 'create' | 'back' | `ws:${string}`;
+type MenuValue = 'create' | 'back' | `ws:${string}` | `rm:${string}`;
 
 function buildMenuItems(workspaces: WorkspaceEntry[]): SelectItem<MenuValue>[] {
-  const items: SelectItem<MenuValue>[] = workspaces.map((ws) => ({
-    label: `📂 ${ws.name}`,
-    value: `ws:${ws.dir}` as MenuValue,
-    description: ws.dir,
-    meta: new Date(ws.lastOpenedAt).toLocaleDateString('zh-CN'),
-  }));
+  const items: SelectItem<MenuValue>[] = [];
+
+  for (const ws of workspaces) {
+    items.push({
+      label: `📂 ${ws.name}`,
+      value: `ws:${ws.dir}` as MenuValue,
+      description: ws.dir,
+      meta: new Date(ws.lastOpenedAt).toLocaleDateString('zh-CN'),
+    });
+    items.push({
+      label: `🗑️ 移除：${ws.name}`,
+      value: `rm:${ws.dir}` as MenuValue,
+      description: `从最近列表中移除工作区 ${ws.dir}`,
+      meta: 'del',
+    });
+  }
 
   items.push({
     label: '✨ 新建工作区',
@@ -64,6 +74,22 @@ export function WorkspaceMenuScreen() {
       }
       if (item.value === 'create') {
         navigate('workspace-create');
+        return;
+      }
+
+      if (item.value.startsWith('rm:')) {
+        const dir = item.value.slice(3);
+        void (async () => {
+          addLog('info', `正在移除工作区：${dir}`);
+          try {
+            const manager = new GlobalConfigManager();
+            await manager.removeRecentWorkspace(dir);
+            setWorkspaces((prev) => prev.filter((w) => w.dir !== dir));
+            addLog('success', `工作区已从最近列表中移除：${dir}`);
+          } catch {
+            addLog('error', `移除工作区失败：${dir}`);
+          }
+        })();
         return;
       }
 

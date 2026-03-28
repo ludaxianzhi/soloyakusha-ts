@@ -11,7 +11,6 @@ type ActionValue =
   | 'start'
   | 'pause'
   | 'resume'
-  | 'save'
   | 'abort'
   | 'scan-dictionary'
   | 'dictionary'
@@ -31,7 +30,6 @@ export function WorkspaceProgressScreen() {
     startTranslation,
     pauseTranslation,
     resumeTranslation,
-    saveProgress,
     abortTranslation,
     scanDictionary,
     scanDictionaryProgress,
@@ -131,7 +129,6 @@ export function WorkspaceProgressScreen() {
             case 'start': void startTranslation(); return;
             case 'pause': void pauseTranslation(); return;
             case 'resume': void resumeTranslation(); return;
-            case 'save': void saveProgress(); return;
             case 'abort': void abortTranslation(); return;
             case 'scan-dictionary': void scanDictionary(); return;
             case 'dictionary': navigate('workspace-dictionary'); return;
@@ -216,15 +213,6 @@ function buildActionItems(
       : '选择 LLM 预设开始生成情节大纲总结。',
     meta: 'plot',
   });
-
-  if (snapshot.lifecycle.canSave) {
-    items.push({
-      label: '💾 保存项目进度',
-      value: 'save',
-      description: '持久化项目、章节与字典状态。',
-      meta: 'save',
-    });
-  }
 
   if (snapshot.lifecycle.canAbort) {
     items.push({
