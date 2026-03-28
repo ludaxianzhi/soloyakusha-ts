@@ -36,6 +36,8 @@ export function Form({
 }: FormProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelConfirmIndex, setCancelConfirmIndex] = useState(0); // 0=继续编辑, 1=放弃更改
   const { subscribe } = useMouse();
   const [values, setValues] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
@@ -261,8 +263,40 @@ export function Form({
     }
   }, [activeAutocomplete, activeRowIndex, autocompleteItems.length, renderRows.length, scrollOffset, visibleRows]);
 
+  // 导航到 text/autocomplete 字段时自动进入编辑模式
+  useEffect(() => {
+    const field = fields[activeIndex];
+    if (field?.type === 'text' || field?.type === 'autocomplete') {
+      setEditing(true);
+      if (field.type === 'autocomplete') {
+        setAutocompleteRevision((prev) => prev + 1);
+      }
+    } else {
+      setEditing(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex, fields]);
+
   useInput((input, key) => {
     if (textareaEditing) {
+      return;
+    }
+
+    // 取消确认对话框处于激活状态
+    if (showCancelConfirm) {
+      if (key.leftArrow || key.upArrow) {
+        setCancelConfirmIndex(0);
+      } else if (key.rightArrow || key.downArrow) {
+        setCancelConfirmIndex(1);
+      } else if (key.return) {
+        if (cancelConfirmIndex === 1) {
+          void onCancel();
+        } else {
+          setShowCancelConfirm(false);
+        }
+      } else if (key.escape) {
+        setShowCancelConfirm(false);
+      }
       return;
     }
 
@@ -270,6 +304,23 @@ export function Form({
       const field = fields[activeIndex];
       if (!field) {
         return;
+      }
+
+      // text/autocomplete 字段：上下箭头直接导航，ESC 弹出取消确认
+      if (field.type === 'text' || field.type === 'autocomplete') {
+        if (key.upArrow) {
+          setActiveIndex((prev) => (prev - 1 + total) % total);
+          return;
+        }
+        if (key.downArrow) {
+          setActiveIndex((prev) => (prev + 1) % total);
+          return;
+        }
+        if (key.escape) {
+          setShowCancelConfirm(true);
+          setCancelConfirmIndex(0);
+          return;
+        }
       }
 
       const isTab = input === '\t' || key.tab === true;
@@ -285,8 +336,9 @@ export function Form({
           return;
         }
 
-        if (key.return || key.escape) {
-          setEditing(false);
+        if (key.return) {
+          // Enter 移到下一个字段
+          setActiveIndex((prev) => (prev + 1) % total);
           return;
         }
 
@@ -302,7 +354,7 @@ export function Form({
           return;
         }
 
-        if (input && !key.ctrl && !key.meta && !key.escape) {
+        if (input && !key.ctrl && !key.meta) {
           const nextValues = { ...values, [field.key]: (values[field.key] ?? '') + input };
           setValues(nextValues);
           setAutocompleteQuery({
@@ -315,12 +367,12 @@ export function Form({
         return;
       }
 
-      if (key.return || (key.escape && field.type === 'text')) {
-        setEditing(false);
-        return;
-      }
-
       if (field.type === 'text') {
+        if (key.return) {
+          // Enter 移到下一个字段
+          setActiveIndex((prev) => (prev + 1) % total);
+          return;
+        }
         if (key.backspace || key.delete) {
           setValues((prev) => ({ ...prev, [field.key]: (prev[field.key] ?? '').slice(0, -1) }));
         } else if (input && !key.ctrl && !key.meta && !key.escape) {
@@ -365,7 +417,8 @@ export function Form({
         setAutocompleteRevision((prev) => prev + 1);
       }
     } else if (key.escape) {
-      void onCancel();
+      setShowCancelConfirm(true);
+      setCancelConfirmIndex(0);
     }
   });
 
@@ -397,6 +450,12 @@ export function Form({
         setActiveIndex((prev) => (prev + 1) % total);
       } else if (event.action === 'left') {
         if (editing) {
+          const field = fields[activeIndex];
+          // text/autocomplete 自动进入编辑，左键相当于确认并移到下一项
+          if (field?.type === 'text' || field?.type === 'autocomplete') {
+            setActiveIndex((prev) => (prev + 1) % total);
+            return;
+          }
           setEditing(false);
           return;
         }
@@ -416,11 +475,9 @@ export function Form({
           setAutocompleteRevision((prev) => prev + 1);
         }
       } else if (event.action === 'right') {
-        if (editing) {
-          setEditing(false);
-        } else {
-          void onCancel();
-        }
+        // 右键相当于 ESC：弹出取消确认
+        setShowCancelConfirm(true);
+        setCancelConfirmIndex(0);
       }
     });
   }, [activeIndex, cancelIdx, editing, fields, onCancel, onSubmit, submitIdx, subscribe, total, values]);
@@ -451,9 +508,31 @@ export function Form({
       {hasScrollUp ? <Text dimColor>  ▲ 更多 ({scrollOffset})</Text> : null}
       {visibleItems.map((row) => row.node)}
       {editing && activeField?.type === 'autocomplete' ? (
-        <Text dimColor>  Tab 切换补全，Enter 确认，继续输入后刷新候选</Text>
+        <Text dimColor>  Tab 切换补全，Enter/↓ 移到下一项，继续输入刷新候选</Text>
       ) : null}
       {hasScrollDown ? <Text dimColor>  ▼ 更多 ({renderRows.length - scrollOffset - visibleRows})</Text> : null}
+      {showCancelConfirm ? (
+        <SafeBox flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} marginTop={1}>
+          <Text bold color="yellow">确认放弃更改？</Text>
+          <SafeBox gap={1}>
+            <Text
+              backgroundColor={cancelConfirmIndex === 0 ? 'white' : undefined}
+              color={cancelConfirmIndex === 0 ? 'black' : 'cyan'}
+              bold={cancelConfirmIndex === 0}
+            >
+              {` ← 继续编辑 `}
+            </Text>
+            <Text
+              backgroundColor={cancelConfirmIndex === 1 ? 'red' : undefined}
+              color={cancelConfirmIndex === 1 ? 'white' : 'red'}
+              bold={cancelConfirmIndex === 1}
+            >
+              {` 放弃更改 `}
+            </Text>
+          </SafeBox>
+          <Text dimColor>  ←/→ 切换，Enter 确认，Esc 关闭</Text>
+        </SafeBox>
+      ) : null}
     </SafeBox>
   );
 }
