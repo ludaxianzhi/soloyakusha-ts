@@ -6,6 +6,26 @@ import type {
 } from '../../project/config.ts';
 import type { FormFieldDef, SelectItem } from '../types.ts';
 
+export type TranslatorWorkflowType = 'default' | 'multi-stage';
+
+export const TRANSLATOR_WORKFLOW_OPTIONS: SelectItem<TranslatorWorkflowType>[] = [
+  { label: 'default', value: 'default', description: '单步翻译（默认）' },
+  {
+    label: 'multi-stage',
+    value: 'multi-stage',
+    description: '多步骤文学翻译：分析→翻译→润色→[编辑+校对→修改]×N',
+  },
+];
+
+export const MULTI_STAGE_STEP_LABELS: { key: string; label: string; description: string }[] = [
+  { key: 'analyzer', label: 'LLM1 · 分析器', description: '分析场景、视角、风格和翻译难点' },
+  { key: 'translator', label: 'LLM2 · 翻译器', description: '初步翻译' },
+  { key: 'polisher', label: 'LLM3 · 润色师', description: '润色译文使其更自然' },
+  { key: 'editor', label: 'LLM4 · 中文编辑', description: '指出表达问题并提供改进建议' },
+  { key: 'proofreader', label: 'LLM5 · 校对专家', description: '校对理解错误（尊重文学性）' },
+  { key: 'reviser', label: 'LLM6 · 修改器', description: '综合编辑和校对意见修改译文' },
+];
+
 export function buildLlmOptions(
   profileNames: string[],
   defaultProfileName: string,
@@ -21,21 +41,15 @@ export function buildLlmOptions(
 export function buildTranslatorFields(
   config: TranslationProcessorConfig | undefined,
   llmOptions: SelectItem[],
+  workflow: TranslatorWorkflowType = normalizeTranslatorWorkflow(config?.workflow),
 ): FormFieldDef[] {
-  return [
+  const baseFields: FormFieldDef[] = [
     {
       key: 'modelName',
-      label: 'LLM 配置',
+      label: workflow === 'multi-stage' ? 'LLM 配置（默认，各步骤未指定时使用）' : 'LLM 配置',
       type: 'select',
       options: llmOptions,
       defaultValue: config?.modelName ?? llmOptions[0]?.value ?? '',
-    },
-    {
-      key: 'workflow',
-      label: '工作流',
-      type: 'select',
-      options: [{ label: 'default', value: 'default' }],
-      defaultValue: config?.workflow ?? 'default',
     },
     {
       key: 'overlapChars',
@@ -51,6 +65,43 @@ export function buildTranslatorFields(
       defaultValue: config?.slidingWindow?.overlapChars
         ? String(config.slidingWindow.overlapChars)
         : '',
+    },
+  ];
+
+  if (workflow !== 'multi-stage') {
+    return baseFields;
+  }
+
+  const multiStageFields: FormFieldDef[] = MULTI_STAGE_STEP_LABELS.map((step) => ({
+    key: `model_${step.key}`,
+    label: step.label,
+    type: 'select',
+    options: [
+      { label: '(使用默认 LLM)', value: '' },
+      ...llmOptions,
+    ],
+    defaultValue: config?.models?.[step.key] ?? '',
+    description: step.description,
+  }));
+
+  return [
+    ...baseFields,
+    ...multiStageFields,
+    {
+      key: 'reviewIterations',
+      label: '评审迭代次数',
+      type: 'select',
+      options: [
+        { label: '(默认 2 次)', value: '' },
+        { label: '1 次', value: '1' },
+        { label: '2 次', value: '2' },
+        { label: '3 次', value: '3' },
+        { label: '4 次', value: '4' },
+      ],
+      defaultValue: config?.reviewIterations !== undefined
+        ? String(config.reviewIterations)
+        : '',
+      description: '大步骤二（编辑+校对→修改）的重复次数。',
     },
   ];
 }
@@ -159,4 +210,8 @@ export function parseOptionalInteger(value: string | undefined): number | undefi
 
 export function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeTranslatorWorkflow(workflow: string | undefined): TranslatorWorkflowType {
+  return workflow === 'multi-stage' ? 'multi-stage' : 'default';
 }

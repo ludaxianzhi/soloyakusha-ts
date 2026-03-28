@@ -11,6 +11,7 @@ interface SelectProps<T extends string = string> {
   title?: string;
   description?: string;
   visibleRows?: number;
+  initialValue?: T;
 }
 
 export function Select<T extends string = string>({
@@ -19,12 +20,27 @@ export function Select<T extends string = string>({
   isActive = true,
   title,
   visibleRows = 12,
+  initialValue,
 }: SelectProps<T>) {
-  const [focusIndex, setFocusIndex] = useState(0);
+  const [focusIndex, setFocusIndex] = useState(() => {
+    if (!initialValue) {
+      return 0;
+    }
+
+    const initialIndex = items.findIndex((item) => item.value === initialValue);
+    return initialIndex >= 0 ? initialIndex : 0;
+  });
   const { subscribe } = useMouse();
 
   // Scrolling
   const [scrollOffset, setScrollOffset] = useState(0);
+  useEffect(() => {
+    const nextIndex = initialValue
+      ? items.findIndex((item) => item.value === initialValue)
+      : 0;
+    setFocusIndex(nextIndex >= 0 ? nextIndex : 0);
+  }, [initialValue, items]);
+
   useEffect(() => {
     if (focusIndex < scrollOffset) {
       setScrollOffset(focusIndex);

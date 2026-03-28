@@ -1028,6 +1028,8 @@ async function createProcessorForProject(
       modelName: translatorEntry.modelName,
       slidingWindow: translatorEntry.slidingWindow,
       requestOptions: translatorEntry.requestOptions,
+      models: translatorEntry.models,
+      reviewIterations: translatorEntry.reviewIterations,
     };
   } else {
     // 兼容旧版工作区：使用 workspace 内联 modelName 或全局 translationProcessor
@@ -1047,6 +1049,8 @@ async function createProcessorForProject(
       workflow: workspaceConfig.translator.workflow ?? baseProcessorConfig?.workflow ?? 'default',
       slidingWindow: baseProcessorConfig?.slidingWindow,
       requestOptions: baseProcessorConfig?.requestOptions,
+      models: baseProcessorConfig?.models,
+      reviewIterations: baseProcessorConfig?.reviewIterations,
     };
   }
 
