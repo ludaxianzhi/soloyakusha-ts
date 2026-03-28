@@ -33,14 +33,6 @@ const EMBEDDING_PROVIDER_OPTIONS = [
   { label: 'OpenAI (兼容)', value: 'openai' },
 ] as const;
 
-const NUMBER_OPTIONS = (values: number[]) =>
-  values.map((value) => ({ label: String(value), value: String(value) }));
-
-const OPTIONAL_NUMBER_OPTIONS = [
-  { label: '(未设置)', value: '' },
-  ...NUMBER_OPTIONS([1, 2, 3, 4, 5, 8, 10, 20]),
-];
-
 export function SettingsLlmScreen() {
   const { goBack } = useNavigation();
   const { addLog } = useLog();
@@ -376,22 +368,22 @@ function buildProfileFields(input: {
     {
       key: 'retries',
       label: '重试次数',
-      type: 'select',
-      options: NUMBER_OPTIONS([1, 2, 3, 5, 8]),
+      type: 'text',
+      placeholder: '例如: 3',
       defaultValue: String(input.config?.retries ?? 3),
     },
     {
       key: 'qps',
       label: 'QPS',
-      type: 'select',
-      options: OPTIONAL_NUMBER_OPTIONS,
+      type: 'text',
+      placeholder: '留空表示未设置，例如: 15',
       defaultValue: input.config?.qps ? String(input.config.qps) : '',
     },
     {
       key: 'maxParallelRequests',
       label: '并发数',
-      type: 'select',
-      options: OPTIONAL_NUMBER_OPTIONS,
+      type: 'text',
+      placeholder: '留空表示未设置，例如: 12',
       defaultValue: input.config?.maxParallelRequests ? String(input.config.maxParallelRequests) : '',
     },
     {
@@ -482,22 +474,22 @@ function buildEmbeddingFields(config?: PersistedLlmClientConfig): FormFieldDef[]
     {
       key: 'retries',
       label: '重试次数',
-      type: 'select',
-      options: NUMBER_OPTIONS([1, 2, 3, 5, 8]),
+      type: 'text',
+      placeholder: '例如: 3',
       defaultValue: String(config?.retries ?? 3),
     },
     {
       key: 'qps',
       label: 'QPS',
-      type: 'select',
-      options: OPTIONAL_NUMBER_OPTIONS,
+      type: 'text',
+      placeholder: '留空表示未设置，例如: 15',
       defaultValue: config?.qps ? String(config.qps) : '',
     },
     {
       key: 'maxParallelRequests',
       label: '并发数',
-      type: 'select',
-      options: OPTIONAL_NUMBER_OPTIONS,
+      type: 'text',
+      placeholder: '留空表示未设置，例如: 12',
       defaultValue: config?.maxParallelRequests ? String(config.maxParallelRequests) : '',
     },
   ];
@@ -532,6 +524,24 @@ export function buildLlmConfigFromValues(
     return defaultRequestConfig;
   }
 
+  const retries = parsePositiveIntegerField(values.retries, '重试次数');
+  if (!retries.ok) {
+    return retries;
+  }
+
+  const qps = parseOptionalPositiveIntegerField(values.qps, 'QPS');
+  if (!qps.ok) {
+    return qps;
+  }
+
+  const maxParallelRequests = parseOptionalPositiveIntegerField(
+    values.maxParallelRequests,
+    '并发数',
+  );
+  if (!maxParallelRequests.ok) {
+    return maxParallelRequests;
+  }
+
   return {
     ok: true,
     config: {
@@ -539,9 +549,9 @@ export function buildLlmConfigFromValues(
       modelType,
       modelName,
       endpoint,
-      retries: parseInteger(values.retries, 3),
-      qps: parseOptionalInteger(values.qps),
-      maxParallelRequests: parseOptionalInteger(values.maxParallelRequests),
+      retries: retries.value,
+      qps: qps.value,
+      maxParallelRequests: maxParallelRequests.value,
       ...(modelType === 'chat' && defaultRequestConfig.config
         ? { defaultRequestConfig: defaultRequestConfig.config }
         : {}),
@@ -591,19 +601,6 @@ function buildDefaultRequestConfig(
   };
 }
 
-function parseInteger(value: string | undefined, fallback: number): number {
-  const parsed = Number.parseInt(value ?? '', 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function parseOptionalInteger(value: string | undefined): number | undefined {
-  if (!value?.trim()) {
-    return undefined;
-  }
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 function parseOptionalFiniteNumber(
   value: string | undefined,
   label: string,
@@ -631,6 +628,40 @@ function parseOptionalIntegerField(
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || String(parsed) !== value.trim()) {
     return { ok: false, message: `${label} 必须是整数` };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+function parsePositiveIntegerField(
+  value: string | undefined,
+  label: string,
+): { ok: true; value: number } | { ok: false; message: string } {
+  const normalized = value?.trim() ?? '';
+  if (!normalized) {
+    return { ok: false, message: `${label} 不能为空` };
+  }
+
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isFinite(parsed) || String(parsed) !== normalized || parsed <= 0) {
+    return { ok: false, message: `${label} 必须是正整数` };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+function parseOptionalPositiveIntegerField(
+  value: string | undefined,
+  label: string,
+): { ok: true; value: number | undefined } | { ok: false; message: string } {
+  if (!value?.trim()) {
+    return { ok: true, value: undefined };
+  }
+
+  const normalized = value.trim();
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isFinite(parsed) || String(parsed) !== normalized || parsed <= 0) {
+    return { ok: false, message: `${label} 必须是正整数` };
   }
 
   return { ok: true, value: parsed };

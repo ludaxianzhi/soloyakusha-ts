@@ -96,4 +96,60 @@ describe("buildLlmConfigFromValues", () => {
       },
     });
   });
+
+  test("rejects non-positive retries and malformed optional rate limits", () => {
+    const result = buildLlmConfigFromValues(
+      {
+        provider: "openai",
+        endpoint: "https://example.com/v1",
+        apiKey: "secret",
+        apiKeyEnv: "",
+        modelName: "gpt-4.1",
+        retries: "0",
+        qps: "12abc",
+        maxParallelRequests: "",
+        defaultSystemPrompt: "",
+        defaultTemperature: "",
+        defaultTopP: "",
+        defaultMaxTokens: "",
+        defaultExtraBody: "",
+      },
+      "chat",
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      message: "重试次数 必须是正整数",
+    });
+  });
+
+  test("accepts arbitrary positive integers for retries and rate limits", () => {
+    const result = buildLlmConfigFromValues(
+      {
+        provider: "openai",
+        endpoint: "https://example.com/v1",
+        apiKey: "secret",
+        apiKeyEnv: "",
+        modelName: "gpt-4.1",
+        retries: "7",
+        qps: "15",
+        maxParallelRequests: "12",
+        defaultSystemPrompt: "",
+        defaultTemperature: "",
+        defaultTopP: "",
+        defaultMaxTokens: "",
+        defaultExtraBody: "",
+      },
+      "chat",
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.config.retries).toBe(7);
+    expect(result.config.qps).toBe(15);
+    expect(result.config.maxParallelRequests).toBe(12);
+  });
 });

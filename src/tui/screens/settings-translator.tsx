@@ -9,8 +9,7 @@ import { useNavigation } from '../context/navigation.tsx';
 import { useLog } from '../context/log.tsx';
 import {
   buildLlmOptions,
-  parseInteger,
-  parseOptionalInteger,
+  parseOptionalPositiveIntegerField,
   toErrorMessage,
 } from './settings-translation-shared.ts';
 import type { FormFieldDef, SelectItem } from '../types.ts';
@@ -240,6 +239,23 @@ export function SettingsTranslatorScreen() {
         const workflowType = values.type?.trim() || undefined;
         const isMultiStage = workflowType === 'multi-stage';
 
+        const overlapChars = parseOptionalPositiveIntegerField(
+          values.overlapChars,
+          '滑窗重叠',
+        );
+        if (!overlapChars.ok) {
+          addLog('warning', overlapChars.message);
+          return;
+        }
+
+        const reviewIterations = isMultiStage
+          ? parseOptionalPositiveIntegerField(values.reviewIterations, '评审迭代次数')
+          : { ok: true as const, value: undefined };
+        if (!reviewIterations.ok) {
+          addLog('warning', reviewIterations.message);
+          return;
+        }
+
         const models: Record<string, string> = {};
         if (isMultiStage) {
           for (const step of MULTI_STAGE_STEP_LABELS) {
@@ -253,13 +269,11 @@ export function SettingsTranslatorScreen() {
         const entry: TranslatorEntry = {
           type: workflowType,
           modelName: values.modelName,
-          slidingWindow: values.overlapChars
-            ? { overlapChars: parseInteger(values.overlapChars, 0) }
+          slidingWindow: overlapChars.value !== undefined
+            ? { overlapChars: overlapChars.value }
             : undefined,
           models: Object.keys(models).length > 0 ? models : undefined,
-          reviewIterations: isMultiStage
-            ? parseOptionalInteger(values.reviewIterations)
-            : undefined,
+          reviewIterations: reviewIterations.value,
         };
 
         try {
@@ -322,14 +336,8 @@ function buildTranslatorEntryFields(input: {
     {
       key: 'overlapChars',
       label: '滑窗重叠',
-      type: 'select',
-      options: [
-        { label: '(默认)', value: '' },
-        { label: '8', value: '8' },
-        { label: '12', value: '12' },
-        { label: '16', value: '16' },
-        { label: '24', value: '24' },
-      ],
+      type: 'text',
+      placeholder: '留空使用默认，例如 64',
       defaultValue: input.entry?.slidingWindow?.overlapChars
         ? String(input.entry.slidingWindow.overlapChars)
         : '',
@@ -356,14 +364,8 @@ function buildTranslatorEntryFields(input: {
   const reviewIterationsField: FormFieldDef = {
     key: 'reviewIterations',
     label: '评审迭代次数',
-    type: 'select',
-    options: [
-      { label: '(默认 2 次)', value: '' },
-      { label: '1 次', value: '1' },
-      { label: '2 次', value: '2' },
-      { label: '3 次', value: '3' },
-      { label: '4 次', value: '4' },
-    ],
+    type: 'text',
+    placeholder: '留空使用默认，例如 3',
     defaultValue: input.entry?.reviewIterations !== undefined
       ? String(input.entry.reviewIterations)
       : '',
