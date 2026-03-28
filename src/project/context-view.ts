@@ -26,6 +26,12 @@ type OrderedFragmentRef = {
   fragmentIndex: number;
 };
 
+export type DependencyPromptContext = {
+  referenceSourceTexts: string[];
+  referenceTranslations: string[];
+  plotSummaries: string[];
+};
+
 export class TranslationContextView {
   constructor(
     readonly chapterId: number,
@@ -185,6 +191,23 @@ export class TranslationContextView {
     return this.getDependencyPairs()
       .map((pair) => pair.translatedText.trim())
       .filter((value) => value.length > 0);
+  }
+
+  getDependencyPromptContext(): DependencyPromptContext {
+    const pairs = this.getDependencyPairs();
+    const referenceSourceTexts = pairs
+      .map((pair) => pair.sourceText.trim())
+      .filter((value) => value.length > 0);
+    const referenceTranslations = pairs
+      .map((pair) => pair.translatedText.trim())
+      .filter((value) => value.length > 0);
+
+    return {
+      referenceSourceTexts,
+      referenceTranslations,
+      plotSummaries:
+        referenceSourceTexts.length > 0 ? this.getPlotSummaryTexts() : [],
+    };
   }
 
   private buildPreviousStepPairs(): ContextPair[] {

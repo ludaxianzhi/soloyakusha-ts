@@ -13,6 +13,8 @@ describe("PromptManager", () => {
     expect(manager.getPromptIds()).toContain("glossary.fullTextScan");
     expect(manager.getPromptIds()).toContain("glossary.translationUpdate");
     expect(manager.getPromptIds()).toContain("project.translationPipeline");
+    expect(manager.getPromptIds()).toContain("project.multiStage.analyzer");
+    expect(manager.getPromptIds()).toContain("project.multiStage.reviser");
     expect(manager.getPromptIds()).toContain("utils.alignmentRepair");
   });
 
@@ -144,5 +146,37 @@ prompts:
     expect(glossaryPrompt.systemPrompt).toContain("JSON Schema");
     expect(glossaryPrompt.userPrompt).toContain("translatedText: Hero arrived at the Royal Capital");
     expect(glossaryPrompt.userPrompt).toContain("term: 王都");
+  });
+
+  test("renders multi-stage prompts with conditional history summaries", async () => {
+    const manager = await getDefaultPromptManager();
+
+    const analyzerPrompt = manager.renderPrompt("project.multiStage.analyzer", {
+      sourceUnits: [{ id: "1", text: "勇者推开门。" }],
+      referenceSourceTexts: ["门后是一条长廊。"],
+      referenceTranslations: ["门后是一条长廊。"],
+      plotSummaries: ["上一段：勇者已经潜入城堡。"],
+      translatedGlossaryTerms: [{ term: "勇者", translation: "勇者", status: "translated" }],
+      requirements: ["保持文学语气"],
+    });
+    const reviserPrompt = manager.renderPrompt("project.multiStage.reviser", {
+      sourceUnits: [{ id: "1", text: "勇者推开门。" }],
+      currentTranslations: [{ id: "1", text: "勇者推开了门。" }],
+      referenceSourceTexts: ["门后是一条长廊。"],
+      referenceTranslations: ["门后是一条长廊。"],
+      plotSummaries: ["上一段：勇者已经潜入城堡。"],
+      translatedGlossaryTerms: [{ term: "勇者", translation: "勇者", status: "translated" }],
+      editorFeedback: "[1] 语气可更紧凑。",
+      proofreaderFeedback: "[1] 无明显误译。",
+      requirements: ["保持文学语气"],
+      responseSchemaJson: '{"type":"object","properties":{"translations":{"type":"array"}}}',
+    });
+
+    expect(analyzerPrompt.userPrompt).toContain("参考原文（前序文段）");
+    expect(analyzerPrompt.userPrompt).toContain("历史总结");
+    expect(analyzerPrompt.userPrompt).toContain("上一段：勇者已经潜入城堡。");
+    expect(reviserPrompt.userPrompt).toContain("中文编辑反馈");
+    expect(reviserPrompt.userPrompt).toContain("校对专家反馈");
+    expect(reviserPrompt.userPrompt).toContain("JSON Schema");
   });
 });

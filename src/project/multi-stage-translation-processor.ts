@@ -25,7 +25,7 @@ import {
 } from "../glossary/updater.ts";
 import type { ChatClient } from "../llm/base.ts";
 import { buildJsonSchemaChatRequestOptions, mergeChatRequestOptions } from "../llm/chat-request.ts";
-import type { ChatRequestOptions, JsonObject } from "../llm/types.ts";
+import type { ChatRequestOptions } from "../llm/types.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
 import { PromptManager, type PromptTranslationUnit } from "./prompt-manager.ts";
 import type { TranslationWorkItem } from "./pipeline.ts";
@@ -68,6 +68,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
   private readonly defaultSlidingWindow?: SlidingWindowOptions;
   private readonly processorName?: string;
   private readonly glossaryUpdater: GlossaryUpdater;
+  private readonly promptManager: PromptManager;
   private readonly reviewIterations: number;
 
   /**
@@ -81,6 +82,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     >,
     options: MultiStageTranslationProcessorOptions = {},
   ) {
+    this.promptManager = options.promptManager ?? new PromptManager();
     this.defaultRequestOptions = options.defaultRequestOptions;
     this.defaultSlidingWindow = options.defaultSlidingWindow;
     this.logger = options.logger ?? NOOP_LOGGER;
@@ -137,9 +139,9 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       fragmentIndex: request.workItemRef?.fragmentIndex,
     });
 
-    const referencePairs = request.contextView?.getDependencyPairs() ?? [];
-    const referenceSourceTexts = referencePairs.map((p) => p.sourceText.trim()).filter(Boolean);
-    const referenceTranslations = referencePairs.map((p) => p.translatedText.trim()).filter(Boolean);
+    const requirements = [...(request.requirements ?? [])];
+    const referenceContext = resolveDependencyPromptContext(request);
+    const { referenceSourceTexts, referenceTranslations, plotSummaries } = referenceContext;
     const translatedGlossaryTerms = resolveTranslatedGlossaryTerms(request);
     const untranslatedGlossaryTerms = resolveUntranslatedGlossaryTerms(request);
     const mergedOptions = mergeChatRequestOptions(
@@ -150,36 +152,35 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     // ── 大步骤一 ──────────────────────────────────────────────────────────
 
     // Step 1: LLM1 分析
-    const { systemPrompt: analyzerSystem, userPrompt: analyzerUser } = buildAnalyzerPrompt({
+    const analyzerPrompt = await this.promptManager.renderMultiStageAnalyzerPrompt({
       sourceUnits,
       referenceSourceTexts,
       referenceTranslations,
-      glossaryTerms: translatedGlossaryTerms,
-      requirements: request.requirements ?? [],
+      plotSummaries,
+      translatedGlossaryTerms,
+      requirements,
     });
     this.logger.info?.("LLM1 分析阶段", { processorName: this.processorName });
     const analysisText = await this.resolveClient("analyzer").singleTurnRequest(
-      analyzerUser,
-      withSystemPrompt(mergedOptions, analyzerSystem),
+      analyzerPrompt.userPrompt,
+      withSystemPrompt(mergedOptions, analyzerPrompt.systemPrompt),
     );
 
     // Step 2: LLM2 初步翻译
-    const translationSchema = buildTranslationSchema(sourceUnits);
-    const { systemPrompt: translatorSystem, userPrompt: translatorUser } = buildTranslatorPrompt({
+    const translatorPrompt = await this.promptManager.renderMultiStageTranslatorPrompt({
       sourceUnits,
       referenceTranslations,
-      glossaryTerms: translatedGlossaryTerms,
+      translatedGlossaryTerms,
       analysisText,
-      requirements: request.requirements ?? [],
-      responseSchema: translationSchema,
+      requirements,
     });
     this.logger.info?.("LLM2 翻译阶段", { processorName: this.processorName });
     const initialResponseText = await this.resolveClient("translator").singleTurnRequest(
-      translatorUser,
+      translatorPrompt.userPrompt,
       buildJsonSchemaChatRequestOptions(mergedOptions, {
-        name: "multi_stage_translation",
-        systemPrompt: translatorSystem,
-        responseSchema: translationSchema,
+        name: translatorPrompt.name,
+        systemPrompt: translatorPrompt.systemPrompt,
+        responseSchema: translatorPrompt.responseSchema,
       }),
     );
     let currentTranslations = parseTranslationResponse(
@@ -188,21 +189,20 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     );
 
     // Step 3: LLM3 润色
-    const { systemPrompt: polisherSystem, userPrompt: polisherUser } = buildPolisherPrompt({
+    const polisherPrompt = await this.promptManager.renderMultiStagePolisherPrompt({
       sourceUnits,
-      currentTranslations,
+      currentTranslations: toPromptUnits(currentTranslations),
       referenceTranslations,
-      glossaryTerms: translatedGlossaryTerms,
-      requirements: request.requirements ?? [],
-      responseSchema: translationSchema,
+      translatedGlossaryTerms,
+      requirements,
     });
     this.logger.info?.("LLM3 润色阶段", { processorName: this.processorName });
     const polishedResponseText = await this.resolveClient("polisher").singleTurnRequest(
-      polisherUser,
+      polisherPrompt.userPrompt,
       buildJsonSchemaChatRequestOptions(mergedOptions, {
-        name: "multi_stage_polish",
-        systemPrompt: polisherSystem,
-        responseSchema: translationSchema,
+        name: polisherPrompt.name,
+        systemPrompt: polisherPrompt.systemPrompt,
+        responseSchema: polisherPrompt.responseSchema,
       }),
     );
     currentTranslations = parseTranslationResponse(
@@ -226,6 +226,8 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
 
     let lastEditorFeedback = "";
     let lastProofreaderFeedback = "";
+    let finalPromptName = polisherPrompt.name;
+    let finalResponseSchema = polisherPrompt.responseSchema;
     let lastReviserSystemPrompt = "";
     let lastReviserUserPrompt = "";
     let lastReviserResponseText = "";
@@ -238,31 +240,31 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       const translationsAtRoundStart = currentTranslations;
 
       // LLM4 + LLM5 并行
-      const { systemPrompt: editorSystem, userPrompt: editorUser } = buildEditorPrompt({
-        currentTranslations,
+      const editorPrompt = await this.promptManager.renderMultiStageEditorPrompt({
+        currentTranslations: toPromptUnits(currentTranslations),
         referenceTranslations,
-        glossaryTerms: translatedGlossaryTerms,
-        requirements: request.requirements ?? [],
+        translatedGlossaryTerms,
+        requirements,
       });
 
-      const { systemPrompt: proofreaderSystem, userPrompt: proofreaderUser } =
-        buildProofreaderPrompt({
-          sourceUnits,
-          currentTranslations,
-          referenceSourceTexts,
-          glossaryTerms: translatedGlossaryTerms,
-          analysisText,
-          requirements: request.requirements ?? [],
-        });
+      const proofreaderPrompt = await this.promptManager.renderMultiStageProofreaderPrompt({
+        sourceUnits,
+        currentTranslations: toPromptUnits(currentTranslations),
+        referenceSourceTexts,
+        plotSummaries,
+        translatedGlossaryTerms,
+        analysisText,
+        requirements,
+      });
 
       const [editorFeedback, proofreaderFeedback] = await Promise.all([
         this.resolveClient("editor").singleTurnRequest(
-          editorUser,
-          withSystemPrompt(mergedOptions, editorSystem),
+          editorPrompt.userPrompt,
+          withSystemPrompt(mergedOptions, editorPrompt.systemPrompt),
         ),
         this.resolveClient("proofreader").singleTurnRequest(
-          proofreaderUser,
-          withSystemPrompt(mergedOptions, proofreaderSystem),
+          proofreaderPrompt.userPrompt,
+          withSystemPrompt(mergedOptions, proofreaderPrompt.systemPrompt),
         ),
       ]);
 
@@ -270,27 +272,29 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       lastProofreaderFeedback = proofreaderFeedback;
 
       // LLM6 修改
-      const { systemPrompt: reviserSystem, userPrompt: reviserUser } = buildReviserPrompt({
+      const reviserPrompt = await this.promptManager.renderMultiStageReviserPrompt({
         sourceUnits,
-        currentTranslations: translationsAtRoundStart,
+        currentTranslations: toPromptUnits(translationsAtRoundStart),
         referenceSourceTexts,
         referenceTranslations,
-        glossaryTerms: translatedGlossaryTerms,
+        plotSummaries,
+        translatedGlossaryTerms,
         editorFeedback,
         proofreaderFeedback,
-        requirements: request.requirements ?? [],
-        responseSchema: translationSchema,
+        requirements,
       });
 
-      lastReviserSystemPrompt = reviserSystem;
-      lastReviserUserPrompt = reviserUser;
+      finalPromptName = reviserPrompt.name;
+      finalResponseSchema = reviserPrompt.responseSchema;
+      lastReviserSystemPrompt = reviserPrompt.systemPrompt;
+      lastReviserUserPrompt = reviserPrompt.userPrompt;
 
       const reviserResponseText = await this.resolveClient("reviser").singleTurnRequest(
-        reviserUser,
+        reviserPrompt.userPrompt,
         buildJsonSchemaChatRequestOptions(mergedOptions, {
-          name: "multi_stage_revision",
-          systemPrompt: reviserSystem,
-          responseSchema: translationSchema,
+          name: reviserPrompt.name,
+          systemPrompt: reviserPrompt.systemPrompt,
+          responseSchema: reviserPrompt.responseSchema,
         }),
       );
 
@@ -319,10 +323,10 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       glossaryUpdates: glossaryUpdateResult?.updates ?? [],
       glossaryUpdateResult,
       responseText: lastReviserResponseText || polishedResponseText,
-      responseSchema: translationSchema,
-      promptName: "multi_stage_revision",
-      systemPrompt: lastReviserSystemPrompt,
-      userPrompt: lastReviserUserPrompt,
+      responseSchema: finalResponseSchema,
+      promptName: finalPromptName,
+      systemPrompt: lastReviserSystemPrompt || polisherPrompt.systemPrompt,
+      userPrompt: lastReviserUserPrompt || polisherPrompt.userPrompt,
       window,
     };
   }
@@ -337,423 +341,13 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
   }
 }
 
-// ── Prompt 构建 ────────────────────────────────────────────────────────────────
-
-type AnalyzerPromptInput = {
-  sourceUnits: PromptTranslationUnit[];
-  referenceSourceTexts: string[];
-  referenceTranslations: string[];
-  glossaryTerms: ResolvedGlossaryTerm[];
-  requirements: ReadonlyArray<string>;
-};
-
-function buildAnalyzerPrompt(input: AnalyzerPromptInput): {
-  systemPrompt: string;
-  userPrompt: string;
-} {
-  const systemPrompt = `你是一位精通文学翻译的分析师，熟悉跨语言文学特征、叙事手法与文化差异。`;
-
-  const lines: string[] = [];
-
-  if (input.referenceSourceTexts.length > 0) {
-    lines.push("## 参考原文（前序文段）");
-    lines.push(input.referenceSourceTexts.join("\n\n"));
-    lines.push("");
-  }
-
-  if (input.referenceTranslations.length > 0) {
-    lines.push("## 参考译文（前序文段对应译文）");
-    lines.push(input.referenceTranslations.join("\n\n"));
-    lines.push("");
-  }
-
-  if (input.glossaryTerms.length > 0) {
-    lines.push("## 术语表");
-    lines.push(renderGlossaryFull(input.glossaryTerms));
-    lines.push("");
-  }
-
-  if (input.requirements.length > 0) {
-    lines.push("## 翻译要求");
-    for (const req of input.requirements) {
-      lines.push(`- ${req}`);
-    }
-    lines.push("");
-  }
-
-  lines.push("## 待分析原文");
-  for (const unit of input.sourceUnits) {
-    lines.push(`[${unit.id}] ${unit.text}`);
-  }
-
-  lines.push("");
-  lines.push(
-    "请分析以下内容，输出为结构清晰的纯文字报告（无需 JSON）：\n" +
-      "1. **场景与氛围**：描述当前文段的场景、环境氛围。\n" +
-      "2. **叙事视角**：第一人称、第三人称，有限或全知视角，叙述者的情感立场。\n" +
-      "3. **文体风格与语气**：正式/非正式、诗意/直白、幽默/严肃等特征，以及典型句式和用词习惯。\n" +
-      "4. **翻译难点**：文化特异性表达、语言游戏、双关、隐喻、人物语气特征，以及可能造成理解偏差的细节。",
-  );
-
-  return { systemPrompt, userPrompt: lines.join("\n") };
-}
-
-type TranslatorPromptInput = {
-  sourceUnits: PromptTranslationUnit[];
-  referenceTranslations: string[];
-  glossaryTerms: ResolvedGlossaryTerm[];
-  analysisText: string;
-  requirements: ReadonlyArray<string>;
-  responseSchema: JsonObject;
-};
-
-function buildTranslatorPrompt(input: TranslatorPromptInput): {
-  systemPrompt: string;
-  userPrompt: string;
-} {
-  const systemPrompt =
-    "你是一位专业的文学翻译家，擅长将小说译成流畅自然的中文，注重保留原文的文学性与情感张力。";
-
-  const lines: string[] = [];
-
-  if (input.referenceTranslations.length > 0) {
-    lines.push("## 参考译文（前序文段，用于保持风格一致性）");
-    lines.push(input.referenceTranslations.join("\n\n"));
-    lines.push("");
-  }
-
-  if (input.glossaryTerms.length > 0) {
-    lines.push("## 术语表");
-    lines.push(renderGlossaryFull(input.glossaryTerms));
-    lines.push("");
-  }
-
-  if (input.requirements.length > 0) {
-    lines.push("## 翻译要求");
-    for (const req of input.requirements) {
-      lines.push(`- ${req}`);
-    }
-    lines.push("");
-  }
-
-  lines.push("## 文本分析报告");
-  lines.push(input.analysisText);
-  lines.push("");
-
-  lines.push("## 待翻译原文（按行编号）");
-  for (const unit of input.sourceUnits) {
-    lines.push(`[${unit.id}] ${unit.text}`);
-  }
-
-  lines.push("");
-  lines.push(
-    "请根据上方分析报告和参考资料，将每行原文精确译成中文。\n" +
-      "- 严格遵循术语表中的译名。\n" +
-      "- 保持与参考译文一致的文体风格。\n" +
-      "- 输出格式为 JSON，结构遵循所提供的 schema，每个对象包含原行 id 与 translation。",
-  );
-
-  lines.push("");
-  lines.push("JSON Schema:");
-  lines.push(JSON.stringify(input.responseSchema, null, 2));
-
-  return { systemPrompt, userPrompt: lines.join("\n") };
-}
-
-type PolisherPromptInput = {
-  sourceUnits: PromptTranslationUnit[];
-  currentTranslations: TranslationProcessorTranslation[];
-  referenceTranslations: string[];
-  glossaryTerms: ResolvedGlossaryTerm[];
-  requirements: ReadonlyArray<string>;
-  responseSchema: JsonObject;
-};
-
-function buildPolisherPrompt(input: PolisherPromptInput): {
-  systemPrompt: string;
-  userPrompt: string;
-} {
-  const systemPrompt =
-    "你是一位资深中文文学编辑，擅长润色译文，使其在忠实原文的基础上更加符合中文表达习惯、读来流畅自然。";
-
-  const lines: string[] = [];
-
-  if (input.referenceTranslations.length > 0) {
-    lines.push("## 参考译文（前序文段，用于保持风格一致性）");
-    lines.push(input.referenceTranslations.join("\n\n"));
-    lines.push("");
-  }
-
-  if (input.glossaryTerms.length > 0) {
-    lines.push("## 术语表（仅译文）");
-    lines.push(renderGlossaryTargetOnly(input.glossaryTerms));
-    lines.push("");
-  }
-
-  if (input.requirements.length > 0) {
-    lines.push("## 翻译要求");
-    for (const req of input.requirements) {
-      lines.push(`- ${req}`);
-    }
-    lines.push("");
-  }
-
-  lines.push("## 初步译文（按行编号）");
-  for (const unit of input.currentTranslations) {
-    lines.push(`[${unit.id}] ${unit.translation}`);
-  }
-  lines.push("");
-  lines.push("## 对应原文（仅供参照原意，不得改变核心意思）");
-  for (const unit of input.sourceUnits) {
-    lines.push(`[${unit.id}] ${unit.text}`);
-  }
-
-  lines.push("");
-  lines.push(
-    "请对每行译文进行润色，要求：\n" +
-      "- 修正不自然或生硬的中文表达，使其更符合目标读者的阅读习惯。\n" +
-      "- 保持与参考译文一致的文体风格。\n" +
-      "- 不得遗漏任何原文意思，不得增加原文没有的内容。\n" +
-      "- 输出格式为 JSON，结构遵循所提供的 schema，每个对象包含原行 id 与润色后的 translation。",
-  );
-
-  lines.push("");
-  lines.push("JSON Schema:");
-  lines.push(JSON.stringify(input.responseSchema, null, 2));
-
-  return { systemPrompt, userPrompt: lines.join("\n") };
-}
-
-type EditorPromptInput = {
-  currentTranslations: TranslationProcessorTranslation[];
-  referenceTranslations: string[];
-  glossaryTerms: ResolvedGlossaryTerm[];
-  requirements: ReadonlyArray<string>;
-};
-
-function buildEditorPrompt(input: EditorPromptInput): {
-  systemPrompt: string;
-  userPrompt: string;
-} {
-  const systemPrompt =
-    "你是一位资深中文文学编辑，以中文读者的视角审稿，擅长发现译文中的表达问题并提出改进建议。";
-
-  const lines: string[] = [];
-
-  if (input.referenceTranslations.length > 0) {
-    lines.push("## 参考译文（前序文段，体现本书整体文风）");
-    lines.push(input.referenceTranslations.join("\n\n"));
-    lines.push("");
-  }
-
-  if (input.glossaryTerms.length > 0) {
-    lines.push("## 术语表（仅译文，用于核查译名一致性）");
-    lines.push(renderGlossaryTargetOnly(input.glossaryTerms));
-    lines.push("");
-  }
-
-  if (input.requirements.length > 0) {
-    lines.push("## 翻译要求");
-    for (const req of input.requirements) {
-      lines.push(`- ${req}`);
-    }
-    lines.push("");
-  }
-
-  lines.push("## 待审读译文（按行编号）");
-  for (const unit of input.currentTranslations) {
-    lines.push(`[${unit.id}] ${unit.translation}`);
-  }
-
-  lines.push("");
-  lines.push(
-    "作为中文编辑，请指出译文中存在的表达问题，并给出具体的改进建议。重点关注：\n" +
-      "- 不符合中文语言习惯的生硬翻腔（翻译腔）\n" +
-      "- 词语选用不当或语气与整体文风不符之处\n" +
-      "- 句子节奏、段落衔接和语流问题\n" +
-      "- 译名与术语表不一致之处\n" +
-      "请以行号 [id] 为单位，逐条列出问题与改进建议。若某行无问题，可略去不提。\n" +
-      "输出为纯文字（无需 JSON）。",
-  );
-
-  return { systemPrompt, userPrompt: lines.join("\n") };
-}
-
-type ProofreaderPromptInput = {
-  sourceUnits: PromptTranslationUnit[];
-  currentTranslations: TranslationProcessorTranslation[];
-  referenceSourceTexts: string[];
-  glossaryTerms: ResolvedGlossaryTerm[];
-  analysisText: string;
-  requirements: ReadonlyArray<string>;
-};
-
-function buildProofreaderPrompt(input: ProofreaderPromptInput): {
-  systemPrompt: string;
-  userPrompt: string;
-} {
-  const systemPrompt =
-    "你是一位严谨的文学翻译校对专家，擅长对照原文发现误译和细节错误。\n" +
-    "在指出错误时，你应当尊重译者为保持文学流畅性和本地化效果而进行的合理意译或改写；\n" +
-    "只有在意思出现明显偏差或重要细节被遗漏时，才提出更正意见。";
-
-  const lines: string[] = [];
-
-  if (input.referenceSourceTexts.length > 0) {
-    lines.push("## 参考原文（前序文段）");
-    lines.push(input.referenceSourceTexts.join("\n\n"));
-    lines.push("");
-  }
-
-  if (input.glossaryTerms.length > 0) {
-    lines.push("## 术语表");
-    lines.push(renderGlossaryFull(input.glossaryTerms));
-    lines.push("");
-  }
-
-  if (input.requirements.length > 0) {
-    lines.push("## 翻译要求");
-    for (const req of input.requirements) {
-      lines.push(`- ${req}`);
-    }
-    lines.push("");
-  }
-
-  lines.push("## 文本分析报告（供参考）");
-  lines.push(input.analysisText);
-  lines.push("");
-
-  lines.push("## 原文（按行编号）");
-  for (const unit of input.sourceUnits) {
-    lines.push(`[${unit.id}] ${unit.text}`);
-  }
-  lines.push("");
-
-  lines.push("## 待校对译文（按行编号）");
-  for (const unit of input.currentTranslations) {
-    lines.push(`[${unit.id}] ${unit.translation}`);
-  }
-
-  lines.push("");
-  lines.push(
-    "作为校对专家，请逐行核对原文与译文，指出以下类型的问题：\n" +
-      "- 关键信息或细节的遗漏、增添或误解\n" +
-      "- 人名、地名、专有名词与术语表不符\n" +
-      "- 时态、语态、语气的明显错误\n" +
-      "请以行号 [id] 为单位列出问题与修正建议。合理的意译和本地化改写不需指出。\n" +
-      "若某行无问题，可略去不提。输出为纯文字（无需 JSON）。",
-  );
-
-  return { systemPrompt, userPrompt: lines.join("\n") };
-}
-
-type ReviserPromptInput = {
-  sourceUnits: PromptTranslationUnit[];
-  currentTranslations: TranslationProcessorTranslation[];
-  referenceSourceTexts: string[];
-  referenceTranslations: string[];
-  glossaryTerms: ResolvedGlossaryTerm[];
-  editorFeedback: string;
-  proofreaderFeedback: string;
-  requirements: ReadonlyArray<string>;
-  responseSchema: JsonObject;
-};
-
-function buildReviserPrompt(input: ReviserPromptInput): {
-  systemPrompt: string;
-  userPrompt: string;
-} {
-  const systemPrompt =
-    "你是一位综合能力极强的文学翻译修改师，能够平衡精准性与文学表现力，\n" +
-    "根据编辑和校对的意见对译文进行有针对性的改进。\n" +
-    "当编辑与校对意见相互矛盾时，优先保证原文意思的准确性，其次考虑中文表达的自然流畅。";
-
-  const lines: string[] = [];
-
-  if (input.referenceSourceTexts.length > 0) {
-    lines.push("## 参考原文（前序文段）");
-    lines.push(input.referenceSourceTexts.join("\n\n"));
-    lines.push("");
-  }
-
-  if (input.referenceTranslations.length > 0) {
-    lines.push("## 参考译文（前序文段）");
-    lines.push(input.referenceTranslations.join("\n\n"));
-    lines.push("");
-  }
-
-  if (input.glossaryTerms.length > 0) {
-    lines.push("## 术语表");
-    lines.push(renderGlossaryFull(input.glossaryTerms));
-    lines.push("");
-  }
-
-  if (input.requirements.length > 0) {
-    lines.push("## 翻译要求");
-    for (const req of input.requirements) {
-      lines.push(`- ${req}`);
-    }
-    lines.push("");
-  }
-
-  lines.push("## 原文（按行编号）");
-  for (const unit of input.sourceUnits) {
-    lines.push(`[${unit.id}] ${unit.text}`);
-  }
-  lines.push("");
-
-  lines.push("## 当前译文（按行编号）");
-  for (const unit of input.currentTranslations) {
-    lines.push(`[${unit.id}] ${unit.translation}`);
-  }
-  lines.push("");
-
-  lines.push("## 中文编辑反馈");
-  lines.push(input.editorFeedback);
-  lines.push("");
-
-  lines.push("## 校对专家反馈");
-  lines.push(input.proofreaderFeedback);
-
-  lines.push("");
-  lines.push(
-    "请根据中文编辑和校对专家的意见，对每行译文进行修改。\n" +
-      "- 对有问题的行进行针对性修改；无问题的行保持原样输出。\n" +
-      "- 当两方意见冲突时，优先保证原文意思的准确传达，同时尽量兼顾中文表达的自然流畅。\n" +
-      "- 输出格式为 JSON，结构遵循所提供的 schema，每个对象包含原行 id 与修改后的 translation。",
-  );
-
-  lines.push("");
-  lines.push("JSON Schema:");
-  lines.push(JSON.stringify(input.responseSchema, null, 2));
-
-  return { systemPrompt, userPrompt: lines.join("\n") };
-}
-
-// ── 工具函数 ───────────────────────────────────────────────────────────────────
-
-function renderGlossaryFull(terms: ResolvedGlossaryTerm[]): string {
-  if (terms.length === 0) return "";
-  const header = "原文,译文,描述";
-  const rows = terms.map((t) => {
-    const desc = t.description ?? "";
-    return `${escapeCsv(t.term)},${escapeCsv(t.translation)},${escapeCsv(desc)}`;
-  });
-  return [header, ...rows].join("\n");
-}
-
-function renderGlossaryTargetOnly(terms: ResolvedGlossaryTerm[]): string {
-  if (terms.length === 0) return "";
-  return terms
-    .map((t) => `- ${t.translation}${t.description ? `（${t.description}）` : ""}`)
-    .join("\n");
-}
-
-function escapeCsv(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
+function toPromptUnits(
+  translations: ReadonlyArray<TranslationProcessorTranslation>,
+): PromptTranslationUnit[] {
+  return translations.map((translation) => ({
+    id: translation.id,
+    text: translation.translation,
+  }));
 }
 
 function splitSourceTextIntoUnits(sourceText: string): PromptTranslationUnit[] {
@@ -768,31 +362,6 @@ function buildSourceUnitsFromLines(lines: ReadonlyArray<string>): PromptTranslat
     id: (index + 1).toString(),
     text,
   }));
-}
-
-function buildTranslationSchema(sourceUnits: PromptTranslationUnit[]): JsonObject {
-  const ids = sourceUnits.map((u) => u.id);
-  return {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      translations: {
-        type: "array",
-        minItems: ids.length,
-        maxItems: ids.length,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            id: { type: "string", enum: ids },
-            translation: { type: "string", minLength: 1 },
-          },
-          required: ["id", "translation"],
-        },
-      },
-    },
-    required: ["translations"],
-  };
 }
 
 function parseTranslationResponse(
@@ -915,6 +484,16 @@ function resolveSlidingWindow(
     request.workItemRef.chapterId,
     request.workItemRef.fragmentIndex,
     slidingWindow,
+  );
+}
+
+function resolveDependencyPromptContext(request: TranslationProcessorRequest) {
+  return (
+    request.contextView?.getDependencyPromptContext() ?? {
+      referenceSourceTexts: [],
+      referenceTranslations: [],
+      plotSummaries: [],
+    }
   );
 }
 
