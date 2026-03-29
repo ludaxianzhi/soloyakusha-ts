@@ -3,6 +3,7 @@ import type { TranslationProjectSnapshot, TranslationStepQueueSnapshot } from '.
 import { Select } from '../components/select.tsx';
 import { SafeBox } from '../components/safe-box.tsx';
 import { Spinner } from '../components/spinner.tsx';
+import { useLog } from '../context/log.tsx';
 import { useNavigation } from '../context/navigation.tsx';
 import { useProject } from '../context/project.tsx';
 import type { SelectItem } from '../types.ts';
@@ -22,6 +23,7 @@ type ActionValue =
 
 export function WorkspaceProgressScreen() {
   const { goBack, navigate } = useNavigation();
+  const { logCounts } = useLog();
   const {
     project,
     snapshot,
@@ -74,12 +76,18 @@ export function WorkspaceProgressScreen() {
               {' / '}{workspaceConfig?.translator.workflow || 'default'}
               {' · '}字典：{snapshot.glossary ? (
                 <Text color="yellow">{snapshot.glossary.totalTerms}项（已翻译 {snapshot.glossary.translatedTerms}）</Text>
-              ) : <Text dimColor>未扫描</Text>}
-              {' · '}大纲：{plotSummaryReady ? <Text color="green">已就绪</Text> : <Text dimColor>未生成</Text>}
-            </Text>
-          </SafeBox>
-        )}
-      </SafeBox>
+               ) : <Text dimColor>未扫描</Text>}
+               {' · '}大纲：{plotSummaryReady ? <Text color="green">已就绪</Text> : <Text dimColor>未生成</Text>}
+             </Text>
+             <Text>
+               日志告警：
+               {' '}<Text color={logCounts.warning > 0 ? 'yellow' : 'gray'}>{logCounts.warning}</Text>
+               {' · '}日志错误：
+               {' '}<Text color={logCounts.error > 0 ? 'red' : 'gray'}>{logCounts.error}</Text>
+             </Text>
+           </SafeBox>
+         )}
+       </SafeBox>
 
       {snapshot && snapshot.queueSnapshots.length > 0 ? (
         <SafeBox flexDirection="column" borderStyle="round" borderColor="blue" paddingX={1}>

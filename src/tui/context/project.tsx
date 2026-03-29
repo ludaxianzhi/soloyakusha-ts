@@ -1177,27 +1177,19 @@ function createTuiLogger(
   addLog: (level: 'error' | 'warning' | 'info' | 'success', message: string) => void,
 ): Logger {
   return {
-    debug(message, metadata) {
-      addLog('info', appendMetadata(message, metadata));
+    debug(message) {
+      addLog('info', message);
     },
-    info(message, metadata) {
-      addLog('info', appendMetadata(message, metadata));
+    info(message) {
+      addLog('info', message);
     },
-    warn(message, metadata) {
-      addLog('warning', appendMetadata(message, metadata));
+    warn(message) {
+      addLog('warning', message);
     },
-    error(message, metadata) {
-      addLog('error', appendMetadata(message, metadata));
+    error(message) {
+      addLog('error', message);
     },
   };
-}
-
-function appendMetadata(message: string, metadata?: Record<string, unknown>): string {
-  if (!metadata || Object.keys(metadata).length === 0) {
-    return message;
-  }
-
-  return `${message} ${JSON.stringify(metadata)}`;
 }
 
 function toErrorMessage(error: unknown): string {
