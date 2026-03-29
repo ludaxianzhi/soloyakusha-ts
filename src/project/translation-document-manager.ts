@@ -388,6 +388,22 @@ export class TranslationDocumentManager {
   }
 
   /**
+   * 清除指定章节的译文与流水线状态，将各片段恢复为"待翻译"初始状态并持久化。
+   */
+  async clearChapterTranslations(chapterIds: number[]): Promise<void> {
+    const affectedIds = [...new Set(chapterIds)];
+    for (const chapterId of affectedIds) {
+      const chapter = this.chapters.get(chapterId);
+      if (!chapter) continue;
+      for (const fragment of chapter.fragments) {
+        fragment.translation = { lines: fragment.source.lines.map(() => "") };
+        fragment.pipelineStates = {};
+      }
+      await this.saveChapterToDisk(chapter);
+    }
+  }
+
+  /**
    * 移除章节：从内存中删除章节数据和哈希索引，并删除磁盘上的数据文件。
    */
   async removeChapter(chapterId: number): Promise<void> {

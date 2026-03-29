@@ -98,4 +98,22 @@ export const screenDescriptors: Record<ScreenName, ScreenDescriptor> = {
     subtitle: 'LLM 自动生成情节大纲',
     tone: 'magenta',
   },
+  'workspace-reset': {
+    eyebrow: 'RESET',
+    title: '重置项目状态',
+    subtitle: '清除译文、术语表或大纲数据',
+    tone: 'yellow',
+  },
+  'workspace-reset-global': {
+    eyebrow: 'RESET',
+    title: '批量重置',
+    subtitle: '按类别批量清除项目数据',
+    tone: 'yellow',
+  },
+  'workspace-reset-chapters': {
+    eyebrow: 'RESET',
+    title: '清除部分译文',
+    subtitle: '选择要清除译文的章节',
+    tone: 'yellow',
+  },
 };

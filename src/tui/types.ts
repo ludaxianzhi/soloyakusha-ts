@@ -11,6 +11,9 @@ export type ScreenName =
   | 'workspace-config'
   | 'workspace-sort'
   | 'workspace-plot-summary'
+  | 'workspace-reset'
+  | 'workspace-reset-global'
+  | 'workspace-reset-chapters'
   | 'settings-llm'
   | 'settings-translator'
   | 'settings-translation-auxiliary';

@@ -12,6 +12,9 @@ import { WorkspaceExportScreen } from './screens/workspace-export.tsx';
 import { WorkspaceConfigScreen } from './screens/workspace-config.tsx';
 import { WorkspaceSortScreen } from './screens/workspace-sort.tsx';
 import { WorkspacePlotSummaryScreen } from './screens/workspace-plot-summary.tsx';
+import { WorkspaceResetScreen } from './screens/workspace-reset.tsx';
+import { WorkspaceResetGlobalScreen } from './screens/workspace-reset-global.tsx';
+import { WorkspaceResetChaptersScreen } from './screens/workspace-reset-chapters.tsx';
 import { SettingsLlmScreen } from './screens/settings-llm.tsx';
 import { SettingsTranslatorScreen } from './screens/settings-translator.tsx';
 import { SettingsTranslationAuxiliaryScreen } from './screens/settings-translation-auxiliary.tsx';
@@ -32,6 +35,9 @@ const screenMap: Record<ScreenName, () => JSX.Element> = {
   'workspace-config': WorkspaceConfigScreen,
   'workspace-sort': WorkspaceSortScreen,
   'workspace-plot-summary': WorkspacePlotSummaryScreen,
+  'workspace-reset': WorkspaceResetScreen,
+  'workspace-reset-global': WorkspaceResetGlobalScreen,
+  'workspace-reset-chapters': WorkspaceResetChaptersScreen,
   'settings-llm': SettingsLlmScreen,
   'settings-translator': SettingsTranslatorScreen,
   'settings-translation-auxiliary': SettingsTranslationAuxiliaryScreen,

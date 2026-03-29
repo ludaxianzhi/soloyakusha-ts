@@ -50,6 +50,12 @@ const menuItems: MenuItem[] = [
     meta: 'plot',
   },
   {
+    label: '⚠️  重置项目状态',
+    value: 'workspace-reset',
+    description: '清空译文、清除术语表或大纲等不可恢复操作。',
+    meta: 'reset',
+  },
+  {
     label: '📋 翻译历史',
     value: 'workspace-history',
     description: '查看 LLM 请求历史记录。',

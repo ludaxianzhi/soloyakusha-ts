@@ -7,7 +7,7 @@
 import type { TranslationFileHandler, TranslationFileHandlerResolver } from "../file-handlers/base.ts";
 import { TranslationFileHandlerFactory } from "../file-handlers/factory.ts";
 import { Glossary, GlossaryPersisterFactory } from "../glossary/index.ts";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { access } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 import {
@@ -720,6 +720,62 @@ export class TranslationProject
     await this.documentManager.saveChapters();
     await this.workspaceManager.saveGlossaryIfNeeded();
     await this.lifecycleManager.markProgressSaved();
+  }
+
+  /**
+   * 清除所有章节的译文与流水线状态，将整个项目恢复为"待翻译"初始状态。
+   */
+  async clearAllTranslations(): Promise<void> {
+    this.ensureInitialized();
+    const chapters = this.documentManager.getAllChapters();
+    await this.documentManager.clearChapterTranslations(chapters.map((c) => c.id));
+  }
+
+  /**
+   * 清除指定章节的译文与流水线状态。
+   */
+  async clearChapterTranslations(chapterIds: number[]): Promise<void> {
+    this.ensureInitialized();
+    await this.documentManager.clearChapterTranslations(chapterIds);
+  }
+
+  /**
+   * 清空整个术语表（删除所有条目）并保存到磁盘。
+   */
+  async clearGlossary(): Promise<void> {
+    this.ensureInitialized();
+    this.replaceGlossary(new Glossary([]));
+    await this.workspaceManager.saveGlossaryIfNeeded();
+  }
+
+  /**
+   * 清除所有术语的译文（保留术语条目，将译文置空并标记为 untranslated），并保存到磁盘。
+   */
+  async clearGlossaryTranslations(): Promise<void> {
+    this.ensureInitialized();
+    const glossary = this.glossary;
+    if (!glossary) return;
+    const resetTerms = glossary.getAllTerms().map((term) => ({
+      ...term,
+      translation: "",
+      status: "untranslated" as const,
+    }));
+    this.replaceGlossary(new Glossary(resetTerms));
+    await this.workspaceManager.saveGlossaryIfNeeded();
+  }
+
+  /**
+   * 清除所有情节大纲条目并将空文档写入磁盘。
+   */
+  async clearPlotSummaries(): Promise<void> {
+    this.ensureInitialized();
+    this.plotSummaryEntries = [];
+    const filePath = this.getPlotSummaryFilePath();
+    await writeFile(
+      filePath,
+      JSON.stringify({ schemaVersion: 1, entries: [] }, null, 2),
+      "utf8",
+    );
   }
 
   getDocumentManager(): TranslationDocumentManager {

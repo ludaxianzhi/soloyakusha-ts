@@ -95,6 +95,13 @@ interface ProjectContextValue {
   updateWorkspaceConfig: (patch: WorkspaceConfigPatch) => Promise<void>;
   importGlossary: (filePath: string) => Promise<void>;
   exportGlossary: (outputPath: string) => Promise<void>;
+  resetProject: (options: {
+    clearAllTranslations?: boolean;
+    clearGlossary?: boolean;
+    clearGlossaryTranslations?: boolean;
+    clearPlotSummaries?: boolean;
+  }) => Promise<void>;
+  clearChapterTranslations: (chapterIds: number[]) => Promise<void>;
   closeWorkspace: () => void;
   removeWorkspace: () => Promise<void>;
 }
@@ -892,6 +899,58 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     [addLog, project, runAction],
   );
 
+  const resetProject = useCallback(
+    async (options: {
+      clearAllTranslations?: boolean;
+      clearGlossary?: boolean;
+      clearGlossaryTranslations?: boolean;
+      clearPlotSummaries?: boolean;
+    }): Promise<void> => {
+      if (!project) {
+        addLog('warning', '当前没有已初始化的项目');
+        return;
+      }
+      await runAction('重置项目状态', async () => {
+        if (options.clearAllTranslations) {
+          await project.clearAllTranslations();
+          setSnapshot(project.getProjectSnapshot());
+          addLog('success', '已清空所有章节的译文');
+        }
+        if (options.clearGlossary) {
+          await project.clearGlossary();
+          setSnapshot(project.getProjectSnapshot());
+          addLog('success', '已清除术语表');
+        } else if (options.clearGlossaryTranslations) {
+          await project.clearGlossaryTranslations();
+          setSnapshot(project.getProjectSnapshot());
+          addLog('success', '已清除术语表译文（保留术语条目）');
+        }
+        if (options.clearPlotSummaries) {
+          await project.clearPlotSummaries();
+          setPlotSummaryReady(false);
+          setSnapshot(project.getProjectSnapshot());
+          addLog('success', '已清除情节大纲');
+        }
+      });
+    },
+    [addLog, project, runAction],
+  );
+
+  const clearChapterTranslations = useCallback(
+    async (chapterIds: number[]): Promise<void> => {
+      if (!project) {
+        addLog('warning', '当前没有已初始化的项目');
+        return;
+      }
+      await runAction('清除章节译文', async () => {
+        await project.clearChapterTranslations(chapterIds);
+        setSnapshot(project.getProjectSnapshot());
+        addLog('success', `已清除 ${chapterIds.length} 个章节的译文`);
+      });
+    },
+    [addLog, project, runAction],
+  );
+
   const closeWorkspace = useCallback(() => {
     processingTokenRef.current += 1;
     previousSnapshotRef.current = null;
@@ -963,6 +1022,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       updateWorkspaceConfig,
       importGlossary,
       exportGlossary,
+      resetProject,
+      clearChapterTranslations,
       closeWorkspace,
       removeWorkspace,
     }),
@@ -984,6 +1045,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       refreshSnapshot,
       removeChapter,
       reorderChapters,
+      resetProject,
+      clearChapterTranslations,
       resumeTranslation,
       scanDictionary,
       scanDictionaryProgress,
