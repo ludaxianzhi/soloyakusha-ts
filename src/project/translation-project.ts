@@ -623,25 +623,30 @@ export class TranslationProject
 
     const output = createTextFragment(result.outputText ?? "");
     const now = new Date().toISOString();
-    await this.documentManager.updatePipelineStepState(
-      result.chapterId,
-      result.fragmentIndex,
-      result.stepId,
-      {
-        ...stepState,
-        status: "completed",
-        completedAt: now,
-        updatedAt: now,
-        output,
-        errorMessage: undefined,
-      },
-    );
+    const completedStepState = {
+      ...stepState,
+      status: "completed" as const,
+      completedAt: now,
+      updatedAt: now,
+      output,
+      errorMessage: undefined,
+    };
 
     if (result.stepId === this.pipeline.finalStepId) {
-      await this.documentManager.updateTranslation(
+      // 原子写入：步骤状态与译文在同一次落盘，避免崩溃导致步骤已完成但译文丢失
+      await this.documentManager.updateStepStateAndTranslation(
         result.chapterId,
         result.fragmentIndex,
+        result.stepId,
+        completedStepState,
         output,
+      );
+    } else {
+      await this.documentManager.updatePipelineStepState(
+        result.chapterId,
+        result.fragmentIndex,
+        result.stepId,
+        completedStepState,
       );
     }
 

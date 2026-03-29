@@ -12,6 +12,7 @@ export function WorkspaceHistoryScreen() {
   const { logs } = useLog();
   const { project } = useProject();
   const [llmHistory, setLlmHistory] = useState('');
+  const [scrollOffset, setScrollOffset] = useState(999999);
 
   useInput((_input, key) => {
     if (key.escape) {
@@ -60,6 +61,8 @@ export function WorkspaceHistoryScreen() {
       borderColor="blue"
       titleColor="blue"
       footerHint="  ↑↓ 或滚轮滚动 · Esc 返回"
+      scrollOffset={scrollOffset}
+      onScrollOffsetChange={setScrollOffset}
     />
   );
 }

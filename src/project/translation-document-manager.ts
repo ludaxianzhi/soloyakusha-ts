@@ -183,6 +183,22 @@ export class TranslationDocumentManager {
     await this.saveChapterById(chapterId);
   }
 
+  /**
+   * 原子更新步骤状态与译文，确保二者在同一次写入中落盘，避免中途崩溃导致译文丢失。
+   */
+  async updateStepStateAndTranslation(
+    chapterId: number,
+    fragmentIndex: number,
+    stepId: string,
+    state: FragmentPipelineStepState,
+    translation: TextFragment,
+  ): Promise<void> {
+    const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
+    fragment.pipelineStates[stepId] = state;
+    fragment.translation = translation;
+    await this.saveChapterById(chapterId);
+  }
+
   async updatePipelineStepState(
     chapterId: number,
     fragmentIndex: number,
@@ -398,6 +414,9 @@ export class TranslationDocumentManager {
       for (const fragment of chapter.fragments) {
         fragment.translation = { lines: fragment.source.lines.map(() => "") };
         fragment.pipelineStates = {};
+        if (fragment.meta) {
+          fragment.meta.targetGroups = fragment.source.lines.map(() => []);
+        }
       }
       await this.saveChapterToDisk(chapter);
     }

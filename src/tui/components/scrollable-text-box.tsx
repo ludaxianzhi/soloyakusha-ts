@@ -34,7 +34,9 @@ export function ScrollableTextBox({
   const normalizedLines = useMemo(() => (lines.length > 0 ? lines : [emptyText]), [emptyText, lines]);
   const [internalScrollOffset, setInternalScrollOffset] = useState(0);
   const maxOffset = Math.max(0, normalizedLines.length - visibleRows);
-  const scrollOffset = controlledScrollOffset ?? internalScrollOffset;
+  const scrollOffset = controlledScrollOffset !== undefined
+    ? Math.max(0, Math.min(maxOffset, controlledScrollOffset))
+    : internalScrollOffset;
 
   const setScrollOffset = (nextOffset: number | ((prev: number) => number)) => {
     const resolved =
