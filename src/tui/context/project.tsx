@@ -369,10 +369,15 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
               continue;
             }
 
-            for (const item of workItems) {
+            // 用动态队列代替 for-of，每完成一项立即调度新就绪的工作项，
+            // 避免"等全部运行中清空后才开始下一轮调度"的问题
+            const pendingItems = [...workItems];
+            while (pendingItems.length > 0) {
               if (processingTokenRef.current !== token) {
                 return;
               }
+
+              const item = pendingItems.shift()!;
 
               addLog(
                 'info',
@@ -425,6 +430,18 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
                   'error',
                   `处理失败 ${item.stepId} · Chapter ${item.chapterId} / Fragment ${item.fragmentIndex + 1}：${message}`,
                 );
+              }
+
+              // 每完成一项后立即调度新就绪的工作项，无需等待本轮全部处理完毕
+              try {
+                const newItems = await currentProject.dispatchReadyWorkItems();
+                pendingItems.push(...newItems);
+              } catch (dispatchError) {
+                const dispatchMessage = toErrorMessage(dispatchError);
+                if (dispatchMessage.includes('停止中') || dispatchMessage.includes('尚未启动')) {
+                  break;
+                }
+                throw dispatchError;
               }
             }
           }
