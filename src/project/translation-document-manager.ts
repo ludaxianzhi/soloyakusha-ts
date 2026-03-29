@@ -370,12 +370,15 @@ export class TranslationDocumentManager {
   async addChapter(
     chapterId: number,
     filePath: string,
-    options?: { fileHandler?: TranslationFileHandler },
+    options?: { fileHandler?: TranslationFileHandler; importTranslation?: boolean },
   ): Promise<ChapterEntry> {
     const fileHandler = options?.fileHandler ?? this.fileHandlerResolver?.(filePath);
-    const units = fileHandler
+    const rawUnits = fileHandler
       ? await fileHandler.readTranslationUnits(filePath)
       : this.parseUnits(await readFile(filePath, "utf8"));
+    const units = options?.importTranslation
+      ? rawUnits
+      : rawUnits.map((unit) => ({ ...unit, target: [] }));
     const chapter = createChapterEntry(chapterId, filePath, this.textSplitter.split(units));
 
     this.chapters.set(chapterId, chapter);

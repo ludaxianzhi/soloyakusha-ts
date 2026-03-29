@@ -28,6 +28,17 @@ const fields: FormFieldDef[] = [
     ],
     defaultValue: 'plain_text',
   },
+  {
+    key: 'importTranslation',
+    label: '导入译文',
+    type: 'select',
+    description: '对照格式（如 Nature Dialog / M3T）中，是否同时导入文件内已有的译文。默认仅导入原文，避免将译文中的占位符误作翻译结果。',
+    options: [
+      { label: '否（仅导入原文）', value: 'no' },
+      { label: '是（同时导入译文）', value: 'yes' },
+    ],
+    defaultValue: 'no',
+  },
 ];
 
 export function WorkspaceImportScreen() {
@@ -58,6 +69,7 @@ export function WorkspaceImportScreen() {
       try {
         const result = await project.addChapter(nextId, filePath, {
           format: values.format || undefined,
+          importTranslation: values.importTranslation === 'yes',
         });
         addLog(
           'success',

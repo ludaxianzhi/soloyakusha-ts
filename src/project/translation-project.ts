@@ -315,6 +315,7 @@ export class TranslationProject
     options?: {
       format?: string;
       fileHandler?: TranslationFileHandler;
+      importTranslation?: boolean;
     },
   ): Promise<TranslationImportResult> {
     this.ensureInitialized();

@@ -68,6 +68,7 @@ export class TranslationProjectWorkspace {
     options?: {
       format?: string;
       fileHandler?: TranslationFileHandler;
+      importTranslation?: boolean;
     },
   ): Promise<TranslationImportResult> {
     if (this.chapters.some((chapter) => chapter.id === chapterId)) {
@@ -83,6 +84,7 @@ export class TranslationProjectWorkspace {
     );
     const chapter = await this.documentManager.addChapter(chapterId, resolvedPath, {
       fileHandler,
+      importTranslation: options?.importTranslation,
     });
 
     this.chapters.push({ id: chapterId, filePath });
