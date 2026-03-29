@@ -10,6 +10,7 @@ import { useLog } from '../context/log.tsx';
 import {
   buildLlmOptions,
   parseOptionalPositiveIntegerField,
+  parseChatRequestOptionsFromValues,
   buildTranslatorFields,
   MULTI_STAGE_STEP_LABELS,
   TRANSLATOR_WORKFLOW_OPTIONS,
@@ -82,7 +83,11 @@ export function SettingsTranslatorScreen() {
     }
 
     if (mode.kind === 'edit-translator') {
-      setMode({ kind: 'workflow-select', translatorName: mode.translatorName });
+      if (mode.translatorName) {
+        setMode({ kind: 'translator-actions', translatorName: mode.translatorName });
+        return;
+      }
+      setMode({ kind: 'workflow-select' });
       return;
     }
 
@@ -178,7 +183,11 @@ export function SettingsTranslatorScreen() {
               return;
             }
             if (item.value === '__edit__') {
-              setMode({ kind: 'workflow-select', translatorName: mode.translatorName });
+              setMode({
+                kind: 'edit-translator',
+                translatorName: mode.translatorName,
+                workflow: normalizeWorkflowType(translator?.entry.type),
+              });
               return;
             }
             void (async () => {
@@ -261,54 +270,15 @@ export function SettingsTranslatorScreen() {
           return;
         }
 
-        if (!values.modelName) {
-          addLog('warning', '请选择翻译器使用的 LLM 配置');
+        const entryResult = buildTranslatorEntryFromValues(values, mode.workflow);
+        if (!entryResult.ok) {
+          addLog('warning', entryResult.message);
           return;
         }
-
-        const workflowType = mode.workflow;
-        const isMultiStage = workflowType === 'multi-stage';
-
-        const overlapChars = parseOptionalPositiveIntegerField(
-          values.overlapChars,
-          '滑窗重叠',
-        );
-        if (!overlapChars.ok) {
-          addLog('warning', overlapChars.message);
-          return;
-        }
-
-        const reviewIterations = isMultiStage
-          ? parseOptionalPositiveIntegerField(values.reviewIterations, '评审迭代次数')
-          : { ok: true as const, value: undefined };
-        if (!reviewIterations.ok) {
-          addLog('warning', reviewIterations.message);
-          return;
-        }
-
-        const models: Record<string, string> = {};
-        if (isMultiStage) {
-          for (const step of MULTI_STAGE_STEP_LABELS) {
-            const val = values[`model_${step.key}`]?.trim();
-            if (val && val !== values.modelName) {
-              models[step.key] = val;
-            }
-          }
-        }
-
-        const entry: TranslatorEntry = {
-          type: workflowType === 'default' ? undefined : workflowType,
-          modelName: values.modelName,
-          slidingWindow: overlapChars.value !== undefined
-            ? { overlapChars: overlapChars.value }
-            : undefined,
-          models: Object.keys(models).length > 0 ? models : undefined,
-          reviewIterations: reviewIterations.value,
-        };
 
         try {
           const manager = new GlobalConfigManager();
-          await manager.setTranslator(translatorName, entry);
+          await manager.setTranslator(translatorName, entryResult.entry);
 
           if (isEdit && originalTranslator && originalTranslator.name !== translatorName) {
             await manager.removeTranslator(originalTranslator.name);
@@ -322,13 +292,17 @@ export function SettingsTranslatorScreen() {
         }
       }}
       onCancel={() => {
-        setMode({ kind: 'workflow-select', translatorName: mode.translatorName });
+        if (mode.translatorName) {
+          setMode({ kind: 'translator-actions', translatorName: mode.translatorName });
+          return;
+        }
+        setMode({ kind: 'workflow-select' });
       }}
     />
   );
 }
 
-function buildTranslatorEntryFields(input: {
+export function buildTranslatorEntryFields(input: {
   translatorName?: string;
   entry?: TranslatorEntry;
   llmOptions: SelectItem[];
@@ -338,6 +312,7 @@ function buildTranslatorEntryFields(input: {
     workflow: input.workflow,
     modelName: input.entry?.modelName ?? input.llmOptions[0]?.value ?? '',
     slidingWindow: input.entry?.slidingWindow,
+    requestOptions: input.entry?.requestOptions,
     models: input.workflow === 'multi-stage' ? input.entry?.models : undefined,
     reviewIterations: input.workflow === 'multi-stage' ? input.entry?.reviewIterations : undefined,
   };
@@ -353,6 +328,63 @@ function buildTranslatorEntryFields(input: {
     },
     ...buildTranslatorFields(processorConfig, input.llmOptions, input.workflow),
   ];
+}
+
+export function buildTranslatorEntryFromValues(
+  values: Record<string, string>,
+  workflowType: TranslatorWorkflowType,
+):
+  | { ok: true; entry: TranslatorEntry }
+  | { ok: false; message: string } {
+  if (!values.modelName) {
+    return { ok: false, message: '请选择翻译器使用的 LLM 配置' };
+  }
+
+  const isMultiStage = workflowType === 'multi-stage';
+
+  const overlapChars = parseOptionalPositiveIntegerField(
+    values.overlapChars,
+    '滑窗重叠',
+  );
+  if (!overlapChars.ok) {
+    return overlapChars;
+  }
+
+  const reviewIterations = isMultiStage
+    ? parseOptionalPositiveIntegerField(values.reviewIterations, '评审迭代次数')
+    : { ok: true as const, value: undefined };
+  if (!reviewIterations.ok) {
+    return reviewIterations;
+  }
+
+  const requestOptions = parseChatRequestOptionsFromValues(values);
+  if (!requestOptions.ok) {
+    return requestOptions;
+  }
+
+  const models: Record<string, string> = {};
+  if (isMultiStage) {
+    for (const step of MULTI_STAGE_STEP_LABELS) {
+      const val = values[`model_${step.key}`]?.trim();
+      if (val && val !== values.modelName) {
+        models[step.key] = val;
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    entry: {
+      type: workflowType === 'default' ? undefined : workflowType,
+      modelName: values.modelName,
+      slidingWindow: overlapChars.value !== undefined
+        ? { overlapChars: overlapChars.value }
+        : undefined,
+      requestOptions: requestOptions.value,
+      models: Object.keys(models).length > 0 ? models : undefined,
+      reviewIterations: reviewIterations.value,
+    },
+  };
 }
 
 function normalizeWorkflowType(type: string | undefined): TranslatorWorkflowType {
