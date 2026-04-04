@@ -66,6 +66,10 @@ export function createConfigRoutes(configService: ConfigService): Hono {
     return c.json({ translators });
   });
 
+  app.get('/translator-workflows', (c) => {
+    return c.json({ workflows: configService.listTranslatorWorkflows() });
+  });
+
   app.get('/translators/:name', async (c) => {
     const translator = await configService.getTranslator(c.req.param('name'));
     if (!translator) return c.json({ error: '未找到' }, 404);

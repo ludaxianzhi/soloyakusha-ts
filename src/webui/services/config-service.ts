@@ -13,6 +13,10 @@ import type {
   PlotSummaryConfig,
   AlignmentRepairConfig,
 } from '../../project/config.ts';
+import {
+  TranslationProcessorFactory,
+  type TranslationProcessorWorkflowMetadata,
+} from '../../project/translation-processor-factory.ts';
 
 export class ConfigService {
   private manager = new GlobalConfigManager();
@@ -79,6 +83,10 @@ export class ConfigService {
 
   async removeTranslator(name: string): Promise<boolean> {
     return this.manager.removeTranslator(name);
+  }
+
+  listTranslatorWorkflows(): TranslationProcessorWorkflowMetadata[] {
+    return TranslationProcessorFactory.listWorkflowMetadata();
   }
 
   // === Auxiliary Configs ===

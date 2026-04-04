@@ -24,6 +24,7 @@
     "@ant-design/icons": "^6.1.1",
     "@mdx-js/mdx": "^3.1.1",
     "@mdx-js/react": "^3.1.1",
+    "@monaco-editor/react": "^4.7.0",
     "@stdlib/blas-base-ddot": "^0.4.1",
     "antd": "^6.3.5",
     "fullscreen-ink": "^0.1.0",
@@ -31,6 +32,7 @@
     "ink": "^6.8.0",
     "jszip": "^3.10.1",
     "liquidjs": "^10.25.1",
+    "monaco-editor": "^0.55.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "yaml": "^2.8.3"

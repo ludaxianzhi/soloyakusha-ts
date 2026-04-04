@@ -8,6 +8,7 @@ import type {
   ManagedWorkspace,
   PlotSummaryConfig,
   ProjectStatus,
+  TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
   TranslatorEntry,
   WorkspaceChapterDescriptor,
@@ -189,6 +190,10 @@ export const api = {
   getTranslators: () =>
     request<{ translators: Record<string, TranslatorEntry> }>(
       '/api/config/translators',
+    ),
+  getTranslatorWorkflows: () =>
+    request<{ workflows: TranslationProcessorWorkflowMetadata[] }>(
+      '/api/config/translator-workflows',
     ),
   saveTranslator: (name: string, config: TranslatorEntry) =>
     request(`/api/config/translators/${encodeURIComponent(name)}`, {

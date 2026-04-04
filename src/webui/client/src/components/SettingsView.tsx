@@ -1,4 +1,4 @@
-import { Button, Card, Col, Form, Input, Popconfirm, Row, Select, Space, Tabs, Tag } from 'antd';
+import { Button, Card, Col, Form, Input, Popconfirm, Row, Select, Space, Tabs, Tag, Typography } from 'antd';
 import type { FormInstance } from 'antd';
 import type {
   AlignmentRepairConfig,
@@ -6,10 +6,14 @@ import type {
   GlossaryUpdaterConfig,
   LlmProfileConfig,
   PlotSummaryConfig,
+  TranslationProcessorWorkflowMetadata,
   TranslatorEntry,
 } from '../app/types.ts';
+import { translatorFieldName } from '../app/ui-helpers.ts';
+import { YamlCodeEditor } from './YamlCodeEditor.tsx';
 
 const { TextArea } = Input;
+const { Paragraph, Text } = Typography;
 
 interface SettingsViewProps {
   settingsLoading: boolean;
@@ -18,6 +22,7 @@ interface SettingsViewProps {
   selectedLlmName?: string;
   selectedTranslatorName?: string;
   translators: Record<string, TranslatorEntry>;
+  translatorWorkflows: TranslationProcessorWorkflowMetadata[];
   llmForm: FormInstance<Record<string, unknown>>;
   embeddingForm: FormInstance<Record<string, unknown>>;
   translatorForm: FormInstance<Record<string, unknown>>;
@@ -48,6 +53,7 @@ export function SettingsView({
   selectedLlmName,
   selectedTranslatorName,
   translators,
+  translatorWorkflows,
   llmForm,
   embeddingForm,
   translatorForm,
@@ -69,6 +75,19 @@ export function SettingsView({
 }: SettingsViewProps) {
   const llmNames = Object.keys(llmProfiles);
   const translatorNames = Object.keys(translators);
+  const selectedWorkflowKey = (Form.useWatch('type', translatorForm) as string | undefined) ?? 'default';
+  const workflowMap = new Map(
+    translatorWorkflows.map((workflow) => [workflow.workflow, workflow] as const),
+  );
+  const selectedWorkflow = workflowMap.get(selectedWorkflowKey) ?? translatorWorkflows[0];
+  const llmProfileOptions = llmNames.map((name) => ({
+    label: name,
+    value: name,
+  }));
+  const workflowOptions = translatorWorkflows.map((workflow) => ({
+    label: `${workflow.title} (${workflow.workflow})`,
+    value: workflow.workflow,
+  }));
 
   return (
     <Tabs
@@ -87,26 +106,18 @@ export function SettingsView({
                 >
                   <Space direction="vertical" style={{ width: '100%' }}>
                     {llmNames.map((name) => (
-                      <div
+                      <button
+                        type="button"
                         key={name}
                         onClick={() => onSelectLlmProfile(name)}
-                        style={{
-                          cursor: 'pointer',
-                          background:
-                            name === selectedLlmName
-                              ? 'rgba(108,140,255,.12)'
-                              : undefined,
-                          padding: 12,
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          borderRadius: 8,
-                        }}
+                        className={`settings-list-card${name === selectedLlmName ? ' active' : ''}`}
                       >
-                        <Space>
+                        <Space wrap>
                           <span>{name}</span>
                           {name === defaultLlmName && <Tag color="blue">默认</Tag>}
                         </Space>
                         <div>{llmProfiles[name]?.modelName}</div>
-                      </div>
+                      </button>
                     ))}
                   </Space>
                 </Card>
@@ -145,10 +156,7 @@ export function SettingsView({
                       </Col>
                       <Col span={8}>
                         <Form.Item name="modelType" label="类型">
-                          <Select
-                            options={[{ label: 'chat', value: 'chat' }]}
-                            disabled
-                          />
+                          <Select options={[{ label: 'chat', value: 'chat' }]} disabled />
                         </Form.Item>
                       </Col>
                     </Row>
@@ -202,10 +210,10 @@ export function SettingsView({
                       </Col>
                     </Row>
                     <Form.Item
-                      name="defaultRequestConfigJson"
-                      label="默认请求配置（JSON）"
+                      name="defaultRequestConfigYaml"
+                      label="默认请求配置（YAML）"
                     >
-                      <TextArea rows={5} />
+                      <YamlCodeEditor placeholder="temperature: 0.2" />
                     </Form.Item>
                     <Space>
                       <Button type="primary" htmlType="submit">
@@ -302,25 +310,33 @@ export function SettingsView({
                   extra={<Button onClick={onCreateTranslator}>新建</Button>}
                 >
                   <Space direction="vertical" style={{ width: '100%' }}>
-                    {translatorNames.map((name) => (
-                      <div
-                        key={name}
-                        onClick={() => onSelectTranslator(name)}
-                        style={{
-                          cursor: 'pointer',
-                          background:
-                            name === selectedTranslatorName
-                              ? 'rgba(108,140,255,.12)'
-                              : undefined,
-                          padding: 12,
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          borderRadius: 8,
-                        }}
-                      >
-                        <div>{name}</div>
-                        <div>{translators[name]?.modelName}</div>
-                      </div>
-                    ))}
+                    {translatorNames.map((name) => {
+                      const translator = translators[name];
+                      if (!translator) {
+                        return null;
+                      }
+                      const workflow = workflowMap.get(translator.type ?? 'default');
+                      return (
+                        <button
+                          type="button"
+                          key={name}
+                          onClick={() => onSelectTranslator(name)}
+                          className={`settings-list-card${name === selectedTranslatorName ? ' active' : ''}`}
+                        >
+                          <Space wrap>
+                            <strong>{translator.metadata?.title ?? name}</strong>
+                            {workflow ? <Tag color="purple">{workflow.title}</Tag> : null}
+                          </Space>
+                          <div>{name}</div>
+                          <div>{translator.modelName}</div>
+                          {translator.metadata?.description ? (
+                            <Paragraph className="settings-list-description" ellipsis={{ rows: 2 }}>
+                              {translator.metadata.description}
+                            </Paragraph>
+                          ) : null}
+                        </button>
+                      );
+                    })}
                   </Space>
                 </Card>
               </Col>
@@ -343,49 +359,39 @@ export function SettingsView({
                         </Form.Item>
                       </Col>
                       <Col span={8}>
-                        <Form.Item name="type" label="工作流">
-                          <Select
-                            options={[
-                              { label: 'default', value: 'default' },
-                              { label: 'multi-stage', value: 'multi-stage' },
-                            ]}
-                          />
-                        </Form.Item>
-                      </Col>
-                      <Col span={8}>
                         <Form.Item
-                          name="modelName"
-                          label="默认模型"
-                          rules={[{ required: true }]}
+                          name="metadataTitle"
+                          label="显示名称"
                         >
-                          <Select
-                            showSearch
-                            options={llmNames.map((name) => ({
-                              label: name,
-                              value: name,
-                            }))}
-                          />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                    <Row gutter={16}>
-                      <Col span={8}>
-                        <Form.Item name="reviewIterations" label="评审轮数">
-                          <Input type="number" />
+                          <Input placeholder="界面上展示给用户的名称" />
                         </Form.Item>
                       </Col>
                       <Col span={8}>
-                        <Form.Item name="overlapChars" label="滑窗重叠字符数">
-                          <Input type="number" />
+                        <Form.Item name="type" label="工作流" rules={[{ required: true }]}>
+                          <Select options={workflowOptions} />
                         </Form.Item>
                       </Col>
                     </Row>
-                    <Form.Item name="requestOptionsJson" label="请求选项（JSON）">
-                      <TextArea rows={5} />
+                    <Form.Item name="metadataDescription" label="说明">
+                      <TextArea rows={3} placeholder="帮助后续使用者理解这个翻译器适用于什么场景。" />
                     </Form.Item>
-                    <Form.Item name="modelsJson" label="步骤模型覆盖（JSON）">
-                      <TextArea rows={5} />
-                    </Form.Item>
+                    {selectedWorkflow ? (
+                      <Card size="small" className="settings-meta-card">
+                        <Space direction="vertical" size={4}>
+                          <Space wrap>
+                            <strong>{selectedWorkflow.title}</strong>
+                            <Tag>{selectedWorkflow.workflow}</Tag>
+                          </Space>
+                          {selectedWorkflow.description ? (
+                            <Text type="secondary">{selectedWorkflow.description}</Text>
+                          ) : null}
+                        </Space>
+                      </Card>
+                    ) : null}
+                    <DynamicTranslatorFields
+                      workflow={selectedWorkflow}
+                      llmProfileOptions={llmProfileOptions}
+                    />
                     <Space>
                       <Button type="primary" htmlType="submit">
                         保存翻译器
@@ -421,7 +427,7 @@ export function SettingsView({
                         void onSaveAuxiliaryConfig('extractor', values)
                       }
                     >
-                      <AuxiliaryCommonFields />
+                      <AuxiliaryCommonFields llmProfileOptions={llmProfileOptions} />
                       <Row gutter={16}>
                         <Col span={8}>
                           <Form.Item name="maxCharsPerBatch" label="每批最大字符">
@@ -467,12 +473,12 @@ export function SettingsView({
                             label="模型名"
                             rules={[{ required: true }]}
                           >
-                            <Input />
+                            <Select showSearch options={llmProfileOptions} />
                           </Form.Item>
                         </Col>
                       </Row>
-                      <Form.Item name="requestOptionsJson" label="请求选项（JSON）">
-                        <TextArea rows={4} />
+                      <Form.Item name="requestOptionsYaml" label="请求选项（YAML）">
+                        <YamlCodeEditor height={180} placeholder="temperature: 0.1" />
                       </Form.Item>
                       <Button type="primary" htmlType="submit">
                         保存
@@ -499,7 +505,7 @@ export function SettingsView({
                             label="模型名"
                             rules={[{ required: true }]}
                           >
-                            <Input />
+                            <Select showSearch options={llmProfileOptions} />
                           </Form.Item>
                         </Col>
                         <Col span={6}>
@@ -516,8 +522,8 @@ export function SettingsView({
                           </Form.Item>
                         </Col>
                       </Row>
-                      <Form.Item name="requestOptionsJson" label="请求选项（JSON）">
-                        <TextArea rows={4} />
+                      <Form.Item name="requestOptionsYaml" label="请求选项（YAML）">
+                        <YamlCodeEditor height={180} placeholder="temperature: 0.3" />
                       </Form.Item>
                       <Button type="primary" htmlType="submit">
                         保存
@@ -540,10 +546,10 @@ export function SettingsView({
                         label="模型名"
                         rules={[{ required: true }]}
                       >
-                        <Input />
+                        <Select showSearch options={llmProfileOptions} />
                       </Form.Item>
-                      <Form.Item name="requestOptionsJson" label="请求选项（JSON）">
-                        <TextArea rows={4} />
+                      <Form.Item name="requestOptionsYaml" label="请求选项（YAML）">
+                        <YamlCodeEditor height={180} placeholder="temperature: 0.1" />
                       </Form.Item>
                       <Button type="primary" htmlType="submit">
                         保存
@@ -560,7 +566,88 @@ export function SettingsView({
   );
 }
 
-function AuxiliaryCommonFields() {
+function DynamicTranslatorFields({
+  workflow,
+  llmProfileOptions,
+}: {
+  workflow?: TranslationProcessorWorkflowMetadata;
+  llmProfileOptions: Array<{ label: string; value: string }>;
+}) {
+  if (!workflow) {
+    return null;
+  }
+
+  const basicFields = workflow.fields.filter((field) => field.section !== 'advanced');
+  const advancedFields = workflow.fields.filter((field) => field.section === 'advanced');
+
+  return (
+    <>
+      <TranslatorFieldSection title="基础配置" fields={basicFields} llmProfileOptions={llmProfileOptions} />
+      {advancedFields.length > 0 ? (
+        <TranslatorFieldSection
+          title="高级配置"
+          fields={advancedFields}
+          llmProfileOptions={llmProfileOptions}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function TranslatorFieldSection({
+  title,
+  fields,
+  llmProfileOptions,
+}: {
+  title: string;
+  fields: TranslationProcessorWorkflowMetadata['fields'];
+  llmProfileOptions: Array<{ label: string; value: string }>;
+}) {
+  if (fields.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="section-stack">
+      <Text strong>{title}</Text>
+      <Row gutter={16}>
+        {fields.map((field) => (
+          <Col span={field.input === 'yaml' ? 24 : 12} key={field.key}>
+            <Form.Item
+              name={translatorFieldName(field.key)}
+              label={field.label}
+              tooltip={field.description}
+              rules={field.required ? [{ required: true, message: `请填写${field.label}` }] : undefined}
+            >
+              {renderTranslatorField(field, llmProfileOptions)}
+            </Form.Item>
+          </Col>
+        ))}
+      </Row>
+    </div>
+  );
+}
+
+function renderTranslatorField(
+  field: TranslationProcessorWorkflowMetadata['fields'][number],
+  llmProfileOptions: Array<{ label: string; value: string }>,
+) {
+  if (field.input === 'llm-profile') {
+    return <Select showSearch options={llmProfileOptions} placeholder="选择一个 LLM Profile" />;
+  }
+
+  if (field.input === 'number') {
+    return <Input type="number" min={field.min} placeholder={field.description} />;
+  }
+
+  return <YamlCodeEditor height={200} placeholder={field.placeholder} />;
+}
+
+function AuxiliaryCommonFields({
+  llmProfileOptions,
+}: {
+  llmProfileOptions: Array<{ label: string; value: string }>;
+}) {
   return (
     <>
       <Form.Item
@@ -568,10 +655,10 @@ function AuxiliaryCommonFields() {
         label="模型名"
         rules={[{ required: true }]}
       >
-        <Input />
+        <Select showSearch options={llmProfileOptions} />
       </Form.Item>
-      <Form.Item name="requestOptionsJson" label="请求选项（JSON）">
-        <TextArea rows={4} />
+      <Form.Item name="requestOptionsYaml" label="请求选项（YAML）">
+        <YamlCodeEditor height={180} placeholder="temperature: 0.2" />
       </Form.Item>
     </>
   );

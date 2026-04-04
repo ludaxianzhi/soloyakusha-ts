@@ -57,3 +57,43 @@ body {
 .compact-form .ant-form-item {
   margin-bottom: 12px;
 }
+
+.settings-list-card {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.settings-list-card.active {
+  border-color: rgba(108, 140, 255, 0.55);
+  background: rgba(108, 140, 255, 0.12);
+}
+
+.settings-list-description {
+  margin: 6px 0 0;
+}
+
+.settings-meta-card {
+  margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.yaml-editor-shell {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #111317;
+}
+
+.yaml-editor-hint {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}

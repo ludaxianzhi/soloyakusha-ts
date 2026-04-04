@@ -5,13 +5,13 @@ import { FolderOpenOutlined, ReloadOutlined, SettingOutlined } from '@ant-design
 import { api } from './api.ts';
 import {
   auxToForm,
+  buildTranslatorPayload,
   optionalNumber,
   optionalString,
-  parseJsonObject,
-  parseJsonStringMap,
+  parseYamlObject,
   profileToForm,
   splitLines,
-  stringifyJson,
+  translatorToForm,
   toErrorMessage,
 } from './ui-helpers.ts';
 import type {
@@ -24,6 +24,7 @@ import type {
   ManagedWorkspace,
   PlotSummaryConfig,
   ProjectStatus,
+  TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
   TranslatorEntry,
   WorkspaceChapterDescriptor,
@@ -54,6 +55,9 @@ export function AppShell() {
   const [llmProfiles, setLlmProfiles] = useState<Record<string, LlmProfileConfig>>({});
   const [defaultLlmName, setDefaultLlmName] = useState<string>();
   const [translators, setTranslators] = useState<Record<string, TranslatorEntry>>({});
+  const [translatorWorkflows, setTranslatorWorkflows] = useState<
+    TranslationProcessorWorkflowMetadata[]
+  >([]);
   const [embeddingConfig, setEmbeddingConfig] = useState<LlmProfileConfig | null>(null);
   const [extractorConfig, setExtractorConfig] = useState<GlossaryExtractorConfig | null>(null);
   const [updaterConfig, setUpdaterConfig] = useState<GlossaryUpdaterConfig | null>(null);
@@ -72,6 +76,13 @@ export function AppShell() {
   const [updaterForm] = Form.useForm<Record<string, unknown>>();
   const [plotForm] = Form.useForm<Record<string, unknown>>();
   const [alignmentForm] = Form.useForm<Record<string, unknown>>();
+  const workflowMap = useMemo(
+    () =>
+      new Map(
+        translatorWorkflows.map((workflow) => [workflow.workflow, workflow] as const),
+      ),
+    [translatorWorkflows],
+  );
 
   const runAction = useCallback(
     async (action: () => Promise<void>) => {
@@ -137,6 +148,7 @@ export function AppShell() {
         llmRes,
         embeddingRes,
         translatorsRes,
+        workflowRes,
         extractorRes,
         updaterRes,
         plotRes,
@@ -145,6 +157,7 @@ export function AppShell() {
         api.getLlmProfiles(),
         api.getEmbeddingConfig(),
         api.getTranslators(),
+        api.getTranslatorWorkflows(),
         api.getGlossaryExtractor(),
         api.getGlossaryUpdater(),
         api.getPlotSummaryConfig(),
@@ -155,6 +168,7 @@ export function AppShell() {
       setDefaultLlmName(llmRes.defaultName);
       setEmbeddingConfig(embeddingRes);
       setTranslators(translatorsRes.translators);
+      setTranslatorWorkflows(workflowRes.workflows);
       setExtractorConfig(extractorRes as GlossaryExtractorConfig | null);
       setUpdaterConfig(updaterRes as GlossaryUpdaterConfig | null);
       setPlotConfig(plotRes as PlotSummaryConfig | null);
@@ -249,17 +263,26 @@ export function AppShell() {
 
     if (selectedTranslatorName && translators[selectedTranslatorName]) {
       const translator = translators[selectedTranslatorName];
-      translatorForm.setFieldsValue({
-        translatorName: selectedTranslatorName,
-        type: translator.type ?? 'default',
-        modelName: translator.modelName,
-        reviewIterations: translator.reviewIterations,
-        overlapChars: translator.slidingWindow?.overlapChars,
-        requestOptionsJson: stringifyJson(translator.requestOptions),
-        modelsJson: stringifyJson(translator.models),
-      });
+      const workflow =
+        workflowMap.get(translator.type ?? 'default') ??
+        workflowMap.get('default') ??
+        translatorWorkflows[0];
+      translatorForm.resetFields();
+      translatorForm.setFieldsValue(
+        translatorToForm(translator, selectedTranslatorName, workflow) as Record<
+          string,
+          {} | undefined
+        >,
+      );
     } else {
       translatorForm.resetFields();
+      translatorForm.setFieldsValue(
+        translatorToForm(
+          null,
+          undefined,
+          workflowMap.get('default') ?? translatorWorkflows[0],
+        ) as Record<string, {} | undefined>,
+      );
     }
 
     embeddingForm.setFieldsValue(profileToForm(embeddingConfig, 'embedding'));
@@ -282,15 +305,19 @@ export function AppShell() {
     selectedTranslatorName,
     translatorForm,
     translators,
+    translatorWorkflows,
     updaterConfig,
     updaterForm,
     view,
+    workflowMap,
   ]);
 
   const translatorOptions = useMemo(
     () =>
       Object.keys(translators).map((name) => ({
-        label: name,
+        label: translators[name]?.metadata?.title
+          ? `${translators[name].metadata?.title} (${name})`
+          : name,
         value: name,
       })),
     [translators],
@@ -579,7 +606,7 @@ export function AppShell() {
           maxParallelRequests: optionalNumber(values.maxParallelRequests),
           modelType: (values.modelType as 'chat' | 'embedding') ?? 'chat',
           retries: optionalNumber(values.retries) ?? 2,
-          defaultRequestConfig: parseJsonObject(values.defaultRequestConfigJson),
+          defaultRequestConfig: parseYamlObject(values.defaultRequestConfigYaml),
         };
         await api.saveLlmProfile(name, payload);
         await refreshSettings();
@@ -624,7 +651,7 @@ export function AppShell() {
           maxParallelRequests: optionalNumber(values.maxParallelRequests),
           modelType: 'embedding',
           retries: optionalNumber(values.retries) ?? 2,
-          defaultRequestConfig: parseJsonObject(values.defaultRequestConfigJson),
+          defaultRequestConfig: parseYamlObject(values.defaultRequestConfigYaml),
         };
         await api.saveEmbeddingConfig(payload);
         await refreshSettings();
@@ -637,8 +664,14 @@ export function AppShell() {
   const handleCreateTranslator = useCallback(() => {
     setSelectedTranslatorName(undefined);
     translatorForm.resetFields();
-    translatorForm.setFieldsValue({ type: 'default' });
-  }, [translatorForm]);
+    translatorForm.setFieldsValue(
+      translatorToForm(
+        null,
+        undefined,
+        workflowMap.get('default') ?? translatorWorkflows[0],
+      ) as Record<string, {} | undefined>,
+    );
+  }, [translatorForm, translatorWorkflows, workflowMap]);
 
   const handleSaveTranslator = useCallback(
     async (values: Record<string, unknown>) => {
@@ -647,22 +680,21 @@ export function AppShell() {
         if (!name) {
           throw new Error('翻译器名称不能为空');
         }
-        const overlapChars = optionalNumber(values.overlapChars);
-        const payload: TranslatorEntry = {
-          type: optionalString(values.type),
-          modelName: String(values.modelName ?? ''),
-          reviewIterations: optionalNumber(values.reviewIterations),
-          slidingWindow:
-            overlapChars !== undefined ? { overlapChars } : undefined,
-          requestOptions: parseJsonObject(values.requestOptionsJson),
-          models: parseJsonStringMap(values.modelsJson),
-        };
+        const workflowName = optionalString(values.type) ?? 'default';
+        const workflow =
+          workflowMap.get(workflowName) ??
+          workflowMap.get('default') ??
+          translatorWorkflows[0];
+        if (!workflow) {
+          throw new Error('未找到可用的翻译器工作流元数据');
+        }
+        const payload: TranslatorEntry = buildTranslatorPayload(values, workflow);
         await api.saveTranslator(name, payload);
         await refreshSettings();
         message.success('翻译器已保存');
       });
     },
-    [message, refreshSettings, runAction],
+    [message, refreshSettings, runAction, translatorWorkflows, workflowMap],
   );
 
   const handleDeleteTranslator = useCallback(async () => {
@@ -688,25 +720,25 @@ export function AppShell() {
             maxCharsPerBatch: optionalNumber(values.maxCharsPerBatch),
             occurrenceTopK: optionalNumber(values.occurrenceTopK),
             occurrenceTopP: optionalNumber(values.occurrenceTopP),
-            requestOptions: parseJsonObject(values.requestOptionsJson),
+            requestOptions: parseYamlObject(values.requestOptionsYaml),
           });
         } else if (kind === 'updater') {
           await api.saveGlossaryUpdater({
             workflow: optionalString(values.workflow),
             modelName: String(values.modelName ?? ''),
-            requestOptions: parseJsonObject(values.requestOptionsJson),
+            requestOptions: parseYamlObject(values.requestOptionsYaml),
           });
         } else if (kind === 'plot') {
           await api.savePlotSummaryConfig({
             modelName: String(values.modelName ?? ''),
             fragmentsPerBatch: optionalNumber(values.fragmentsPerBatch),
             maxContextSummaries: optionalNumber(values.maxContextSummaries),
-            requestOptions: parseJsonObject(values.requestOptionsJson),
+            requestOptions: parseYamlObject(values.requestOptionsYaml),
           });
         } else {
           await api.saveAlignmentRepairConfig({
             modelName: String(values.modelName ?? ''),
-            requestOptions: parseJsonObject(values.requestOptionsJson),
+            requestOptions: parseYamlObject(values.requestOptionsYaml),
           });
         }
         await refreshSettings();
@@ -796,6 +828,7 @@ export function AppShell() {
                 selectedLlmName={selectedLlmName}
                 selectedTranslatorName={selectedTranslatorName}
                 translators={translators}
+                translatorWorkflows={translatorWorkflows}
                 llmForm={llmForm}
                 embeddingForm={embeddingForm}
                 translatorForm={translatorForm}

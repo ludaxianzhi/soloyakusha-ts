@@ -61,8 +61,15 @@ export type GlobalLlmConfig = {
  */
 export type TranslatorModelOverrides = Record<string, string>;
 
+export type TranslatorMetadata = {
+  title?: string;
+  description?: string;
+};
+
 /** 命名翻译器注册条目，对应一种翻译工作流 + 参数组合。 */
 export type TranslatorEntry = {
+  /** 翻译器的人类可读元数据，用于前端自解释展示。 */
+  metadata?: TranslatorMetadata;
   /** 工作流类型，对应翻译处理器 workflow 参数，留空则使用 "default"。 */
   type?: string;
   /** 引用的 LLM Profile 名称（同时作为所有步骤的默认模型）。 */

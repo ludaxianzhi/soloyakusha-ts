@@ -158,7 +158,13 @@ export interface LlmProfileConfig {
   defaultRequestConfig?: Record<string, unknown>;
 }
 
+export interface TranslatorMetadata {
+  title?: string;
+  description?: string;
+}
+
 export interface TranslatorEntry {
+  metadata?: TranslatorMetadata;
   type?: string;
   modelName: string;
   slidingWindow?: {
@@ -167,6 +173,25 @@ export interface TranslatorEntry {
   requestOptions?: Record<string, unknown>;
   models?: Record<string, string>;
   reviewIterations?: number;
+}
+
+export interface TranslationProcessorWorkflowFieldMetadata {
+  key: string;
+  label: string;
+  description?: string;
+  input: 'llm-profile' | 'number' | 'yaml';
+  yamlShape?: 'object' | 'string-map';
+  required?: boolean;
+  min?: number;
+  placeholder?: string;
+  section?: 'basic' | 'advanced';
+}
+
+export interface TranslationProcessorWorkflowMetadata {
+  workflow: string;
+  title: string;
+  description?: string;
+  fields: TranslationProcessorWorkflowFieldMetadata[];
 }
 
 export interface GlossaryExtractorConfig {

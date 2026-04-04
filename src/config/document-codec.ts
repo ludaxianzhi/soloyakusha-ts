@@ -19,6 +19,7 @@ import type {
   GlobalTranslationConfig,
   PersistedLlmClientConfig,
   PersistedLlmRequestConfig,
+  TranslatorMetadata,
   TranslatorEntry,
   WorkspaceEntry,
 } from "./types.ts";
@@ -197,6 +198,7 @@ export function normalizeTranslatorEntry(
   );
 
   return {
+    metadata: normalizeTranslatorMetadata(value.metadata, `${sourceLabel}.metadata`),
     type: readOptionalString(value.type, `${sourceLabel}.type`),
     modelName: readRequiredString(value.modelName, `${sourceLabel}.modelName`),
     slidingWindow:
@@ -477,6 +479,7 @@ export function cloneTranslationConfig(
 
 export function cloneTranslatorEntry(entry: TranslatorEntry): TranslatorEntry {
   return {
+    metadata: entry.metadata ? { ...entry.metadata } : undefined,
     type: entry.type,
     modelName: entry.modelName,
     slidingWindow: entry.slidingWindow ? { ...entry.slidingWindow } : undefined,
@@ -745,6 +748,34 @@ function cloneRequestConfig(
     maxTokens: config.maxTokens,
     topP: config.topP,
     extraBody: config.extraBody ? cloneJsonObject(config.extraBody) : undefined,
+  };
+}
+
+function normalizeTranslatorMetadata(
+  value: unknown,
+  sourceLabel: string,
+): TranslatorMetadata | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`翻译器元数据必须是对象: ${sourceLabel}`);
+  }
+
+  const title = readOptionalStringAllowEmpty(value.title, `${sourceLabel}.title`)?.trim();
+  const description = readOptionalStringAllowEmpty(
+    value.description,
+    `${sourceLabel}.description`,
+  )?.trim();
+
+  if (!title && !description) {
+    return undefined;
+  }
+
+  return {
+    title: title || undefined,
+    description: description || undefined,
   };
 }
 
