@@ -4,7 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "tui": "bun run src/tui/cli.tsx"
+    "tui": "bun run src/tui/cli.tsx",
+    "dataset": "bun run src/cli/cli.ts build-dataset"
   },
   "devDependencies": {
     "@types/bun": "latest",
