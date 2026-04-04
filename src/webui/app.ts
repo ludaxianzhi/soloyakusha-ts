@@ -5,6 +5,11 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { join } from 'node:path';
+import {
+  normalizeStaticAssetPath,
+  resolveStaticAssetResponse,
+  type StaticAssetMap,
+} from './static-assets.ts';
 import { EventBus } from './services/event-bus.ts';
 import { WorkspaceManager } from './services/workspace-manager.ts';
 import { ProjectService } from './services/project-service.ts';
@@ -14,7 +19,12 @@ import { createProjectRoutes } from './routes/project.ts';
 import { createConfigRoutes } from './routes/config.ts';
 import { createEventsRoute } from './routes/events.ts';
 
-export function createApp() {
+export interface CreateAppOptions {
+  staticAssets?: StaticAssetMap;
+  clientDistDir?: string;
+}
+
+export function createApp(options: CreateAppOptions = {}) {
   const eventBus = new EventBus();
   const workspaceManager = new WorkspaceManager();
   const projectService = new ProjectService(eventBus, workspaceManager);
@@ -31,30 +41,24 @@ export function createApp() {
   app.route('/api/config', createConfigRoutes(configService));
   app.route('/api/events', createEventsRoute(eventBus));
 
-  const clientDistDir = join(process.cwd(), 'dist', 'webui');
+  const clientDistDir = options.clientDistDir ?? join(process.cwd(), 'dist', 'webui');
   app.get('*', async (c) => {
-    const requestedPath =
-      c.req.path === '/' ? 'index.html' : c.req.path.replace(/^\/+/, '');
-    const requestedFile = Bun.file(join(clientDistDir, requestedPath));
-    if (await requestedFile.exists()) {
-      return new Response(requestedFile);
+    const requestedPath = normalizeStaticAssetPath(c.req.path);
+    const expectsSpaShell = c.req.path === '/' || !requestedPath.includes('.');
+    const staticAssetResponse = await resolveStaticAssetResponse(c.req.path, {
+      staticAssets: options.staticAssets,
+      clientDistDir,
+    });
+    if (staticAssetResponse) {
+      return staticAssetResponse;
     }
 
-    if (requestedPath.includes('.')) {
+    if (!expectsSpaShell) {
       return c.notFound();
     }
 
-    const indexFile = Bun.file(join(clientDistDir, 'index.html'));
-    if (await indexFile.exists()) {
-      return new Response(indexFile, {
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-        },
-      });
-    }
-
     return c.html(
-      '<h1>WebUI client not built</h1><p>Run <code>bun run webui:build</code> first, then start the server with <code>bun run webui</code>.</p>',
+      '<h1>WebUI client not built</h1><p>Run <code>bun run webui:build:client</code> for source-mode serving, or <code>bun run webui:build</code> to produce a standalone executable with embedded assets.</p>',
       503,
     );
   });

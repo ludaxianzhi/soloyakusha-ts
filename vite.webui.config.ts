@@ -1,8 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 
 const projectRoot = process.cwd();
+const configuredOutDir = process.env.WEBUI_CLIENT_OUTDIR;
+const clientOutDir = !configuredOutDir
+  ? resolve(projectRoot, 'dist', 'webui')
+  : isAbsolute(configuredOutDir)
+    ? configuredOutDir
+    : resolve(projectRoot, configuredOutDir);
 
 export default defineConfig({
   root: resolve(projectRoot, 'src', 'webui', 'client'),
@@ -18,7 +24,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: resolve(projectRoot, 'dist', 'webui'),
+    outDir: clientOutDir,
     emptyOutDir: true,
   },
 });

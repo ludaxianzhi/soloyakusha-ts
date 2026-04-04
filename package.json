@@ -8,7 +8,8 @@
     "webui": "bun run src/webui/index.ts",
     "webui:dev": "bun --hot src/webui/index.ts",
     "webui:client": "vite --config vite.webui.config.ts",
-    "webui:build": "vite build --config vite.webui.config.ts",
+    "webui:build:client": "vite build --config vite.webui.config.ts",
+    "webui:build": "bun run scripts/build-webui.ts",
     "dataset": "bun run src/cli/cli.ts build-dataset"
   },
   "devDependencies": {

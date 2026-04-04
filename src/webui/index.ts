@@ -2,18 +2,10 @@
  * WebUI 入口：启动 Hono HTTP 服务器。
  */
 
-import { createApp } from './app.ts';
+import { createWebUiServer, logWebUiServerStart } from './server.ts';
 
-const PORT = Number(process.env.PORT) || 8000;
-const HOST = process.env.HOST || '0.0.0.0';
+const server = createWebUiServer();
 
-const { app } = createApp();
+logWebUiServerStart(server.port);
 
-console.log(`\n  🌐 SoloYakusha WebUI 已启动`);
-console.log(`  → http://localhost:${PORT}\n`);
-
-export default {
-  port: PORT,
-  hostname: HOST,
-  fetch: app.fetch,
-};
+export default server;

@@ -66,6 +66,39 @@ bun install
 bunx tsc --noEmit
 ```
 
+## WebUI 开发与构建
+
+开发模式下，仍然使用 Bun 服务端配合 Vite dev server：
+
+```bash
+bun run webui:dev
+```
+
+```bash
+bun run webui:client
+```
+
+如果你想以源码模式直接由 Bun 服务端托管构建后的前端静态文件，可先构建客户端：
+
+```bash
+bun run webui:build:client
+bun run webui
+```
+
+如果你想分发一个已经把前端静态资源直接打包进服务端的单文件可执行程序，可使用：
+
+```bash
+bun run webui:build
+```
+
+该命令会：
+
+- 先执行 WebUI 前端构建
+- 将构建产物转成内嵌静态资源模块
+- 再将 Hono/Bun 服务端与静态资源一起编译成单文件可执行产物
+
+在 Windows 下，默认输出文件为 `dist\soloyakusha-webui.exe`。
+
 ## 默认提示词资源
 
 默认提示词以 YAML 静态资源形式随源码分发，位于 `src/prompts/resources/default-prompts.yaml`。
