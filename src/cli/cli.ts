@@ -36,14 +36,16 @@ class StderrLogger implements Logger {
 
 const logger = new StderrLogger();
 
-try {
-  await main(process.argv.slice(2));
-} catch (error) {
-  logger.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+if (import.meta.main) {
+  try {
+    await main(process.argv.slice(2));
+  } catch (error) {
+    logger.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }
 
-async function main(argv: string[]): Promise<void> {
+export async function main(argv: string[]): Promise<void> {
   const parsed = parseArgs(argv);
   if (!parsed.command || parsed.command === "--help" || hasOption(parsed, "help")) {
     printUsage();
@@ -55,12 +57,12 @@ async function main(argv: string[]): Promise<void> {
   }
 
   const inputPath = requireSingleOption(parsed, "input");
-  const dictionaryModel = readOptionalOption(parsed, "dictionary-model", "glossary-model");
-  const outlineModel = readOptionalOption(parsed, "outline-model", "summary-model");
-  if (!dictionaryModel) {
+  const dictionaryModels = readOptionValues(parsed, "dictionary-model", "glossary-model");
+  const outlineModels = readOptionValues(parsed, "outline-model", "summary-model");
+  if (dictionaryModels.length === 0) {
     throw new Error("缺少必填参数 --dictionary-model");
   }
-  if (!outlineModel) {
+  if (outlineModels.length === 0) {
     throw new Error("缺少必填参数 --outline-model");
   }
 
@@ -68,8 +70,8 @@ async function main(argv: string[]): Promise<void> {
     {
       inputPath,
       format: readOptionalOption(parsed, "format"),
-      dictionaryModel,
-      outlineModel,
+      dictionaryModels,
+      outlineModels,
       maxSplitLength: parseOptionalInteger(
         readOptionalOption(parsed, "max-split-length", "max-chars-per-fragment"),
       ),
@@ -99,12 +101,12 @@ async function main(argv: string[]): Promise<void> {
 function printUsage(): void {
   const usage = [
     "用法:",
-    "  bun run src/cli/cli.ts build-dataset --input <path> --dictionary-model <name> --outline-model <name> [--format <format>] [--output <path>] [--max-split-length <n>]",
+    "  bun run src/cli/cli.ts build-dataset --input <path> --dictionary-model <name> [--dictionary-model <fallback> ...] --outline-model <name> [--outline-model <fallback> ...] [--format <format>] [--output <path>] [--max-split-length <n>]",
     "",
     "说明:",
     "  --input                   指定已翻译文本文件或目录",
-    "  --dictionary-model        指定用于术语提取/术语补全的已注册 LLM 名称",
-    "  --outline-model           指定用于情节大纲总结的已注册 LLM 名称",
+    "  --dictionary-model        可重复传入，按顺序组成术语提取/术语补全的模型回退链",
+    "  --outline-model           可重复传入，按顺序组成情节大纲总结的模型回退链",
     "  --format                  显式指定文件处理格式；处理 .txt 时建议必填",
     "  --output                  可选，指定输出 JSON 文件路径；未指定时输出到 stdout",
     "  --max-split-length        可选，指定随机切分器的最大切分长度（默认 2000）",
@@ -114,7 +116,7 @@ function printUsage(): void {
   process.stdout.write(`${usage}\n`);
 }
 
-function parseArgs(argv: string[]): ParsedArgs {
+export function parseArgs(argv: string[]): ParsedArgs {
   const [command, ...rest] = argv;
   const options: Record<string, string[]> = {};
 
@@ -155,19 +157,26 @@ function requireSingleOption(parsed: ParsedArgs, ...names: string[]): string {
   return value;
 }
 
-function readOptionalOption(parsed: ParsedArgs, ...names: string[]): string | undefined {
+export function readOptionValues(parsed: ParsedArgs, ...names: string[]): string[] {
+  const values: string[] = [];
   for (const name of names) {
-    const values = parsed.options[name];
-    if (!values || values.length === 0) {
-      continue;
-    }
-    if (values.length > 1) {
-      throw new Error(`参数 --${name} 只能传一次`);
-    }
-    return values[0];
+    values.push(...(parsed.options[name] ?? []));
   }
 
-  return undefined;
+  return values;
+}
+
+function readOptionalOption(parsed: ParsedArgs, ...names: string[]): string | undefined {
+  const values = readOptionValues(parsed, ...names);
+  if (values.length === 0) {
+    return undefined;
+  }
+
+  if (values.length > 1) {
+    throw new Error(`参数 --${names[0]} 只能传一次`);
+  }
+
+  return values[0];
 }
 
 function parseOptionalInteger(value: string | undefined): number | undefined {

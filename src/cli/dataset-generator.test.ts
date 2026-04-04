@@ -14,6 +14,7 @@ import type { Logger, LoggerMetadata } from "../project/logger.ts";
 import { generateTrainingDataset } from "./dataset-generator.ts";
 
 const cleanupTargets: string[] = [];
+type FakeChatResponse = string | Error;
 
 afterEach(async () => {
   await Promise.all(
@@ -44,7 +45,7 @@ describe("generateTrainingDataset", () => {
       "utf8",
     );
 
-    const dictionaryClient = new FakeChatClient([
+    const dictionaryClient = new FakeChatClient("dict-model", [
       JSON.stringify({
         entities: [
           {
@@ -63,7 +64,7 @@ describe("generateTrainingDataset", () => {
         ],
       }),
     ]);
-    const outlineClient = new FakeChatClient([
+    const outlineClient = new FakeChatClient("outline-model", [
       JSON.stringify({
         summary: {
           mainEvents: "勇者抵达王都",
@@ -87,8 +88,8 @@ describe("generateTrainingDataset", () => {
       {
         inputPath: inputDir,
         format: "naturedialog",
-        dictionaryModel: "dict-model",
-        outlineModel: "outline-model",
+        dictionaryModels: ["dict-model"],
+        outlineModels: ["outline-model"],
         maxSplitLength: 8,
       },
       {
@@ -151,6 +152,9 @@ describe("generateTrainingDataset", () => {
         "○ 勇者来到王都",
         "● The Hero arrived at the Royal Capital",
         "",
+        "○ 王都很安静",
+        "● The Royal Capital was quiet",
+        "",
       ].join("\n"),
       "utf8",
     );
@@ -160,8 +164,8 @@ describe("generateTrainingDataset", () => {
         {
           inputPath: filePath,
           format: "naturedialog",
-          dictionaryModel: "missing-model",
-          outlineModel: "outline-model",
+          dictionaryModels: ["dict-model", "missing-model"],
+          outlineModels: ["outline-model"],
         },
         {
           configManager: createFakeConfigManager({
@@ -173,6 +177,118 @@ describe("generateTrainingDataset", () => {
         },
       ),
     ).rejects.toThrow("已注册模型: dict-model, outline-model");
+  });
+
+  test("falls back to the next model and restarts from the first model on the next task", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-dataset-cli-fallback-"));
+    cleanupTargets.push(workspaceDir);
+
+    const inputDir = join(workspaceDir, "input");
+    await mkdir(inputDir, { recursive: true });
+    const filePath = join(inputDir, "scene.txt");
+    await writeFile(
+      filePath,
+      [
+        "○ 勇者来到王都",
+        "● The Hero arrived at the Royal Capital",
+        "",
+        "○ 王都很安静",
+        "● The Royal Capital was quiet",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const dictionaryClient = new FakeChatClient("dict-model", [
+      JSON.stringify({
+        entities: [
+          {
+            term: "王都",
+            category: "placeName",
+            description: "首都",
+          },
+        ],
+      }),
+      JSON.stringify({
+        glossaryUpdates: [
+          {
+            term: "王都",
+            translation: "Royal Capital",
+          },
+        ],
+      }),
+    ]);
+    const primaryOutlineClient = new FakeChatClient("outline-primary", [
+      new Error("outline primary unavailable"),
+      JSON.stringify({
+        summary: {
+          mainEvents: "王都保持安静",
+          keyCharacters: "",
+          setting: "王都",
+          notes: "",
+        },
+      }),
+    ]);
+    const fallbackOutlineClient = new FakeChatClient("outline-fallback", [
+      JSON.stringify({
+        summary: {
+          mainEvents: "勇者抵达王都",
+          keyCharacters: "勇者",
+          setting: "王都",
+          notes: "",
+        },
+      }),
+    ]);
+    const logger = new MemoryLogger();
+
+    const dataset = await generateTrainingDataset(
+      {
+        inputPath: inputDir,
+        format: "naturedialog",
+        dictionaryModels: ["dict-model"],
+        outlineModels: ["outline-primary", "outline-fallback"],
+        maxSplitLength: 8,
+      },
+      {
+        logger,
+        configManager: createFakeConfigManager({
+          availableModels: ["dict-model", "outline-primary", "outline-fallback"],
+          glossaryExtractorConfig: {
+            modelName: "dict-model",
+            maxCharsPerBatch: 100,
+          },
+          glossaryUpdaterConfig: {
+            modelName: "dict-model",
+          },
+          plotSummaryConfig: {
+            modelName: "outline-primary",
+            fragmentsPerBatch: 1,
+            maxContextSummaries: 20,
+          },
+        }),
+        createProvider() {
+          return new FakeDatasetProvider({
+            "dict-model": dictionaryClient,
+            "outline-primary": primaryOutlineClient,
+            "outline-fallback": fallbackOutlineClient,
+          });
+        },
+      },
+    );
+
+    expect(dataset.length).toBeGreaterThan(0);
+    expect(dictionaryClient.requests).toHaveLength(2);
+    expect(primaryOutlineClient.requests).toHaveLength(2);
+    expect(fallbackOutlineClient.requests).toHaveLength(1);
+    expect(
+      logger.entries.some(
+        (entry) =>
+          entry.level === "warn" &&
+          entry.message === "模型请求失败，准备切换到回退模型" &&
+          entry.metadata?.failedModel === "outline-primary" &&
+          entry.metadata?.nextModel === "outline-fallback",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -216,10 +332,10 @@ function createFakeConfigManager(options: {
 
 class FakeChatClient extends ChatClient {
   readonly requests: Array<{ prompt: string; options?: ChatRequestOptions }> = [];
-  private readonly responses: string[];
+  private readonly responses: FakeChatResponse[];
 
-  constructor(responses: string[]) {
-    super(createFakeChatConfig());
+  constructor(modelName: string, responses: FakeChatResponse[]) {
+    super(createFakeChatConfig(modelName));
     this.responses = [...responses];
   }
 
@@ -231,6 +347,9 @@ class FakeChatClient extends ChatClient {
     const next = this.responses.shift();
     if (!next) {
       throw new Error("缺少测试用 LLM 响应");
+    }
+    if (next instanceof Error) {
+      throw next;
     }
 
     return next;
@@ -278,10 +397,10 @@ class MemoryLogger implements Logger {
   }
 }
 
-function createFakeChatConfig(): LlmClientConfig {
+function createFakeChatConfig(modelName: string): LlmClientConfig {
   return {
     provider: "openai",
-    modelName: "fake-model",
+    modelName,
     apiKey: "test-key",
     endpoint: "https://example.com",
     modelType: "chat",
