@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { useEffect, useMemo, useState } from 'react';
 import { Text } from 'ink';
 import { GlobalConfigManager } from '../../config/manager.ts';
+import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
 import { Form } from '../components/form.tsx';
 import { ReorderList, type ReorderItem } from '../components/reorder-list.tsx';
 import { Select } from '../components/select.tsx';
@@ -549,8 +550,8 @@ export function WorkspaceCreateScreen() {
 
             if (opened) {
               try {
-                const configManager = new GlobalConfigManager();
-                await configManager.addRecentWorkspace({
+                const registry = new WorkspaceRegistry();
+                await registry.touchWorkspace({
                   name: draft.projectName,
                   dir: draft.projectDir,
                 });

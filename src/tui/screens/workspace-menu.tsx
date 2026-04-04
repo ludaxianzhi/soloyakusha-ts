@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { access } from 'node:fs/promises';
 import { useInput } from 'ink';
-import { GlobalConfigManager } from '../../config/manager.ts';
+import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
 import type { WorkspaceEntry } from '../../config/types.ts';
 import { Select } from '../components/select.tsx';
 import { useNavigation } from '../context/navigation.tsx';
@@ -46,21 +45,14 @@ export function WorkspaceMenuScreen() {
   useEffect(() => {
     void (async () => {
       try {
-        const manager = new GlobalConfigManager();
-        const list = await manager.getRecentWorkspaces();
-
-        // 过滤掉目录已不存在的工作区，并自动从注册表中移除
-        const valid: WorkspaceEntry[] = [];
-        for (const entry of list) {
-          try {
-            await access(entry.dir);
-            valid.push(entry);
-          } catch {
-            await manager.removeRecentWorkspace(entry.dir).catch(() => undefined);
+        const registry = new WorkspaceRegistry();
+        const list = await registry.listRegisteredWorkspaces({
+          pruneMissing: true,
+          onMissingWorkspace: (entry) => {
             addLog('warning', `工作区目录已不存在，已自动移除：${entry.dir}`);
-          }
-        }
-        setWorkspaces(valid);
+          },
+        });
+        setWorkspaces(list);
       } catch {
         setWorkspaces([]);
       } finally {
@@ -86,12 +78,8 @@ export function WorkspaceMenuScreen() {
         const opened = await initializeProject({ projectName: '', projectDir: dir, chapterPaths: [] });
         if (opened) {
           try {
-            const manager = new GlobalConfigManager();
-            const list = await manager.getRecentWorkspaces();
-            const entry = list.find((e) => e.dir === dir);
-            if (entry) {
-              await manager.addRecentWorkspace({ name: entry.name, dir });
-            }
+            const registry = new WorkspaceRegistry();
+            await registry.touchWorkspace({ dir });
           } catch {
             // 注册表更新失败不阻断流程
           }

@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { normalize as normalizePosix } from 'node:path/posix';
 import { homedir } from 'node:os';
 import JSZip from 'jszip';
-import { GlobalConfigManager } from '../../config/manager.ts';
+import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
 import type { WorkspaceEntry } from '../../config/types.ts';
 
 const DEFAULT_BASE_DIR = join(homedir(), '.soloyakusha-ts', 'workspaces');
@@ -18,9 +18,11 @@ export interface ManagedWorkspace extends WorkspaceEntry {
 
 export class WorkspaceManager {
   private readonly baseDir: string;
+  private readonly registry: WorkspaceRegistry;
 
   constructor(baseDir?: string) {
     this.baseDir = baseDir ?? DEFAULT_BASE_DIR;
+    this.registry = new WorkspaceRegistry();
   }
 
   getBaseDir(): string {
@@ -73,8 +75,9 @@ export class WorkspaceManager {
   }
 
   async listWorkspaces(): Promise<ManagedWorkspace[]> {
-    const configManager = new GlobalConfigManager();
-    const recent = await configManager.getRecentWorkspaces();
+    const recent = await this.registry.listRegisteredWorkspaces({
+      pruneMissing: true,
+    });
 
     return recent.map((ws) => ({
       ...ws,
@@ -83,8 +86,7 @@ export class WorkspaceManager {
   }
 
   async removeWorkspace(dir: string): Promise<void> {
-    const configManager = new GlobalConfigManager();
-    await configManager.removeRecentWorkspace(dir);
+    await this.registry.removeWorkspace(dir);
 
     if (dir.startsWith(this.baseDir)) {
       await rm(dir, { recursive: true, force: true });

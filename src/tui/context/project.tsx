@@ -11,6 +11,7 @@ import {
 } from 'react';
 import type { ReactNode } from 'react';
 import { GlobalConfigManager } from '../../config/manager.ts';
+import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
 import { FullTextGlossaryScanner } from '../../glossary/index.ts';
 import type { GlossaryTermCategory } from '../../glossary/glossary.ts';
 import { FileRequestHistoryLogger } from '../../llm/history.ts';
@@ -994,8 +995,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setIsBusy(false);
     if (dir) {
       try {
-        const manager = new GlobalConfigManager();
-        await manager.removeRecentWorkspace(dir);
+        const registry = new WorkspaceRegistry();
+        await registry.removeWorkspace(dir);
         addLog('success', `工作区已从最近列表中移除：${dir}`);
       } catch {
         addLog('error', '移除工作区记录失败');

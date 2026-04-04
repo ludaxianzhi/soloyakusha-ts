@@ -7,6 +7,7 @@
 
 import { join } from 'node:path';
 import { GlobalConfigManager } from '../../config/manager.ts';
+import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
 import { TranslationGlobalConfig } from '../../project/config.ts';
 import type { TranslationProcessorConfig } from '../../project/config.ts';
 import { TranslationProject } from '../../project/translation-project.ts';
@@ -269,8 +270,8 @@ export class ProjectService {
       });
 
       // Register workspace
-      const configManager = new GlobalConfigManager();
-      await configManager.addRecentWorkspace({
+      const registry = new WorkspaceRegistry();
+      await registry.touchWorkspace({
         name: nextProject.getProjectSnapshot().projectName,
         dir: normalizedDir,
       });
