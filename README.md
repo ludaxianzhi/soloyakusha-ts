@@ -90,6 +90,21 @@ console.log(rendered.userPrompt);
 bun test
 ```
 
+## 构建训练数据集 CLI
+
+```bash
+bun run dataset -- --input .\translated --format naturedialog --dictionary-model shared-chat --outline-model shared-chat --output .\dataset.json
+```
+
+该命令会：
+
+- 复用现有文件处理器读取指定文件/目录
+- 使用已注册的 LLM profile 做术语提取、术语补全与情节大纲总结
+- 按当前 Simple 翻译 prompt 的上下文构造方式生成 `Prompt`
+- 将现有最终译文按当前翻译 JSON 结构生成 `Answer`
+
+如果传入不存在的模型名，CLI 会直接报错，并打印当前已注册模型列表。
+
 ## 示例
 
 ```ts

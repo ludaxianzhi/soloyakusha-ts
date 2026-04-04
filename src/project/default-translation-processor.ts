@@ -4,7 +4,6 @@
  * @module project/default-translation-processor
  */
 
-import type { ResolvedGlossaryTerm } from "../glossary/glossary.ts";
 import {
   DefaultGlossaryUpdater,
   type GlossaryUpdateTranslationUnit,
@@ -28,6 +27,13 @@ import {
   repairTranslationOutputLines,
   type TranslationOutputRepairer,
 } from "./translation-output-repair.ts";
+import {
+  buildSourceUnitsFromLines,
+  renderSimpleTranslationPrompt,
+  resolveTranslatedGlossaryTerms,
+  resolveUntranslatedGlossaryTerms,
+  splitSourceTextIntoUnits,
+} from "./translation-prompt-context.ts";
 import type { SlidingWindowOptions, SlidingWindowFragment } from "./types.ts";
 
 export class DefaultTranslationProcessor implements TranslationProcessor {
@@ -121,15 +127,13 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
 
     const translatedGlossaryTerms = resolveTranslatedGlossaryTerms(request);
     const untranslatedGlossaryTerms = resolveUntranslatedGlossaryTerms(request);
-    const dependencyTranslations =
-      request.contextView?.getDependencyTranslatedTexts() ?? [];
-    const plotSummaries = request.contextView?.getPlotSummaryTexts() ?? [];
-    const renderedPrompt = await this.promptManager.renderTranslationStepPrompt({
+    const renderedPrompt = await renderSimpleTranslationPrompt({
+      sourceText: request.sourceText,
       sourceUnits,
-      dependencyTranslations,
-      plotSummaries,
-      translatedGlossaryTerms,
-      requirements: [...(request.requirements ?? [])],
+      contextView: request.contextView,
+      glossary: request.glossary,
+      requirements: request.requirements,
+      promptManager: this.promptManager,
     });
     const responseText = await this.resolveChatClient().singleTurnRequest(
       renderedPrompt.userPrompt,
@@ -201,40 +205,6 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
 
     return this.clientResolver.provider.getChatClient(this.clientResolver.modelName);
   }
-}
-
-function splitSourceTextIntoUnits(sourceText: string): PromptTranslationUnit[] {
-  return sourceText.split("\n").map((text, index) => ({
-    id: (index + 1).toString(),
-    text,
-  }));
-}
-
-function buildSourceUnitsFromLines(lines: ReadonlyArray<string>): PromptTranslationUnit[] {
-  return lines.map((text, index) => ({
-    id: (index + 1).toString(),
-    text,
-  }));
-}
-
-function resolveTranslatedGlossaryTerms(
-  request: TranslationProcessorRequest,
-): ResolvedGlossaryTerm[] {
-  if (request.contextView) {
-    return request.contextView.getTranslatedGlossaryTerms();
-  }
-
-  return request.glossary?.getTranslatedTermsForText(request.sourceText) ?? [];
-}
-
-function resolveUntranslatedGlossaryTerms(
-  request: TranslationProcessorRequest,
-): ResolvedGlossaryTerm[] {
-  if (request.contextView) {
-    return request.contextView.getUntranslatedGlossaryTerms();
-  }
-
-  return request.glossary?.getUntranslatedTermsForText(request.sourceText) ?? [];
 }
 
 function parseTranslationResponse(
