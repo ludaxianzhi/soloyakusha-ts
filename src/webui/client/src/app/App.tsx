@@ -6,6 +6,7 @@ import { api } from './api.ts';
 import {
   auxToForm,
   buildTranslatorPayload,
+  parseLlmRequestConfigYaml,
   optionalNumber,
   optionalString,
   parseYamlObject,
@@ -606,7 +607,9 @@ export function AppShell() {
           maxParallelRequests: optionalNumber(values.maxParallelRequests),
           modelType: (values.modelType as 'chat' | 'embedding') ?? 'chat',
           retries: optionalNumber(values.retries) ?? 2,
-          defaultRequestConfig: parseYamlObject(values.defaultRequestConfigYaml),
+          defaultRequestConfig: parseLlmRequestConfigYaml(
+            values.defaultRequestConfigYaml,
+          ),
         };
         await api.saveLlmProfile(name, payload);
         await refreshSettings();
@@ -651,7 +654,9 @@ export function AppShell() {
           maxParallelRequests: optionalNumber(values.maxParallelRequests),
           modelType: 'embedding',
           retries: optionalNumber(values.retries) ?? 2,
-          defaultRequestConfig: parseYamlObject(values.defaultRequestConfigYaml),
+          defaultRequestConfig: parseLlmRequestConfigYaml(
+            values.defaultRequestConfigYaml,
+          ),
         };
         await api.saveEmbeddingConfig(payload);
         await refreshSettings();

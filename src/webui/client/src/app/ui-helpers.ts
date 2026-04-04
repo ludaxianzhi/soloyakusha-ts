@@ -19,6 +19,18 @@ export const IMPORT_FORMAT_OPTIONS = [
   { label: 'GalTransl JSON', value: 'galtransl_json' },
 ];
 
+const LLM_REQUEST_CONFIG_KEY_ALIASES = {
+  systemPrompt: ['systemPrompt', 'system_prompt'],
+  temperature: ['temperature'],
+  topP: ['topP', 'top_p'],
+  maxTokens: ['maxTokens', 'max_tokens'],
+  extraBody: ['extraBody', 'extra_body'],
+} as const;
+
+const RESERVED_LLM_REQUEST_CONFIG_KEYS = Object.keys(
+  LLM_REQUEST_CONFIG_KEY_ALIASES,
+) as Array<keyof typeof LLM_REQUEST_CONFIG_KEY_ALIASES>;
+
 export function profileToForm(
   profile: LlmProfileConfig | null,
   name?: string,
@@ -31,20 +43,22 @@ export function profileToForm(
       retries: 2,
     };
   }
-    return {
-      profileName: name,
-      provider: profile.provider,
+  return {
+    profileName: name,
+    provider: profile.provider,
     modelName: profile.modelName,
     apiKey: profile.apiKey,
     apiKeyEnv: profile.apiKeyEnv,
     endpoint: profile.endpoint,
-      qps: profile.qps,
-      maxParallelRequests: profile.maxParallelRequests,
-      modelType: profile.modelType,
-      retries: profile.retries,
-      defaultRequestConfigYaml: stringifyYaml(profile.defaultRequestConfig),
-    };
-  }
+    qps: profile.qps,
+    maxParallelRequests: profile.maxParallelRequests,
+    modelType: profile.modelType,
+    retries: profile.retries,
+    defaultRequestConfigYaml: formatLlmRequestConfigYaml(
+      profile.defaultRequestConfig,
+    ),
+  };
+}
 
 export function auxToForm(
   config:
@@ -97,6 +111,57 @@ export function parseYamlObject(
   return parsed as Record<string, unknown>;
 }
 
+export function parseLlmRequestConfigYaml(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  const parsed = parseYamlObject(value);
+  if (!parsed) {
+    return undefined;
+  }
+
+  const normalized: Record<string, unknown> = {};
+  for (const key of RESERVED_LLM_REQUEST_CONFIG_KEYS) {
+    const aliasMatch = getAliasedRequestConfigValue(parsed, key);
+    if (key !== 'extraBody' && aliasMatch.value !== undefined) {
+      normalized[key] = aliasMatch.value;
+    }
+  }
+
+  const explicitExtraBody = getAliasedRequestConfigValue(
+    parsed,
+    'extraBody',
+  ).value;
+  if (explicitExtraBody !== undefined && !isRecord(explicitExtraBody)) {
+    throw new Error('extraBody 必须是 YAML 对象');
+  }
+
+  const liftedExtraBodyEntries = Object.fromEntries(
+    Object.entries(parsed).filter(
+      ([key]) =>
+        !Object.values(LLM_REQUEST_CONFIG_KEY_ALIASES).some((aliases) =>
+          aliases.includes(key),
+        ),
+    ),
+  );
+
+  if (
+    explicitExtraBody &&
+    Object.keys(liftedExtraBodyEntries).some((key) => key in explicitExtraBody)
+  ) {
+    throw new Error('同一个请求参数不能同时出现在顶层和 extraBody 中');
+  }
+
+  const mergedExtraBody = {
+    ...(explicitExtraBody ?? {}),
+    ...liftedExtraBodyEntries,
+  };
+  if (Object.keys(mergedExtraBody).length > 0) {
+    normalized.extraBody = mergedExtraBody;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
 export function parseYamlStringMap(
   value: unknown,
 ): Record<string, string> | undefined {
@@ -122,6 +187,64 @@ export function stringifyYaml(value: unknown): string | undefined {
     return undefined;
   }
   return YAML.stringify(value).trimEnd();
+}
+
+export function formatLlmRequestConfigYaml(
+  value: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const flattened: Record<string, unknown> = {};
+  for (const key of RESERVED_LLM_REQUEST_CONFIG_KEYS) {
+    if (key !== 'extraBody' && value[key] !== undefined) {
+      flattened[key] = value[key];
+    }
+  }
+
+  const legacyTopLevelEntries = Object.fromEntries(
+    Object.entries(value).filter(
+      ([key]) =>
+        !RESERVED_LLM_REQUEST_CONFIG_KEYS.includes(
+          key as (typeof RESERVED_LLM_REQUEST_CONFIG_KEYS)[number],
+        ),
+    ),
+  );
+  Object.assign(flattened, legacyTopLevelEntries);
+
+  const extraBody = value.extraBody;
+  if (isRecord(extraBody)) {
+    const hasTopLevelCollision = Object.keys(extraBody).some(
+      (key) => key in flattened || key === 'extraBody',
+    );
+    if (hasTopLevelCollision) {
+      flattened.extraBody = extraBody;
+    } else {
+      Object.assign(flattened, extraBody);
+    }
+  } else if (extraBody !== undefined) {
+    flattened.extraBody = extraBody;
+  }
+
+  return stringifyYaml(flattened);
+}
+
+function getAliasedRequestConfigValue(
+  source: Record<string, unknown>,
+  canonicalKey: keyof typeof LLM_REQUEST_CONFIG_KEY_ALIASES,
+): {
+  value: unknown;
+} {
+  const aliases = LLM_REQUEST_CONFIG_KEY_ALIASES[canonicalKey];
+  const matchedAliases = aliases.filter((alias) => source[alias] !== undefined);
+  if (matchedAliases.length > 1) {
+    throw new Error(`${matchedAliases.join(' / ')} 只能填写一个`);
+  }
+  return {
+    value:
+      matchedAliases.length === 1 ? source[matchedAliases[0]] : undefined,
+  };
 }
 
 export function translatorFieldName(key: string): string {
@@ -264,6 +387,10 @@ export function logColor(level: string): string {
     default:
       return 'processing';
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function toErrorMessage(error: unknown): string {

@@ -212,8 +212,13 @@ export function SettingsView({
                     <Form.Item
                       name="defaultRequestConfigYaml"
                       label="默认请求配置（YAML）"
+                      extra="temperature / topP 等标准字段可直接写；供应商特有参数也可直接写，保存时会自动归入 extraBody。"
                     >
-                      <YamlCodeEditor placeholder="temperature: 0.2" />
+                      <YamlCodeEditor
+                        placeholder={
+                          'temperature: 0.2\nchat_template_kwargs:\n  enable_thinking: false'
+                        }
+                      />
                     </Form.Item>
                     <Space>
                       <Button type="primary" htmlType="submit">
