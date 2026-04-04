@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { ChatClient } from "./base.ts";
+import { FallbackChatClient } from "./fallback-chat-client.ts";
 import { LlmClientProvider } from "./provider.ts";
+import type { ChatRequestOptions, LlmClientConfig } from "./types.ts";
 import { createLlmClientConfig, resolveRequestConfig } from "./types.ts";
 
 describe("resolveRequestConfig", () => {
@@ -116,3 +118,64 @@ describe("LlmClientProvider", () => {
     expect(primary).toBeInstanceOf(ChatClient);
   });
 });
+
+describe("FallbackChatClient", () => {
+  test("falls back to the next model and restarts from the first model for the next request", async () => {
+    const primary = new StubChatClient("primary", [new Error("primary down"), "primary success"]);
+    const fallback = new StubChatClient("fallback", ["fallback success"]);
+    const client = new FallbackChatClient([primary, fallback]);
+
+    await expect(client.singleTurnRequest("first")).resolves.toBe("fallback success");
+    await expect(client.singleTurnRequest("second")).resolves.toBe("primary success");
+    expect(primary.prompts).toEqual(["first", "second"]);
+    expect(fallback.prompts).toEqual(["first"]);
+  });
+
+  test("reports all model failures after exhausting the fallback chain", async () => {
+    const primary = new StubChatClient("primary", [new Error("primary down")]);
+    const fallback = new StubChatClient("fallback", [new Error("fallback down")]);
+    const client = new FallbackChatClient([primary, fallback]);
+
+    await expect(client.singleTurnRequest("prompt")).rejects.toThrow(
+      "模型回退链全部失败：primary: primary down | fallback: fallback down",
+    );
+  });
+});
+
+class StubChatClient extends ChatClient {
+  readonly prompts: string[] = [];
+
+  constructor(
+    modelName: string,
+    private readonly responses: Array<string | Error>,
+  ) {
+    super(createStubConfig(modelName));
+  }
+
+  override async singleTurnRequest(
+    prompt: string,
+    _options?: ChatRequestOptions,
+  ): Promise<string> {
+    this.prompts.push(prompt);
+    const next = this.responses.shift();
+    if (!next) {
+      throw new Error("missing test response");
+    }
+    if (next instanceof Error) {
+      throw next;
+    }
+
+    return next;
+  }
+}
+
+function createStubConfig(modelName: string): LlmClientConfig {
+  return {
+    provider: "openai",
+    modelName,
+    endpoint: "https://example.com/v1",
+    apiKey: "secret",
+    modelType: "chat",
+    retries: 0,
+  };
+}

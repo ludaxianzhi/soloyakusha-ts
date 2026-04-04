@@ -53,8 +53,8 @@ export type TrainingDatasetEntry = {
 export type GenerateTrainingDatasetOptions = {
   inputPattern: string;
   format?: string;
-  dictionaryModel: string;
-  outlineModel: string;
+  dictionaryModels: ReadonlyArray<string>;
+  outlineModels: ReadonlyArray<string>;
   maxSplitLength?: number;
 };
 
@@ -92,11 +92,13 @@ export async function generateTrainingDataset(
   }
 
   const registeredModels = await configManager.listLlmProfileNames();
+  assertModelChainConfigured("dictionaryModels", options.dictionaryModels);
+  assertModelChainConfigured("outlineModels", options.outlineModels);
   const resolvedProfiles = await resolveRequestedProfiles(
     configManager,
     registeredModels,
-    options.dictionaryModel,
-    options.outlineModel,
+    options.dictionaryModels,
+    options.outlineModels,
   );
   const provider =
     dependencies.createProvider?.(resolvedProfiles) ?? createProviderFromConfigs(resolvedProfiles);
@@ -133,7 +135,7 @@ export async function generateTrainingDataset(
     const glossary = await extractGlossary(
       documentManager,
       provider,
-      options.dictionaryModel,
+      options.dictionaryModels,
       glossaryExtractorConfig,
       logger,
     );
@@ -142,7 +144,7 @@ export async function generateTrainingDataset(
       documentManager,
       chapters,
       provider,
-      options.dictionaryModel,
+      options.dictionaryModels,
       glossaryUpdaterConfig,
       [],
       logger,
@@ -151,7 +153,7 @@ export async function generateTrainingDataset(
     const plotSummaryEntries = await summarizePlots(
       documentManager,
       provider,
-      options.outlineModel,
+      options.outlineModels,
       plotSummaryConfig,
       tempDir,
       logger,
@@ -185,12 +187,15 @@ export async function generateTrainingDataset(
 async function extractGlossary(
   documentManager: TranslationDocumentManager,
   provider: DatasetLlmProvider,
-  modelName: string,
+  modelNames: ReadonlyArray<string>,
   config: GlossaryExtractorConfig | undefined,
   logger: Logger,
 ): Promise<Glossary> {
-  logger.info?.("开始提取术语", { modelName });
-  const scanner = new FullTextGlossaryScanner(provider.getChatClient(modelName), logger);
+  logger.info?.("开始提取术语", buildModelChainMetadata(modelNames));
+  const scanner = new FullTextGlossaryScanner(
+    provider.getChatClientWithFallback(modelNames, { logger }),
+    logger,
+  );
   const result = await scanner.scanDocumentManager(documentManager, {
     maxCharsPerBatch: config?.maxCharsPerBatch,
     occurrenceTopK: config?.occurrenceTopK,
@@ -205,21 +210,18 @@ async function updateGlossaryTranslations(
   documentManager: TranslationDocumentManager,
   chapters: ReadonlyArray<Chapter>,
   provider: DatasetLlmProvider,
-  modelName: string,
+  modelNames: ReadonlyArray<string>,
   config: GlossaryUpdaterConfig | undefined,
   requirements: ReadonlyArray<string>,
   logger: Logger,
 ): Promise<void> {
   logger.info?.("开始补全术语译文", {
-    modelName,
+    ...buildModelChainMetadata(modelNames),
     glossaryTermCount: glossary.getAllTerms().length,
   });
   const updater = GlossaryUpdaterFactory.createUpdater({
-      workflow: config?.workflow,
-      clientResolver: {
-        provider,
-        modelName,
-      },
+    workflow: config?.workflow,
+    clientResolver: provider.getChatClientWithFallback(modelNames, { logger }),
     defaultRequestOptions: config?.requestOptions,
     logger,
     updaterName: "dataset:glossary",
@@ -235,17 +237,14 @@ async function updateGlossaryTranslations(
 async function summarizePlots(
   documentManager: TranslationDocumentManager,
   provider: DatasetLlmProvider,
-  modelName: string,
+  modelNames: ReadonlyArray<string>,
   config: PlotSummaryConfig | undefined,
   tempDir: string,
   logger: Logger,
 ): Promise<PlotSummaryEntry[]> {
-  logger.info?.("开始生成情节总结", { modelName });
+  logger.info?.("开始生成情节总结", buildModelChainMetadata(modelNames));
   const summarizer = new PlotSummarizer(
-    {
-      provider,
-      modelName,
-    },
+    provider.getChatClientWithFallback(modelNames, { logger }),
     documentManager,
     join(tempDir, "Data", "dataset-plot-summaries.json"),
     {
@@ -414,14 +413,33 @@ function assertTranslatedCorpus(
 async function resolveRequestedProfiles(
   configManager: DatasetConfigManager,
   registeredModels: ReadonlyArray<string>,
-  dictionaryModel: string,
-  outlineModel: string,
+  dictionaryModels: ReadonlyArray<string>,
+  outlineModels: ReadonlyArray<string>,
 ): Promise<Record<string, LlmClientConfig>> {
   const profiles: Record<string, LlmClientConfig> = {};
-  for (const modelName of new Set([dictionaryModel, outlineModel])) {
+  for (const modelName of new Set([...dictionaryModels, ...outlineModels])) {
     profiles[modelName] = await resolveRequiredProfile(configManager, registeredModels, modelName);
   }
   return profiles;
+}
+
+function assertModelChainConfigured(
+  optionName: "dictionaryModels" | "outlineModels",
+  modelNames: ReadonlyArray<string>,
+): void {
+  if (modelNames.length > 0) {
+    return;
+  }
+
+  const cliFlag = optionName === "dictionaryModels" ? "--dictionary-model" : "--outline-model";
+  throw new Error(`缺少必填参数 ${cliFlag}`);
+}
+
+function buildModelChainMetadata(modelNames: ReadonlyArray<string>): Record<string, unknown> {
+  return {
+    modelNames: [...modelNames],
+    fallbackCount: Math.max(0, modelNames.length - 1),
+  };
 }
 
 async function resolveRequiredProfile(

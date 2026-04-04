@@ -14,6 +14,10 @@
 
 import { ChatClient, EmbeddingClient, ManagedLlmClient } from "./base.ts";
 import { AnthropicChatClient } from "./anthropic-chat-client.ts";
+import {
+  FallbackChatClient,
+  type FallbackChatClientOptions,
+} from "./fallback-chat-client.ts";
 import { OpenAIEmbeddingClient } from "./openai-embedding-client.ts";
 import { OpenAIChatClient } from "./openai-chat-client.ts";
 import type {
@@ -95,6 +99,26 @@ export class LlmClientProvider {
     }
 
     return client;
+  }
+
+  getChatClientWithFallback(
+    names: ReadonlyArray<string>,
+    options: FallbackChatClientOptions = {},
+  ): ChatClient {
+    if (names.length === 0) {
+      throw new Error("模型回退链不能为空");
+    }
+
+    const clients = names.map((name) => this.getChatClient(name));
+    if (clients.length === 1) {
+      return clients[0];
+    }
+
+    return new FallbackChatClient(clients, {
+      historyLogger: this.historyLogger,
+      requestObserver: this.requestObserver,
+      ...options,
+    });
   }
 
   getEmbeddingClient(name: string): EmbeddingClient {
