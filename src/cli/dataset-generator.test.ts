@@ -85,7 +85,7 @@ describe("generateTrainingDataset", () => {
 
     const dataset = await generateTrainingDataset(
       {
-        inputPath: inputDir,
+        inputPattern: join(inputDir, "**", "*.txt"),
         format: "naturedialog",
         dictionaryModel: "dict-model",
         outlineModel: "outline-model",
@@ -124,7 +124,7 @@ describe("generateTrainingDataset", () => {
     expect(dataset[1]?.Prompt).toContain("The Hero arrived at the Royal Capital");
     expect(dataset[1]?.Prompt).toContain("前序情节总结参考");
     expect(dataset[1]?.Prompt).toContain("勇者抵达王都");
-    expect(dataset[1]?.Prompt).toContain("可复用术语表");
+    expect(dataset[1]?.Prompt).toContain("术语表：");
     expect(dataset[1]?.Prompt).toContain("translation: Royal Capital");
     expect(dataset[1]?.Answer).toContain("The Royal Capital was quiet");
     expect(dictionaryClient.requests).toHaveLength(2);
@@ -158,7 +158,7 @@ describe("generateTrainingDataset", () => {
     await expect(
       generateTrainingDataset(
         {
-          inputPath: filePath,
+          inputPattern: filePath,
           format: "naturedialog",
           dictionaryModel: "missing-model",
           outlineModel: "outline-model",

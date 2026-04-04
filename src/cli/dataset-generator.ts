@@ -1,11 +1,9 @@
 import {
   mkdtemp,
-  readdir,
   rm,
-  stat,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { extname, join, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { GlobalConfigManager } from "../config/manager.ts";
 import type { TranslationFileHandler } from "../file-handlers/base.ts";
 import { TranslationFileHandlerFactory } from "../file-handlers/factory.ts";
@@ -53,13 +51,11 @@ export type TrainingDatasetEntry = {
 };
 
 export type GenerateTrainingDatasetOptions = {
-  inputPath: string;
+  inputPattern: string;
   format?: string;
   dictionaryModel: string;
   outlineModel: string;
   maxSplitLength?: number;
-  maxCharsPerFragment?: number;
-  requirements?: ReadonlyArray<string>;
 };
 
 export type GenerateTrainingDatasetDependencies = {
@@ -80,14 +76,13 @@ export async function generateTrainingDataset(
   const logger = dependencies.logger ?? NOOP_LOGGER;
   const promptManager = dependencies.promptManager ?? new PromptManager();
   const configManager = dependencies.configManager ?? new GlobalConfigManager();
-  const inputPath = resolve(options.inputPath);
-  const files = await collectInputFiles(inputPath);
+  const files = await collectInputFiles(options.inputPattern);
   if (files.length === 0) {
-    throw new Error(`输入路径下没有可处理文件: ${inputPath}`);
+    throw new Error(`glob 未匹配到任何输入文件: ${options.inputPattern}`);
   }
 
   logger.info?.("开始构建训练数据集", {
-    inputPath,
+    inputPattern: options.inputPattern,
     fileCount: files.length,
   });
 
@@ -106,7 +101,7 @@ export async function generateTrainingDataset(
   const provider =
     dependencies.createProvider?.(resolvedProfiles) ?? createProviderFromConfigs(resolvedProfiles);
   const tempDir = await mkdtemp(join(dependencies.tempRootDir ?? tmpdir(), "soloyakusha-dataset-"));
-  const maxSplitLength = options.maxSplitLength ?? options.maxCharsPerFragment ?? 2000;
+  const maxSplitLength = options.maxSplitLength ?? 2000;
 
   try {
     const documentManager = new TranslationDocumentManager(tempDir, {
@@ -149,7 +144,7 @@ export async function generateTrainingDataset(
       provider,
       options.dictionaryModel,
       glossaryUpdaterConfig,
-      options.requirements ?? [],
+      [],
       logger,
     );
 
@@ -172,7 +167,7 @@ export async function generateTrainingDataset(
       maxPlotSummaryEntries:
         plotSummaryConfig?.maxContextSummaries ?? DEFAULT_MAX_PLOT_SUMMARY_ENTRIES,
       promptManager,
-      requirements: options.requirements ?? [],
+      requirements: [],
       logger,
     });
 
@@ -446,40 +441,47 @@ async function resolveRequiredProfile(
   }
 }
 
-async function collectInputFiles(inputPath: string): Promise<string[]> {
-  const inputStat = await stat(inputPath).catch(() => undefined);
-  if (!inputStat) {
-    throw new Error(`输入路径不存在: ${inputPath}`);
+async function collectInputFiles(inputPattern: string): Promise<string[]> {
+  const { cwd, pattern } = resolveGlobScanOptions(inputPattern);
+  const glob = new Bun.Glob(pattern);
+  const files: string[] = [];
+
+  for await (const match of glob.scan({
+    cwd,
+    onlyFiles: true,
+    absolute: true,
+  })) {
+    files.push(resolve(match));
   }
 
-  if (inputStat.isFile()) {
-    return [inputPath];
-  }
-
-  if (!inputStat.isDirectory()) {
-    throw new Error(`输入路径必须是文件或目录: ${inputPath}`);
-  }
-
-  const files = await walkDirectory(inputPath);
-  return files.sort((left, right) => left.localeCompare(right));
+  return [...new Set(files)].sort((left, right) => left.localeCompare(right, "zh-CN"));
 }
 
-async function walkDirectory(dirPath: string): Promise<string[]> {
-  const entries = await readdir(dirPath, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const fullPath = join(dirPath, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await walkDirectory(fullPath)));
-      continue;
-    }
+function resolveGlobScanOptions(inputPattern: string): { cwd: string; pattern: string } {
+  const normalizedAbsolutePattern = toGlobPath(
+    isAbsolute(inputPattern) ? inputPattern : resolve(inputPattern),
+  );
+  const segments = normalizedAbsolutePattern.split("/");
+  const firstGlobIndex = segments.findIndex((segment) => /[*?[\]{}]/.test(segment));
 
-    if (entry.isFile()) {
-      files.push(fullPath);
-    }
+  if (firstGlobIndex === -1) {
+    const resolvedLiteralPath = resolve(inputPattern);
+    return {
+      cwd: dirname(resolvedLiteralPath),
+      pattern: toGlobPath(basename(resolvedLiteralPath)),
+    };
   }
 
-  return files;
+  const baseDir = segments.slice(0, firstGlobIndex).join("/");
+  const pattern = segments.slice(firstGlobIndex).join("/");
+  return {
+    cwd: baseDir.replaceAll("/", sep),
+    pattern,
+  };
+}
+
+function toGlobPath(filePath: string): string {
+  return filePath.replaceAll("\\", "/");
 }
 
 function resolveInputFileHandler(

@@ -50,11 +50,13 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
+  assertNoDeprecatedOptions(parsed);
+
   if (parsed.command !== "build-dataset") {
     throw new Error(`不支持的命令: ${parsed.command}`);
   }
 
-  const inputPath = requireSingleOption(parsed, "input");
+  const inputPattern = requireSingleOption(parsed, "input");
   const dictionaryModel = readOptionalOption(parsed, "dictionary-model", "glossary-model");
   const outlineModel = readOptionalOption(parsed, "outline-model", "summary-model");
   if (!dictionaryModel) {
@@ -66,14 +68,11 @@ async function main(argv: string[]): Promise<void> {
 
   const dataset = await generateTrainingDataset(
     {
-      inputPath,
+      inputPattern,
       format: readOptionalOption(parsed, "format"),
       dictionaryModel,
       outlineModel,
-      maxSplitLength: parseOptionalInteger(
-        readOptionalOption(parsed, "max-split-length", "max-chars-per-fragment"),
-      ),
-      requirements: parsed.options.requirement ?? [],
+      maxSplitLength: parseOptionalInteger(readOptionalOption(parsed, "max-split-length")),
     },
     {
       logger,
@@ -99,19 +98,27 @@ async function main(argv: string[]): Promise<void> {
 function printUsage(): void {
   const usage = [
     "用法:",
-    "  bun run src/cli/cli.ts build-dataset --input <path> --dictionary-model <name> --outline-model <name> [--format <format>] [--output <path>] [--max-split-length <n>]",
+    "  bun run src/cli/cli.ts build-dataset --input <glob> --dictionary-model <name> --outline-model <name> [--format <format>] [--output <path>] [--max-split-length <n>]",
     "",
     "说明:",
-    "  --input                   指定已翻译文本文件或目录",
+    "  --input                   指定用于扫描输入文件的 glob 模式",
     "  --dictionary-model        指定用于术语提取/术语补全的已注册 LLM 名称",
     "  --outline-model           指定用于情节大纲总结的已注册 LLM 名称",
     "  --format                  显式指定文件处理格式；处理 .txt 时建议必填",
     "  --output                  可选，指定输出 JSON 文件路径；未指定时输出到 stdout",
     "  --max-split-length        可选，指定随机切分器的最大切分长度（默认 2000）",
-    "  --max-chars-per-fragment  兼容旧参数，等价于 --max-split-length",
-    "  --requirement             可重复传入，用于补充当前数据集构造要求",
   ].join("\n");
   process.stdout.write(`${usage}\n`);
+}
+
+function assertNoDeprecatedOptions(parsed: ParsedArgs): void {
+  if (hasOption(parsed, "max-chars-per-fragment")) {
+    throw new Error("参数 --max-chars-per-fragment 已废弃，请改用 --max-split-length");
+  }
+
+  if (hasOption(parsed, "requirement")) {
+    throw new Error("参数 --requirement 已废弃，当前数据集构造流程不再接受额外要求");
+  }
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
