@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SoloYakusha — 翻译工作台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部导航栏 -->
+    <header id="navbar">
+      <div class="nav-brand" onclick="router.go('home')">
+        <span class="brand-icon">译</span>
+        <span class="brand-text">SoloYakusha</span>
+      </div>
+      <nav class="nav-links">
+        <a class="nav-link" data-route="home" onclick="router.go('home')">首页</a>
+        <a class="nav-link" data-route="settings" onclick="router.go('settings')">设置</a>
+      </nav>
+      <div id="connection-status" class="status-dot connected" title="已连接"></div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main id="main-content"></main>
+
+    <!-- 底部日志面板 -->
+    <footer id="log-panel">
+      <div class="log-header">
+        <span>日志</span>
+        <div class="log-controls">
+          <span id="log-counts"></span>
+          <button class="btn-icon" onclick="clearLogs()" title="清空日志">✕</button>
+          <button class="btn-icon" onclick="toggleLogPanel()" id="log-toggle">▼</button>
+        </div>
+      </div>
+      <div class="log-body" id="log-body"></div>
+    </footer>
+  </div>
+
+  <!-- 模态对话框容器 -->
+  <div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
