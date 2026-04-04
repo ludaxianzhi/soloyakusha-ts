@@ -4,7 +4,7 @@
 
 import { createApp } from './app.ts';
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 const { app } = createApp();
