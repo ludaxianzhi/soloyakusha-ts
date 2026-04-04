@@ -6,6 +6,10 @@ import {
   GlobalConfigManager,
   getDefaultGlobalConfigFilePath,
 } from "./manager.ts";
+import {
+  normalizePersistedLlmClientConfig,
+  normalizeTranslationProcessorConfig,
+} from "./document-codec.ts";
 import { TranslationGlobalConfig } from "../project/config.ts";
 
 const cleanupTargets: string[] = [];
@@ -122,6 +126,75 @@ describe("GlobalConfigManager", () => {
     expect(await manager.getDefaultLlmProfileName()).toBeUndefined();
     expect(await manager.listLlmProfileNames()).toEqual([]);
     expect(await manager.removeLlmProfile("writer")).toBe(false);
+  });
+
+  test("accepts snake_case aliases in default request config", () => {
+    const normalized = normalizePersistedLlmClientConfig(
+      {
+        provider: "openai",
+        modelType: "chat",
+        modelName: "gpt-4.1",
+        endpoint: "https://example.com/v1",
+        apiKey: "secret",
+        retries: 3,
+        defaultRequestConfig: {
+          system_prompt: "system",
+          top_p: 0.8,
+          max_tokens: 2048,
+          extra_body: {
+            chat_template_kwargs: {
+              enable_thinking: false,
+            },
+          },
+        },
+      },
+      "llm.profiles.writer",
+    );
+
+    expect(normalized.defaultRequestConfig).toEqual({
+      systemPrompt: "system",
+      temperature: undefined,
+      topP: 0.8,
+      maxTokens: 2048,
+      extraBody: {
+        chat_template_kwargs: {
+          enable_thinking: false,
+        },
+      },
+    });
+  });
+
+  test("accepts snake_case aliases in sparse request config", () => {
+    const normalized = normalizeTranslationProcessorConfig(
+      {
+        modelName: "translator",
+        requestOptions: {
+          requestConfig: {
+            top_p: 0.9,
+            max_tokens: 1024,
+            extra_body: {
+              response_format: {
+                type: "json_schema",
+              },
+            },
+          },
+        },
+      },
+      "translation.translationProcessor",
+    );
+
+    expect(normalized.requestOptions).toEqual({
+      requestConfig: {
+        topP: 0.9,
+        maxTokens: 1024,
+        extraBody: {
+          response_format: {
+            type: "json_schema",
+          },
+        },
+      },
+      outputValidationContext: undefined,
+    });
   });
 
   test("resolves env-based llm profile to runtime config", async () => {

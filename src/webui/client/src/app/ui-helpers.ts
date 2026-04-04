@@ -214,17 +214,8 @@ export function formatLlmRequestConfigYaml(
   Object.assign(flattened, legacyTopLevelEntries);
 
   const extraBody = value.extraBody;
-  if (isRecord(extraBody)) {
-    const hasTopLevelCollision = Object.keys(extraBody).some(
-      (key) => key in flattened || key === 'extraBody',
-    );
-    if (hasTopLevelCollision) {
-      flattened.extraBody = extraBody;
-    } else {
-      Object.assign(flattened, extraBody);
-    }
-  } else if (extraBody !== undefined) {
-    flattened.extraBody = extraBody;
+  if (extraBody !== undefined) {
+    flattened.extra_body = extraBody;
   }
 
   return stringifyYaml(flattened);

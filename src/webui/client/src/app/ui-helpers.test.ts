@@ -41,7 +41,7 @@ describe('WebUI LLM request config helpers', () => {
     });
   });
 
-  test('flattens extraBody back into top-level YAML when echoing in the form', () => {
+  test('echoes persisted extraBody as extra_body in the form', () => {
     const yaml = formatLlmRequestConfigYaml({
       temperature: 0.2,
       extraBody: {
@@ -53,13 +53,15 @@ describe('WebUI LLM request config helpers', () => {
 
     expect(parseYamlObject(yaml)).toEqual({
       temperature: 0.2,
-      chat_template_kwargs: {
-        enable_thinking: false,
+      extra_body: {
+        chat_template_kwargs: {
+          enable_thinking: false,
+        },
       },
     });
   });
 
-  test('keeps explicit extraBody nesting when flattening would collide', () => {
+  test('keeps extraBody nested when echoing in the form', () => {
     const yaml = formatLlmRequestConfigYaml({
       temperature: 0.2,
       extraBody: {
@@ -72,7 +74,7 @@ describe('WebUI LLM request config helpers', () => {
 
     expect(parseYamlObject(yaml)).toEqual({
       temperature: 0.2,
-      extraBody: {
+      extra_body: {
         temperature: 0.1,
         response_format: {
           type: 'json_schema',

@@ -629,17 +629,44 @@ function normalizeRequestConfig(
     throw new Error(`请求配置必须是对象: ${sourceLabel}`);
   }
 
+  const systemPromptValue = readAliasedConfigValue(
+    value,
+    ["systemPrompt", "system_prompt"],
+    sourceLabel,
+  );
+  const temperatureValue = readAliasedConfigValue(
+    value,
+    ["temperature"],
+    sourceLabel,
+  );
+  const maxTokensValue = readAliasedConfigValue(
+    value,
+    ["maxTokens", "max_tokens"],
+    sourceLabel,
+  );
+  const topPValue = readAliasedConfigValue(value, ["topP", "top_p"], sourceLabel);
+  const extraBodyValue = readAliasedConfigValue(
+    value,
+    ["extraBody", "extra_body"],
+    sourceLabel,
+  );
   const systemPrompt = readOptionalStringAllowEmpty(
-    value.systemPrompt,
+    systemPromptValue,
     `${sourceLabel}.systemPrompt`,
   );
   const temperature = readOptionalFiniteNumber(
-    value.temperature,
+    temperatureValue,
     `${sourceLabel}.temperature`,
   );
-  const maxTokens = readOptionalFiniteNumber(value.maxTokens, `${sourceLabel}.maxTokens`);
-  const topP = readOptionalFiniteNumber(value.topP, `${sourceLabel}.topP`);
-  const extraBody = normalizeOptionalJsonObject(value.extraBody, `${sourceLabel}.extraBody`);
+  const maxTokens = readOptionalFiniteNumber(
+    maxTokensValue,
+    `${sourceLabel}.maxTokens`,
+  );
+  const topP = readOptionalFiniteNumber(topPValue, `${sourceLabel}.topP`);
+  const extraBody = normalizeOptionalJsonObject(
+    extraBodyValue,
+    `${sourceLabel}.extraBody`,
+  );
 
   return {
     systemPrompt,
@@ -705,26 +732,74 @@ function normalizeSparseRequestConfig(
   }
 
   const result: LlmRequestConfigInput = {};
-  if (value.systemPrompt !== undefined) {
+  const systemPromptValue = readAliasedConfigValue(
+    value,
+    ["systemPrompt", "system_prompt"],
+    sourceLabel,
+  );
+  if (systemPromptValue !== undefined) {
     result.systemPrompt = readOptionalStringAllowEmpty(
-      value.systemPrompt,
+      systemPromptValue,
       `${sourceLabel}.systemPrompt`,
     );
   }
-  if (value.temperature !== undefined) {
-    result.temperature = readOptionalFiniteNumber(value.temperature, `${sourceLabel}.temperature`);
+  const temperatureValue = readAliasedConfigValue(
+    value,
+    ["temperature"],
+    sourceLabel,
+  );
+  if (temperatureValue !== undefined) {
+    result.temperature = readOptionalFiniteNumber(
+      temperatureValue,
+      `${sourceLabel}.temperature`,
+    );
   }
-  if (value.maxTokens !== undefined) {
-    result.maxTokens = readOptionalFiniteNumber(value.maxTokens, `${sourceLabel}.maxTokens`);
+  const maxTokensValue = readAliasedConfigValue(
+    value,
+    ["maxTokens", "max_tokens"],
+    sourceLabel,
+  );
+  if (maxTokensValue !== undefined) {
+    result.maxTokens = readOptionalFiniteNumber(
+      maxTokensValue,
+      `${sourceLabel}.maxTokens`,
+    );
   }
-  if (value.topP !== undefined) {
-    result.topP = readOptionalFiniteNumber(value.topP, `${sourceLabel}.topP`);
+  const topPValue = readAliasedConfigValue(
+    value,
+    ["topP", "top_p"],
+    sourceLabel,
+  );
+  if (topPValue !== undefined) {
+    result.topP = readOptionalFiniteNumber(topPValue, `${sourceLabel}.topP`);
   }
-  if (value.extraBody !== undefined) {
-    result.extraBody = normalizeOptionalJsonObject(value.extraBody, `${sourceLabel}.extraBody`);
+  const extraBodyValue = readAliasedConfigValue(
+    value,
+    ["extraBody", "extra_body"],
+    sourceLabel,
+  );
+  if (extraBodyValue !== undefined) {
+    result.extraBody = normalizeOptionalJsonObject(
+      extraBodyValue,
+      `${sourceLabel}.extraBody`,
+    );
   }
 
   return result;
+}
+
+function readAliasedConfigValue(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  sourceLabel: string,
+): unknown {
+  const matchedKeys = keys.filter((key) => value[key] !== undefined);
+  if (matchedKeys.length > 1) {
+    throw new Error(
+      `${sourceLabel} 中 ${matchedKeys.join(" / ")} 只能配置其中一个`,
+    );
+  }
+  return matchedKeys.length === 0 ? undefined : value[matchedKeys[0]];
 }
 
 function cloneSparseRequestConfig(config: LlmRequestConfigInput): LlmRequestConfigInput {
