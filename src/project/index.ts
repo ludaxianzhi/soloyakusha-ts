@@ -17,6 +17,7 @@
  * - {@link TranslationDocumentManager}: 文档管理器，负责章节读写与片段持久化
  * - {@link TranslationContextView}: 上下文视图，聚合当前片段的翻译参考
  * - {@link DefaultTextSplitter}: 默认文本切分器，按字符上限划分片段
+ * - {@link RandomTextSplitter}: 随机文本切分器，按左半正态分布采样片段长度
  * - {@link GlobalAssociationPatternScanner}: 全局关联模式扫描器
  *
  * @module project
@@ -31,6 +32,7 @@ export * from "./global-pattern-scanner.ts";
 export * from "./logger.ts";
 export * from "./pipeline.ts";
 export * from "./prompt-manager.ts";
+export * from "./random-text-splitter.ts";
 export * from "./translation-document-manager.ts";
 export * from "./translation-processor.ts";
 export * from "./translation-processor-factory.ts";

@@ -27,7 +27,8 @@ import {
   type PlotSummaryEntry,
 } from "../project/plot-summarizer.ts";
 import { PromptManager, type RenderedPrompt } from "../project/prompt-manager.ts";
-import { DefaultTextSplitter, TranslationDocumentManager } from "../project/translation-document-manager.ts";
+import { RandomTextSplitter } from "../project/random-text-splitter.ts";
+import { TranslationDocumentManager } from "../project/translation-document-manager.ts";
 import { renderSimpleTranslationPrompt } from "../project/translation-prompt-context.ts";
 import type {
   Chapter,
@@ -56,6 +57,7 @@ export type GenerateTrainingDatasetOptions = {
   format?: string;
   dictionaryModel: string;
   outlineModel: string;
+  maxSplitLength?: number;
   maxCharsPerFragment?: number;
   requirements?: ReadonlyArray<string>;
 };
@@ -104,10 +106,11 @@ export async function generateTrainingDataset(
   const provider =
     dependencies.createProvider?.(resolvedProfiles) ?? createProviderFromConfigs(resolvedProfiles);
   const tempDir = await mkdtemp(join(dependencies.tempRootDir ?? tmpdir(), "soloyakusha-dataset-"));
+  const maxSplitLength = options.maxSplitLength ?? options.maxCharsPerFragment ?? 2000;
 
   try {
     const documentManager = new TranslationDocumentManager(tempDir, {
-      textSplitter: new DefaultTextSplitter(options.maxCharsPerFragment ?? 2000),
+      textSplitter: new RandomTextSplitter(maxSplitLength),
       fileHandlerResolver: (filePath) => handlerByPath.get(resolve(filePath)),
     });
     const chapters = files.map<Chapter>((filePath, index) => ({
@@ -116,7 +119,8 @@ export async function generateTrainingDataset(
     }));
 
     logger.info?.("加载输入文件并切分文本块", {
-      maxCharsPerFragment: options.maxCharsPerFragment ?? 2000,
+      splitMode: "random-left-half-normal",
+      maxSplitLength,
     });
     await documentManager.loadChapters(
       chapters.map((chapter) => ({
@@ -158,7 +162,7 @@ export async function generateTrainingDataset(
       logger,
     );
 
-    const orderedFragments = buildOrderedFragments(documentManager, chapters);
+    const orderedFragments = buildLinearOrderedFragments(documentManager, chapters);
     const dataset = await buildTrainingDatasetEntries({
       documentManager,
       chapters,
@@ -359,7 +363,7 @@ function markFragmentCompleted(fragment: FragmentEntry): void {
   fragment.pipelineStates[TRANSLATION_STEP_ID] = completedState;
 }
 
-function buildOrderedFragments(
+function buildLinearOrderedFragments(
   documentManager: TranslationDocumentManager,
   chapters: ReadonlyArray<Chapter>,
 ): OrderedFragmentSnapshot[] {

@@ -89,7 +89,7 @@ describe("generateTrainingDataset", () => {
         format: "naturedialog",
         dictionaryModel: "dict-model",
         outlineModel: "outline-model",
-        maxCharsPerFragment: 8,
+        maxSplitLength: 8,
       },
       {
         logger,
@@ -129,6 +129,14 @@ describe("generateTrainingDataset", () => {
     expect(dataset[1]?.Answer).toContain("The Royal Capital was quiet");
     expect(dictionaryClient.requests).toHaveLength(2);
     expect(outlineClient.requests).toHaveLength(2);
+    expect(
+      logger.entries.some(
+        (entry) =>
+          entry.message === "加载输入文件并切分文本块" &&
+          entry.metadata?.splitMode === "random-left-half-normal" &&
+          entry.metadata?.maxSplitLength === 8,
+      ),
+    ).toBe(true);
     expect(logger.entries.some((entry) => entry.message === "训练数据集构建完成")).toBe(true);
   });
 

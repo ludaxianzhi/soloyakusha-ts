@@ -70,7 +70,9 @@ async function main(argv: string[]): Promise<void> {
       format: readOptionalOption(parsed, "format"),
       dictionaryModel,
       outlineModel,
-      maxCharsPerFragment: parseOptionalInteger(readOptionalOption(parsed, "max-chars-per-fragment")),
+      maxSplitLength: parseOptionalInteger(
+        readOptionalOption(parsed, "max-split-length", "max-chars-per-fragment"),
+      ),
       requirements: parsed.options.requirement ?? [],
     },
     {
@@ -97,7 +99,7 @@ async function main(argv: string[]): Promise<void> {
 function printUsage(): void {
   const usage = [
     "用法:",
-    "  bun run src/cli/cli.ts build-dataset --input <path> --dictionary-model <name> --outline-model <name> [--format <format>] [--output <path>] [--max-chars-per-fragment <n>]",
+    "  bun run src/cli/cli.ts build-dataset --input <path> --dictionary-model <name> --outline-model <name> [--format <format>] [--output <path>] [--max-split-length <n>]",
     "",
     "说明:",
     "  --input                   指定已翻译文本文件或目录",
@@ -105,7 +107,8 @@ function printUsage(): void {
     "  --outline-model           指定用于情节大纲总结的已注册 LLM 名称",
     "  --format                  显式指定文件处理格式；处理 .txt 时建议必填",
     "  --output                  可选，指定输出 JSON 文件路径；未指定时输出到 stdout",
-    "  --max-chars-per-fragment  可选，覆盖默认文本切分大小（默认 2000）",
+    "  --max-split-length        可选，指定随机切分器的最大切分长度（默认 2000）",
+    "  --max-chars-per-fragment  兼容旧参数，等价于 --max-split-length",
     "  --requirement             可重复传入，用于补充当前数据集构造要求",
   ].join("\n");
   process.stdout.write(`${usage}\n`);
