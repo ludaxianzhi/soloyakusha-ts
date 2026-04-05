@@ -1,7 +1,10 @@
 import {
+  LlmOutputValidationError,
   resolveRequestConfig,
   type ChatRequestOptions,
   type JsonObject,
+  type LlmOutputValidationContext,
+  type LlmOutputValidator,
 } from "./types.ts";
 
 export type JsonSchemaChatPrompt = {
@@ -39,6 +42,40 @@ export function buildJsonSchemaChatRequestOptions(
   };
 }
 
+export function withOutputValidator(
+  requestOptions: ChatRequestOptions | undefined,
+  outputValidator: LlmOutputValidator,
+): ChatRequestOptions {
+  const existingOutputValidator = requestOptions?.outputValidator;
+
+  return {
+    ...(requestOptions ?? {}),
+    outputValidator: async (responseText, context) => {
+      await existingOutputValidator?.(responseText, context);
+      await outputValidator(responseText, context);
+    },
+  };
+}
+
+export async function runOutputValidator(
+  responseText: string,
+  options: Pick<ChatRequestOptions, "outputValidator" | "outputValidationContext">,
+): Promise<void> {
+  if (!options.outputValidator) {
+    return;
+  }
+
+  try {
+    await options.outputValidator(responseText, options.outputValidationContext);
+  } catch (error) {
+    throw normalizeOutputValidationError(error, options.outputValidationContext);
+  }
+}
+
+export function isRetryableOutputValidationError(error: unknown): boolean {
+  return error instanceof LlmOutputValidationError;
+}
+
 export function mergeChatRequestOptions(
   defaultOptions: ChatRequestOptions | undefined,
   overrideOptions: ChatRequestOptions | undefined,
@@ -60,4 +97,21 @@ export function mergeChatRequestOptions(
         ? resolveRequestConfig(overrideRequestConfig, defaultRequestConfig)
         : undefined,
   };
+}
+
+function normalizeOutputValidationError(
+  error: unknown,
+  context: LlmOutputValidationContext | undefined,
+): LlmOutputValidationError {
+  if (error instanceof LlmOutputValidationError) {
+    return error;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return new LlmOutputValidationError(message, {
+    stageLabel: context?.stageLabel,
+    sourceLineCount: context?.sourceLineCount,
+    minLineRatio: context?.minLineRatio,
+    modelName: context?.modelName,
+  });
 }

@@ -12,6 +12,7 @@
  */
 
 import type { ChatClient } from "../llm/base.ts";
+import { withOutputValidator } from "../llm/chat-request.ts";
 import type { ChatRequestOptions } from "../llm/types.ts";
 import { getDefaultPromptManager } from "../prompts/index.ts";
 import { NOOP_LOGGER, type Logger } from "../project/logger.ts";
@@ -193,7 +194,12 @@ export class FullTextGlossaryScanner {
         });
         const response = await this.chatClient.singleTurnRequest(
           renderedPrompt.userPrompt,
-          buildScanRequestOptions(options.requestOptions, renderedPrompt.systemPrompt),
+          withOutputValidator(
+            buildScanRequestOptions(options.requestOptions, renderedPrompt.systemPrompt),
+            (responseText) => {
+              parseScanResponse(responseText);
+            },
+          ),
         );
         const extractedEntities = parseScanResponse(response);
 

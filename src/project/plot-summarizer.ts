@@ -15,7 +15,11 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { buildJsonSchemaChatRequestOptions, mergeChatRequestOptions } from "../llm/chat-request.ts";
+import {
+  buildJsonSchemaChatRequestOptions,
+  mergeChatRequestOptions,
+  withOutputValidator,
+} from "../llm/chat-request.ts";
 import type { ChatClient } from "../llm/base.ts";
 import type { ChatRequestOptions, JsonObject } from "../llm/types.ts";
 import { getDefaultPromptManager } from "../prompts/index.ts";
@@ -308,12 +312,17 @@ export class PlotSummarizer {
     const chatClient = this.resolveChatClient();
     const responseText = await chatClient.singleTurnRequest(
       renderedPrompt.userPrompt,
-      buildJsonSchemaChatRequestOptions(
-        mergeChatRequestOptions(this.requestOptions, options?.requestOptions),
-        {
-          name: PLOT_SUMMARY_PROMPT_NAME,
-          systemPrompt: renderedPrompt.systemPrompt,
-          responseSchema,
+      withOutputValidator(
+        buildJsonSchemaChatRequestOptions(
+          mergeChatRequestOptions(this.requestOptions, options?.requestOptions),
+          {
+            name: PLOT_SUMMARY_PROMPT_NAME,
+            systemPrompt: renderedPrompt.systemPrompt,
+            responseSchema,
+          },
+        ),
+        (candidateResponseText) => {
+          parsePlotSummaryResponse(candidateResponseText);
         },
       ),
     );

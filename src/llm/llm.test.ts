@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { ChatClient } from "./base.ts";
+import { isRetryableOutputValidationError, runOutputValidator } from "./chat-request.ts";
 import { FallbackChatClient } from "./fallback-chat-client.ts";
 import { LlmClientProvider } from "./provider.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "./types.ts";
 import { createLlmClientConfig, resolveRequestConfig } from "./types.ts";
+import { retryAsync } from "./utils.ts";
 
 describe("resolveRequestConfig", () => {
   test("merges default config and extraBody overrides", () => {
@@ -140,6 +142,22 @@ describe("FallbackChatClient", () => {
       "模型回退链全部失败：primary: primary down | fallback: fallback down",
     );
   });
+
+  test("retries output validation failures before falling back", async () => {
+    const primary = new RetryingStubChatClient("primary", ["not-json", "still-not-json"], 2);
+    const fallback = new RetryingStubChatClient("fallback", ['{"ok":true}'], 2);
+    const client = new FallbackChatClient([primary, fallback]);
+
+    await expect(
+      client.singleTurnRequest("prompt", {
+        outputValidator(responseText) {
+          JSON.parse(responseText);
+        },
+      }),
+    ).resolves.toBe('{"ok":true}');
+    expect(primary.prompts).toEqual(["prompt", "prompt"]);
+    expect(fallback.prompts).toEqual(["prompt"]);
+  });
 });
 
 class StubChatClient extends ChatClient {
@@ -166,6 +184,49 @@ class StubChatClient extends ChatClient {
     }
 
     return next;
+  }
+}
+
+class RetryingStubChatClient extends ChatClient {
+  readonly prompts: string[] = [];
+
+  constructor(
+    modelName: string,
+    private readonly responses: Array<string | Error>,
+    retries: number,
+  ) {
+    super({
+      ...createStubConfig(modelName),
+      retries,
+    });
+  }
+
+  override async singleTurnRequest(
+    prompt: string,
+    options: ChatRequestOptions = {},
+  ): Promise<string> {
+    return retryAsync(
+      async () => {
+        this.prompts.push(prompt);
+        const next = this.responses.shift();
+        if (!next) {
+          throw new Error("missing test response");
+        }
+        if (next instanceof Error) {
+          throw next;
+        }
+
+        await runOutputValidator(next, options);
+        return next;
+      },
+      {
+        retries: this.config.retries,
+        minDelayMs: 0,
+        maxDelayMs: 0,
+        multiplier: 1,
+        shouldRetry: isRetryableOutputValidationError,
+      },
+    );
   }
 }
 

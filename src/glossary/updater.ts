@@ -5,7 +5,11 @@
  */
 
 import type { ChatClient } from "../llm/base.ts";
-import { buildJsonSchemaChatRequestOptions, mergeChatRequestOptions } from "../llm/chat-request.ts";
+import {
+  buildJsonSchemaChatRequestOptions,
+  mergeChatRequestOptions,
+  withOutputValidator,
+} from "../llm/chat-request.ts";
 import { LlmClientProvider } from "../llm/provider.ts";
 import type { ChatRequestOptions, JsonObject } from "../llm/types.ts";
 import {
@@ -132,9 +136,18 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
     const renderedPrompt = await this.renderPrompt(request);
     const responseText = await this.resolveChatClient().singleTurnRequest(
       renderedPrompt.userPrompt,
-      buildJsonSchemaChatRequestOptions(
-        mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
-        renderedPrompt,
+      withOutputValidator(
+        buildJsonSchemaChatRequestOptions(
+          mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
+          renderedPrompt,
+        ),
+        (candidateResponseText) => {
+          parseGlossaryUpdateResponse(
+            candidateResponseText,
+            request.untranslatedTerms.map((term) => term.term),
+            request.translationUnits.map((unit) => unit.translatedText),
+          );
+        },
       ),
     );
     const updates = parseGlossaryUpdateResponse(

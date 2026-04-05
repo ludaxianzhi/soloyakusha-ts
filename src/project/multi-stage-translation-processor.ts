@@ -24,7 +24,11 @@ import {
   type GlossaryUpdater,
 } from "../glossary/updater.ts";
 import type { ChatClient } from "../llm/base.ts";
-import { buildJsonSchemaChatRequestOptions, mergeChatRequestOptions } from "../llm/chat-request.ts";
+import {
+  buildJsonSchemaChatRequestOptions,
+  mergeChatRequestOptions,
+  withOutputValidator,
+} from "../llm/chat-request.ts";
 import type { ChatRequestOptions } from "../llm/types.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
 import { PromptManager, type PromptTranslationUnit } from "./prompt-manager.ts";
@@ -184,11 +188,19 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     this.logger.info?.("LLM2 翻译阶段", { processorName: this.processorName });
     const initialResponseText = await this.resolveClient("translator").singleTurnRequest(
       translatorPrompt.userPrompt,
-      buildJsonSchemaChatRequestOptions(mergedOptions, {
-        name: translatorPrompt.name,
-        systemPrompt: translatorPrompt.systemPrompt,
-        responseSchema: translatorPrompt.responseSchema,
-      }),
+      withOutputValidator(
+        buildJsonSchemaChatRequestOptions(mergedOptions, {
+          name: translatorPrompt.name,
+          systemPrompt: translatorPrompt.systemPrompt,
+          responseSchema: translatorPrompt.responseSchema,
+        }),
+        (candidateResponseText) => {
+          parseTranslationResponse(
+            candidateResponseText,
+            sourceUnits.map((unit) => unit.id),
+          );
+        },
+      ),
     );
     let currentTranslations = parseTranslationResponse(
       initialResponseText,
@@ -206,11 +218,19 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     this.logger.info?.("LLM3 润色阶段", { processorName: this.processorName });
     const polishedResponseText = await this.resolveClient("polisher").singleTurnRequest(
       polisherPrompt.userPrompt,
-      buildJsonSchemaChatRequestOptions(mergedOptions, {
-        name: polisherPrompt.name,
-        systemPrompt: polisherPrompt.systemPrompt,
-        responseSchema: polisherPrompt.responseSchema,
-      }),
+      withOutputValidator(
+        buildJsonSchemaChatRequestOptions(mergedOptions, {
+          name: polisherPrompt.name,
+          systemPrompt: polisherPrompt.systemPrompt,
+          responseSchema: polisherPrompt.responseSchema,
+        }),
+        (candidateResponseText) => {
+          parseTranslationResponse(
+            candidateResponseText,
+            sourceUnits.map((unit) => unit.id),
+          );
+        },
+      ),
     );
     currentTranslations = parseTranslationResponse(
       polishedResponseText,
@@ -298,11 +318,19 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
 
       const reviserResponseText = await this.resolveClient("reviser").singleTurnRequest(
         reviserPrompt.userPrompt,
-        buildJsonSchemaChatRequestOptions(mergedOptions, {
-          name: reviserPrompt.name,
-          systemPrompt: reviserPrompt.systemPrompt,
-          responseSchema: reviserPrompt.responseSchema,
-        }),
+        withOutputValidator(
+          buildJsonSchemaChatRequestOptions(mergedOptions, {
+            name: reviserPrompt.name,
+            systemPrompt: reviserPrompt.systemPrompt,
+            responseSchema: reviserPrompt.responseSchema,
+          }),
+          (candidateResponseText) => {
+            parseTranslationResponse(
+              candidateResponseText,
+              sourceUnits.map((unit) => unit.id),
+            );
+          },
+        ),
       );
 
       lastReviserResponseText = reviserResponseText;

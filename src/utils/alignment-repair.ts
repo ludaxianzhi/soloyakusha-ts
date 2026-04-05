@@ -10,6 +10,7 @@
  */
 
 import type { ChatClient } from "../llm/base.ts";
+import { withOutputValidator } from "../llm/chat-request.ts";
 import type { ChatRequestOptions, JsonObject } from "../llm/types.ts";
 import { getDefaultPromptManager } from "../prompts/index.ts";
 import { TEXT_ALIGN_PLACEHOLDER, TextAligner } from "./text-align.ts";
@@ -141,10 +142,18 @@ export class AlignmentRepairTool {
     });
     const responseText = await this.chatClient.singleTurnRequest(
       renderedPrompt.userPrompt,
-      buildAlignmentRepairRequestOptions(
-        options.requestOptions,
-        renderedPrompt.systemPrompt,
-        responseSchema,
+      withOutputValidator(
+        buildAlignmentRepairRequestOptions(
+          options.requestOptions,
+          renderedPrompt.systemPrompt,
+          responseSchema,
+        ),
+        (candidateResponseText) => {
+          parseAlignmentRepairResponse(
+            candidateResponseText,
+            new Set(analysis.missingUnitIds),
+          );
+        },
       ),
     );
     const repairs = parseAlignmentRepairResponse(responseText, new Set(analysis.missingUnitIds));

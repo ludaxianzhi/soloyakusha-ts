@@ -15,6 +15,10 @@
  */
 
 import { ChatClient } from "./base.ts";
+import {
+  isRetryableOutputValidationError,
+  runOutputValidator,
+} from "./chat-request.ts";
 import { RateLimiter } from "./rate-limiter.ts";
 import type {
   ChatRequestOptions,
@@ -207,7 +211,7 @@ export class OpenAIChatClient extends ChatClient {
               throw new OpenAIEmptyResponseError();
             }
 
-            await options.outputValidator?.(content, options.outputValidationContext);
+            await runOutputValidator(content, options);
 
             const statistics: CompletionResponseStatistics = {
               promptTokens: getInteger(usageInfo.prompt_tokens),
@@ -401,6 +405,10 @@ function getInteger(value: unknown): number {
 }
 
 function isRetryableOpenAiError(error: unknown): boolean {
+  if (isRetryableOutputValidationError(error)) {
+    return true;
+  }
+
   if (error instanceof ApiHttpError) {
     return error.status === 429 || error.status >= 500;
   }

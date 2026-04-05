@@ -10,7 +10,11 @@ import {
   type GlossaryUpdater,
 } from "../glossary/updater.ts";
 import type { ChatClient } from "../llm/base.ts";
-import { buildJsonSchemaChatRequestOptions, mergeChatRequestOptions } from "../llm/chat-request.ts";
+import {
+  buildJsonSchemaChatRequestOptions,
+  mergeChatRequestOptions,
+  withOutputValidator,
+} from "../llm/chat-request.ts";
 import type { ChatRequestOptions, JsonObject } from "../llm/types.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
 import { PromptManager, type PromptTranslationUnit } from "./prompt-manager.ts";
@@ -137,9 +141,17 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
     });
     const responseText = await this.resolveChatClient().singleTurnRequest(
       renderedPrompt.userPrompt,
-      buildJsonSchemaChatRequestOptions(
-        mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
-        renderedPrompt,
+      withOutputValidator(
+        buildJsonSchemaChatRequestOptions(
+          mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
+          renderedPrompt,
+        ),
+        (candidateResponseText) => {
+          parseTranslationResponse(
+            candidateResponseText,
+            sourceUnits.map((unit) => unit.id),
+          );
+        },
       ),
     );
     let translations = parseTranslationResponse(

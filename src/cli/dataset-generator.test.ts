@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { ChatClient } from "../llm/base.ts";
 import { LlmClientProvider } from "../llm/provider.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "../llm/types.ts";
+import { retryAsync } from "../llm/utils.ts";
 import type {
   GlossaryExtractorConfig,
   GlossaryUpdaterConfig,
@@ -519,6 +520,126 @@ describe("generateTrainingDataset", () => {
       ),
     ).toBe(true);
   });
+
+  test("retries invalid dictionary JSON on the same model before falling back to the next model", async () => {
+    const workspaceDir = await mkdtemp(
+      join(tmpdir(), "soloyakusha-dataset-cli-dictionary-validation-"),
+    );
+    cleanupTargets.push(workspaceDir);
+
+    const inputDir = join(workspaceDir, "input");
+    await mkdir(inputDir, { recursive: true });
+    const filePath = join(inputDir, "scene.txt");
+    await writeFile(
+      filePath,
+      [
+        "○ 勇者来到王都",
+        "● The Hero arrived at the Royal Capital",
+        "",
+        "○ 王都很安静",
+        "● The Royal Capital was quiet",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const primaryDictionaryClient = new FakeChatClient(
+      "dict-primary",
+      [
+        "not-json-at-all",
+        "still-not-json",
+        JSON.stringify({
+          glossaryUpdates: [
+            {
+              term: "王都",
+              translation: "Royal Capital",
+            },
+          ],
+        }),
+      ],
+      2,
+    );
+    const fallbackDictionaryClient = new FakeChatClient("dict-fallback", [
+      JSON.stringify({
+        entities: [
+          {
+            term: "王都",
+            category: "placeName",
+            description: "首都",
+          },
+        ],
+      }),
+    ]);
+    const outlineClient = new FakeChatClient("outline-model", [
+      JSON.stringify({
+        summary: {
+          mainEvents: "勇者抵达王都",
+          keyCharacters: "勇者",
+          setting: "王都",
+          notes: "",
+        },
+      }),
+      JSON.stringify({
+        summary: {
+          mainEvents: "王都保持安静",
+          keyCharacters: "",
+          setting: "王都",
+          notes: "",
+        },
+      }),
+    ]);
+    const logger = new MemoryLogger();
+
+    const dataset = await generateTrainingDataset(
+      {
+        inputPattern: join(inputDir, "**", "*.txt"),
+        format: "naturedialog",
+        dictionaryModels: ["dict-primary", "dict-fallback"],
+        outlineModels: ["outline-model"],
+        maxSplitLength: 8,
+      },
+      {
+        logger,
+        configManager: createFakeConfigManager({
+          availableModels: ["dict-primary", "dict-fallback", "outline-model"],
+          glossaryExtractorConfig: {
+            modelName: "dict-primary",
+            maxCharsPerBatch: 100,
+          },
+          glossaryUpdaterConfig: {
+            modelName: "dict-primary",
+          },
+          plotSummaryConfig: {
+            modelName: "outline-model",
+            fragmentsPerBatch: 1,
+            maxContextSummaries: 20,
+          },
+        }),
+        createProvider() {
+          return new FakeDatasetProvider({
+            "dict-primary": primaryDictionaryClient,
+            "dict-fallback": fallbackDictionaryClient,
+            "outline-model": outlineClient,
+          });
+        },
+      },
+    );
+
+    expect(dataset.length).toBeGreaterThan(0);
+    expect(primaryDictionaryClient.requests).toHaveLength(3);
+    expect(primaryDictionaryClient.requests[0]?.prompt).toBe(primaryDictionaryClient.requests[1]?.prompt);
+    expect(fallbackDictionaryClient.requests).toHaveLength(1);
+    expect(fallbackDictionaryClient.requests[0]?.prompt).toBe(primaryDictionaryClient.requests[0]?.prompt);
+    expect(
+      logger.entries.some(
+        (entry) =>
+          entry.level === "warn" &&
+          entry.message === "模型请求失败，准备切换到回退模型" &&
+          entry.metadata?.failedModel === "dict-primary" &&
+          entry.metadata?.nextModel === "dict-fallback",
+      ),
+    ).toBe(true);
+  });
 });
 
 function createFakeConfigManager(options: {
@@ -563,25 +684,41 @@ class FakeChatClient extends ChatClient {
   readonly requests: Array<{ prompt: string; options?: ChatRequestOptions }> = [];
   private readonly responses: FakeChatResponse[];
 
-  constructor(modelName: string, responses: FakeChatResponse[]) {
-    super(createFakeChatConfig(modelName));
+  constructor(
+    modelName: string,
+    responses: FakeChatResponse[],
+    retries = 0,
+  ) {
+    super(createFakeChatConfig(modelName, retries));
     this.responses = [...responses];
   }
 
   override async singleTurnRequest(
     prompt: string,
-    options?: ChatRequestOptions,
+    options: ChatRequestOptions = {},
   ): Promise<string> {
-    this.requests.push({ prompt, options });
-    const next = this.responses.shift();
-    if (!next) {
-      throw new Error("缺少测试用 LLM 响应");
-    }
-    if (next instanceof Error) {
-      throw next;
-    }
+    return retryAsync(
+      async () => {
+        this.requests.push({ prompt, options });
+        const next = this.responses.shift();
+        if (!next) {
+          throw new Error("缺少测试用 LLM 响应");
+        }
+        if (next instanceof Error) {
+          throw next;
+        }
 
-    return next;
+        await options.outputValidator?.(next, options.outputValidationContext);
+        return next;
+      },
+      {
+        retries: this.config.retries,
+        minDelayMs: 0,
+        maxDelayMs: 0,
+        multiplier: 1,
+        shouldRetry: () => true,
+      },
+    );
   }
 }
 
@@ -626,13 +763,13 @@ class MemoryLogger implements Logger {
   }
 }
 
-function createFakeChatConfig(modelName: string): LlmClientConfig {
+function createFakeChatConfig(modelName: string, retries: number): LlmClientConfig {
   return {
     provider: "openai",
     modelName,
     apiKey: "test-key",
     endpoint: "https://example.com",
     modelType: "chat",
-    retries: 0,
+    retries,
   };
 }
