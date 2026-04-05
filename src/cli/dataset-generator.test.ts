@@ -129,6 +129,12 @@ describe("generateTrainingDataset", () => {
     expect(dataset[1]?.Prompt).toContain("translation: Royal Capital");
     expect(dataset[1]?.Answer).toContain("The Royal Capital was quiet");
     expect(dictionaryClient.requests).toHaveLength(2);
+    expect(dictionaryClient.requests[1]?.prompt).toContain(
+      "translatedText: The Hero arrived at the Royal Capital",
+    );
+    expect(dictionaryClient.requests[1]?.prompt).toContain(
+      "translatedText: The Royal Capital was quiet",
+    );
     expect(outlineClient.requests).toHaveLength(2);
     expect(
       logger.entries.some(
@@ -139,6 +145,228 @@ describe("generateTrainingDataset", () => {
       ),
     ).toBe(true);
     expect(logger.entries.some((entry) => entry.message === "训练数据集构建完成")).toBe(true);
+  });
+
+  test("batches glossary translation completion in groups of five fragments without affecting dataset prompts", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-dataset-cli-glossary-batch-"));
+    cleanupTargets.push(workspaceDir);
+
+    const filePath = join(workspaceDir, "scene.txt");
+    await writeFile(
+      filePath,
+      [
+        "○ 王都出场一",
+        "● Royal Capital One",
+        "",
+        "○ 王都出场二",
+        "● Royal Capital Two",
+        "",
+        "○ 普通三",
+        "● Plain Three",
+        "",
+        "○ 普通四",
+        "● Plain Four",
+        "",
+        "○ 普通五",
+        "● Plain Five",
+        "",
+        "○ 圣剑出场六",
+        "● Holy Sword Six",
+        "",
+        "○ 圣剑出场七",
+        "● Holy Sword Seven",
+        "",
+        "○ 普通八",
+        "● Plain Eight",
+        "",
+        "○ 普通九",
+        "● Plain Nine",
+        "",
+        "○ 普通十",
+        "● Plain Ten",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const dictionaryClient = new FakeChatClient("dict-model", [
+      JSON.stringify({
+        entities: [
+          {
+            term: "王都",
+            category: "placeName",
+            description: "地点",
+          },
+          {
+            term: "圣剑",
+            category: "properNoun",
+            description: "道具",
+          },
+        ],
+      }),
+      JSON.stringify({
+        glossaryUpdates: [
+          {
+            term: "王都",
+            translation: "Royal Capital",
+          },
+        ],
+      }),
+      JSON.stringify({
+        glossaryUpdates: [
+          {
+            term: "圣剑",
+            translation: "Holy Sword",
+          },
+        ],
+      }),
+    ]);
+    const outlineClient = new FakeChatClient("outline-model", [
+      JSON.stringify({
+        summary: {
+          mainEvents: "前五块",
+          keyCharacters: "",
+          setting: "",
+          notes: "",
+        },
+      }),
+      JSON.stringify({
+        summary: {
+          mainEvents: "第六块",
+          keyCharacters: "",
+          setting: "",
+          notes: "",
+        },
+      }),
+    ]);
+
+    const dataset = await generateTrainingDataset(
+      {
+        inputPattern: filePath,
+        format: "naturedialog",
+        dictionaryModels: ["dict-model"],
+        outlineModels: ["outline-model"],
+        maxSplitLength: 1,
+      },
+      {
+        configManager: createFakeConfigManager({
+          glossaryExtractorConfig: {
+            modelName: "dict-model",
+            maxCharsPerBatch: 100,
+          },
+        }),
+        createProvider() {
+          return new FakeDatasetProvider({
+            "dict-model": dictionaryClient,
+            "outline-model": outlineClient,
+          });
+        },
+      },
+    );
+
+    expect(dataset).toHaveLength(10);
+    expect(dictionaryClient.requests).toHaveLength(3);
+    expect(dictionaryClient.requests[1]?.prompt).toContain("Royal Capital One");
+    expect(dictionaryClient.requests[1]?.prompt).toContain("Royal Capital Two");
+    expect(dictionaryClient.requests[1]?.prompt).toContain("Plain Three");
+    expect(dictionaryClient.requests[1]?.prompt).toContain("Plain Four");
+    expect(dictionaryClient.requests[1]?.prompt).toContain("Plain Five");
+    expect(dictionaryClient.requests[1]?.prompt).not.toContain("Holy Sword Six");
+    expect(dictionaryClient.requests[2]?.prompt).toContain("Holy Sword Six");
+    expect(dictionaryClient.requests[2]?.prompt).toContain("Holy Sword Seven");
+    expect(dictionaryClient.requests[2]?.prompt).toContain("Plain Eight");
+    expect(dataset[0]?.Prompt).toContain("translation: Royal Capital");
+    expect(dataset[5]?.Prompt).toContain("translation: Holy Sword");
+  });
+
+  test("summarizes source fragments in batches of five by default", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-dataset-cli-plot-batch-"));
+    cleanupTargets.push(workspaceDir);
+
+    const filePath = join(workspaceDir, "scene.txt");
+    await writeFile(
+      filePath,
+      [
+        "○ 甲",
+        "● A",
+        "",
+        "○ 乙",
+        "● B",
+        "",
+        "○ 丙",
+        "● C",
+        "",
+        "○ 丁",
+        "● D",
+        "",
+        "○ 戊",
+        "● E",
+        "",
+        "○ 己",
+        "● F",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const dictionaryClient = new FakeChatClient("dict-model", [
+      JSON.stringify({
+        entities: [],
+      }),
+    ]);
+    const outlineClient = new FakeChatClient("outline-model", [
+      JSON.stringify({
+        summary: {
+          mainEvents: "甲乙丙丁戊",
+          keyCharacters: "",
+          setting: "",
+          notes: "",
+        },
+      }),
+      JSON.stringify({
+        summary: {
+          mainEvents: "己",
+          keyCharacters: "",
+          setting: "",
+          notes: "",
+        },
+      }),
+    ]);
+
+    const dataset = await generateTrainingDataset(
+      {
+        inputPattern: filePath,
+        format: "naturedialog",
+        dictionaryModels: ["dict-model"],
+        outlineModels: ["outline-model"],
+        maxSplitLength: 1,
+      },
+      {
+        configManager: createFakeConfigManager({
+          glossaryExtractorConfig: {
+            modelName: "dict-model",
+            maxCharsPerBatch: 100,
+          },
+        }),
+        createProvider() {
+          return new FakeDatasetProvider({
+            "dict-model": dictionaryClient,
+            "outline-model": outlineClient,
+          });
+        },
+      },
+    );
+
+    expect(dataset).toHaveLength(6);
+    expect(dictionaryClient.requests).toHaveLength(1);
+    expect(outlineClient.requests).toHaveLength(2);
+    expect(outlineClient.requests[0]?.prompt).toContain("甲");
+    expect(outlineClient.requests[0]?.prompt).toContain("乙");
+    expect(outlineClient.requests[0]?.prompt).toContain("丙");
+    expect(outlineClient.requests[0]?.prompt).toContain("丁");
+    expect(outlineClient.requests[0]?.prompt).toContain("戊");
+    expect(outlineClient.requests[0]?.prompt).not.toContain("己");
+    expect(outlineClient.requests[1]?.prompt).toContain("己");
   });
 
   test("throws a helpful error when the requested model is not registered", async () => {
@@ -243,7 +471,7 @@ describe("generateTrainingDataset", () => {
 
     const dataset = await generateTrainingDataset(
       {
-        inputPath: inputDir,
+        inputPattern: join(inputDir, "**", "*.txt"),
         format: "naturedialog",
         dictionaryModels: ["dict-model"],
         outlineModels: ["outline-primary", "outline-fallback"],

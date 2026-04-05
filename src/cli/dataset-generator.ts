@@ -67,6 +67,7 @@ export type GenerateTrainingDatasetDependencies = {
 };
 
 const TRANSLATION_STEP_ID = "translation";
+const DEFAULT_GLOSSARY_UPDATE_FRAGMENTS_PER_BATCH = 5;
 const DEFAULT_MAX_PLOT_SUMMARY_ENTRIES = 20;
 
 export async function generateTrainingDataset(
@@ -226,11 +227,42 @@ async function updateGlossaryTranslations(
     logger,
     updaterName: "dataset:glossary",
   });
-  await updater.updateGlossary({
-    glossary,
-    untranslatedTerms: glossary.getAllTerms().filter((term) => term.status === "untranslated"),
-    translationUnits: buildGlossaryUpdateUnits(documentManager, chapters),
-    requirements,
+  const orderedFragments = buildLinearOrderedFragments(documentManager, chapters);
+  let processedBatches = 0;
+
+  for (
+    let batchStart = 0;
+    batchStart < orderedFragments.length;
+    batchStart += DEFAULT_GLOSSARY_UPDATE_FRAGMENTS_PER_BATCH
+  ) {
+    const batch = orderedFragments.slice(
+      batchStart,
+      batchStart + DEFAULT_GLOSSARY_UPDATE_FRAGMENTS_PER_BATCH,
+    );
+    const untranslatedTerms = collectUntranslatedTermsForFragments(glossary, documentManager, batch);
+    if (untranslatedTerms.length === 0) {
+      continue;
+    }
+
+    await updater.updateGlossary({
+      glossary,
+      untranslatedTerms,
+      translationUnits: buildGlossaryUpdateUnitsForFragments(batch),
+      requirements,
+    });
+    processedBatches += 1;
+
+    if (glossary.getAllTerms().every((term) => term.status === "translated")) {
+      break;
+    }
+  }
+
+  logger.info?.("术语译文补全完成", {
+    processedBatchCount: processedBatches,
+    glossaryUpdateFragmentsPerBatch: DEFAULT_GLOSSARY_UPDATE_FRAGMENTS_PER_BATCH,
+    remainingUntranslatedTermCount: glossary
+      .getAllTerms()
+      .filter((term) => term.status === "untranslated").length,
   });
 }
 
@@ -370,15 +402,32 @@ function buildLinearOrderedFragments(
   );
 }
 
-function buildGlossaryUpdateUnits(
+function collectUntranslatedTermsForFragments(
+  glossary: Glossary,
   documentManager: TranslationDocumentManager,
-  chapters: ReadonlyArray<Chapter>,
+  fragments: ReadonlyArray<OrderedFragmentSnapshot>,
+): ReturnType<Glossary["getUntranslatedTermsForText"]> {
+  const termMap = new Map<string, ReturnType<Glossary["getUntranslatedTermsForText"]>[number]>();
+
+  for (const { chapterId, fragmentIndex } of fragments) {
+    for (const term of glossary.getUntranslatedTermsForText(
+      documentManager.getSourceText(chapterId, fragmentIndex),
+    )) {
+      termMap.set(term.term, term);
+    }
+  }
+
+  return [...termMap.values()];
+}
+
+function buildGlossaryUpdateUnitsForFragments(
+  fragments: ReadonlyArray<OrderedFragmentSnapshot>,
 ): Array<{ id: string; sourceText: string; translatedText: string }> {
-  return chapters.flatMap((chapter) =>
-    documentManager.getChapterTranslationUnits(chapter.id).map((unit, unitIndex) => ({
-      id: `chapter:${chapter.id}:unit:${unitIndex + 1}`,
-      sourceText: unit.source,
-      translatedText: unit.target.at(-1) ?? "",
+  return fragments.flatMap(({ chapterId, fragmentIndex, fragment }) =>
+    fragment.source.lines.map((sourceText, lineIndex) => ({
+      id: `chapter:${chapterId}:fragment:${fragmentIndex}:unit:${lineIndex + 1}`,
+      sourceText,
+      translatedText: fragment.translation.lines[lineIndex] ?? "",
     })),
   );
 }
