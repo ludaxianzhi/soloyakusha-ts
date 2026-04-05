@@ -118,15 +118,16 @@ describe("generateTrainingDataset", () => {
     );
 
     expect(dataset).toHaveLength(2);
-    expect(dataset[0]?.Prompt).toContain("[System Prompt]");
+    expect(dataset[0]?.SystemPrompt).toBeTruthy();
+    expect(dataset[0]?.UserPrompt).toBeTruthy();
     expect(dataset[0]?.Answer).toContain("The Hero arrived at the Royal Capital");
 
-    expect(dataset[1]?.Prompt).toContain("依赖文本块译文参考");
-    expect(dataset[1]?.Prompt).toContain("The Hero arrived at the Royal Capital");
-    expect(dataset[1]?.Prompt).toContain("前序情节总结参考");
-    expect(dataset[1]?.Prompt).toContain("勇者抵达王都");
-    expect(dataset[1]?.Prompt).toContain("术语表：");
-    expect(dataset[1]?.Prompt).toContain("translation: Royal Capital");
+    expect(dataset[1]?.UserPrompt).toContain("依赖文本块译文参考");
+    expect(dataset[1]?.UserPrompt).toContain("The Hero arrived at the Royal Capital");
+    expect(dataset[1]?.UserPrompt).toContain("前序情节总结参考");
+    expect(dataset[1]?.UserPrompt).toContain("勇者抵达王都");
+    expect(dataset[1]?.UserPrompt).toContain("术语表：");
+    expect(dataset[1]?.UserPrompt).toContain("translation: Royal Capital");
     expect(dataset[1]?.Answer).toContain("The Royal Capital was quiet");
     expect(dictionaryClient.requests).toHaveLength(2);
     expect(dictionaryClient.requests[1]?.prompt).toContain(
@@ -275,8 +276,8 @@ describe("generateTrainingDataset", () => {
     expect(dictionaryClient.requests[2]?.prompt).toContain("Holy Sword Six");
     expect(dictionaryClient.requests[2]?.prompt).toContain("Holy Sword Seven");
     expect(dictionaryClient.requests[2]?.prompt).toContain("Plain Eight");
-    expect(dataset[0]?.Prompt).toContain("translation: Royal Capital");
-    expect(dataset[5]?.Prompt).toContain("translation: Holy Sword");
+    expect(dataset[0]?.UserPrompt).toContain("translation: Royal Capital");
+    expect(dataset[5]?.UserPrompt).toContain("translation: Holy Sword");
   });
 
   test("summarizes source fragments in batches of five by default", async () => {

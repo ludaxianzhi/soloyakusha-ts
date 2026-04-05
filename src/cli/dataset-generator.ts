@@ -24,7 +24,7 @@ import {
   PlotSummarizer,
   type PlotSummaryEntry,
 } from "../project/plot-summarizer.ts";
-import { PromptManager, type RenderedPrompt } from "../project/prompt-manager.ts";
+import { PromptManager } from "../project/prompt-manager.ts";
 import { RandomTextSplitter } from "../project/random-text-splitter.ts";
 import { TranslationDocumentManager } from "../project/translation-document-manager.ts";
 import { renderSimpleTranslationPrompt } from "../project/translation-prompt-context.ts";
@@ -46,7 +46,8 @@ type DatasetConfigManager = Pick<
 type DatasetLlmProvider = LlmClientProvider;
 
 export type TrainingDatasetEntry = {
-  Prompt: string;
+  SystemPrompt: string;
+  UserPrompt: string;
   Answer: string;
 };
 
@@ -338,7 +339,8 @@ async function buildTrainingDatasetEntries(options: {
       promptManager: options.promptManager,
     });
     dataset.push({
-      Prompt: serializePrompt(renderedPrompt),
+      SystemPrompt: renderedPrompt.systemPrompt,
+      UserPrompt: renderedPrompt.userPrompt,
       Answer: buildAnswerJson(fragment),
     });
 
@@ -351,16 +353,6 @@ async function buildTrainingDatasetEntries(options: {
   }
 
   return dataset;
-}
-
-function serializePrompt(renderedPrompt: RenderedPrompt): string {
-  return [
-    "[System Prompt]",
-    renderedPrompt.systemPrompt,
-    "",
-    "[User Prompt]",
-    renderedPrompt.userPrompt,
-  ].join("\n");
 }
 
 function buildAnswerJson(fragment: FragmentEntry): string {

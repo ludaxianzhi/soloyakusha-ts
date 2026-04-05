@@ -134,7 +134,7 @@ bun run dataset -- --input ".\translated\**\*.txt" --format naturedialog --dicti
 - 复用现有文件处理器按 glob 模式扫描并读取输入文件
 - 使用已注册的 LLM profile 做术语提取、术语补全与情节大纲总结
 - 将输入文本按线性顺序处理，并使用左半正态分布随机切分文本块
-- 按当前 Simple 翻译 prompt 的上下文构造方式生成 `Prompt`
+- 按当前 Simple 翻译 prompt 的上下文构造方式分别生成 `SystemPrompt` 与 `UserPrompt`
 - 将现有最终译文按当前翻译 JSON 结构生成 `Answer`
 
 其中 `--input` 现在接收 glob 模式，例如 `.\translated\**\*.txt` 或 `.\Cases\**\*.m3t`；`--max-split-length` 用于控制随机切分器的最大切分长度。

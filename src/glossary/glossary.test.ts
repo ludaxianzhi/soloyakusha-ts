@@ -250,6 +250,44 @@ describe("glossary", () => {
     expect(formatted).toContain("总出现: 4");
   });
 
+  test("scans independent glossary batches concurrently while merging results deterministically", async () => {
+    const client = new DelayedFakeChatClient([
+      {
+        delayMs: 40,
+        response: '{"entities":[{"term":"勇者","category":"personName","description":"主角名"}]}',
+      },
+      {
+        delayMs: 0,
+        response: '{"entities":[{"term":"勇者","category":"personName","description":"主角"}]}',
+      },
+    ]);
+    const scanner = new FullTextGlossaryScanner(client);
+    const progress: number[] = [];
+
+    const result = await scanner.scanLines(
+      [
+        { lineNumber: 1, text: "勇者来了", blockId: "block-1" },
+        { lineNumber: 2, text: "陛下召见勇者", blockId: "block-2" },
+        { lineNumber: 3, text: "勇者说勇者必胜", blockId: "block-2" },
+      ],
+      {
+        maxCharsPerBatch: 15,
+        onBatchProgress: (completed) => {
+          progress.push(completed);
+        },
+      },
+    );
+
+    expect(client.maxInFlight).toBeGreaterThan(1);
+    expect(progress).toEqual([1, 2]);
+    expect(result.glossary.getTerm("勇者")).toMatchObject({
+      category: "personName",
+      description: "主角名 / 主角",
+      totalOccurrenceCount: 4,
+      textBlockOccurrenceCount: 2,
+    });
+  });
+
   test("scans document manager as a continuous full text line stream", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-fulltext-scanner-"));
     cleanupTargets.push(workspaceDir);
@@ -337,6 +375,36 @@ class FakeChatClient extends ChatClient {
   ): Promise<string> {
     this.requests.push({ prompt, options });
     return this.responses.shift() ?? '{"entities":[]}';
+  }
+}
+
+class DelayedFakeChatClient extends ChatClient {
+  readonly requests: Array<{ prompt: string; options?: ChatRequestOptions }> = [];
+  readonly responses: Array<{ delayMs: number; response: string }>;
+  maxInFlight = 0;
+  private inFlight = 0;
+
+  constructor(responses: Array<{ delayMs: number; response: string }>) {
+    super(createFakeChatConfig());
+    this.responses = [...responses];
+  }
+
+  override async singleTurnRequest(
+    prompt: string,
+    options?: ChatRequestOptions,
+  ): Promise<string> {
+    this.requests.push({ prompt, options });
+    const next = this.responses.shift() ?? { delayMs: 0, response: '{"entities":[]}' };
+    this.inFlight += 1;
+    this.maxInFlight = Math.max(this.maxInFlight, this.inFlight);
+    try {
+      if (next.delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, next.delayMs));
+      }
+      return next.response;
+    } finally {
+      this.inFlight -= 1;
+    }
   }
 }
 

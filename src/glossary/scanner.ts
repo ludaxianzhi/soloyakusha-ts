@@ -24,7 +24,7 @@ import {
   type GlossaryTextBlock,
 } from "./glossary.ts";
 
-export const DEFAULT_FULL_TEXT_GLOSSARY_SCAN_MAX_CHARS = 8192;
+export const DEFAULT_FULL_TEXT_GLOSSARY_SCAN_MAX_CHARS = 16384;
 
 const SCAN_CATEGORY_ORDER: Array<GlossaryTermCategory | "uncategorized"> = [
   "personName",
@@ -179,30 +179,42 @@ export class FullTextGlossaryScanner {
       `开始全文术语扫描，共 ${lines.length} 行，分 ${batches.length} 个批次`,
     );
 
-    for (const batch of batches) {
-      this.logger.info?.(
-        `扫描批次 ${batch.batchIndex + 1}/${batches.length}（行 ${batch.startLineNumber}–${batch.endLineNumber}，约 ${batch.charCount} 字符）`,
-      );
+    let completedBatches = 0;
+    const batchResults = await Promise.all(
+      batches.map(async (batch) => {
+        this.logger.info?.(
+          `扫描批次 ${batch.batchIndex + 1}/${batches.length}（行 ${batch.startLineNumber}–${batch.endLineNumber}，约 ${batch.charCount} 字符）`,
+        );
 
-      const renderedPrompt = promptManager.renderPrompt("glossary.fullTextScan", {
-        startLineLabel: formatScanLineLabel(batch.startLineNumber),
-        endLineLabel: formatScanLineLabel(batch.endLineNumber),
-        batchText: batch.text,
-      });
-      const response = await this.chatClient.singleTurnRequest(
-        renderedPrompt.userPrompt,
-        buildScanRequestOptions(options.requestOptions, renderedPrompt.systemPrompt),
-      );
-      const extractedEntities = parseScanResponse(response);
-      for (const entity of extractedEntities) {
+        const renderedPrompt = promptManager.renderPrompt("glossary.fullTextScan", {
+          startLineLabel: formatScanLineLabel(batch.startLineNumber),
+          endLineLabel: formatScanLineLabel(batch.endLineNumber),
+          batchText: batch.text,
+        });
+        const response = await this.chatClient.singleTurnRequest(
+          renderedPrompt.userPrompt,
+          buildScanRequestOptions(options.requestOptions, renderedPrompt.systemPrompt),
+        );
+        const extractedEntities = parseScanResponse(response);
+
+        completedBatches += 1;
+        this.logger.info?.(
+          `批次 ${batch.batchIndex + 1}/${batches.length} 完成，本批提取 ${extractedEntities.length} 个候选术语`,
+        );
+        options.onBatchProgress?.(completedBatches, batches.length);
+
+        return {
+          batchIndex: batch.batchIndex,
+          extractedEntities,
+        };
+      }),
+    );
+
+    for (const result of batchResults.sort((left, right) => left.batchIndex - right.batchIndex)) {
+      for (const entity of result.extractedEntities) {
         const existing = glossary.getTerm(entity.term);
         glossary.addTerm(mergeScannedTerm(existing, entity));
       }
-
-      this.logger.info?.(
-        `批次 ${batch.batchIndex + 1}/${batches.length} 完成，本批提取 ${extractedEntities.length} 个候选术语（累计 ${glossary.getAllTerms().length} 项）`,
-      );
-      options.onBatchProgress?.(batch.batchIndex + 1, batches.length);
     }
 
     this.logger.info?.("正在统计术语频次...");
