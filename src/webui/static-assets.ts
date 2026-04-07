@@ -7,11 +7,6 @@ export interface StaticAsset {
 
 export type StaticAssetMap = ReadonlyMap<string, StaticAsset>;
 
-export interface StaticAssetLookupOptions {
-  staticAssets?: StaticAssetMap;
-  clientDistDir: string;
-}
-
 export function normalizeStaticAssetPath(requestPath: string): string {
   if (requestPath === '/' || requestPath === '') {
     return 'index.html';
@@ -22,29 +17,36 @@ export function normalizeStaticAssetPath(requestPath: string): string {
 
 export async function resolveStaticAssetResponse(
   requestPath: string,
-  options: StaticAssetLookupOptions,
+  staticAssets?: StaticAssetMap,
+  clientDistDir?: string,
 ): Promise<Response | null> {
   const normalizedPath = normalizeStaticAssetPath(requestPath);
-  const embeddedAsset = options.staticAssets?.get(normalizedPath);
+  const embeddedAsset = staticAssets?.get(normalizedPath);
   if (embeddedAsset) {
     return createStaticAssetResponse(embeddedAsset);
   }
 
-  const diskAsset = await resolveDiskAssetResponse(normalizedPath, options.clientDistDir);
-  if (diskAsset) {
-    return diskAsset;
+  if (clientDistDir) {
+    const diskAsset = await resolveDiskAssetResponse(normalizedPath, clientDistDir);
+    if (diskAsset) {
+      return diskAsset;
+    }
   }
 
   if (normalizedPath.includes('.')) {
     return null;
   }
 
-  const embeddedIndexAsset = options.staticAssets?.get('index.html');
+  const embeddedIndexAsset = staticAssets?.get('index.html');
   if (embeddedIndexAsset) {
     return createStaticAssetResponse(embeddedIndexAsset, 'text/html; charset=utf-8');
   }
 
-  return resolveDiskAssetResponse('index.html', options.clientDistDir, 'text/html; charset=utf-8');
+  if (!clientDistDir) {
+    return null;
+  }
+
+  return resolveDiskAssetResponse('index.html', clientDistDir, 'text/html; charset=utf-8');
 }
 
 function createStaticAssetResponse(
