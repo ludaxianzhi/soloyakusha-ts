@@ -1,41 +1,39 @@
 /**
- * 实现基于文件的请求历史记录器，用于落盘保存补全与错误日志。
+ * 实现基于文件的请求历史记录器，用于落盘保存结构化请求日志。
  *
  * 本模块提供 {@link FileRequestHistoryLogger} 类，用于：
  * - 记录每次 LLM 请求的 prompt、response 和统计信息
  * - 记录失败请求的错误信息
  * - 日志文件自动轮转（超过 10MB 时备份）
  *
- * 日志格式为分隔线标注的文本格式，便于人工阅读和问题排查。
+ * 日志格式为 JSON Lines（JSONL），便于结构化读取与前端详情展示。
  *
  * @module llm/history
  */
 
 import {
   appendFile,
+  readdir,
   mkdir,
   readFile,
   rename,
   rm,
   stat,
 } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type {
   CompletionLogEntry,
   ErrorLogEntry,
+  LlmRequestHistoryEntry,
   RequestHistoryLogger,
 } from "./types.ts";
 
 /**
  * 基于文件的请求历史记录器，负责追加入盘与日志轮转。
  *
- * 日志文件格式：
- * - 补全日志：包含 REQUEST_ID、TIMESTAMP、MODEL、CONFIG、PROMPT、RESPONSE、STATS
- * - 错误日志：包含 REQUEST_ID、TIMESTAMP、ERROR、RESPONSE BODY（如有）
- *
  * 日志轮转：
  * - 当日志文件超过 MAX_FILE_SIZE（10MB）时
- * - 将当前文件重命名为 .txt.bak
+ * - 将当前文件重命名为 .jsonl.bak
  * - 新日志写入空文件
  */
 export class FileRequestHistoryLogger implements RequestHistoryLogger {
@@ -46,104 +44,46 @@ export class FileRequestHistoryLogger implements RequestHistoryLogger {
   private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(logDir = "logs", logName = "llm_requests") {
-    this.logFilePath = join(logDir, `${logName}.txt`);
-    this.backupFilePath = join(logDir, `${logName}.txt.bak`);
+    this.logFilePath = join(logDir, `${logName}.jsonl`);
+    this.backupFilePath = join(logDir, `${logName}.jsonl.bak`);
   }
 
   async logCompletion(entry: CompletionLogEntry): Promise<void> {
-    const timestamp = formatTimestamp();
-    const lines: string[] = [
-      "=".repeat(80),
-      `REQUEST_ID: ${entry.requestId}`,
-      `TIMESTAMP:  ${timestamp}`,
-      "TYPE:       COMPLETION",
-      "-".repeat(80),
-    ];
-
-    if (entry.modelName) {
-      lines.push(`MODEL:      ${entry.modelName}`);
-    }
-    if (entry.durationSeconds !== undefined) {
-      lines.push(`DURATION:   ${entry.durationSeconds.toFixed(3)}s`);
-    }
-
-    if (entry.requestConfig) {
-      lines.push("CONFIG:");
-      if (entry.requestConfig.systemPrompt) {
-        lines.push(`  System Prompt: ${entry.requestConfig.systemPrompt}`);
-      }
-      lines.push(`  Temperature:   ${entry.requestConfig.temperature ?? ""}`);
-      lines.push(`  Max Tokens:    ${entry.requestConfig.maxTokens ?? ""}`);
-      lines.push(`  Top P:         ${entry.requestConfig.topP ?? ""}`);
-      if (entry.requestConfig.extraBody) {
-        lines.push(
-          `  Extra Body:    ${JSON.stringify(entry.requestConfig.extraBody)}`,
-        );
-      }
-      lines.push("-".repeat(80));
-    }
-
-    lines.push("PROMPT:", entry.prompt, "-".repeat(80), "RESPONSE:", entry.response);
-    lines.push("-".repeat(80));
-
-    if (entry.statistics) {
-      lines.push(
-        `STATS: Prompt Tokens: ${entry.statistics.promptTokens} | Completion Tokens: ${entry.statistics.completionTokens} | Total Tokens: ${entry.statistics.totalTokens}`,
-      );
-    }
-
-    lines.push("=".repeat(80), "");
-    await this.writeEntry(lines.join("\n"));
+    await this.writeEntry({
+      version: 1,
+      requestId: entry.requestId,
+      timestamp: new Date().toISOString(),
+      type: "completion",
+      prompt: entry.prompt,
+      response: entry.response,
+      requestConfig: entry.requestConfig,
+      statistics: entry.statistics,
+      modelName: entry.modelName,
+      durationSeconds: entry.durationSeconds,
+    });
   }
 
   async logError(entry: ErrorLogEntry): Promise<void> {
-    const timestamp = formatTimestamp();
-    const lines: string[] = [
-      "!".repeat(80),
-      `REQUEST_ID: ${entry.requestId}`,
-      `TIMESTAMP:  ${timestamp}`,
-      "TYPE:       ERROR",
-      "-".repeat(80),
-    ];
-
-    if (entry.modelName) {
-      lines.push(`MODEL:      ${entry.modelName}`);
-    }
-    if (entry.durationSeconds !== undefined) {
-      lines.push(`DURATION:   ${entry.durationSeconds.toFixed(3)}s`);
-    }
-
-    if (entry.requestConfig) {
-      lines.push("CONFIG:");
-      if (entry.requestConfig.systemPrompt) {
-        lines.push(`  System Prompt: ${entry.requestConfig.systemPrompt}`);
-      }
-      lines.push(`  Temperature:   ${entry.requestConfig.temperature ?? ""}`);
-      lines.push(`  Max Tokens:    ${entry.requestConfig.maxTokens ?? ""}`);
-      lines.push(`  Top P:         ${entry.requestConfig.topP ?? ""}`);
-      lines.push("-".repeat(80));
-    }
-
-    lines.push("PROMPT:", entry.prompt, "-".repeat(80), "ERROR:", entry.errorMessage);
-    if (entry.responseBody) {
-      lines.push("-".repeat(80), "RESPONSE BODY:", entry.responseBody);
-    }
-
-    lines.push("!".repeat(80), "");
-    await this.writeEntry(lines.join("\n"));
+    await this.writeEntry({
+      version: 1,
+      requestId: entry.requestId,
+      timestamp: new Date().toISOString(),
+      type: "error",
+      prompt: entry.prompt,
+      errorMessage: entry.errorMessage,
+      responseBody: entry.responseBody,
+      requestConfig: entry.requestConfig,
+      modelName: entry.modelName,
+      durationSeconds: entry.durationSeconds,
+    });
   }
 
-  async readRecentLogs(limit = 4096): Promise<string> {
-    try {
-      return await readFile(this.logFilePath, "utf8").then((content) =>
-        content.slice(-limit),
-      );
-    } catch (error) {
-      if (isMissingFileError(error)) {
-        return "";
-      }
-      throw error;
-    }
+  async readRecentEntries(limit = 100): Promise<LlmRequestHistoryEntry[]> {
+    const entries = await readHistoryEntriesFromFiles([
+      this.backupFilePath,
+      this.logFilePath,
+    ]);
+    return entries.slice(-limit);
   }
 
   async getLogFileSize(): Promise<number> {
@@ -168,11 +108,11 @@ export class FileRequestHistoryLogger implements RequestHistoryLogger {
     }
   }
 
-  private async writeEntry(content: string): Promise<void> {
+  private async writeEntry(entry: LlmRequestHistoryEntry): Promise<void> {
     const task = async () => {
       await mkdir(dirname(this.logFilePath), { recursive: true });
       await this.rotateIfNeeded();
-      await appendFile(this.logFilePath, `${content}\n`, "utf8");
+      await appendFile(this.logFilePath, `${JSON.stringify(entry)}\n`, "utf8");
     };
 
     this.writeQueue = this.writeQueue.then(task, task);
@@ -199,8 +139,89 @@ export class FileRequestHistoryLogger implements RequestHistoryLogger {
   }
 }
 
-function formatTimestamp(): string {
-  return new Date().toISOString().replace("T", " ").replace("Z", "");
+export async function readHistoryEntriesFromLogDir(
+  logDir: string,
+  limit = 200,
+): Promise<LlmRequestHistoryEntry[]> {
+  try {
+    const fileNames = await readdir(logDir);
+    const logFiles = fileNames
+      .filter(
+        (fileName) =>
+          fileName.endsWith(".jsonl") || fileName.endsWith(".jsonl.bak"),
+      )
+      .map((fileName) => join(logDir, fileName));
+    const entries = await readHistoryEntriesFromFiles(logFiles);
+    return entries
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+      .slice(0, limit);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+export async function readHistoryEntriesFromFiles(
+  filePaths: string[],
+): Promise<LlmRequestHistoryEntry[]> {
+  const entries = await Promise.all(
+    filePaths.map(async (filePath) => {
+      try {
+        const content = await readFile(filePath, "utf8");
+        return content
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => {
+            try {
+              return parseHistoryEntry(line, inferHistorySource(filePath));
+            } catch {
+              return null;
+            }
+          })
+          .filter((entry): entry is LlmRequestHistoryEntry => entry !== null);
+      } catch (error) {
+        if (isMissingFileError(error)) {
+          return [];
+        }
+        throw error;
+      }
+    }),
+  );
+  return entries.flat();
+}
+
+function parseHistoryEntry(
+  line: string,
+  source: string,
+): LlmRequestHistoryEntry {
+  const parsed = JSON.parse(line) as Partial<LlmRequestHistoryEntry>;
+  return {
+    version: 1,
+    requestId: String(parsed.requestId ?? ""),
+    timestamp: String(parsed.timestamp ?? new Date(0).toISOString()),
+    type: parsed.type === "error" ? "error" : "completion",
+    source,
+    prompt: String(parsed.prompt ?? ""),
+    response: typeof parsed.response === "string" ? parsed.response : undefined,
+    errorMessage:
+      typeof parsed.errorMessage === "string" ? parsed.errorMessage : undefined,
+    responseBody:
+      typeof parsed.responseBody === "string" ? parsed.responseBody : undefined,
+    requestConfig: parsed.requestConfig,
+    statistics: parsed.statistics,
+    modelName: typeof parsed.modelName === "string" ? parsed.modelName : undefined,
+    durationSeconds:
+      typeof parsed.durationSeconds === "number"
+        ? parsed.durationSeconds
+        : undefined,
+  };
+}
+
+function inferHistorySource(filePath: string): string {
+  return basename(filePath).replace(/\.jsonl(?:\.bak)?$/, "");
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {

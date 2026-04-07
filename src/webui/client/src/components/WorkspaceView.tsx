@@ -35,6 +35,7 @@ import {
 import { IMPORT_FORMAT_OPTIONS, logColor, statusColor } from '../app/ui-helpers.ts';
 import type {
   GlossaryTerm,
+  LlmRequestHistoryEntry,
   LogEntry,
   ProjectStatus,
   TranslationProjectSnapshot,
@@ -58,7 +59,7 @@ interface WorkspaceViewProps {
   dictionary: GlossaryTerm[];
   chapters: WorkspaceChapterDescriptor[];
   logs: LogEntry[];
-  history: string;
+  history: LlmRequestHistoryEntry[];
   workspaceForm: FormInstance<Record<string, unknown>>;
   translatorOptions: Array<{ label: string; value: string }>;
   onRefreshProjectData: () => void;
@@ -617,8 +618,66 @@ export function WorkspaceView({
                       title="LLM 请求历史"
                       extra={<Button onClick={() => void onRefreshHistory()}>刷新</Button>}
                     >
-                      {history ? (
-                        <div className="mono-block">{history}</div>
+                      {history.length > 0 ? (
+                        <div className="log-list">
+                          <Space direction="vertical" style={{ width: '100%' }}>
+                            {history.map((entry) => (
+                              <Card
+                                key={`${entry.source ?? 'llm'}-${entry.requestId}-${entry.timestamp}`}
+                                size="small"
+                                title={
+                                  <Space wrap>
+                                    <Tag color={entry.type === 'error' ? 'error' : 'success'}>
+                                      {entry.type === 'error' ? 'ERROR' : 'COMPLETION'}
+                                    </Tag>
+                                    {entry.source ? <Tag>{entry.source}</Tag> : null}
+                                    {entry.modelName ? <Tag color="blue">{entry.modelName}</Tag> : null}
+                                    <Typography.Text type="secondary">
+                                      {new Date(entry.timestamp).toLocaleString()}
+                                    </Typography.Text>
+                                  </Space>
+                                }
+                              >
+                                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                                  <Space wrap>
+                                    <Tag>{`requestId ${entry.requestId}`}</Tag>
+                                    {entry.durationSeconds != null ? (
+                                      <Tag>{`${entry.durationSeconds.toFixed(3)}s`}</Tag>
+                                    ) : null}
+                                    {entry.statistics ? (
+                                      <Tag>{`tokens ${entry.statistics.totalTokens}`}</Tag>
+                                    ) : null}
+                                  </Space>
+                                  {entry.requestConfig?.systemPrompt ? (
+                                    <HistorySection
+                                      title="System Prompt"
+                                      content={entry.requestConfig.systemPrompt}
+                                    />
+                                  ) : null}
+                                  <HistorySection title="User Prompt" content={entry.prompt} />
+                                  {entry.response ? (
+                                    <HistorySection title="Response" content={entry.response} />
+                                  ) : null}
+                                  {entry.errorMessage ? (
+                                    <HistorySection title="Error" content={entry.errorMessage} />
+                                  ) : null}
+                                  {entry.responseBody ? (
+                                    <HistorySection
+                                      title="Response Body"
+                                      content={entry.responseBody}
+                                    />
+                                  ) : null}
+                                  {entry.requestConfig ? (
+                                    <HistorySection
+                                      title="Request Config"
+                                      content={JSON.stringify(entry.requestConfig, null, 2)}
+                                    />
+                                  ) : null}
+                                </Space>
+                              </Card>
+                            ))}
+                          </Space>
+                        </div>
                       ) : (
                         <Empty description="暂无请求历史" />
                       )}
@@ -634,6 +693,17 @@ export function WorkspaceView({
 }
 
 export type TaskActivityKind = 'scan' | 'plot';
+
+function HistorySection({ title, content }: { title: string; content: string }) {
+  return (
+    <div>
+      <Typography.Text strong>{title}</Typography.Text>
+      <div className="mono-block" style={{ marginTop: 8 }}>
+        {content}
+      </div>
+    </div>
+  );
+}
 
 function TaskActivityPanels({
   projectStatus,

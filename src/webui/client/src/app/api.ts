@@ -2,6 +2,7 @@ import type {
   AlignmentRepairConfig,
   GlossaryExtractorConfig,
   GlossaryTerm,
+  LlmRequestHistoryEntry,
   GlossaryUpdaterConfig,
   LlmProfileConfig,
   LogEntry,
@@ -150,7 +151,8 @@ export const api = {
       body: payload,
     }),
 
-  getHistory: () => request<{ history: string }>('/api/project/history'),
+  getHistory: () =>
+    request<{ history: LlmRequestHistoryEntry[] }>('/api/project/history'),
   getLogs: () => request<{ logs: LogEntry[] }>('/api/events/logs'),
   clearLogs: () => request('/api/events/logs/clear', { method: 'POST' }),
 

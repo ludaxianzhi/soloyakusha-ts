@@ -28,6 +28,7 @@ import type {
   GlossaryExtractorConfig,
   GlossaryTerm,
   GlossaryUpdaterConfig,
+  LlmRequestHistoryEntry,
   LlmProfileConfig,
   LogEntry,
   ManagedWorkspace,
@@ -61,7 +62,7 @@ export function AppShell() {
   const [dictionary, setDictionary] = useState<GlossaryTerm[]>([]);
   const [chapters, setChapters] = useState<WorkspaceChapterDescriptor[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [history, setHistory] = useState('');
+  const [history, setHistory] = useState<LlmRequestHistoryEntry[]>([]);
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [dictionaryModalOpen, setDictionaryModalOpen] = useState(false);
   const [editingTerm, setEditingTerm] = useState<GlossaryTerm | null>(null);
@@ -134,7 +135,7 @@ export function AppShell() {
       api.getDictionary().catch(() => ({ terms: [] })),
       api.getChapters().catch(() => ({ chapters: [] })),
       api.getWorkspaceConfig().catch(() => null),
-      api.getHistory().catch(() => ({ history: '' })),
+      api.getHistory().catch(() => ({ history: [] })),
     ]);
     setDictionary(dictionaryRes.terms);
     setChapters(chaptersRes.chapters);
@@ -294,7 +295,7 @@ export function AppShell() {
     } else {
       setDictionary([]);
       setChapters([]);
-      setHistory('');
+      setHistory([]);
     }
   }, [refreshProjectData, snapshot?.projectName]);
 

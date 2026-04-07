@@ -14,7 +14,11 @@ import { TranslationProject } from '../../project/translation-project.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { FullTextGlossaryScanner } from '../../glossary/index.ts';
 import type { GlossaryTermCategory } from '../../glossary/glossary.ts';
-import { FileRequestHistoryLogger } from '../../llm/history.ts';
+import {
+  FileRequestHistoryLogger,
+  readHistoryEntriesFromLogDir,
+} from '../../llm/history.ts';
+import type { LlmRequestHistoryEntry } from '../../llm/types.ts';
 import { PlotSummarizer } from '../../project/plot-summarizer.ts';
 import { StoryTopology } from '../../project/story-topology.ts';
 import type { Logger } from '../../project/logger.ts';
@@ -141,17 +145,13 @@ export class ProjectService {
     }));
   }
 
-  async getRequestHistory(): Promise<string> {
-    if (!this.project) return '';
+  async getRequestHistory(): Promise<LlmRequestHistoryEntry[]> {
+    if (!this.project) return [];
     try {
       const projectDir = this.project.getWorkspaceFileManifest().projectDir;
-      const logDir = join(projectDir, 'logs');
-      const latestFile = await findLatestLogFile(logDir);
-      if (!latestFile) return '';
-      const content = await Bun.file(latestFile).text();
-      return content.slice(-4000);
+      return await readHistoryEntriesFromLogDir(join(projectDir, 'logs'));
     } catch {
-      return '';
+      return [];
     }
   }
 
@@ -1159,16 +1159,3 @@ async function maybePersistProgress(
   }
 }
 
-async function findLatestLogFile(logDir: string): Promise<string | null> {
-  try {
-    const { readdir } = await import('node:fs/promises');
-    const files = await readdir(logDir);
-    const logFiles = files
-      .filter((f) => f.endsWith('.log') || f.endsWith('.jsonl'))
-      .sort()
-      .reverse();
-    return logFiles.length > 0 ? join(logDir, logFiles[0]!) : null;
-  } catch {
-    return null;
-  }
-}
