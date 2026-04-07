@@ -85,6 +85,13 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     return c.json({ ok: true });
   });
 
+  app.post('/task-ui/clear', (c) => {
+    return c.req.json<{ task?: 'scan' | 'plot' | 'all' }>().then((body) => {
+      projectService.clearTaskProgressUi(body.task ?? 'all');
+      return c.json({ ok: true });
+    });
+  });
+
   // ─── 导出 ───────────────────────────────────────
 
   app.post('/export', async (c) => {

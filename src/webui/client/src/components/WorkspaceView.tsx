@@ -23,6 +23,7 @@ import {
   ArrowDownOutlined,
   ArrowUpOutlined,
   BookOutlined,
+  CloseOutlined,
   DeleteOutlined,
   DownloadOutlined,
   ExportOutlined,
@@ -75,6 +76,7 @@ interface WorkspaceViewProps {
   ) => void | Promise<void>;
   onClearLogs: () => void | Promise<void>;
   onRefreshHistory: () => void | Promise<void>;
+  onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }
 
 export function WorkspaceView({
@@ -98,6 +100,7 @@ export function WorkspaceView({
   onResetProject,
   onClearLogs,
   onRefreshHistory,
+  onDismissTaskActivity,
 }: WorkspaceViewProps) {
   if (!snapshot) {
     return (
@@ -232,7 +235,10 @@ export function WorkspaceView({
                     </Col>
                   </Row>
 
-                  <TaskActivityPanels projectStatus={projectStatus} logs={logs} />
+                  <TaskActivityPanels
+                    projectStatus={projectStatus}
+                    onDismissTaskActivity={onDismissTaskActivity}
+                  />
 
                   <Card title="步骤队列">
                     {snapshot.queueSnapshots.length === 0 ? (
@@ -306,8 +312,8 @@ export function WorkspaceView({
                 >
                   <TaskActivityPanels
                     projectStatus={projectStatus}
-                    logs={logs}
                     tasks={['scan']}
+                    onDismissTaskActivity={onDismissTaskActivity}
                   />
                   <Table
                     rowKey="term"
@@ -627,16 +633,16 @@ export function WorkspaceView({
   );
 }
 
-type TaskActivityKind = 'scan' | 'plot';
+export type TaskActivityKind = 'scan' | 'plot';
 
 function TaskActivityPanels({
   projectStatus,
-  logs,
   tasks = ['scan', 'plot'],
+  onDismissTaskActivity,
 }: {
   projectStatus: ProjectStatus | null;
-  logs: LogEntry[];
   tasks?: TaskActivityKind[];
+  onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }) {
   const visibleTasks: Array<{
     key: TaskActivityKind;
@@ -644,7 +650,6 @@ function TaskActivityPanels({
     progress:
       | NonNullable<ProjectStatus['scanDictionaryProgress']>
       | NonNullable<ProjectStatus['plotSummaryProgress']>;
-    logs: LogEntry[];
     details: ReactNode;
   }> = [];
 
@@ -654,7 +659,6 @@ function TaskActivityPanels({
         key: 'scan',
         title: '术语扫描',
         progress: projectStatus.scanDictionaryProgress,
-        logs: getTaskLogs(logs, 'scan'),
         details: (
           <Space wrap>
             <Tag>{`批次 ${projectStatus.scanDictionaryProgress.completedBatches}/${projectStatus.scanDictionaryProgress.totalBatches}`}</Tag>
@@ -670,7 +674,6 @@ function TaskActivityPanels({
         key: 'plot',
         title: '情节大纲',
         progress: projectStatus.plotSummaryProgress,
-        logs: getTaskLogs(logs, 'plot'),
         details: (
           <Space direction="vertical" style={{ width: '100%' }} size={8}>
             <Progress
@@ -709,10 +712,11 @@ function TaskActivityPanels({
       {visibleTasks.map((task) => (
         <Col key={task.key} span={colSpan}>
           <TaskActivityCard
+            task={task.key}
             title={task.title}
             progress={task.progress}
-            logs={task.logs}
             details={task.details}
+            onDismiss={() => void onDismissTaskActivity(task.key)}
           />
         </Col>
       ))}
@@ -721,23 +725,40 @@ function TaskActivityPanels({
 }
 
 function TaskActivityCard({
+  task,
   title,
   progress,
-  logs,
   details,
+  onDismiss,
 }: {
+  task: TaskActivityKind;
   title: string;
   progress:
     | NonNullable<ProjectStatus['scanDictionaryProgress']>
     | NonNullable<ProjectStatus['plotSummaryProgress']>;
-  logs: LogEntry[];
   details: ReactNode;
+  onDismiss: () => void;
 }) {
   return (
     <Card
       size="small"
       title={title}
-      extra={<Tag color={toTaskStatusColor(progress.status)}>{toTaskStatusLabel(progress.status)}</Tag>}
+      extra={
+        <Space size="small">
+          <Tag color={toTaskStatusColor(progress.status)}>
+            {toTaskStatusLabel(progress.status)}
+          </Tag>
+          {progress.status !== 'running' ? (
+            <Button
+              type="text"
+              size="small"
+              icon={<CloseOutlined />}
+              onClick={onDismiss}
+              aria-label={`关闭${task}进度卡片`}
+            />
+          ) : null}
+        </Space>
+      }
     >
       <Space direction="vertical" style={{ width: '100%' }} size="middle">
         <Progress
@@ -753,49 +774,9 @@ function TaskActivityCard({
         {progress.errorMessage ? (
           <Alert type="error" showIcon message={progress.errorMessage} />
         ) : null}
-        {logs.length > 0 ? (
-          <div>
-            <Typography.Text strong>相关日志</Typography.Text>
-            <div className="log-list" style={{ marginTop: 8 }}>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                {logs.map((item) => (
-                  <div
-                    key={item.id}
-                    style={{
-                      padding: '8px 0',
-                      borderBottom: '1px solid rgba(255,255,255,0.08)',
-                    }}
-                  >
-                    <Space direction="vertical" size={2}>
-                      <Space>
-                        <Tag color={logColor(item.level)}>{item.level}</Tag>
-                        <Typography.Text type="secondary">
-                          {new Date(item.timestamp).toLocaleTimeString()}
-                        </Typography.Text>
-                      </Space>
-                      <Typography.Text>{item.message}</Typography.Text>
-                    </Space>
-                  </div>
-                ))}
-              </Space>
-            </div>
-          </div>
-        ) : null}
       </Space>
     </Card>
   );
-}
-
-function getTaskLogs(logs: LogEntry[], task: TaskActivityKind): LogEntry[] {
-  const patterns =
-    task === 'scan'
-      ? [/扫描项目字典/, /术语扫描/, /术语提取/, /术语频次/]
-      : [/情节总结/, /情节大纲/, /开始总结章节/, /章节 \d+ 总结完成/];
-
-  return logs
-    .filter((item) => patterns.some((pattern) => pattern.test(item.message)))
-    .slice(-5)
-    .reverse();
 }
 
 function toPercent(

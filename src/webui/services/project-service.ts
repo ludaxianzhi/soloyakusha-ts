@@ -374,6 +374,7 @@ export class ProjectService {
       return;
     }
 
+    this.clearTaskProgressUi('all');
     this.isBusy = true;
     this.scanDictionaryProgress = {
       status: 'running',
@@ -556,6 +557,7 @@ export class ProjectService {
       return;
     }
 
+    this.clearTaskProgressUi('all');
     this.isBusy = true;
     this.plotSummaryProgress = {
       status: 'running',
@@ -695,6 +697,17 @@ export class ProjectService {
         this.isBusy = false;
       }
     })();
+  }
+
+  clearTaskProgressUi(task: 'scan' | 'plot' | 'all' = 'all'): void {
+    if (task === 'scan' || task === 'all') {
+      this.scanDictionaryProgress = null;
+      this.broadcastScanProgress();
+    }
+    if (task === 'plot' || task === 'all') {
+      this.plotSummaryProgress = null;
+      this.broadcastPlotProgress();
+    }
   }
 
   // ─── Export ─────────────────────────────────────────

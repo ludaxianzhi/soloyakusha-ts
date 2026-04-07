@@ -43,7 +43,11 @@ import { DictionaryEditorModal } from '../components/DictionaryEditorModal.tsx';
 import { RecentWorkspacesView } from '../components/RecentWorkspacesView.tsx';
 import { SettingsView } from '../components/SettingsView.tsx';
 import { WorkspaceCreateView } from '../components/WorkspaceCreateView.tsx';
-import { WorkspaceView, type ProjectCommand } from '../components/WorkspaceView.tsx';
+import {
+  WorkspaceView,
+  type ProjectCommand,
+  type TaskActivityKind,
+} from '../components/WorkspaceView.tsx';
 
 const { Header, Sider, Content } = Layout;
 
@@ -627,6 +631,15 @@ export function AppShell() {
     });
   }, [runAction]);
 
+  const handleDismissTaskActivity = useCallback(
+    async (task: TaskActivityKind) => {
+      await runAction(async () => {
+        await api.clearTaskProgress(task);
+      });
+    },
+    [runAction],
+  );
+
   const handleCreateLlmProfile = useCallback(() => {
     setSelectedLlmName(undefined);
     llmForm.resetFields();
@@ -903,6 +916,7 @@ export function AppShell() {
                     onResetProject={handleResetProject}
                     onClearLogs={handleClearLogs}
                     onRefreshHistory={handleRefreshHistory}
+                    onDismissTaskActivity={handleDismissTaskActivity}
                   />
                 }
               />

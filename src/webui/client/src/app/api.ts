@@ -117,6 +117,11 @@ export const api = {
 
   startPlotSummary: () =>
     request('/api/project/plot-summary', { method: 'POST' }),
+  clearTaskProgress: (task: 'scan' | 'plot' | 'all') =>
+    request('/api/project/task-ui/clear', {
+      method: 'POST',
+      body: { task },
+    }),
 
   getChapters: () =>
     request<{ chapters: WorkspaceChapterDescriptor[] }>('/api/project/chapters'),
