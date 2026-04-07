@@ -20,13 +20,11 @@ import {
   Glossary,
   type GlossaryTerm,
   type GlossaryTermCategory,
-  type GlossaryTermStatus,
 } from "./glossary.ts";
 
 const SERIALIZED_HEADERS = [
   "term",
   "translation",
-  "status",
   "category",
   "totalOccurrenceCount",
   "textBlockOccurrenceCount",
@@ -156,7 +154,6 @@ export class XmlGlossaryPersister extends GlossaryPersister {
       terms.push({
         term: attributes.term ?? "",
         translation: attributes.translation ?? "",
-        status: parseGlossaryStatus(attributes.status),
         category: parseGlossaryCategory(attributes.category),
         totalOccurrenceCount: parseOptionalInteger(attributes.totalOccurrenceCount),
         textBlockOccurrenceCount: parseOptionalInteger(attributes.textBlockOccurrenceCount),
@@ -176,7 +173,6 @@ export class XmlGlossaryPersister extends GlossaryPersister {
         const attributes = [
           `term="${escapeXml(term.term)}"`,
           `translation="${escapeXml(term.translation)}"`,
-          `status="${escapeXml(term.status)}"`,
           `category="${escapeXml(term.category ?? "")}"`,
           `totalOccurrenceCount="${term.totalOccurrenceCount}"`,
           `textBlockOccurrenceCount="${term.textBlockOccurrenceCount}"`,
@@ -245,7 +241,6 @@ function deserializeGlossaryTerm(
   return {
     term,
     translation,
-    status: parseGlossaryStatus(getColumnValue(columns, headerIndex, ["status"])),
     category: parseGlossaryCategory(getColumnValue(columns, headerIndex, ["category"])),
     totalOccurrenceCount: parseOptionalInteger(
       getColumnValue(columns, headerIndex, ["totaloccurrencecount", "occurrencecount"]),
@@ -261,13 +256,11 @@ function deserializeGlossaryTerm(
 }
 
 function serializeGlossaryTerm(term: GlossaryTerm & {
-  status?: GlossaryTermStatus;
   category?: GlossaryTermCategory;
 }): string[] {
   return [
     term.term,
     term.translation,
-    term.status ?? "",
     term.category ?? "",
     String(term.totalOccurrenceCount ?? 0),
     String(term.textBlockOccurrenceCount ?? 0),
@@ -362,16 +355,6 @@ function unescapeXml(value: string): string {
 
 function normalizeHeaderName(value: string): string {
   return value.toLowerCase().replaceAll(/[\s_-]+/g, "");
-}
-
-function parseGlossaryStatus(value: string | undefined): GlossaryTermStatus | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  return value === "translated" || value === "untranslated"
-    ? value
-    : undefined;
 }
 
 function parseGlossaryCategory(value: string | undefined): GlossaryTermCategory | undefined {

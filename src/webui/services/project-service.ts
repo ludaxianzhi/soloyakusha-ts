@@ -475,7 +475,6 @@ export class ProjectService {
     translation: string;
     description?: string;
     category?: string;
-    status?: 'translated' | 'untranslated';
   }): Promise<void> {
     await this.runAction('保存字典条目', async () => {
       if (!this.project) throw new Error('当前没有已初始化的项目');
@@ -491,8 +490,6 @@ export class ProjectService {
         translation: args.translation,
         description: args.description,
         category: normalizeGlossaryCategory(args.category),
-        status:
-          args.status ?? (args.translation.trim() ? 'translated' : 'untranslated'),
         totalOccurrenceCount: existing?.totalOccurrenceCount ?? 0,
         textBlockOccurrenceCount: existing?.textBlockOccurrenceCount ?? 0,
       };

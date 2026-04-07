@@ -67,8 +67,8 @@ describe("TranslationProcessor", () => {
     );
 
     const glossary = new Glossary([
-      { term: "勇者", translation: "Hero", status: "translated" },
-      { term: "王都", translation: "", status: "untranslated", description: "城市名" },
+      { term: "勇者", translation: "Hero" },
+      { term: "王都", translation: "", description: "城市名" },
     ]);
 
     const project = new TranslationProject(
@@ -468,7 +468,7 @@ describe("TranslationProcessor", () => {
       provider: fakeProvider,
       logger,
     });
-    const glossary = new Glossary([{ term: "第一行", translation: "", status: "untranslated" }]);
+    const glossary = new Glossary([{ term: "第一行", translation: "" }]);
     const result = await translator.process({
       sourceText: "第一行",
       glossary,

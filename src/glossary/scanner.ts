@@ -401,7 +401,6 @@ function mergeScannedTerm(
     return {
       term: scanned.term,
       translation: "",
-      status: "untranslated",
       category: scanned.category,
       description: scanned.description,
     };
@@ -410,7 +409,6 @@ function mergeScannedTerm(
   return {
     term: existing.term,
     translation: existing.translation,
-    status: existing.status,
     category: existing.category ?? scanned.category,
     totalOccurrenceCount: existing.totalOccurrenceCount,
     textBlockOccurrenceCount: existing.textBlockOccurrenceCount,
