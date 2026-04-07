@@ -3,7 +3,6 @@ import {
   Button,
   Card,
   Col,
-  Collapse,
   Empty,
   Form,
   Input,
@@ -17,22 +16,17 @@ import {
   Tabs,
   Tag,
   Typography,
-  Upload,
 } from 'antd';
-import type { FormInstance, UploadFile } from 'antd';
+import type { FormInstance } from 'antd';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
   BookOutlined,
-  CloudUploadOutlined,
   DeleteOutlined,
   DownloadOutlined,
   ExportOutlined,
-  FileZipOutlined,
-  FolderOpenOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
-  ReloadOutlined,
   RobotOutlined,
   StopOutlined,
 } from '@ant-design/icons';
@@ -40,14 +34,12 @@ import { IMPORT_FORMAT_OPTIONS, logColor, statusColor } from '../app/ui-helpers.
 import type {
   GlossaryTerm,
   LogEntry,
-  ManagedWorkspace,
   ProjectStatus,
   TranslationProjectSnapshot,
   WorkspaceChapterDescriptor,
 } from '../app/types.ts';
 
 const { TextArea } = Input;
-
 export type ProjectCommand =
   | 'start'
   | 'pause'
@@ -59,23 +51,15 @@ export type ProjectCommand =
   | 'remove';
 
 interface WorkspaceViewProps {
-  workspaces: ManagedWorkspace[];
   snapshot: TranslationProjectSnapshot | null;
   projectStatus: ProjectStatus | null;
   dictionary: GlossaryTerm[];
   chapters: WorkspaceChapterDescriptor[];
   logs: LogEntry[];
   history: string;
-  uploadForm: FormInstance<Record<string, unknown>>;
   workspaceForm: FormInstance<Record<string, unknown>>;
-  uploadFiles: UploadFile[];
   translatorOptions: Array<{ label: string; value: string }>;
-  onUploadFilesChange: (files: UploadFile[]) => void;
-  onUploadSubmit: (values: Record<string, unknown>) => void | Promise<void>;
-  onRefreshBootData: () => void;
   onRefreshProjectData: () => void;
-  onOpenWorkspace: (workspace: ManagedWorkspace) => void | Promise<void>;
-  onDeleteWorkspace: (workspace: ManagedWorkspace) => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
@@ -93,23 +77,15 @@ interface WorkspaceViewProps {
 }
 
 export function WorkspaceView({
-  workspaces,
   snapshot,
   projectStatus,
   dictionary,
   chapters,
   logs,
   history,
-  uploadForm,
   workspaceForm,
-  uploadFiles,
   translatorOptions,
-  onUploadFilesChange,
-  onUploadSubmit,
-  onRefreshBootData,
   onRefreshProjectData,
-  onOpenWorkspace,
-  onDeleteWorkspace,
   onProjectCommand,
   onOpenDictionaryEditor,
   onDeleteDictionary,
@@ -122,161 +98,22 @@ export function WorkspaceView({
   onClearLogs,
   onRefreshHistory,
 }: WorkspaceViewProps) {
+  if (!snapshot) {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        message="当前没有打开的工作区"
+        description="请前往“创建工作区”或“最近工作区”页面创建 / 打开项目。"
+      />
+    );
+  }
+
   return (
     <div className="section-stack">
-      <Row gutter={16}>
-        <Col span={12}>
-          <Card
-            title={
-              <Space>
-                <FileZipOutlined />
-                上传压缩包创建工作区
-              </Space>
-            }
-            extra={<Tag color="blue">远程友好</Tag>}
-          >
-            <Form
-              form={uploadForm}
-              layout="vertical"
-              className="compact-form"
-              initialValues={{ projectName: '新建项目' }}
-              onFinish={(values) => void onUploadSubmit(values)}
-            >
-              <Form.Item
-                label="项目名称"
-                name="projectName"
-                rules={[{ required: true, message: '请输入项目名称' }]}
-              >
-                <Input placeholder="例如：某轻小说项目" />
-              </Form.Item>
-              <Form.Item label="默认导入格式" name="importFormat">
-                <Select options={IMPORT_FORMAT_OPTIONS} />
-              </Form.Item>
-              <Form.Item label="默认翻译器" name="translatorName">
-                <Select
-                  allowClear
-                  options={translatorOptions}
-                  placeholder="使用全局默认翻译器"
-                />
-              </Form.Item>
-              <Row gutter={12}>
-                <Col span={12}>
-                  <Form.Item label="源语言" name="srcLang">
-                    <Input placeholder="例如：日语" />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item label="目标语言" name="tgtLang">
-                    <Input placeholder="例如：中文" />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Form.Item label="项目压缩包">
-                <Upload.Dragger
-                  accept=".zip"
-                  beforeUpload={() => false}
-                  maxCount={1}
-                  fileList={uploadFiles}
-                  onChange={({ fileList }) => onUploadFilesChange(fileList.slice(-1))}
-                >
-                  <p className="ant-upload-drag-icon">
-                    <CloudUploadOutlined />
-                  </p>
-                  <p>拖入或点击上传 ZIP</p>
-                  <span className="upload-hint">
-                    导入后工作区将由程序托管到独立目录中
-                  </span>
-                </Upload.Dragger>
-              </Form.Item>
-              <Collapse
-                items={[
-                  {
-                    key: 'manifest',
-                    label: '高级：导入 Manifest JSON',
-                    children: (
-                      <Form.Item
-                        label="Manifest JSON"
-                        name="manifestJson"
-                        extra="可选，用于指定 chapterPaths / branches / glossaryPath 等高级导入配置。"
-                      >
-                        <TextArea rows={8} placeholder='{"chapterPaths":["..."]}' />
-                      </Form.Item>
-                    ),
-                  },
-                ]}
-              />
-              <Button type="primary" htmlType="submit" block>
-                创建并打开工作区
-              </Button>
-            </Form>
-          </Card>
-        </Col>
-        <Col span={12}>
-          <Card
-            title={
-              <Space>
-                <FolderOpenOutlined />
-                最近工作区
-              </Space>
-            }
-            extra={
-              <Button icon={<ReloadOutlined />} onClick={onRefreshBootData}>
-                刷新
-              </Button>
-            }
-          >
-            {workspaces.length === 0 ? (
-              <Empty description="暂无工作区" />
-            ) : (
-              <Space direction="vertical" style={{ width: '100%' }}>
-                {workspaces.map((workspace) => (
-                  <div
-                    key={workspace.dir}
-                    style={{
-                      padding: 12,
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 8,
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <div>
-                        <Space>
-                          <span>{workspace.name}</span>
-                          {workspace.managed && <Tag color="green">托管</Tag>}
-                        </Space>
-                        <div>{workspace.dir}</div>
-                        <div>
-                          <Typography.Text type="secondary">
-                            最近打开：{new Date(workspace.lastOpenedAt).toLocaleString()}
-                          </Typography.Text>
-                        </div>
-                      </div>
-                      <Space>
-                        <Button type="link" onClick={() => void onOpenWorkspace(workspace)}>
-                          打开
-                        </Button>
-                        <Popconfirm
-                          title="确认删除该工作区？"
-                          onConfirm={() => void onDeleteWorkspace(workspace)}
-                        >
-                          <Button type="link" danger>
-                            删除
-                          </Button>
-                        </Popconfirm>
-                      </Space>
-                    </div>
-                  </div>
-                ))}
-              </Space>
-            )}
-          </Card>
-        </Col>
-      </Row>
-
-      {snapshot ? (
-        <Tabs
-          defaultActiveKey="dashboard"
-          items={[
+      <Tabs
+        defaultActiveKey="dashboard"
+        items={[
             {
               key: 'dashboard',
               label: '项目总览',
@@ -728,7 +565,7 @@ export function WorkspaceView({
                       extra={
                         <Space>
                           <Button onClick={() => void onClearLogs()}>清空</Button>
-                          <Button onClick={onRefreshBootData}>刷新</Button>
+                          <Button onClick={onRefreshProjectData}>刷新</Button>
                         </Space>
                       }
                     >
@@ -779,12 +616,7 @@ export function WorkspaceView({
               ),
             },
           ]}
-        />
-      ) : (
-        <Card>
-          <Empty description="当前未打开工作区" />
-        </Card>
-      )}
+      />
     </div>
   );
 }

@@ -25,6 +25,7 @@ export function createWorkspaceRoutes(
     const file = formData.get('file') as File | null;
     const projectName = (formData.get('projectName') as string) || 'Untitled';
     const importFormat = (formData.get('importFormat') as string) || undefined;
+    const importPattern = (formData.get('importPattern') as string) || undefined;
     const translatorName =
       (formData.get('translatorName') as string) || undefined;
     const srcLang = (formData.get('srcLang') as string) || undefined;
@@ -44,14 +45,22 @@ export function createWorkspaceRoutes(
       const chapterFiles = (
         manifest?.chapterPaths?.length
           ? manifest.chapterPaths
-          : extractedFiles.filter((f) => isTranslationFile(f))
+          : await resolveImportedChapterFiles(
+              workspaceDir,
+              extractedFiles,
+              manifest?.importPattern ?? importPattern,
+            )
       ).sort();
 
       if (chapterFiles.length === 0) {
         return c.json(
           {
-            error: '压缩包中未发现可识别的翻译源文件',
+            error:
+              manifest?.importPattern ?? importPattern
+                ? '压缩包中没有文件匹配导入 Pattern'
+                : '压缩包中未发现可识别的翻译源文件',
             extractedFiles,
+            importPattern: manifest?.importPattern ?? importPattern,
           },
           400,
         );
@@ -144,6 +153,7 @@ export function createWorkspaceRoutes(
 type UploadedWorkspaceManifest = {
   projectName?: string;
   chapterPaths?: string[];
+  importPattern?: string;
   glossaryPath?: string;
   srcLang?: string;
   tgtLang?: string;
@@ -181,4 +191,27 @@ function parseWorkspaceManifest(raw: string): UploadedWorkspaceManifest {
     throw new Error('manifest.branches 必须是数组');
   }
   return parsed;
+}
+
+async function resolveImportedChapterFiles(
+  workspaceDir: string,
+  extractedFiles: string[],
+  importPattern?: string,
+): Promise<string[]> {
+  const normalizedPattern = importPattern?.trim();
+  if (!normalizedPattern) {
+    return extractedFiles.filter((filePath) => isTranslationFile(filePath));
+  }
+
+  const glob = new Bun.Glob(normalizedPattern);
+  const matchedFiles: string[] = [];
+  for await (const filePath of glob.scan({
+    cwd: workspaceDir,
+    onlyFiles: true,
+    absolute: false,
+  })) {
+    matchedFiles.push(filePath.replace(/\\/g, '/'));
+  }
+
+  return matchedFiles;
 }

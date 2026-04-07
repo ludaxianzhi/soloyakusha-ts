@@ -19,6 +19,20 @@ export const IMPORT_FORMAT_OPTIONS = [
   { label: 'GalTransl JSON', value: 'galtransl_json' },
 ];
 
+export const DEFAULT_ARCHIVE_IMPORT_PATTERN = '**/*.{txt,m3t,json,csv,tsv,yaml,yml}';
+
+const HARD_CODED_LANGUAGE_PAIRS = [
+  {
+    source: { label: '日语 (ja)', value: 'ja' },
+    target: { label: '简体中文 (zh-CN)', value: 'zh-CN' },
+  },
+] as const;
+
+export const SOURCE_LANGUAGE_OPTIONS = HARD_CODED_LANGUAGE_PAIRS.map((pair) => pair.source);
+export const TARGET_LANGUAGE_OPTIONS = HARD_CODED_LANGUAGE_PAIRS.map((pair) => pair.target);
+export const DEFAULT_SOURCE_LANGUAGE = SOURCE_LANGUAGE_OPTIONS[0]?.value ?? 'ja';
+export const DEFAULT_TARGET_LANGUAGE = TARGET_LANGUAGE_OPTIONS[0]?.value ?? 'zh-CN';
+
 const LLM_REQUEST_CONFIG_KEY_ALIASES = {
   systemPrompt: ['systemPrompt', 'system_prompt'],
   temperature: ['temperature'],
@@ -138,9 +152,10 @@ export function parseLlmRequestConfigYaml(
   const liftedExtraBodyEntries = Object.fromEntries(
     Object.entries(parsed).filter(
       ([key]) =>
-        !Object.values(LLM_REQUEST_CONFIG_KEY_ALIASES).some((aliases) =>
-          aliases.includes(key),
-        ),
+        !Object.values(LLM_REQUEST_CONFIG_KEY_ALIASES).some((aliases) => {
+          const knownAliases = aliases as readonly string[];
+          return knownAliases.includes(key);
+        }),
     ),
   );
 
@@ -232,9 +247,9 @@ function getAliasedRequestConfigValue(
   if (matchedAliases.length > 1) {
     throw new Error(`${matchedAliases.join(' / ')} 只能填写一个`);
   }
+  const matchedAlias = matchedAliases[0];
   return {
-    value:
-      matchedAliases.length === 1 ? source[matchedAliases[0]] : undefined,
+    value: matchedAlias ? source[matchedAlias] : undefined,
   };
 }
 

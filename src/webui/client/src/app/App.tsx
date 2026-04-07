@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { App as AntdApp, Button, Form, Layout, Menu, Space, Tag, Typography } from 'antd';
 import type { UploadFile } from 'antd';
-import { FolderOpenOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
+import {
+  ClockCircleOutlined,
+  FolderOpenOutlined,
+  PlusCircleOutlined,
+  ReloadOutlined,
+  SettingOutlined,
+} from '@ant-design/icons';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './api.ts';
 import {
   auxToForm,
@@ -32,16 +39,17 @@ import type {
 } from './types.ts';
 import { useEventStream } from './useEventStream.ts';
 import { DictionaryEditorModal } from '../components/DictionaryEditorModal.tsx';
+import { RecentWorkspacesView } from '../components/RecentWorkspacesView.tsx';
 import { SettingsView } from '../components/SettingsView.tsx';
+import { WorkspaceCreateView } from '../components/WorkspaceCreateView.tsx';
 import { WorkspaceView, type ProjectCommand } from '../components/WorkspaceView.tsx';
 
 const { Header, Sider, Content } = Layout;
 
-type MainView = 'workspace' | 'settings';
-
 export function AppShell() {
   const { message } = AntdApp.useApp();
-  const [view, setView] = useState<MainView>('workspace');
+  const location = useLocation();
+  const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState<ManagedWorkspace[]>([]);
   const [projectStatus, setProjectStatus] = useState<ProjectStatus | null>(null);
   const [snapshot, setSnapshot] = useState<TranslationProjectSnapshot | null>(null);
@@ -236,10 +244,10 @@ export function AppShell() {
   }, [refreshBootData]);
 
   useEffect(() => {
-    if (view === 'settings') {
+    if (location.pathname === '/settings') {
       void refreshSettings();
     }
-  }, [refreshSettings, view]);
+  }, [location.pathname, refreshSettings]);
 
   useEffect(() => {
     if (snapshot) {
@@ -252,7 +260,7 @@ export function AppShell() {
   }, [refreshProjectData, snapshot?.projectName]);
 
   useEffect(() => {
-    if (view !== 'settings') {
+    if (location.pathname !== '/settings') {
       return;
     }
 
@@ -309,8 +317,8 @@ export function AppShell() {
     translatorWorkflows,
     updaterConfig,
     updaterForm,
-    view,
     workflowMap,
+    location.pathname,
   ]);
 
   const translatorOptions = useMemo(
@@ -356,10 +364,11 @@ export function AppShell() {
         uploadForm.resetFields(['manifestJson']);
         await refreshBootData();
         await refreshProjectData();
+        navigate('/workspace/current');
         message.success('工作区已创建并打开');
       });
     },
-    [message, refreshBootData, refreshProjectData, runAction, uploadFiles, uploadForm],
+    [message, navigate, refreshBootData, refreshProjectData, runAction, uploadFiles, uploadForm],
   );
 
   const handleOpenWorkspace = useCallback(
@@ -368,10 +377,11 @@ export function AppShell() {
         await api.openWorkspace(workspace.dir, workspace.name);
         await refreshBootData();
         await refreshProjectData();
+        navigate('/workspace/current');
         message.success(`已打开工作区：${workspace.name}`);
       });
     },
-    [message, refreshBootData, refreshProjectData, runAction],
+    [message, navigate, refreshBootData, refreshProjectData, runAction],
   );
 
   const handleDeleteWorkspace = useCallback(
@@ -416,17 +426,19 @@ export function AppShell() {
           case 'close':
             await api.closeWorkspace();
             await refreshBootData();
+            navigate('/workspaces/recent');
             message.success('已关闭工作区');
             break;
           case 'remove':
             await api.removeCurrentWorkspace();
             await refreshBootData();
+            navigate('/workspaces/recent');
             message.success('已移除工作区');
             break;
         }
       });
     },
-    [message, refreshBootData, runAction],
+    [message, navigate, refreshBootData, runAction],
   );
 
   const openDictionaryEditor = useCallback(
@@ -753,6 +765,42 @@ export function AppShell() {
     [message, refreshSettings, runAction],
   );
 
+  const navigationItems = useMemo(
+    () => [
+      {
+        key: '/workspace/current',
+        icon: <FolderOpenOutlined />,
+        label: '当前工作区',
+      },
+      {
+        key: '/workspace/create',
+        icon: <PlusCircleOutlined />,
+        label: '创建工作区',
+      },
+      {
+        key: '/workspaces/recent',
+        icon: <ClockCircleOutlined />,
+        label: '最近工作区',
+      },
+      { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
+    ],
+    [],
+  );
+
+  const currentNavigationKey = useMemo(
+    () =>
+      navigationItems.find((item) => item.key === location.pathname)?.key ??
+      '/workspace/current',
+    [location.pathname, navigationItems],
+  );
+
+  const currentSectionTitle = useMemo(
+    () =>
+      navigationItems.find((item) => item.key === currentNavigationKey)?.label ??
+      '当前工作区',
+    [currentNavigationKey, navigationItems],
+  );
+
   return (
     <>
       <Layout className="app-shell">
@@ -766,12 +814,9 @@ export function AppShell() {
           <Menu
             theme="dark"
             mode="inline"
-            selectedKeys={[view]}
-            items={[
-              { key: 'workspace', icon: <FolderOpenOutlined />, label: '工作台' },
-              { key: 'settings', icon: <SettingOutlined />, label: '系统设置' },
-            ]}
-            onClick={(event) => setView(event.key as MainView)}
+            selectedKeys={[currentNavigationKey]}
+            items={navigationItems}
+            onClick={(event) => navigate(event.key)}
           />
         </Sider>
         <Layout>
@@ -784,6 +829,9 @@ export function AppShell() {
             }}
           >
             <Space>
+              <Typography.Title level={5} style={{ margin: 0, color: '#fff' }}>
+                {currentSectionTitle}
+              </Typography.Title>
               <Tag color={connected ? 'green' : 'red'}>
                 {connected ? 'SSE 已连接' : 'SSE 断开'}
               </Tag>
@@ -794,66 +842,92 @@ export function AppShell() {
             </Button>
           </Header>
           <Content style={{ padding: 24 }}>
-            {view === 'workspace' ? (
-              <WorkspaceView
-                workspaces={workspaces}
-                snapshot={snapshot}
-                projectStatus={projectStatus}
-                dictionary={dictionary}
-                chapters={chapters}
-                logs={logs}
-                history={history}
-                uploadForm={uploadForm}
-                workspaceForm={workspaceForm}
-                uploadFiles={uploadFiles}
-                translatorOptions={translatorOptions}
-                onUploadFilesChange={setUploadFiles}
-                onUploadSubmit={handleUploadSubmit}
-                onRefreshBootData={() => void refreshBootData()}
-                onRefreshProjectData={() => void refreshProjectData()}
-                onOpenWorkspace={handleOpenWorkspace}
-                onDeleteWorkspace={handleDeleteWorkspace}
-                onProjectCommand={handleProjectCommand}
-                onOpenDictionaryEditor={openDictionaryEditor}
-                onDeleteDictionary={handleDeleteDictionary}
-                onWorkspaceConfigSave={handleWorkspaceConfigSave}
-                onMoveChapter={handleMoveChapter}
-                onClearChapterTranslations={handleClearChapterTranslations}
-                onRemoveChapter={handleRemoveChapter}
-                onDownloadExport={handleDownloadExport}
-                onResetProject={handleResetProject}
-                onClearLogs={handleClearLogs}
-                onRefreshHistory={handleRefreshHistory}
+            <Routes>
+              <Route path="/" element={<Navigate replace to="/workspace/current" />} />
+              <Route
+                path="/workspace/current"
+                element={
+                  <WorkspaceView
+                    snapshot={snapshot}
+                    projectStatus={projectStatus}
+                    dictionary={dictionary}
+                    chapters={chapters}
+                    logs={logs}
+                    history={history}
+                    workspaceForm={workspaceForm}
+                    translatorOptions={translatorOptions}
+                    onRefreshProjectData={() => void refreshProjectData()}
+                    onProjectCommand={handleProjectCommand}
+                    onOpenDictionaryEditor={openDictionaryEditor}
+                    onDeleteDictionary={handleDeleteDictionary}
+                    onWorkspaceConfigSave={handleWorkspaceConfigSave}
+                    onMoveChapter={handleMoveChapter}
+                    onClearChapterTranslations={handleClearChapterTranslations}
+                    onRemoveChapter={handleRemoveChapter}
+                    onDownloadExport={handleDownloadExport}
+                    onResetProject={handleResetProject}
+                    onClearLogs={handleClearLogs}
+                    onRefreshHistory={handleRefreshHistory}
+                  />
+                }
               />
-            ) : (
-              <SettingsView
-                settingsLoading={settingsLoading}
-                llmProfiles={llmProfiles}
-                defaultLlmName={defaultLlmName}
-                selectedLlmName={selectedLlmName}
-                selectedTranslatorName={selectedTranslatorName}
-                translators={translators}
-                translatorWorkflows={translatorWorkflows}
-                llmForm={llmForm}
-                embeddingForm={embeddingForm}
-                translatorForm={translatorForm}
-                extractorForm={extractorForm}
-                updaterForm={updaterForm}
-                plotForm={plotForm}
-                alignmentForm={alignmentForm}
-                onCreateLlmProfile={handleCreateLlmProfile}
-                onSelectLlmProfile={selectLlmProfile}
-                onSaveLlmProfile={handleSaveLlmProfile}
-                onSetDefaultLlmProfile={handleSetDefaultLlmProfile}
-                onDeleteLlmProfile={handleDeleteLlmProfile}
-                onSaveEmbedding={handleSaveEmbedding}
-                onCreateTranslator={handleCreateTranslator}
-                onSelectTranslator={selectTranslator}
-                onSaveTranslator={handleSaveTranslator}
-                onDeleteTranslator={handleDeleteTranslator}
-                onSaveAuxiliaryConfig={handleSaveAuxiliaryConfig}
+              <Route
+                path="/workspace/create"
+                element={
+                  <WorkspaceCreateView
+                    uploadForm={uploadForm}
+                    uploadFiles={uploadFiles}
+                    translatorOptions={translatorOptions}
+                    onUploadFilesChange={setUploadFiles}
+                    onUploadSubmit={handleUploadSubmit}
+                  />
+                }
               />
-            )}
+              <Route
+                path="/workspaces/recent"
+                element={
+                  <RecentWorkspacesView
+                    workspaces={workspaces}
+                    onRefreshBootData={() => void refreshBootData()}
+                    onOpenWorkspace={handleOpenWorkspace}
+                    onDeleteWorkspace={handleDeleteWorkspace}
+                  />
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <SettingsView
+                    settingsLoading={settingsLoading}
+                    llmProfiles={llmProfiles}
+                    defaultLlmName={defaultLlmName}
+                    selectedLlmName={selectedLlmName}
+                    selectedTranslatorName={selectedTranslatorName}
+                    translators={translators}
+                    translatorWorkflows={translatorWorkflows}
+                    llmForm={llmForm}
+                    embeddingForm={embeddingForm}
+                    translatorForm={translatorForm}
+                    extractorForm={extractorForm}
+                    updaterForm={updaterForm}
+                    plotForm={plotForm}
+                    alignmentForm={alignmentForm}
+                    onCreateLlmProfile={handleCreateLlmProfile}
+                    onSelectLlmProfile={selectLlmProfile}
+                    onSaveLlmProfile={handleSaveLlmProfile}
+                    onSetDefaultLlmProfile={handleSetDefaultLlmProfile}
+                    onDeleteLlmProfile={handleDeleteLlmProfile}
+                    onSaveEmbedding={handleSaveEmbedding}
+                    onCreateTranslator={handleCreateTranslator}
+                    onSelectTranslator={selectTranslator}
+                    onSaveTranslator={handleSaveTranslator}
+                    onDeleteTranslator={handleDeleteTranslator}
+                    onSaveAuxiliaryConfig={handleSaveAuxiliaryConfig}
+                  />
+                }
+              />
+              <Route path="*" element={<Navigate replace to="/workspace/current" />} />
+            </Routes>
           </Content>
         </Layout>
       </Layout>
