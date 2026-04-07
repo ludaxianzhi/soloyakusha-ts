@@ -19,19 +19,33 @@ export const IMPORT_FORMAT_OPTIONS = [
   { label: 'GalTransl JSON', value: 'galtransl_json' },
 ];
 
-export const DEFAULT_ARCHIVE_IMPORT_PATTERN = '**/*.{txt,m3t,json,csv,tsv,yaml,yml}';
+export const DEFAULT_ARCHIVE_IMPORT_PATTERN = '**/*';
 
 const HARD_CODED_LANGUAGE_PAIRS = [
   {
+    label: '日语 (ja) -> 简体中文 (zh-CN)',
+    value: 'ja->zh-CN',
     source: { label: '日语 (ja)', value: 'ja' },
     target: { label: '简体中文 (zh-CN)', value: 'zh-CN' },
   },
 ] as const;
 
-export const SOURCE_LANGUAGE_OPTIONS = HARD_CODED_LANGUAGE_PAIRS.map((pair) => pair.source);
-export const TARGET_LANGUAGE_OPTIONS = HARD_CODED_LANGUAGE_PAIRS.map((pair) => pair.target);
-export const DEFAULT_SOURCE_LANGUAGE = SOURCE_LANGUAGE_OPTIONS[0]?.value ?? 'ja';
-export const DEFAULT_TARGET_LANGUAGE = TARGET_LANGUAGE_OPTIONS[0]?.value ?? 'zh-CN';
+export const LANGUAGE_PAIR_OPTIONS = HARD_CODED_LANGUAGE_PAIRS.map((pair) => ({
+  label: pair.label,
+  value: pair.value,
+}));
+export const DEFAULT_LANGUAGE_PAIR = HARD_CODED_LANGUAGE_PAIRS[0]?.value ?? 'ja->zh-CN';
+
+export function resolveLanguagePair(pairValue: unknown): {
+  srcLang: string;
+  tgtLang: string;
+} {
+  const matchedPair = HARD_CODED_LANGUAGE_PAIRS.find((pair) => pair.value === pairValue);
+  return {
+    srcLang: matchedPair?.source.value ?? 'ja',
+    tgtLang: matchedPair?.target.value ?? 'zh-CN',
+  };
+}
 
 const LLM_REQUEST_CONFIG_KEY_ALIASES = {
   systemPrompt: ['systemPrompt', 'system_prompt'],

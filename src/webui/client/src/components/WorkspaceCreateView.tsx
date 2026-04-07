@@ -1,14 +1,11 @@
-import type { ReactNode } from 'react';
 import { Button, Card, Collapse, Form, Input, Select, Upload } from 'antd';
 import type { FormInstance, UploadFile } from 'antd';
 import { CloudUploadOutlined, FileZipOutlined } from '@ant-design/icons';
 import {
   DEFAULT_ARCHIVE_IMPORT_PATTERN,
-  DEFAULT_SOURCE_LANGUAGE,
-  DEFAULT_TARGET_LANGUAGE,
+  DEFAULT_LANGUAGE_PAIR,
   IMPORT_FORMAT_OPTIONS,
-  SOURCE_LANGUAGE_OPTIONS,
-  TARGET_LANGUAGE_OPTIONS,
+  LANGUAGE_PAIR_OPTIONS,
 } from '../app/ui-helpers.ts';
 
 const { TextArea } = Input;
@@ -45,8 +42,7 @@ export function WorkspaceCreateView({
         initialValues={{
           projectName: '新建项目',
           importPattern: DEFAULT_ARCHIVE_IMPORT_PATTERN,
-          srcLang: DEFAULT_SOURCE_LANGUAGE,
-          tgtLang: DEFAULT_TARGET_LANGUAGE,
+          languagePair: DEFAULT_LANGUAGE_PAIR,
         }}
         onFinish={(values) => void onUploadSubmit(values)}
       >
@@ -75,18 +71,13 @@ export function WorkspaceCreateView({
             placeholder="使用全局默认翻译器"
           />
         </Form.Item>
-        <ResponsivePair>
-          <Form.Item
-            label="源语言"
-            name="srcLang"
-            extra="当前前端按硬编码语言对限制为日语 -> 简体中文。"
-          >
-            <Select options={SOURCE_LANGUAGE_OPTIONS} />
-          </Form.Item>
-          <Form.Item label="目标语言" name="tgtLang">
-            <Select options={TARGET_LANGUAGE_OPTIONS} />
-          </Form.Item>
-        </ResponsivePair>
+        <Form.Item
+          label="语言对"
+          name="languagePair"
+          extra="当前前端按硬编码语言对限制为日语 -> 简体中文。"
+        >
+          <Select options={LANGUAGE_PAIR_OPTIONS} />
+        </Form.Item>
         <Form.Item label="项目压缩包">
           <Upload.Dragger
             accept=".zip"
@@ -124,19 +115,5 @@ export function WorkspaceCreateView({
         </Button>
       </Form>
     </Card>
-  );
-}
-
-function ResponsivePair({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gap: 12,
-        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-      }}
-    >
-      {children}
-    </div>
   );
 }

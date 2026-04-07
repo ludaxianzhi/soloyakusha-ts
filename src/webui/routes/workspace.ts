@@ -2,6 +2,7 @@
  * 工作区 REST API：列表、创建（ZIP 上传）、打开、删除。
  */
 
+import { join } from 'node:path';
 import { Hono } from 'hono';
 import type { ProjectService } from '../services/project-service.ts';
 import type { WorkspaceManager } from '../services/workspace-manager.ts';
@@ -162,24 +163,15 @@ type UploadedWorkspaceManifest = {
   branches?: BranchImportInput[];
 };
 
-function isTranslationFile(filePath: string): boolean {
+function isVisibleWorkspaceFile(filePath: string): boolean {
   const lower = filePath.toLowerCase();
-  // 跳过隐藏文件和 macOS 资源文件
   if (lower.includes('/__macosx/') || lower.startsWith('__macosx/')) {
     return false;
   }
   if (lower.includes('/.') || lower.startsWith('.')) {
     return false;
   }
-  return (
-    lower.endsWith('.txt') ||
-    lower.endsWith('.m3t') ||
-    lower.endsWith('.json') ||
-    lower.endsWith('.csv') ||
-    lower.endsWith('.tsv') ||
-    lower.endsWith('.yaml') ||
-    lower.endsWith('.yml')
-  );
+  return true;
 }
 
 function parseWorkspaceManifest(raw: string): UploadedWorkspaceManifest {
@@ -198,20 +190,54 @@ async function resolveImportedChapterFiles(
   extractedFiles: string[],
   importPattern?: string,
 ): Promise<string[]> {
-  const normalizedPattern = importPattern?.trim();
-  if (!normalizedPattern) {
-    return extractedFiles.filter((filePath) => isTranslationFile(filePath));
+  const normalizedPattern = normalizeImportPattern(importPattern);
+  const visibleFiles = extractedFiles.filter((filePath) => isVisibleWorkspaceFile(filePath));
+
+  const candidateFiles = normalizedPattern
+    ? visibleFiles.filter((filePath) => {
+        const normalizedFilePath = filePath.replace(/\\/g, '/');
+        return buildImportGlobPatterns(normalizedPattern).some((pattern) =>
+          new Bun.Glob(pattern).match(normalizedFilePath),
+        );
+      })
+    : visibleFiles;
+
+  const detectedFiles = await Promise.all(
+    candidateFiles.map(async (filePath) =>
+      (await isLikelyTextFile(join(workspaceDir, ...filePath.split('/')))) ? filePath : null,
+    ),
+  );
+  return detectedFiles.filter((filePath): filePath is string => Boolean(filePath));
+}
+
+function normalizeImportPattern(importPattern?: string): string | undefined {
+  const normalizedPattern = importPattern?.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+  return normalizedPattern ? normalizedPattern : undefined;
+}
+
+function buildImportGlobPatterns(importPattern: string): string[] {
+  const patterns = [importPattern];
+  if (!importPattern.includes('/')) {
+    patterns.push(`**/${importPattern}`);
+  }
+  return [...new Set(patterns)];
+}
+
+async function isLikelyTextFile(filePath: string): Promise<boolean> {
+  const sample = new Uint8Array(await Bun.file(filePath).slice(0, 4096).arrayBuffer());
+  if (sample.length === 0) {
+    return true;
   }
 
-  const glob = new Bun.Glob(normalizedPattern);
-  const matchedFiles: string[] = [];
-  for await (const filePath of glob.scan({
-    cwd: workspaceDir,
-    onlyFiles: true,
-    absolute: false,
-  })) {
-    matchedFiles.push(filePath.replace(/\\/g, '/'));
+  let controlCharCount = 0;
+  for (const byte of sample) {
+    if (byte === 0) {
+      return false;
+    }
+    if ((byte < 9 || (byte > 13 && byte < 32)) && byte !== 27) {
+      controlCharCount += 1;
+    }
   }
 
-  return matchedFiles;
+  return controlCharCount / sample.length < 0.05;
 }

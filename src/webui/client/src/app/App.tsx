@@ -18,6 +18,7 @@ import {
   optionalString,
   parseYamlObject,
   profileToForm,
+  resolveLanguagePair,
   splitLines,
   translatorToForm,
   toErrorMessage,
@@ -105,15 +106,17 @@ export function AppShell() {
   );
 
   const refreshBootData = useCallback(async () => {
-    const [workspaceRes, activeRes, logsRes] = await Promise.all([
+    const [workspaceRes, activeRes, logsRes, translatorsRes] = await Promise.all([
       api.listWorkspaces(),
       api.getActiveProject(),
       api.getLogs(),
+      api.getTranslators().catch(() => ({ translators: {} })),
     ]);
     setWorkspaces(workspaceRes.workspaces);
     setProjectStatus(activeRes);
     setSnapshot(activeRes.snapshot);
     setLogs(logsRes.logs);
+    setTranslators(translatorsRes.translators);
   }, []);
 
   const refreshProjectData = useCallback(async () => {
@@ -341,20 +344,20 @@ export function AppShell() {
         }
 
         const formData = new FormData();
+        const { srcLang, tgtLang } = resolveLanguagePair(values.languagePair);
         formData.set('file', file);
         formData.set('projectName', String(values.projectName ?? ''));
         if (values.importFormat) {
           formData.set('importFormat', String(values.importFormat));
         }
+        if (values.importPattern) {
+          formData.set('importPattern', String(values.importPattern));
+        }
         if (values.translatorName) {
           formData.set('translatorName', String(values.translatorName));
         }
-        if (values.srcLang) {
-          formData.set('srcLang', String(values.srcLang));
-        }
-        if (values.tgtLang) {
-          formData.set('tgtLang', String(values.tgtLang));
-        }
+        formData.set('srcLang', srcLang);
+        formData.set('tgtLang', tgtLang);
         if (values.manifestJson) {
           formData.set('manifestJson', String(values.manifestJson));
         }
