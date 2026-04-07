@@ -269,6 +269,11 @@ export class ProjectService {
         translatorName: input.translatorName,
       });
 
+      if (!hasConfig) {
+        await nextProject.saveProgress();
+        this.log('info', '工作区初始化数据已即时保存');
+      }
+
       // Register workspace
       const registry = new WorkspaceRegistry();
       await registry.touchWorkspace({

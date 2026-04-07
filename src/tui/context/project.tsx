@@ -317,6 +317,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           translatorName: input.translatorName,
         });
 
+        if (!hasWorkspaceConfig) {
+          await nextProject.saveProgress();
+          addLog('info', '工作区初始化数据已即时保存');
+        }
+
         const nextSnapshot = nextProject.getProjectSnapshot();
         previousSnapshotRef.current = nextSnapshot;
         setProject(nextProject);
