@@ -18,6 +18,7 @@ import {
   Typography,
 } from 'antd';
 import type { FormInstance } from 'antd';
+import type { ReactNode } from 'react';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
@@ -231,7 +232,7 @@ export function WorkspaceView({
                     </Col>
                   </Row>
 
-                  <ProgressAlerts projectStatus={projectStatus} />
+                  <TaskActivityPanels projectStatus={projectStatus} logs={logs} />
 
                   <Card title="步骤队列">
                     {snapshot.queueSnapshots.length === 0 ? (
@@ -303,6 +304,11 @@ export function WorkspaceView({
                     </Space>
                   }
                 >
+                  <TaskActivityPanels
+                    projectStatus={projectStatus}
+                    logs={logs}
+                    tasks={['scan']}
+                  />
                   <Table
                     rowKey="term"
                     dataSource={dictionary}
@@ -621,31 +627,217 @@ export function WorkspaceView({
   );
 }
 
-function ProgressAlerts({ projectStatus }: { projectStatus: ProjectStatus | null }) {
+type TaskActivityKind = 'scan' | 'plot';
+
+function TaskActivityPanels({
+  projectStatus,
+  logs,
+  tasks = ['scan', 'plot'],
+}: {
+  projectStatus: ProjectStatus | null;
+  logs: LogEntry[];
+  tasks?: TaskActivityKind[];
+}) {
+  const visibleTasks: Array<{
+    key: TaskActivityKind;
+    title: string;
+    progress:
+      | NonNullable<ProjectStatus['scanDictionaryProgress']>
+      | NonNullable<ProjectStatus['plotSummaryProgress']>;
+    logs: LogEntry[];
+    details: ReactNode;
+  }> = [];
+
+  for (const task of tasks) {
+    if (task === 'scan' && projectStatus?.scanDictionaryProgress) {
+      visibleTasks.push({
+        key: 'scan',
+        title: '术语扫描',
+        progress: projectStatus.scanDictionaryProgress,
+        logs: getTaskLogs(logs, 'scan'),
+        details: (
+          <Space wrap>
+            <Tag>{`批次 ${projectStatus.scanDictionaryProgress.completedBatches}/${projectStatus.scanDictionaryProgress.totalBatches}`}</Tag>
+            <Tag>{`总行数 ${projectStatus.scanDictionaryProgress.totalLines}`}</Tag>
+          </Space>
+        ),
+      });
+      continue;
+    }
+
+    if (task === 'plot' && projectStatus?.plotSummaryProgress) {
+      visibleTasks.push({
+        key: 'plot',
+        title: '情节大纲',
+        progress: projectStatus.plotSummaryProgress,
+        logs: getTaskLogs(logs, 'plot'),
+        details: (
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            <Progress
+              percent={toPercent(
+                projectStatus.plotSummaryProgress.completedChapters,
+                projectStatus.plotSummaryProgress.totalChapters,
+                projectStatus.plotSummaryProgress.status,
+              )}
+              status={toProgressStatus(projectStatus.plotSummaryProgress.status)}
+              format={() =>
+                `${projectStatus.plotSummaryProgress.completedChapters}/${projectStatus.plotSummaryProgress.totalChapters} 章节`
+              }
+            />
+            <Space wrap>
+              <Tag>{`批次 ${projectStatus.plotSummaryProgress.completedBatches}/${projectStatus.plotSummaryProgress.totalBatches}`}</Tag>
+              {projectStatus.plotSummaryProgress.currentChapterId != null ? (
+                <Tag color="processing">
+                  {`当前章节 ${projectStatus.plotSummaryProgress.currentChapterId}`}
+                </Tag>
+              ) : null}
+            </Space>
+          </Space>
+        ),
+      });
+    }
+  }
+
+  if (visibleTasks.length === 0) {
+    return null;
+  }
+
+  const colSpan = visibleTasks.length === 1 ? 24 : 12;
+
   return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      {projectStatus?.scanDictionaryProgress && (
-        <Alert
-          type={
-            projectStatus.scanDictionaryProgress.status === 'error'
-              ? 'error'
-              : 'info'
-          }
-          message={`术语扫描：${projectStatus.scanDictionaryProgress.completedBatches}/${projectStatus.scanDictionaryProgress.totalBatches} 批`}
-          description={projectStatus.scanDictionaryProgress.errorMessage}
-        />
-      )}
-      {projectStatus?.plotSummaryProgress && (
-        <Alert
-          type={
-            projectStatus.plotSummaryProgress.status === 'error'
-              ? 'error'
-              : 'info'
-          }
-          message={`情节总结：${projectStatus.plotSummaryProgress.completedBatches}/${projectStatus.plotSummaryProgress.totalBatches} 批`}
-          description={projectStatus.plotSummaryProgress.errorMessage}
-        />
-      )}
-    </Space>
+    <Row gutter={[16, 16]}>
+      {visibleTasks.map((task) => (
+        <Col key={task.key} span={colSpan}>
+          <TaskActivityCard
+            title={task.title}
+            progress={task.progress}
+            logs={task.logs}
+            details={task.details}
+          />
+        </Col>
+      ))}
+    </Row>
   );
+}
+
+function TaskActivityCard({
+  title,
+  progress,
+  logs,
+  details,
+}: {
+  title: string;
+  progress:
+    | NonNullable<ProjectStatus['scanDictionaryProgress']>
+    | NonNullable<ProjectStatus['plotSummaryProgress']>;
+  logs: LogEntry[];
+  details: ReactNode;
+}) {
+  return (
+    <Card
+      size="small"
+      title={title}
+      extra={<Tag color={toTaskStatusColor(progress.status)}>{toTaskStatusLabel(progress.status)}</Tag>}
+    >
+      <Space direction="vertical" style={{ width: '100%' }} size="middle">
+        <Progress
+          percent={toPercent(
+            progress.completedBatches,
+            progress.totalBatches,
+            progress.status,
+          )}
+          status={toProgressStatus(progress.status)}
+          format={() => `${progress.completedBatches}/${progress.totalBatches} 批`}
+        />
+        {details}
+        {progress.errorMessage ? (
+          <Alert type="error" showIcon message={progress.errorMessage} />
+        ) : null}
+        {logs.length > 0 ? (
+          <div>
+            <Typography.Text strong>相关日志</Typography.Text>
+            <div className="log-list" style={{ marginTop: 8 }}>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                {logs.map((item) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      padding: '8px 0',
+                      borderBottom: '1px solid rgba(255,255,255,0.08)',
+                    }}
+                  >
+                    <Space direction="vertical" size={2}>
+                      <Space>
+                        <Tag color={logColor(item.level)}>{item.level}</Tag>
+                        <Typography.Text type="secondary">
+                          {new Date(item.timestamp).toLocaleTimeString()}
+                        </Typography.Text>
+                      </Space>
+                      <Typography.Text>{item.message}</Typography.Text>
+                    </Space>
+                  </div>
+                ))}
+              </Space>
+            </div>
+          </div>
+        ) : null}
+      </Space>
+    </Card>
+  );
+}
+
+function getTaskLogs(logs: LogEntry[], task: TaskActivityKind): LogEntry[] {
+  const patterns =
+    task === 'scan'
+      ? [/扫描项目字典/, /术语扫描/, /术语提取/, /术语频次/]
+      : [/情节总结/, /情节大纲/, /开始总结章节/, /章节 \d+ 总结完成/];
+
+  return logs
+    .filter((item) => patterns.some((pattern) => pattern.test(item.message)))
+    .slice(-5)
+    .reverse();
+}
+
+function toPercent(
+  completed: number,
+  total: number,
+  status: 'running' | 'done' | 'error',
+): number {
+  if (total <= 0) {
+    return status === 'done' ? 100 : 0;
+  }
+  return Number(((completed / total) * 100).toFixed(1));
+}
+
+function toProgressStatus(status: 'running' | 'done' | 'error'): 'active' | 'success' | 'exception' {
+  switch (status) {
+    case 'done':
+      return 'success';
+    case 'error':
+      return 'exception';
+    default:
+      return 'active';
+  }
+}
+
+function toTaskStatusColor(status: 'running' | 'done' | 'error'): string {
+  switch (status) {
+    case 'done':
+      return 'success';
+    case 'error':
+      return 'error';
+    default:
+      return 'processing';
+  }
+}
+
+function toTaskStatusLabel(status: 'running' | 'done' | 'error'): string {
+  switch (status) {
+    case 'done':
+      return '已完成';
+    case 'error':
+      return '失败';
+    default:
+      return '进行中';
+  }
 }

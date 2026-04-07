@@ -119,6 +119,12 @@ export function AppShell() {
     setTranslators(translatorsRes.translators);
   }, []);
 
+  const refreshProjectStatus = useCallback(async () => {
+    const status = await api.getProjectStatus();
+    setProjectStatus(status);
+    setSnapshot(status.snapshot);
+  }, []);
+
   const refreshProjectData = useCallback(async () => {
     const [dictionaryRes, chaptersRes, configRes, historyRes] = await Promise.all([
       api.getDictionary().catch(() => ({ terms: [] })),
@@ -229,15 +235,41 @@ export function AppShell() {
       },
       onLog: appendLog,
       onScanProgress: (progress: ProjectStatus['scanDictionaryProgress']) =>
-        setProjectStatus((prev) =>
-          prev ? { ...prev, scanDictionaryProgress: progress } : prev,
-        ),
+        {
+          setProjectStatus((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  isBusy: progress?.status === 'running',
+                  scanDictionaryProgress: progress,
+                }
+              : prev,
+          );
+          if (progress && progress.status !== 'running') {
+            void refreshProjectStatus().catch(() => undefined);
+            void refreshProjectData().catch(() => undefined);
+          }
+        },
       onPlotProgress: (progress: ProjectStatus['plotSummaryProgress']) =>
-        setProjectStatus((prev) =>
-          prev ? { ...prev, plotSummaryProgress: progress } : prev,
-        ),
+        {
+          setProjectStatus((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  isBusy: progress?.status === 'running',
+                  plotSummaryReady:
+                    progress?.status === 'done' ? true : prev.plotSummaryReady,
+                  plotSummaryProgress: progress,
+                }
+              : prev,
+          );
+          if (progress && progress.status !== 'running') {
+            void refreshProjectStatus().catch(() => undefined);
+            void refreshProjectData().catch(() => undefined);
+          }
+        },
     }),
-    [appendLog],
+    [appendLog, refreshProjectData, refreshProjectStatus],
   );
 
   const { connected } = useEventStream(eventHandlers);
