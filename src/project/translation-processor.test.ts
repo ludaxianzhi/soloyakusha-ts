@@ -157,8 +157,27 @@ describe("TranslationProcessor", () => {
         },
       },
     });
+    expect(client.requests[0]?.options?.meta).toMatchObject({
+      label: "翻译-最终翻译",
+      feature: "翻译",
+      operation: "最终翻译",
+      component: "DefaultTranslationProcessor",
+      workflow: "default",
+      context: {
+        chapterId: 1,
+        fragmentIndex: 1,
+        stepId: "translation",
+      },
+    });
     expect(client.requests[1]?.prompt).toContain("term: 王都");
     expect(client.requests[1]?.prompt).toContain("translatedText: Hero gazed at the Royal Capital");
+    expect(client.requests[1]?.options?.meta).toMatchObject({
+      label: "术语更新",
+      feature: "术语",
+      operation: "术语更新",
+      component: "DefaultGlossaryUpdater",
+      workflow: "default",
+    });
     expect(result.glossaryUpdateResult?.responseSchema).toEqual({
       type: "object",
       additionalProperties: false,
@@ -398,6 +417,11 @@ describe("TranslationProcessor", () => {
       "T5",
       "T6",
       "T7",
+    ]);
+    expect(client.requests.map((entry) => entry.options?.meta?.label)).toEqual([
+      "翻译-分析",
+      "翻译-初步翻译",
+      "翻译-润色",
     ]);
   });
 

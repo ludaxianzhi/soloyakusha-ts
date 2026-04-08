@@ -126,6 +126,7 @@ export class AnthropicChatClient extends ChatClient {
 
             let content = "";
             let usageInfo: Record<string, unknown> = {};
+            let reasoning = "";
 
             await collectJsonSse<Record<string, unknown>>(response, async (data) => {
               if (data.type === "content_block_delta") {
@@ -136,6 +137,25 @@ export class AnthropicChatClient extends ChatClient {
                     requestId,
                     completionTextDelta: delta.text,
                   });
+                }
+                if (delta?.type === "thinking_delta") {
+                  const thinkingText = extractAnthropicReasoningDelta(delta);
+                  if (thinkingText) {
+                    reasoning += thinkingText;
+                  }
+                }
+                return;
+              }
+
+              if (data.type === "content_block_start") {
+                const contentBlock = isRecord(data.content_block)
+                  ? data.content_block
+                  : undefined;
+                if (contentBlock?.type === "thinking") {
+                  const thinkingText = extractAnthropicReasoningDelta(contentBlock);
+                  if (thinkingText) {
+                    reasoning += thinkingText;
+                  }
                 }
                 return;
               }
@@ -175,6 +195,7 @@ export class AnthropicChatClient extends ChatClient {
             return {
               content,
               statistics,
+              reasoning,
             };
           } finally {
             release();
@@ -195,9 +216,11 @@ export class AnthropicChatClient extends ChatClient {
         response: result.content,
         requestId,
         requestConfig,
+        meta: options.meta,
         statistics: result.statistics,
         modelName: this.config.modelName,
         durationSeconds,
+        reasoning: result.reasoning || undefined,
       });
       this.requestObserver?.onRequestFinish?.({ requestId });
 
@@ -212,6 +235,17 @@ export class AnthropicChatClient extends ChatClient {
 
 function getInteger(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function extractAnthropicReasoningDelta(value: Record<string, unknown>): string {
+  for (const key of ["thinking", "text", "content"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string") {
+      return candidate;
+    }
+  }
+
+  return "";
 }
 
 function isRetryableAnthropicError(error: unknown): boolean {

@@ -107,6 +107,15 @@ describe("AlignmentRepairTool", () => {
         },
       },
     });
+    expect(chatClient.requests[0]?.options?.meta).toMatchObject({
+      label: "翻译-对齐补翻",
+      feature: "翻译",
+      operation: "对齐补翻",
+      component: "AlignmentRepairTool",
+      context: {
+        missingUnitCount: 1,
+      },
+    });
   });
 });
 

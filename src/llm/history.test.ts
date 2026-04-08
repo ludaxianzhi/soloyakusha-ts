@@ -15,7 +15,7 @@ afterEach(async () => {
   );
 });
 
-test('FileRequestHistoryLogger persists structured JSONL history entries', async () => {
+test('FileRequestHistoryLogger persists structured SQLite history entries', async () => {
   const logDir = await mkdtemp(join(tmpdir(), 'soloyakusha-history-'));
   tempDirs.push(logDir);
 
@@ -32,11 +32,22 @@ test('FileRequestHistoryLogger persists structured JSONL history entries', async
       maxTokens: 2048,
       topP: 0.9,
     },
+    meta: {
+      label: '情节总结',
+      feature: '情节总结',
+      operation: '批次总结',
+      component: 'PlotSummarizer',
+      context: {
+        chapterId: 3,
+        startFragmentIndex: 10,
+      },
+    },
     statistics: {
       promptTokens: 12,
       completionTokens: 34,
       totalTokens: 46,
     },
+    reasoning: '先分析，再回答',
   });
   await logger.logError({
     requestId: 'req-2',
@@ -44,6 +55,11 @@ test('FileRequestHistoryLogger persists structured JSONL history entries', async
     errorMessage: 'rate limited',
     responseBody: '{"error":"slow down"}',
     modelName: 'gpt-test',
+    meta: {
+      label: '情节总结',
+      feature: '情节总结',
+      operation: '批次总结',
+    },
   });
 
   const entries = await readHistoryEntriesFromLogDir(logDir);
@@ -67,10 +83,21 @@ test('FileRequestHistoryLogger persists structured JSONL history entries', async
       maxTokens: 2048,
       topP: 0.9,
     },
+    meta: {
+      label: '情节总结',
+      feature: '情节总结',
+      operation: '批次总结',
+      component: 'PlotSummarizer',
+      context: {
+        chapterId: 3,
+        startFragmentIndex: 10,
+      },
+    },
     statistics: {
       promptTokens: 12,
       completionTokens: 34,
       totalTokens: 46,
     },
+    reasoning: '先分析，再回答',
   });
 });

@@ -10,8 +10,12 @@
  */
 
 import type { ChatClient } from "../llm/base.ts";
-import { withOutputValidator } from "../llm/chat-request.ts";
-import type { ChatRequestOptions, JsonObject } from "../llm/types.ts";
+import { withOutputValidator, withRequestMeta } from "../llm/chat-request.ts";
+import type {
+  ChatRequestOptions,
+  JsonObject,
+  LlmRequestMetadata,
+} from "../llm/types.ts";
 import { getDefaultPromptManager } from "../prompts/index.ts";
 import { TEXT_ALIGN_PLACEHOLDER, TextAligner } from "./text-align.ts";
 
@@ -142,18 +146,21 @@ export class AlignmentRepairTool {
     });
     const responseText = await this.chatClient.singleTurnRequest(
       renderedPrompt.userPrompt,
-      withOutputValidator(
-        buildAlignmentRepairRequestOptions(
-          options.requestOptions,
-          renderedPrompt.systemPrompt,
-          responseSchema,
+      withRequestMeta(
+        withOutputValidator(
+          buildAlignmentRepairRequestOptions(
+            options.requestOptions,
+            renderedPrompt.systemPrompt,
+            responseSchema,
+          ),
+          (candidateResponseText) => {
+            parseAlignmentRepairResponse(
+              candidateResponseText,
+              new Set(analysis.missingUnitIds),
+            );
+          },
         ),
-        (candidateResponseText) => {
-          parseAlignmentRepairResponse(
-            candidateResponseText,
-            new Set(analysis.missingUnitIds),
-          );
-        },
+        buildAlignmentRepairRequestMeta(analysis),
       ),
     );
     const repairs = parseAlignmentRepairResponse(responseText, new Set(analysis.missingUnitIds));
@@ -171,6 +178,23 @@ export class AlignmentRepairTool {
       ),
     };
   }
+}
+
+function buildAlignmentRepairRequestMeta(
+  analysis: AlignmentRepairAnalysis,
+): LlmRequestMetadata {
+  return {
+    label: "翻译-对齐补翻",
+    feature: "翻译",
+    operation: "对齐补翻",
+    component: "AlignmentRepairTool",
+    context: {
+      sourceLineCount: analysis.sourceLineCount,
+      targetLineCount: analysis.targetLineCount,
+      missingUnitCount: analysis.missingUnitCount,
+      missingUnitIds: [...analysis.missingUnitIds],
+    },
+  };
 }
 
 function createAnalysis(

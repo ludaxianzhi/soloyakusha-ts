@@ -1,5 +1,6 @@
 import {
   LlmOutputValidationError,
+  mergeLlmRequestMetadata,
   resolveRequestConfig,
   type ChatRequestOptions,
   type JsonObject,
@@ -92,10 +93,21 @@ export function mergeChatRequestOptions(
     outputValidationContext:
       overrideOptions?.outputValidationContext ??
       defaultOptions?.outputValidationContext,
+    meta: mergeLlmRequestMetadata(defaultOptions?.meta, overrideOptions?.meta),
     requestConfig:
       defaultRequestConfig || overrideRequestConfig
         ? resolveRequestConfig(overrideRequestConfig, defaultRequestConfig)
         : undefined,
+  };
+}
+
+export function withRequestMeta(
+  requestOptions: ChatRequestOptions | undefined,
+  meta: NonNullable<ChatRequestOptions["meta"]>,
+): ChatRequestOptions {
+  return {
+    ...(requestOptions ?? {}),
+    meta: mergeLlmRequestMetadata(requestOptions?.meta, meta),
   };
 }
 

@@ -13,9 +13,14 @@ import type { ChatClient } from "../llm/base.ts";
 import {
   buildJsonSchemaChatRequestOptions,
   mergeChatRequestOptions,
+  withRequestMeta,
   withOutputValidator,
 } from "../llm/chat-request.ts";
-import type { ChatRequestOptions, JsonObject } from "../llm/types.ts";
+import type {
+  ChatRequestOptions,
+  JsonObject,
+  LlmRequestMetadata,
+} from "../llm/types.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
 import { PromptManager, type PromptTranslationUnit } from "./prompt-manager.ts";
 import type { TranslationWorkItem } from "./pipeline.ts";
@@ -141,17 +146,20 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
     });
     const responseText = await this.resolveChatClient().singleTurnRequest(
       renderedPrompt.userPrompt,
-      withOutputValidator(
-        buildJsonSchemaChatRequestOptions(
-          mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
-          renderedPrompt,
+      withRequestMeta(
+        withOutputValidator(
+          buildJsonSchemaChatRequestOptions(
+            mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
+            renderedPrompt,
+          ),
+          (candidateResponseText) => {
+            parseTranslationResponse(
+              candidateResponseText,
+              sourceUnits.map((unit) => unit.id),
+            );
+          },
         ),
-        (candidateResponseText) => {
-          parseTranslationResponse(
-            candidateResponseText,
-            sourceUnits.map((unit) => unit.id),
-          );
-        },
+        this.buildTranslationRequestMeta(request),
       ),
     );
     let translations = parseTranslationResponse(
@@ -179,7 +187,10 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
         untranslatedTerms: untranslatedGlossaryTerms,
         translationUnits: buildGlossaryUpdateTranslationUnits(sourceUnits, translations),
         requirements: request.requirements,
-        requestOptions: request.requestOptions,
+        requestOptions: withRequestMeta(
+          request.requestOptions,
+          this.buildGlossaryUpdateRequestMeta(request, untranslatedGlossaryTerms.length),
+        ),
       });
       glossaryUpdates = glossaryUpdateResult.updates;
     }
@@ -216,6 +227,36 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
     }
 
     return this.clientResolver.provider.getChatClient(this.clientResolver.modelName);
+  }
+
+  private buildTranslationRequestMeta(
+    request: TranslationProcessorRequest,
+  ): LlmRequestMetadata {
+    return {
+      label: "翻译-最终翻译",
+      feature: "翻译",
+      operation: "最终翻译",
+      component: "DefaultTranslationProcessor",
+      workflow: "default",
+      context: buildProcessorRequestContext(this.processorName, request),
+    };
+  }
+
+  private buildGlossaryUpdateRequestMeta(
+    request: TranslationProcessorRequest,
+    glossaryTermCount: number,
+  ): LlmRequestMetadata {
+    return {
+      label: "术语更新",
+      feature: "术语",
+      operation: "术语更新",
+      component: "DefaultTranslationProcessor",
+      workflow: "default",
+      context: {
+        ...buildProcessorRequestContext(this.processorName, request),
+        glossaryTermCount,
+      },
+    };
   }
 }
 
@@ -354,4 +395,24 @@ function getResolvedModelName(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function buildProcessorRequestContext(
+  processorName: string | undefined,
+  request: TranslationProcessorRequest,
+): JsonObject {
+  const context: JsonObject = {};
+  if (processorName) {
+    context.processorName = processorName;
+  }
+
+  if (request.workItemRef) {
+    context.chapterId = request.workItemRef.chapterId;
+    context.fragmentIndex = request.workItemRef.fragmentIndex;
+    if (request.workItemRef.stepId) {
+      context.stepId = request.workItemRef.stepId;
+    }
+  }
+
+  return context;
 }

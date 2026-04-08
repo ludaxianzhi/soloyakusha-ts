@@ -127,6 +127,7 @@ export abstract class ChatClient extends ManagedLlmClient {
             ...options.requestConfig,
           }
         : undefined,
+      meta: options.meta,
       modelName: this.config.modelName,
       durationSeconds: getDurationSeconds(startedAt),
       responseBody,

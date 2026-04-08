@@ -111,7 +111,11 @@ export class LlmClientProvider {
 
     const clients = names.map((name) => this.getChatClient(name));
     if (clients.length === 1) {
-      return clients[0];
+      const [client] = clients;
+      if (!client) {
+        throw new Error("模型回退链不能为空");
+      }
+      return client;
     }
 
     return new FallbackChatClient(clients, {

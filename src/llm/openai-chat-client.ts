@@ -135,6 +135,7 @@ export class OpenAIChatClient extends ChatClient {
             let content = "";
             let usageInfo: Record<string, unknown> = {};
             let thinkingTokensEstimate = 0;
+            let reasoning = "";
 
             const streamResult = await collectJsonSse<Record<string, unknown>>(
               response,
@@ -167,6 +168,7 @@ export class OpenAIChatClient extends ChatClient {
                       continue;
                     }
 
+                    reasoning += reasoningText;
                     thinkingTokensEstimate += estimateTokensFromText(reasoningText);
                     this.requestObserver?.onRequestProgress?.({
                       requestId,
@@ -223,6 +225,7 @@ export class OpenAIChatClient extends ChatClient {
               content,
               statistics,
               thinkingTokensEstimate,
+              reasoning,
             };
           } finally {
             release();
@@ -250,9 +253,11 @@ export class OpenAIChatClient extends ChatClient {
         response: result.content,
         requestId,
         requestConfig,
+        meta: options.meta,
         statistics: result.statistics,
         modelName: this.config.modelName,
         durationSeconds,
+        reasoning: result.reasoning || undefined,
       });
       this.requestObserver?.onRequestFinish?.({
         requestId,

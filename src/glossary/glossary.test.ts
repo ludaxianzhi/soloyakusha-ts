@@ -116,6 +116,13 @@ describe("glossary", () => {
     });
     expect(client.requests[0]?.prompt).toContain("translatedText: Hero arrived at the Royal Capital");
     expect(client.requests[0]?.prompt).toContain("term: 王都");
+    expect(client.requests[0]?.options?.meta).toMatchObject({
+      label: "术语更新",
+      feature: "术语",
+      operation: "术语更新",
+      component: "DefaultGlossaryUpdater",
+      workflow: "default",
+    });
   });
 
   test("persists extended glossary fields as csv", async () => {
@@ -236,6 +243,17 @@ describe("glossary", () => {
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("术语扫描器");
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("只返回 term 和 category 两个字段");
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).not.toContain("description");
+    expect(client.requests[0]?.options?.meta).toMatchObject({
+      label: "术语提取-全文扫描",
+      feature: "术语提取",
+      operation: "全文扫描",
+      component: "FullTextGlossaryScanner",
+      context: {
+        batchIndex: 1,
+        startLineNumber: 1,
+        endLineNumber: 2,
+      },
+    });
     expect(result.glossary.getTerm("勇者")).toMatchObject({
       category: "personName",
       status: "untranslated",

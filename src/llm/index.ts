@@ -13,7 +13,7 @@
  * - {@link AnthropicChatClient}: Anthropic Claude 聊天客户端
  * - {@link OpenAIEmbeddingClient}: OpenAI 嵌入客户端
  * - {@link RateLimiter}: QPS 与并发双重限制器
- * - {@link FileRequestHistoryLogger}: 文件落盘的请求日志记录器
+ * - {@link FileRequestHistoryLogger}: 基于 SQLite 的请求日志记录器
  *
  * @module llm
  */

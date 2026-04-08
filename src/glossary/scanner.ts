@@ -12,8 +12,8 @@
  */
 
 import type { ChatClient } from "../llm/base.ts";
-import { withOutputValidator } from "../llm/chat-request.ts";
-import type { ChatRequestOptions } from "../llm/types.ts";
+import { withOutputValidator, withRequestMeta } from "../llm/chat-request.ts";
+import type { ChatRequestOptions, LlmRequestMetadata } from "../llm/types.ts";
 import { getDefaultPromptManager } from "../prompts/index.ts";
 import { NOOP_LOGGER, type Logger } from "../project/logger.ts";
 import type { TranslationDocumentManager } from "../project/translation-document-manager.ts";
@@ -193,11 +193,14 @@ export class FullTextGlossaryScanner {
         });
         const response = await this.chatClient.singleTurnRequest(
           renderedPrompt.userPrompt,
-          withOutputValidator(
-            buildScanRequestOptions(options.requestOptions, renderedPrompt.systemPrompt),
-            (responseText) => {
-              parseScanResponse(responseText);
-            },
+          withRequestMeta(
+            withOutputValidator(
+              buildScanRequestOptions(options.requestOptions, renderedPrompt.systemPrompt),
+              (responseText) => {
+                parseScanResponse(responseText);
+              },
+            ),
+            this.buildBatchRequestMeta(batch),
           ),
         );
         const extractedEntities = parseScanResponse(response);
@@ -297,6 +300,21 @@ export class FullTextGlossaryScanner {
     }
 
     return lines.join("\n");
+  }
+
+  private buildBatchRequestMeta(batch: FullTextGlossaryScanBatch): LlmRequestMetadata {
+    return {
+      label: "术语提取-全文扫描",
+      feature: "术语提取",
+      operation: "全文扫描",
+      component: "FullTextGlossaryScanner",
+      context: {
+        batchIndex: batch.batchIndex + 1,
+        startLineNumber: batch.startLineNumber,
+        endLineNumber: batch.endLineNumber,
+        charCount: batch.charCount,
+      },
+    };
   }
 }
 

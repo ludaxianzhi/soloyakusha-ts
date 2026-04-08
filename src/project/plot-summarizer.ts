@@ -18,10 +18,15 @@ import { dirname } from "node:path";
 import {
   buildJsonSchemaChatRequestOptions,
   mergeChatRequestOptions,
+  withRequestMeta,
   withOutputValidator,
 } from "../llm/chat-request.ts";
 import type { ChatClient } from "../llm/base.ts";
-import type { ChatRequestOptions, JsonObject } from "../llm/types.ts";
+import type {
+  ChatRequestOptions,
+  JsonObject,
+  LlmRequestMetadata,
+} from "../llm/types.ts";
 import { getDefaultPromptManager } from "../prompts/index.ts";
 import type { PromptManager } from "../prompts/index.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
@@ -312,18 +317,27 @@ export class PlotSummarizer {
     const chatClient = this.resolveChatClient();
     const responseText = await chatClient.singleTurnRequest(
       renderedPrompt.userPrompt,
-      withOutputValidator(
-        buildJsonSchemaChatRequestOptions(
-          mergeChatRequestOptions(this.requestOptions, options?.requestOptions),
-          {
-            name: PLOT_SUMMARY_PROMPT_NAME,
-            systemPrompt: renderedPrompt.systemPrompt,
-            responseSchema,
+      withRequestMeta(
+        withOutputValidator(
+          buildJsonSchemaChatRequestOptions(
+            mergeChatRequestOptions(this.requestOptions, options?.requestOptions),
+            {
+              name: PLOT_SUMMARY_PROMPT_NAME,
+              systemPrompt: renderedPrompt.systemPrompt,
+              responseSchema,
+            },
+          ),
+          (candidateResponseText) => {
+            parsePlotSummaryResponse(candidateResponseText);
           },
         ),
-        (candidateResponseText) => {
-          parsePlotSummaryResponse(candidateResponseText);
-        },
+        this.buildRequestMeta({
+          chapterId,
+          startFragmentIndex,
+          endFragmentIndex,
+          sourceBlockCount: sourceBlocks.length,
+          contextSummaryCount: contextSummaries.length,
+        }),
       ),
     );
 
@@ -373,6 +387,28 @@ export class PlotSummarizer {
     }
 
     return this.clientResolver.provider.getChatClient(this.clientResolver.modelName);
+  }
+
+  private buildRequestMeta(input: {
+    chapterId: number;
+    startFragmentIndex: number;
+    endFragmentIndex: number;
+    sourceBlockCount: number;
+    contextSummaryCount: number;
+  }): LlmRequestMetadata {
+    return {
+      label: "情节总结",
+      feature: "情节总结",
+      operation: "批次总结",
+      component: "PlotSummarizer",
+      context: {
+        chapterId: input.chapterId,
+        startFragmentIndex: input.startFragmentIndex,
+        endFragmentIndex: input.endFragmentIndex,
+        sourceBlockCount: input.sourceBlockCount,
+        contextSummaryCount: input.contextSummaryCount,
+      },
+    };
   }
 }
 

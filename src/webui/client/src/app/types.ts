@@ -15,6 +15,15 @@ export interface LlmRequestHistoryEntry {
   response?: string;
   errorMessage?: string;
   responseBody?: string;
+  meta?: {
+    label: string;
+    feature: string;
+    operation: string;
+    component?: string;
+    workflow?: string;
+    stage?: string;
+    context?: Record<string, unknown>;
+  };
   requestConfig?: {
     systemPrompt?: string;
     temperature?: number;
@@ -29,6 +38,7 @@ export interface LlmRequestHistoryEntry {
   };
   modelName?: string;
   durationSeconds?: number;
+  reasoning?: string;
 }
 
 export interface ManagedWorkspace {

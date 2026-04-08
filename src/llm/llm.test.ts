@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { ChatClient } from "./base.ts";
 import { isRetryableOutputValidationError, runOutputValidator } from "./chat-request.ts";
 import { FallbackChatClient } from "./fallback-chat-client.ts";
+import { OpenAIChatClient } from "./openai-chat-client.ts";
 import { LlmClientProvider } from "./provider.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "./types.ts";
 import { createLlmClientConfig, resolveRequestConfig } from "./types.ts";
@@ -157,6 +158,76 @@ describe("FallbackChatClient", () => {
     ).resolves.toBe('{"ok":true}');
     expect(primary.prompts).toEqual(["prompt", "prompt"]);
     expect(fallback.prompts).toEqual(["prompt"]);
+  });
+});
+
+describe("OpenAIChatClient", () => {
+  test("stores reasoning text and meta in completion history", async () => {
+    const historyEntries: Array<Record<string, unknown>> = [];
+    const originalFetch = globalThis.fetch;
+    const fetchMock = Object.assign(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              const encoder = new TextEncoder();
+              controller.enqueue(
+                encoder.encode(
+                  [
+                    'data: {"choices":[{"delta":{"reasoning_content":"先思考。"}}]}',
+                    'data: {"choices":[{"delta":{"content":"最终答案"}}]}',
+                    'data: {"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"completion_tokens_details":{"reasoning_tokens":2}}}',
+                    "data: [DONE]",
+                    "",
+                  ].join("\n"),
+                ),
+              );
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        ),
+      {
+        preconnect: originalFetch.preconnect,
+      },
+    ) satisfies typeof fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = new OpenAIChatClient(createStubConfig("reasoning-model"), {
+        historyLogger: {
+          async logCompletion(entry) {
+            historyEntries.push(entry as Record<string, unknown>);
+          },
+          async logError(entry) {
+            historyEntries.push(entry as Record<string, unknown>);
+          },
+        },
+      });
+
+      await expect(
+        client.singleTurnRequest("prompt", {
+          meta: {
+            label: "翻译-最终翻译",
+            feature: "翻译",
+            operation: "最终翻译",
+          },
+        }),
+      ).resolves.toBe("最终答案");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(historyEntries).toHaveLength(1);
+    expect(historyEntries[0]).toMatchObject({
+      response: "最终答案",
+      reasoning: "先思考。",
+      meta: {
+        label: "翻译-最终翻译",
+        feature: "翻译",
+        operation: "最终翻译",
+      },
+    });
   });
 });
 

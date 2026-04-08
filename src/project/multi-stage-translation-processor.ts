@@ -27,9 +27,14 @@ import type { ChatClient } from "../llm/base.ts";
 import {
   buildJsonSchemaChatRequestOptions,
   mergeChatRequestOptions,
+  withRequestMeta,
   withOutputValidator,
 } from "../llm/chat-request.ts";
-import type { ChatRequestOptions } from "../llm/types.ts";
+import type {
+  ChatRequestOptions,
+  JsonObject,
+  LlmRequestMetadata,
+} from "../llm/types.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
 import { PromptManager, type PromptTranslationUnit } from "./prompt-manager.ts";
 import type { TranslationWorkItem } from "./pipeline.ts";
@@ -174,7 +179,10 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     this.logger.info?.("LLM1 分析阶段", { processorName: this.processorName });
     const analysisText = await this.resolveClient("analyzer").singleTurnRequest(
       analyzerPrompt.userPrompt,
-      withSystemPrompt(mergedOptions, analyzerPrompt.systemPrompt),
+      withRequestMeta(
+        withSystemPrompt(mergedOptions, analyzerPrompt.systemPrompt),
+        this.buildStepRequestMeta("analyzer", request),
+      ),
     );
 
     // Step 2: LLM2 初步翻译
@@ -188,18 +196,21 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     this.logger.info?.("LLM2 翻译阶段", { processorName: this.processorName });
     const initialResponseText = await this.resolveClient("translator").singleTurnRequest(
       translatorPrompt.userPrompt,
-      withOutputValidator(
-        buildJsonSchemaChatRequestOptions(mergedOptions, {
-          name: translatorPrompt.name,
-          systemPrompt: translatorPrompt.systemPrompt,
-          responseSchema: translatorPrompt.responseSchema,
-        }),
-        (candidateResponseText) => {
-          parseTranslationResponse(
-            candidateResponseText,
-            sourceUnits.map((unit) => unit.id),
-          );
-        },
+      withRequestMeta(
+        withOutputValidator(
+          buildJsonSchemaChatRequestOptions(mergedOptions, {
+            name: translatorPrompt.name,
+            systemPrompt: translatorPrompt.systemPrompt,
+            responseSchema: translatorPrompt.responseSchema,
+          }),
+          (candidateResponseText) => {
+            parseTranslationResponse(
+              candidateResponseText,
+              sourceUnits.map((unit) => unit.id),
+            );
+          },
+        ),
+        this.buildStepRequestMeta("translator", request),
       ),
     );
     let currentTranslations = parseTranslationResponse(
@@ -218,18 +229,21 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     this.logger.info?.("LLM3 润色阶段", { processorName: this.processorName });
     const polishedResponseText = await this.resolveClient("polisher").singleTurnRequest(
       polisherPrompt.userPrompt,
-      withOutputValidator(
-        buildJsonSchemaChatRequestOptions(mergedOptions, {
-          name: polisherPrompt.name,
-          systemPrompt: polisherPrompt.systemPrompt,
-          responseSchema: polisherPrompt.responseSchema,
-        }),
-        (candidateResponseText) => {
-          parseTranslationResponse(
-            candidateResponseText,
-            sourceUnits.map((unit) => unit.id),
-          );
-        },
+      withRequestMeta(
+        withOutputValidator(
+          buildJsonSchemaChatRequestOptions(mergedOptions, {
+            name: polisherPrompt.name,
+            systemPrompt: polisherPrompt.systemPrompt,
+            responseSchema: polisherPrompt.responseSchema,
+          }),
+          (candidateResponseText) => {
+            parseTranslationResponse(
+              candidateResponseText,
+              sourceUnits.map((unit) => unit.id),
+            );
+          },
+        ),
+        this.buildStepRequestMeta("polisher", request),
       ),
     );
     currentTranslations = parseTranslationResponse(
@@ -245,7 +259,10 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
             untranslatedTerms: untranslatedGlossaryTerms,
             translationUnits: buildGlossaryUpdateUnits(sourceUnits, currentTranslations),
             requirements: request.requirements,
-            requestOptions: request.requestOptions,
+            requestOptions: withRequestMeta(
+              request.requestOptions,
+              this.buildGlossaryUpdateRequestMeta(request, untranslatedGlossaryTerms.length),
+            ),
           })
         : Promise.resolve(undefined);
 
@@ -287,11 +304,17 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       const [editorFeedback, proofreaderFeedback] = await Promise.all([
         this.resolveClient("editor").singleTurnRequest(
           editorPrompt.userPrompt,
-          withSystemPrompt(mergedOptions, editorPrompt.systemPrompt),
+          withRequestMeta(
+            withSystemPrompt(mergedOptions, editorPrompt.systemPrompt),
+            this.buildStepRequestMeta("editor", request, round),
+          ),
         ),
         this.resolveClient("proofreader").singleTurnRequest(
           proofreaderPrompt.userPrompt,
-          withSystemPrompt(mergedOptions, proofreaderPrompt.systemPrompt),
+          withRequestMeta(
+            withSystemPrompt(mergedOptions, proofreaderPrompt.systemPrompt),
+            this.buildStepRequestMeta("proofreader", request, round),
+          ),
         ),
       ]);
 
@@ -318,18 +341,21 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
 
       const reviserResponseText = await this.resolveClient("reviser").singleTurnRequest(
         reviserPrompt.userPrompt,
-        withOutputValidator(
-          buildJsonSchemaChatRequestOptions(mergedOptions, {
-            name: reviserPrompt.name,
-            systemPrompt: reviserPrompt.systemPrompt,
-            responseSchema: reviserPrompt.responseSchema,
-          }),
-          (candidateResponseText) => {
-            parseTranslationResponse(
-              candidateResponseText,
-              sourceUnits.map((unit) => unit.id),
-            );
-          },
+        withRequestMeta(
+          withOutputValidator(
+            buildJsonSchemaChatRequestOptions(mergedOptions, {
+              name: reviserPrompt.name,
+              systemPrompt: reviserPrompt.systemPrompt,
+              responseSchema: reviserPrompt.responseSchema,
+            }),
+            (candidateResponseText) => {
+              parseTranslationResponse(
+                candidateResponseText,
+                sourceUnits.map((unit) => unit.id),
+              );
+            },
+          ),
+          this.buildStepRequestMeta("reviser", request, round),
         ),
       );
 
@@ -384,6 +410,45 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     }
 
     return resolver.provider.getChatClient(resolver.modelName);
+  }
+
+  private buildStepRequestMeta(
+    step: MultiStageStepName,
+    request: TranslationProcessorRequest,
+    round?: number,
+  ): LlmRequestMetadata {
+    const operation = getMultiStageOperationLabel(step);
+    const context = buildProcessorRequestContext(this.processorName, request);
+    if (round !== undefined) {
+      context.reviewRound = round + 1;
+    }
+
+    return {
+      label: `翻译-${operation}`,
+      feature: "翻译",
+      operation,
+      component: "MultiStageTranslationProcessor",
+      workflow: "multi-stage",
+      stage: step,
+      context,
+    };
+  }
+
+  private buildGlossaryUpdateRequestMeta(
+    request: TranslationProcessorRequest,
+    glossaryTermCount: number,
+  ): LlmRequestMetadata {
+    return {
+      label: "术语更新",
+      feature: "术语",
+      operation: "术语更新",
+      component: "MultiStageTranslationProcessor",
+      workflow: "multi-stage",
+      context: {
+        ...buildProcessorRequestContext(this.processorName, request),
+        glossaryTermCount,
+      },
+    };
   }
 }
 
@@ -476,6 +541,43 @@ function buildGlossaryUpdateUnits(
     sourceText: unit.text,
     translatedText: translations[index]?.translation ?? "",
   }));
+}
+
+function getMultiStageOperationLabel(step: MultiStageStepName): string {
+  switch (step) {
+    case "analyzer":
+      return "分析";
+    case "translator":
+      return "初步翻译";
+    case "polisher":
+      return "润色";
+    case "editor":
+      return "编辑建议";
+    case "proofreader":
+      return "校对建议";
+    case "reviser":
+      return "最终翻译";
+  }
+}
+
+function buildProcessorRequestContext(
+  processorName: string | undefined,
+  request: TranslationProcessorRequest,
+): JsonObject {
+  const context: JsonObject = {};
+  if (processorName) {
+    context.processorName = processorName;
+  }
+
+  if (request.workItemRef) {
+    context.chapterId = request.workItemRef.chapterId;
+    context.fragmentIndex = request.workItemRef.fragmentIndex;
+    if (request.workItemRef.stepId) {
+      context.stepId = request.workItemRef.stepId;
+    }
+  }
+
+  return context;
 }
 
 function buildOutputText(

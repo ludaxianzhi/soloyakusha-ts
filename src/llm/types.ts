@@ -32,6 +32,16 @@ export type LlmRequestConfig = {
 
 export type LlmRequestConfigInput = Partial<LlmRequestConfig>;
 
+export type LlmRequestMetadata = {
+  label: string;
+  feature: string;
+  operation: string;
+  component?: string;
+  workflow?: string;
+  stage?: string;
+  context?: JsonObject;
+};
+
 export type LlmClientConfig = {
   provider: LlmProvider;
   modelName: string;
@@ -109,6 +119,7 @@ export type ChatRequestOptions = {
   requestConfig?: LlmRequestConfigInput;
   outputValidator?: LlmOutputValidator;
   outputValidationContext?: LlmOutputValidationContext;
+  meta?: LlmRequestMetadata;
 };
 
 export type CompletionLogEntry = {
@@ -116,9 +127,11 @@ export type CompletionLogEntry = {
   response: string;
   requestId: string;
   requestConfig?: LlmRequestConfig;
+  meta?: LlmRequestMetadata;
   statistics?: CompletionResponseStatistics;
   modelName?: string;
   durationSeconds?: number;
+  reasoning?: string;
 };
 
 export type ErrorLogEntry = {
@@ -126,6 +139,7 @@ export type ErrorLogEntry = {
   errorMessage: string;
   requestId: string;
   requestConfig?: LlmRequestConfig;
+  meta?: LlmRequestMetadata;
   modelName?: string;
   durationSeconds?: number;
   responseBody?: string;
@@ -142,9 +156,11 @@ export type LlmRequestHistoryEntry = {
   errorMessage?: string;
   responseBody?: string;
   requestConfig?: LlmRequestConfig;
+  meta?: LlmRequestMetadata;
   statistics?: CompletionResponseStatistics;
   modelName?: string;
   durationSeconds?: number;
+  reasoning?: string;
 };
 
 export type RequestHistoryLogger = {
@@ -232,6 +248,37 @@ export function createLlmClientConfig(
     defaultRequestConfig: input.defaultRequestConfig
       ? resolveRequestConfig(input.defaultRequestConfig)
       : undefined,
+  };
+}
+
+export function mergeLlmRequestMetadata(
+  base: LlmRequestMetadata | undefined,
+  override: LlmRequestMetadata | undefined,
+): LlmRequestMetadata | undefined {
+  if (!base) {
+    return override;
+  }
+
+  if (!override) {
+    return base;
+  }
+
+  const mergedContext =
+    base.context || override.context
+      ? {
+          ...(base.context ?? {}),
+          ...(override.context ?? {}),
+        }
+      : undefined;
+
+  return {
+    label: override.label,
+    feature: override.feature,
+    operation: override.operation,
+    component: override.component ?? base.component,
+    workflow: override.workflow ?? base.workflow,
+    stage: override.stage ?? base.stage,
+    context: mergedContext,
   };
 }
 

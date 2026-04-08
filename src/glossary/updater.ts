@@ -8,10 +8,15 @@ import type { ChatClient } from "../llm/base.ts";
 import {
   buildJsonSchemaChatRequestOptions,
   mergeChatRequestOptions,
+  withRequestMeta,
   withOutputValidator,
 } from "../llm/chat-request.ts";
 import { LlmClientProvider } from "../llm/provider.ts";
-import type { ChatRequestOptions, JsonObject } from "../llm/types.ts";
+import type {
+  ChatRequestOptions,
+  JsonObject,
+  LlmRequestMetadata,
+} from "../llm/types.ts";
 import {
   getDefaultPromptManager,
   type PromptManager as SharedPromptManager,
@@ -136,18 +141,21 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
     const renderedPrompt = await this.renderPrompt(request);
     const responseText = await this.resolveChatClient().singleTurnRequest(
       renderedPrompt.userPrompt,
-      withOutputValidator(
-        buildJsonSchemaChatRequestOptions(
-          mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
-          renderedPrompt,
+      withRequestMeta(
+        withOutputValidator(
+          buildJsonSchemaChatRequestOptions(
+            mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
+            renderedPrompt,
+          ),
+          (candidateResponseText) => {
+            parseGlossaryUpdateResponse(
+              candidateResponseText,
+              request.untranslatedTerms.map((term) => term.term),
+              request.translationUnits.map((unit) => unit.translatedText),
+            );
+          },
         ),
-        (candidateResponseText) => {
-          parseGlossaryUpdateResponse(
-            candidateResponseText,
-            request.untranslatedTerms.map((term) => term.term),
-            request.translationUnits.map((unit) => unit.translatedText),
-          );
-        },
+        this.buildRequestMeta(request),
       ),
     );
     const updates = parseGlossaryUpdateResponse(
@@ -200,6 +208,25 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
     }
 
     return this.clientResolver.provider.getChatClient(this.clientResolver.modelName);
+  }
+
+  private buildRequestMeta(request: GlossaryUpdateRequest): LlmRequestMetadata {
+    const context: JsonObject = {
+      glossaryTermCount: request.untranslatedTerms.length,
+      translationUnitCount: request.translationUnits.length,
+    };
+    if (this.updaterName) {
+      context.updaterName = this.updaterName;
+    }
+
+    return {
+      label: "术语更新",
+      feature: "术语",
+      operation: "术语更新",
+      component: "DefaultGlossaryUpdater",
+      workflow: "default",
+      context,
+    };
   }
 }
 

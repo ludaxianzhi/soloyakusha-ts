@@ -631,6 +631,9 @@ export function WorkspaceView({
                                       {entry.type === 'error' ? 'ERROR' : 'COMPLETION'}
                                     </Tag>
                                     {entry.source ? <Tag>{entry.source}</Tag> : null}
+                                    {entry.meta?.label ? (
+                                      <Tag color="purple">{entry.meta.label}</Tag>
+                                    ) : null}
                                     {entry.modelName ? <Tag color="blue">{entry.modelName}</Tag> : null}
                                     <Typography.Text type="secondary">
                                       {new Date(entry.timestamp).toLocaleString()}
@@ -647,7 +650,14 @@ export function WorkspaceView({
                                     {entry.statistics ? (
                                       <Tag>{`tokens ${entry.statistics.totalTokens}`}</Tag>
                                     ) : null}
+                                    {entry.meta?.stage ? <Tag>{`stage ${entry.meta.stage}`}</Tag> : null}
                                   </Space>
+                                  {entry.meta ? (
+                                    <HistorySection
+                                      title="Meta"
+                                      content={JSON.stringify(entry.meta, null, 2)}
+                                    />
+                                  ) : null}
                                   {entry.requestConfig?.systemPrompt ? (
                                     <HistorySection
                                       title="System Prompt"
@@ -657,6 +667,9 @@ export function WorkspaceView({
                                   <HistorySection title="User Prompt" content={entry.prompt} />
                                   {entry.response ? (
                                     <HistorySection title="Response" content={entry.response} />
+                                  ) : null}
+                                  {entry.reasoning ? (
+                                    <HistorySection title="Reasoning" content={entry.reasoning} />
                                   ) : null}
                                   {entry.errorMessage ? (
                                     <HistorySection title="Error" content={entry.errorMessage} />
@@ -740,28 +753,29 @@ function TaskActivityPanels({
     }
 
     if (task === 'plot' && projectStatus?.plotSummaryProgress) {
+      const plotProgress = projectStatus.plotSummaryProgress;
       visibleTasks.push({
         key: 'plot',
         title: '情节大纲',
-        progress: projectStatus.plotSummaryProgress,
+        progress: plotProgress,
         details: (
           <Space direction="vertical" style={{ width: '100%' }} size={8}>
             <Progress
               percent={toPercent(
-                projectStatus.plotSummaryProgress.completedChapters,
-                projectStatus.plotSummaryProgress.totalChapters,
-                projectStatus.plotSummaryProgress.status,
+                plotProgress.completedChapters,
+                plotProgress.totalChapters,
+                plotProgress.status,
               )}
-              status={toProgressStatus(projectStatus.plotSummaryProgress.status)}
+              status={toProgressStatus(plotProgress.status)}
               format={() =>
-                `${projectStatus.plotSummaryProgress.completedChapters}/${projectStatus.plotSummaryProgress.totalChapters} 章节`
+                `${plotProgress.completedChapters}/${plotProgress.totalChapters} 章节`
               }
             />
             <Space wrap>
-              <Tag>{`批次 ${projectStatus.plotSummaryProgress.completedBatches}/${projectStatus.plotSummaryProgress.totalBatches}`}</Tag>
-              {projectStatus.plotSummaryProgress.currentChapterId != null ? (
+              <Tag>{`批次 ${plotProgress.completedBatches}/${plotProgress.totalBatches}`}</Tag>
+              {plotProgress.currentChapterId != null ? (
                 <Tag color="processing">
-                  {`当前章节 ${projectStatus.plotSummaryProgress.currentChapterId}`}
+                  {`当前章节 ${plotProgress.currentChapterId}`}
                 </Tag>
               ) : null}
             </Space>
