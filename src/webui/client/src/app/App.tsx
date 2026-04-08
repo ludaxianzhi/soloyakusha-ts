@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { App as AntdApp, Button, Form, Layout, Menu, Space, Tag, Typography } from 'antd';
+import { App as AntdApp, Form, Layout, Menu, Space, Tag, Typography } from 'antd';
 import {
   ClockCircleOutlined,
   FolderOpenOutlined,
   PlusCircleOutlined,
-  ReloadOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
@@ -42,6 +41,7 @@ import type {
   WorkspaceChapterDescriptor,
 } from './types.ts';
 import { useEventStream } from './useEventStream.ts';
+import { usePollingTask } from './usePollingTask.ts';
 import { DictionaryEditorModal } from '../components/DictionaryEditorModal.tsx';
 import { RecentWorkspacesView } from '../components/RecentWorkspacesView.tsx';
 import { SettingsView } from '../components/SettingsView.tsx';
@@ -53,6 +53,9 @@ import {
 import { WorkspaceCreatePage } from '../features/workspace-create/WorkspaceCreatePage.tsx';
 
 const { Header, Sider, Content } = Layout;
+const WORKSPACE_STATUS_POLL_INTERVAL_MS = 2_000;
+const WORKSPACE_LOGS_POLL_INTERVAL_MS = 2_000;
+const WORKSPACE_DATA_POLL_INTERVAL_MS = 5_000;
 
 export function AppShell() {
   const { message } = AntdApp.useApp();
@@ -133,6 +136,11 @@ export function AppShell() {
     const status = await api.getProjectStatus();
     setProjectStatus(status);
     setSnapshot(status.snapshot);
+  }, []);
+
+  const refreshProjectLogs = useCallback(async () => {
+    const logsRes = await api.getLogs();
+    setLogs(logsRes.logs);
   }, []);
 
   const refreshProjectData = useCallback(async () => {
@@ -285,6 +293,24 @@ export function AppShell() {
   );
 
   const { connected } = useEventStream(eventHandlers);
+  const isWorkspaceCurrentRoute = location.pathname === '/workspace/current';
+  const workspacePollingEnabled = isWorkspaceCurrentRoute && snapshot !== null;
+
+  usePollingTask({
+    enabled: workspacePollingEnabled,
+    intervalMs: WORKSPACE_STATUS_POLL_INTERVAL_MS,
+    task: refreshProjectStatus,
+  });
+  usePollingTask({
+    enabled: workspacePollingEnabled,
+    intervalMs: WORKSPACE_LOGS_POLL_INTERVAL_MS,
+    task: refreshProjectLogs,
+  });
+  usePollingTask({
+    enabled: workspacePollingEnabled,
+    intervalMs: WORKSPACE_DATA_POLL_INTERVAL_MS,
+    task: refreshProjectData,
+  });
 
   useEffect(() => {
     void refreshBootData();
@@ -672,13 +698,6 @@ export function AppShell() {
     });
   }, [message, runAction]);
 
-  const handleRefreshHistory = useCallback(async () => {
-    await runAction(async () => {
-      const res = await api.getHistory();
-      setHistory(res.history);
-    });
-  }, [runAction]);
-
   const handleDismissTaskActivity = useCallback(
     async (task: TaskActivityKind) => {
       await runAction(async () => {
@@ -921,7 +940,6 @@ export function AppShell() {
               background: 'transparent',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
               padding: '0 16px',
             }}
           >
@@ -934,9 +952,6 @@ export function AppShell() {
               </Tag>
               {projectStatus?.isBusy && <Tag color="gold">正在执行操作</Tag>}
             </Space>
-            <Button icon={<ReloadOutlined />} onClick={() => void refreshBootData()}>
-              刷新状态
-            </Button>
           </Header>
           <Content style={{ padding: 16 }}>
             <Routes>
@@ -954,7 +969,6 @@ export function AppShell() {
                     history={history}
                     workspaceForm={workspaceForm}
                     translatorOptions={translatorOptions}
-                    onRefreshProjectData={() => void refreshProjectData()}
                     onProjectCommand={handleProjectCommand}
                     onOpenDictionaryEditor={openDictionaryEditor}
                     onDeleteDictionary={handleDeleteDictionary}
@@ -969,7 +983,6 @@ export function AppShell() {
                     onDownloadExport={handleDownloadExport}
                     onResetProject={handleResetProject}
                     onClearLogs={handleClearLogs}
-                    onRefreshHistory={handleRefreshHistory}
                     onDismissTaskActivity={handleDismissTaskActivity}
                   />
                 }

@@ -18,16 +18,12 @@ interface WorkspaceHistoryTabProps {
   logs: LogEntry[];
   history: LlmRequestHistoryEntry[];
   onClearLogs: () => void | Promise<void>;
-  onRefreshProjectData: () => void;
-  onRefreshHistory: () => void | Promise<void>;
 }
 
 export function WorkspaceHistoryTab({
   logs,
   history,
   onClearLogs,
-  onRefreshProjectData,
-  onRefreshHistory,
 }: WorkspaceHistoryTabProps) {
   return (
     <Tabs
@@ -41,19 +37,13 @@ export function WorkspaceHistoryTab({
             <LogsPanel
               logs={logs}
               onClearLogs={onClearLogs}
-              onRefreshProjectData={onRefreshProjectData}
             />
           ),
         },
         {
           key: 'llm-history',
           label: 'LLM 请求历史',
-          children: (
-            <LlmHistoryPanel
-              history={history}
-              onRefreshHistory={onRefreshHistory}
-            />
-          ),
+          children: <LlmHistoryPanel history={history} />,
         },
       ]}
     />
@@ -63,11 +53,9 @@ export function WorkspaceHistoryTab({
 function LogsPanel({
   logs,
   onClearLogs,
-  onRefreshProjectData,
 }: {
   logs: LogEntry[];
   onClearLogs: () => void | Promise<void>;
-  onRefreshProjectData: () => void;
 }) {
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
 
@@ -78,7 +66,6 @@ function LogsPanel({
         extra={
           <Space>
             <Button onClick={() => void onClearLogs()}>清空</Button>
-            <Button onClick={onRefreshProjectData}>刷新</Button>
           </Space>
         }
       >
@@ -140,21 +127,12 @@ function LogsPanel({
   );
 }
 
-function LlmHistoryPanel({
-  history,
-  onRefreshHistory,
-}: {
-  history: LlmRequestHistoryEntry[];
-  onRefreshHistory: () => void | Promise<void>;
-}) {
+function LlmHistoryPanel({ history }: { history: LlmRequestHistoryEntry[] }) {
   const [selectedEntry, setSelectedEntry] = useState<LlmRequestHistoryEntry | null>(null);
 
   return (
     <>
-      <Card
-        title="LLM 请求历史"
-        extra={<Button onClick={() => void onRefreshHistory()}>刷新</Button>}
-      >
+      <Card title="LLM 请求历史">
         {history.length === 0 ? (
           <Empty description="暂无请求历史" />
         ) : (

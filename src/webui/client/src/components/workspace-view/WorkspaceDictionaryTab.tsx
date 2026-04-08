@@ -7,7 +7,6 @@ import type { ProjectCommand, TaskActivityKind } from './types.ts';
 interface WorkspaceDictionaryTabProps {
   dictionary: GlossaryTerm[];
   projectStatus: ProjectStatus | null;
-  onRefreshProjectData: () => void;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
@@ -17,7 +16,6 @@ interface WorkspaceDictionaryTabProps {
 export function WorkspaceDictionaryTab({
   dictionary,
   projectStatus,
-  onRefreshProjectData,
   onProjectCommand,
   onOpenDictionaryEditor,
   onDeleteDictionary,
@@ -33,7 +31,6 @@ export function WorkspaceDictionaryTab({
       }
       extra={
         <Space>
-          <Button onClick={onRefreshProjectData}>刷新</Button>
           <Button onClick={() => void onProjectCommand('scan')}>重新扫描</Button>
           <Button type="primary" onClick={() => onOpenDictionaryEditor()}>
             新建条目

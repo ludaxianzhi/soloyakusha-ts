@@ -33,7 +33,6 @@ export interface WorkspaceViewProps {
   history: LlmRequestHistoryEntry[];
   workspaceForm: FormInstance<Record<string, unknown>>;
   translatorOptions: Array<{ label: string; value: string }>;
-  onRefreshProjectData: () => void;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
@@ -61,6 +60,5 @@ export interface WorkspaceViewProps {
     successText: string,
   ) => void | Promise<void>;
   onClearLogs: () => void | Promise<void>;
-  onRefreshHistory: () => void | Promise<void>;
   onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }

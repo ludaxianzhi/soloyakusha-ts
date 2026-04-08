@@ -18,7 +18,6 @@ export function WorkspaceView({
   history,
   workspaceForm,
   translatorOptions,
-  onRefreshProjectData,
   onProjectCommand,
   onOpenDictionaryEditor,
   onDeleteDictionary,
@@ -33,7 +32,6 @@ export function WorkspaceView({
   onDownloadExport,
   onResetProject,
   onClearLogs,
-  onRefreshHistory,
   onDismissTaskActivity,
 }: WorkspaceViewProps) {
   if (!snapshot) {
@@ -72,7 +70,6 @@ export function WorkspaceView({
               <WorkspaceDictionaryTab
                 dictionary={dictionary}
                 projectStatus={projectStatus}
-                onRefreshProjectData={onRefreshProjectData}
                 onProjectCommand={onProjectCommand}
                 onOpenDictionaryEditor={onOpenDictionaryEditor}
                 onDeleteDictionary={onDeleteDictionary}
@@ -119,8 +116,6 @@ export function WorkspaceView({
                 logs={logs}
                 history={history}
                 onClearLogs={onClearLogs}
-                onRefreshProjectData={onRefreshProjectData}
-                onRefreshHistory={onRefreshHistory}
               />
             ),
           },
