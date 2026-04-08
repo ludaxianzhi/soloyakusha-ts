@@ -82,6 +82,7 @@ export type TranslationProjectConfig = {
   projectDir: string;
   chapters: Chapter[];
   glossary?: GlossarySettings;
+  textSplitMaxChars?: number;
   customRequirements?: string[];
 };
 
@@ -358,6 +359,7 @@ export type WorkspaceConfig = {
   glossary: GlossarySettings;
   translator: WorkspaceTranslatorConfig;
   slidingWindow: WorkspaceSlidingWindowConfig;
+  textSplitMaxChars?: number;
   contextSize?: number;
   customRequirements: string[];
   defaultImportFormat?: string;
@@ -374,6 +376,7 @@ export type WorkspaceConfigPatch = {
   glossary?: Partial<GlossarySettings>;
   translator?: { translatorName?: string | null };
   slidingWindow?: Partial<WorkspaceSlidingWindowConfig>;
+  textSplitMaxChars?: number | null;
   contextSize?: number | null;
   customRequirements?: string[];
   defaultImportFormat?: string | null;

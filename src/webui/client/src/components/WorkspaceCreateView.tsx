@@ -1,4 +1,4 @@
-import { Button, Card, Collapse, Form, Input, Select, Upload } from 'antd';
+import { Button, Card, Collapse, Form, Input, InputNumber, Select, Upload } from 'antd';
 import type { FormInstance, UploadFile } from 'antd';
 import { CloudUploadOutlined, FileZipOutlined } from '@ant-design/icons';
 import {
@@ -43,6 +43,7 @@ export function WorkspaceCreateView({
           projectName: '新建项目',
           importPattern: DEFAULT_ARCHIVE_IMPORT_PATTERN,
           languagePair: DEFAULT_LANGUAGE_PAIR,
+          textSplitMaxChars: 2000,
         }}
         onFinish={(values) => void onUploadSubmit(values)}
       >
@@ -63,6 +64,14 @@ export function WorkspaceCreateView({
           extra="使用 glob 模式匹配 ZIP 解压后的章节文件，例如 scenario/**/*.txt。"
         >
           <Input placeholder={DEFAULT_ARCHIVE_IMPORT_PATTERN} />
+        </Form.Item>
+        <Form.Item
+          label="文本切分长度"
+          name="textSplitMaxChars"
+          rules={[{ required: true, message: '请输入文本切分长度' }]}
+          extra="按原文字符数切分文本块，默认 2000。只有整块全部行都有译文时，才会按已翻译导入。"
+        >
+          <InputNumber min={1} precision={0} style={{ width: '100%' }} />
         </Form.Item>
         <Form.Item label="默认翻译器" name="translatorName">
           <Select
@@ -102,7 +111,7 @@ export function WorkspaceCreateView({
                 <Form.Item
                   label="Manifest JSON"
                   name="manifestJson"
-                  extra="可选，用于指定 chapterPaths / branches / glossaryPath 等高级导入配置。"
+                  extra="可选，用于指定 chapterPaths / branches / glossaryPath / textSplitMaxChars / translationImportMode 等高级导入配置。"
                 >
                   <TextArea rows={8} placeholder='{"chapterPaths":["..."]}' />
                 </Form.Item>

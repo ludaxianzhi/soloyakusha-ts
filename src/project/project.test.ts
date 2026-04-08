@@ -465,6 +465,93 @@ describe("TranslationProject", () => {
     expect(readyItems[0]?.fragmentIndex).toBe(1);
   });
 
+  test("imports fully translated fragments as completed work and clears partial fragments", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-imported-translation-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "占位\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "imported-translation",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        parseUnits: () => [
+          { source: "第一行", target: ["Line 1"] },
+          { source: "第二行", target: ["Line 2"] },
+          { source: "第三行", target: ["Line 3"] },
+          { source: "第四行", target: [] },
+        ],
+        textSplitter: {
+          split(units) {
+            return [units.slice(0, 2), units.slice(2, 4)];
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.reconcileImportedTranslations([1], { importTranslation: true });
+
+    expect(project.getFragment(1, 0)?.translation.lines).toEqual(["Line 1", "Line 2"]);
+    expect(project.getFragment(1, 1)?.translation.lines).toEqual(["", ""]);
+
+    const snapshot = project.getProjectSnapshot();
+    expect(snapshot.progress.translatedFragments).toBe(1);
+    expect(snapshot.progress.translatedChapters).toBe(0);
+    expect(snapshot.lifecycle.queuedWorkItems).toBe(1);
+    expect(snapshot.lifecycle.activeWorkItems).toBe(0);
+    expect(snapshot.queueSnapshots[0]?.progress.completedFragments).toBe(1);
+    expect(snapshot.queueSnapshots[0]?.progress.readyFragments).toBe(1);
+    expect(project.getReadyWorkItemSnapshots().map((item) => item.fragmentIndex)).toEqual([1]);
+  });
+
+  test("clears imported translations when source-only import is requested", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-imported-source-only-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "占位\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "imported-source-only",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        parseUnits: () => [
+          { source: "第一行", target: ["Line 1"] },
+          { source: "第二行", target: ["Line 2"] },
+          { source: "第三行", target: ["Line 3"] },
+          { source: "第四行", target: [] },
+        ],
+        textSplitter: {
+          split(units) {
+            return [units.slice(0, 2), units.slice(2, 4)];
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.reconcileImportedTranslations([1], { importTranslation: false });
+
+    expect(project.getFragment(1, 0)?.translation.lines).toEqual(["", ""]);
+    expect(project.getFragment(1, 1)?.translation.lines).toEqual(["", ""]);
+
+    const snapshot = project.getProjectSnapshot();
+    expect(snapshot.progress.translatedFragments).toBe(0);
+    expect(snapshot.lifecycle.queuedWorkItems).toBe(2);
+    expect(snapshot.lifecycle.activeWorkItems).toBe(0);
+    expect(snapshot.queueSnapshots[0]?.progress.completedFragments).toBe(0);
+    expect(snapshot.queueSnapshots[0]?.progress.readyFragments).toBe(1);
+    expect(snapshot.queueSnapshots[0]?.progress.waitingFragments).toBe(1);
+  });
+
   test("resumes from persisted intermediate pipeline steps after interruption", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-resume-"));
     cleanupTargets.push(workspaceDir);

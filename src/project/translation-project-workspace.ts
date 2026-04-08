@@ -362,6 +362,7 @@ export function buildInitialWorkspaceConfig(
     },
     translator: {},
     slidingWindow: {},
+    textSplitMaxChars: config.textSplitMaxChars,
     customRequirements: [...(config.customRequirements ?? [])],
   };
 }
@@ -384,6 +385,7 @@ export function mergePersistedWorkspaceConfig(
       ...current.slidingWindow,
       ...persisted.slidingWindow,
     },
+    textSplitMaxChars: persisted.textSplitMaxChars ?? current.textSplitMaxChars,
     contextSize: persisted.contextSize ?? current.contextSize,
     defaultImportFormat: persisted.defaultImportFormat ?? current.defaultImportFormat,
     defaultExportFormat: persisted.defaultExportFormat ?? current.defaultExportFormat,
@@ -413,6 +415,10 @@ export function applyWorkspaceConfigPatch(
     slidingWindow: patch.slidingWindow
       ? { ...config.slidingWindow, ...patch.slidingWindow }
       : config.slidingWindow,
+    textSplitMaxChars:
+      patch.textSplitMaxChars === null
+        ? undefined
+        : (patch.textSplitMaxChars ?? config.textSplitMaxChars),
     contextSize:
       patch.contextSize === null
         ? undefined

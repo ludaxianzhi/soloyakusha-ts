@@ -2,7 +2,10 @@
  * 工作区 REST API：列表、创建（ZIP 上传）、打开、删除。
  */
 
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { TranslationUnit } from '../../project/types.ts';
+import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { Hono } from 'hono';
 import type { ProjectService } from '../services/project-service.ts';
 import type { WorkspaceManager } from '../services/workspace-manager.ts';
@@ -32,16 +35,31 @@ export function createWorkspaceRoutes(
     const srcLang = (formData.get('srcLang') as string) || undefined;
     const tgtLang = (formData.get('tgtLang') as string) || undefined;
     const manifestJson = (formData.get('manifestJson') as string) || undefined;
+    const textSplitMaxChars = readOptionalPositiveInteger(
+      formData.get('textSplitMaxChars'),
+      'textSplitMaxChars',
+    );
+    const translationImportMode = parseTranslationImportMode(
+      formData.get('translationImportMode'),
+      'translationImportMode',
+    );
 
     if (!file) {
       return c.json({ error: '请上传 ZIP 文件' }, 400);
     }
 
+    let workspaceDir: string | undefined;
     try {
       const manifest = manifestJson ? parseWorkspaceManifest(manifestJson) : undefined;
       const zipBuffer = await file.arrayBuffer();
-      const { workspaceDir, extractedFiles } =
+      const createdWorkspace =
         await workspaceManager.createFromZip(projectName, zipBuffer);
+      workspaceDir = createdWorkspace.workspaceDir;
+      const { extractedFiles } = createdWorkspace;
+      const resolvedImportFormat = manifest?.importFormat ?? importFormat;
+      const resolvedTextSplitMaxChars = manifest?.textSplitMaxChars ?? textSplitMaxChars;
+      const resolvedTranslationImportMode =
+        manifest?.translationImportMode ?? translationImportMode;
 
       const chapterFiles = (
         manifest?.chapterPaths?.length
@@ -54,6 +72,8 @@ export function createWorkspaceRoutes(
       ).sort();
 
       if (chapterFiles.length === 0) {
+        await cleanupWorkspaceDirectory(workspaceDir);
+        workspaceDir = undefined;
         return c.json(
           {
             error:
@@ -67,19 +87,45 @@ export function createWorkspaceRoutes(
         );
       }
 
+      const translationSummary = await inspectImportedTranslationContent(
+        workspaceDir,
+        chapterFiles,
+        resolvedImportFormat,
+      );
+      if (
+        translationSummary.hasTranslatedContent &&
+        resolvedTranslationImportMode === undefined
+      ) {
+        await cleanupWorkspaceDirectory(workspaceDir);
+        workspaceDir = undefined;
+        return c.json(
+          {
+            error: '检测到导入文件中存在已翻译内容，请先选择导入译文还是只导入原文',
+            code: 'translation-choice-required',
+            translatedFileCount: translationSummary.translatedFileCount,
+            translatedUnitCount: translationSummary.translatedUnitCount,
+          },
+          409,
+        );
+      }
+
       const ok = await projectService.initializeProject({
         projectName: manifest?.projectName ?? projectName,
         projectDir: workspaceDir,
         chapterPaths: chapterFiles,
-        importFormat: manifest?.importFormat ?? importFormat,
+        importFormat: resolvedImportFormat,
         translatorName: manifest?.translatorName ?? translatorName,
         srcLang: manifest?.srcLang ?? srcLang,
         tgtLang: manifest?.tgtLang ?? tgtLang,
+        textSplitMaxChars: resolvedTextSplitMaxChars,
+        importTranslation: resolvedTranslationImportMode === 'with-translation',
         glossaryPath: manifest?.glossaryPath,
         branches: manifest?.branches,
       });
 
       if (!ok) {
+        await cleanupWorkspaceDirectory(workspaceDir);
+        workspaceDir = undefined;
         return c.json({ error: '初始化项目失败，请检查日志' }, 500);
       }
 
@@ -90,6 +136,9 @@ export function createWorkspaceRoutes(
         snapshot: projectService.getSnapshot(),
       });
     } catch (error) {
+      if (workspaceDir) {
+        await cleanupWorkspaceDirectory(workspaceDir);
+      }
       return c.json({ error: String(error) }, 500);
     }
   });
@@ -160,8 +209,12 @@ type UploadedWorkspaceManifest = {
   tgtLang?: string;
   importFormat?: string;
   translatorName?: string;
+  textSplitMaxChars?: number;
+  translationImportMode?: TranslationImportMode;
   branches?: BranchImportInput[];
 };
+
+type TranslationImportMode = 'source-only' | 'with-translation';
 
 function isVisibleWorkspaceFile(filePath: string): boolean {
   const lower = filePath.toLowerCase();
@@ -181,6 +234,18 @@ function parseWorkspaceManifest(raw: string): UploadedWorkspaceManifest {
   }
   if (parsed.branches && !Array.isArray(parsed.branches)) {
     throw new Error('manifest.branches 必须是数组');
+  }
+  if (parsed.textSplitMaxChars !== undefined) {
+    parsed.textSplitMaxChars = readOptionalPositiveInteger(
+      parsed.textSplitMaxChars,
+      'manifest.textSplitMaxChars',
+    );
+  }
+  if (parsed.translationImportMode !== undefined) {
+    parsed.translationImportMode = parseTranslationImportMode(
+      parsed.translationImportMode,
+      'manifest.translationImportMode',
+    );
   }
   return parsed;
 }
@@ -240,4 +305,79 @@ async function isLikelyTextFile(filePath: string): Promise<boolean> {
   }
 
   return controlCharCount / sample.length < 0.05;
+}
+
+async function inspectImportedTranslationContent(
+  workspaceDir: string,
+  chapterFiles: string[],
+  importFormat?: string,
+): Promise<{
+  hasTranslatedContent: boolean;
+  translatedFileCount: number;
+  translatedUnitCount: number;
+}> {
+  if (!importFormat) {
+    return {
+      hasTranslatedContent: false,
+      translatedFileCount: 0,
+      translatedUnitCount: 0,
+    };
+  }
+
+  const fileHandler = TranslationFileHandlerFactory.getHandler(importFormat);
+  const unitCounts = await Promise.all(
+    chapterFiles.map(async (filePath) => {
+      const units = await fileHandler.readTranslationUnits(
+        join(workspaceDir, ...filePath.split('/')),
+      );
+      return countTranslatedUnits(units);
+    }),
+  );
+  const translatedFileCount = unitCounts.filter((count) => count > 0).length;
+  const translatedUnitCount = unitCounts.reduce((sum, count) => sum + count, 0);
+  return {
+    hasTranslatedContent: translatedUnitCount > 0,
+    translatedFileCount,
+    translatedUnitCount,
+  };
+}
+
+function countTranslatedUnits(units: TranslationUnit[]): number {
+  return units.filter((unit) =>
+    unit.target.some((target) => target.trim().length > 0),
+  ).length;
+}
+
+function readOptionalPositiveInteger(value: unknown, fieldName: string): number | undefined {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+
+  const parsed =
+    typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${fieldName} 必须是正整数`);
+  }
+
+  return parsed;
+}
+
+function parseTranslationImportMode(
+  value: unknown,
+  fieldName: string,
+): TranslationImportMode | undefined {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+
+  const normalized = String(value);
+  if (normalized === 'source-only' || normalized === 'with-translation') {
+    return normalized;
+  }
+
+  throw new Error(`${fieldName} 必须是 "source-only" 或 "with-translation"`);
+}
+
+async function cleanupWorkspaceDirectory(workspaceDir: string): Promise<void> {
+  await rm(workspaceDir, { recursive: true, force: true });
 }

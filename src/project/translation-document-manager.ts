@@ -412,12 +412,68 @@ export class TranslationDocumentManager {
       const chapter = this.chapters.get(chapterId);
       if (!chapter) continue;
       for (const fragment of chapter.fragments) {
-        fragment.translation = { lines: fragment.source.lines.map(() => "") };
-        fragment.pipelineStates = {};
-        if (fragment.meta) {
-          fragment.meta.targetGroups = fragment.source.lines.map(() => []);
-        }
+        resetFragmentToUntranslated(fragment);
       }
+      await this.saveChapterToDisk(chapter);
+    }
+  }
+
+  async reconcileImportedChapterTranslations(
+    chapterIds: number[],
+    options: {
+      importTranslation: boolean;
+      pipelineStepIds: string[];
+      finalStepId: string;
+    },
+  ): Promise<void> {
+    const affectedIds = [...new Set(chapterIds)];
+    const completedAt = new Date().toISOString();
+
+    for (const chapterId of affectedIds) {
+      const chapter = this.chapters.get(chapterId);
+      if (!chapter) {
+        continue;
+      }
+
+      for (const fragment of chapter.fragments) {
+        if (!options.importTranslation) {
+          resetFragmentToUntranslated(fragment);
+          continue;
+        }
+
+        const normalizedLines = fragment.source.lines.map((_sourceLine, lineIndex) => {
+          const translation = fragment.translation.lines[lineIndex];
+          return hasTranslatedLine(translation) ? translation : "";
+        });
+        const isFullyTranslated =
+          normalizedLines.length === fragment.source.lines.length &&
+          normalizedLines.every((line) => hasTranslatedLine(line));
+
+        if (!isFullyTranslated) {
+          resetFragmentToUntranslated(fragment);
+          continue;
+        }
+
+        fragment.translation = createTextFragment(normalizedLines);
+        if (fragment.meta) {
+          fragment.meta.targetGroups = normalizedLines.map((line, lineIndex) => {
+            const nextGroup = [...(fragment.meta?.targetGroups?.[lineIndex] ?? [])];
+            if (nextGroup.length === 0) {
+              nextGroup.push(line);
+            } else {
+              nextGroup[nextGroup.length - 1] = line;
+            }
+            return nextGroup;
+          });
+        }
+        fragment.pipelineStates = createCompletedPipelineStates(
+          options.pipelineStepIds,
+          options.finalStepId,
+          fragment.translation,
+          completedAt,
+        );
+      }
+
       await this.saveChapterToDisk(chapter);
     }
   }
@@ -694,6 +750,44 @@ function createFragmentEntry(fragmentUnits: TranslationUnit[]): FragmentEntry {
     },
     hash: computeHash(source),
   };
+}
+
+function resetFragmentToUntranslated(fragment: FragmentEntry): void {
+  fragment.translation = { lines: fragment.source.lines.map(() => "") };
+  fragment.pipelineStates = {};
+  if (fragment.meta) {
+    fragment.meta.targetGroups = fragment.source.lines.map(() => []);
+  }
+}
+
+function createCompletedPipelineStates(
+  stepIds: string[],
+  finalStepId: string,
+  translation: TextFragment,
+  completedAt: string,
+): Record<string, FragmentPipelineStepState> {
+  return Object.fromEntries(
+    stepIds.map((stepId, index) => [
+      stepId,
+      {
+        status: "completed",
+        queueSequence: index + 1,
+        attemptCount: 1,
+        queuedAt: completedAt,
+        startedAt: completedAt,
+        completedAt,
+        updatedAt: completedAt,
+        output:
+          stepId === finalStepId
+            ? createTextFragment([...translation.lines])
+            : createTextFragment([...translation.lines]),
+      } satisfies FragmentPipelineStepState,
+    ]),
+  );
+}
+
+function hasTranslatedLine(line: string | undefined): line is string {
+  return typeof line === "string" && line.trim().length > 0;
 }
 
 type FlattenedChapterLine = {

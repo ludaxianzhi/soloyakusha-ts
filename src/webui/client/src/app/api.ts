@@ -22,6 +22,17 @@ type ApiRequestInit = Omit<RequestInit, 'body'> & {
   body?: BodyInit | JsonBody | null;
 };
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly data?: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function request<T>(
   path: string,
   init?: ApiRequestInit,
@@ -46,15 +57,21 @@ async function request<T>(
 
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
+    let data: unknown;
     try {
-      const data = (await response.json()) as { error?: string };
-      if (data.error) {
+      data = (await response.json()) as { error?: string };
+      if (
+        typeof data === 'object' &&
+        data !== null &&
+        'error' in data &&
+        typeof data.error === 'string'
+      ) {
         message = data.error;
       }
     } catch {
       // ignore JSON parsing failure
     }
-    throw new Error(message);
+    throw new ApiError(message, response.status, data);
   }
 
   if (response.status === 204) {

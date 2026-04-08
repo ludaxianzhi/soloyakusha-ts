@@ -71,6 +71,7 @@ import {
   TranslationProjectLifecycleManager,
 } from "./translation-project-lifecycle.ts";
 import { TranslationProjectSnapshotBuilder } from "./translation-project-snapshot.ts";
+import { DefaultTextSplitter } from "./translation-document-manager.ts";
 import {
   buildInitialWorkspaceConfig,
   mergePersistedWorkspaceConfig,
@@ -272,15 +273,24 @@ export class TranslationProject
     } = {},
   ): Promise<TranslationProject> {
     const workspaceConfig = await openWorkspaceConfig(projectDir);
+    const textSplitter =
+      options.textSplitter ??
+      (typeof workspaceConfig.textSplitMaxChars === "number"
+        ? new DefaultTextSplitter(workspaceConfig.textSplitMaxChars)
+        : undefined);
     const project = new TranslationProject(
       {
         projectName: workspaceConfig.projectName,
         projectDir,
         chapters: workspaceConfig.chapters,
         glossary: workspaceConfig.glossary,
+        textSplitMaxChars: workspaceConfig.textSplitMaxChars,
         customRequirements: workspaceConfig.customRequirements,
       },
-      options,
+      {
+        ...options,
+        textSplitter,
+      },
     );
 
     await project.initialize();
@@ -320,6 +330,9 @@ export class TranslationProject
   ): Promise<TranslationImportResult> {
     this.ensureInitialized();
     const result = await this.workspaceManager.addChapter(chapterId, filePath, options);
+    await this.reconcileImportedTranslations([chapterId], {
+      importTranslation: options?.importTranslation ?? false,
+    });
     if (this.storyTopology) {
       this.storyTopology.appendChapter(MAIN_ROUTE_ID, chapterId);
       await this.saveStoryTopology(this.storyTopology);
@@ -868,6 +881,22 @@ export class TranslationProject
     return [...(this.config.customRequirements ?? [])];
   }
 
+  async reconcileImportedTranslations(
+    chapterIds: number[],
+    options: { importTranslation: boolean },
+  ): Promise<void> {
+    this.ensureInitialized();
+    const normalizedChapterIds = [...new Set(chapterIds)];
+    await this.documentManager.reconcileImportedChapterTranslations(normalizedChapterIds, {
+      importTranslation: options.importTranslation,
+      pipelineStepIds: this.pipeline.steps.map((step) => step.id),
+      finalStepId: this.pipeline.finalStepId,
+    });
+    this.queueCache.clear();
+    await this.initializePipelineQueues();
+    await this.lifecycleManager.refreshLifecycleState();
+  }
+
   getCurrentCursor(): ProjectCursor {
     const activeEntry =
       this.listAllQueueEntries().find((entry) => entry.status === "running") ??
@@ -884,6 +913,7 @@ export class TranslationProject
   private async initializePipelineQueues(): Promise<void> {
     this.rebuildNextQueueSequences();
     const now = new Date().toISOString();
+    const finalStepId = this.pipeline.finalStepId;
 
     const updates: Array<{
       chapterId: number;
@@ -901,6 +931,10 @@ export class TranslationProject
     }> = [];
 
     for (const fragment of this.getOrderedFragments()) {
+      if (this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, finalStepId)) {
+        continue;
+      }
+
       const firstStepId = this.pipeline.steps[0]!.id;
       if (!fragment.fragment.pipelineStates[firstStepId]) {
         updates.push({

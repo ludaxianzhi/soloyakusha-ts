@@ -21,6 +21,7 @@ import {
 import type { LlmRequestHistoryEntry } from '../../llm/types.ts';
 import { PlotSummarizer } from '../../project/plot-summarizer.ts';
 import { StoryTopology } from '../../project/story-topology.ts';
+import { DefaultTextSplitter } from '../../project/translation-document-manager.ts';
 import type { Logger } from '../../project/logger.ts';
 import type {
   TranslationProjectSnapshot,
@@ -50,6 +51,8 @@ export interface InitializeProjectInput {
   tgtLang?: string;
   importFormat?: string;
   translatorName?: string;
+  textSplitMaxChars?: number;
+  importTranslation?: boolean;
   branches?: BranchImportInput[];
 }
 
@@ -218,6 +221,7 @@ export class ProjectService {
             glossary: input.glossaryPath?.trim()
               ? { path: input.glossaryPath.trim(), autoFilter: true }
               : undefined,
+            textSplitMaxChars: input.textSplitMaxChars,
             customRequirements: [
               input.srcLang?.trim()
                 ? `源语言: ${input.srcLang.trim()}`
@@ -228,6 +232,10 @@ export class ProjectService {
             ].filter((v): v is string => Boolean(v)),
           },
           {
+            textSplitter:
+              typeof input.textSplitMaxChars === 'number'
+                ? new DefaultTextSplitter(input.textSplitMaxChars)
+                : undefined,
             fileHandlerResolver: input.importFormat
               ? () =>
                   TranslationFileHandlerFactory.getHandler(input.importFormat!)
@@ -260,6 +268,13 @@ export class ProjectService {
           }
           await nextProject.saveStoryTopology(nextTopology);
         }
+
+        await nextProject.reconcileImportedTranslations(
+          nextProject.getChapterDescriptors().map((chapter) => chapter.id),
+          {
+            importTranslation: input.importTranslation ?? false,
+          },
+        );
 
         this.plotSummaryReady = false;
       }
