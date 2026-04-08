@@ -22,12 +22,12 @@ export const GLOBAL_EMBEDDING_CLIENT_NAME = "__global_embedding__";
 
 export type TranslationProcessorConfig = {
   workflow?: string;
-  modelName: string;
+  modelNames: string[];
   slidingWindow?: SlidingWindowOptions;
   requestOptions?: ChatRequestOptions;
   /**
    * 各步骤的 LLM Profile 名称覆盖（供 multi-stage 等多步骤工作流使用）。
-   * key 为步骤标识，value 为 LLM Profile 名称；未指定的步骤使用 modelName 作为默认值。
+   * key 为步骤标识，value 为 LLM Profile 名称；未指定的步骤使用 modelNames 作为默认值。
    */
   models?: Record<string, string>;
   /** 评审迭代次数（仅 multi-stage 工作流使用，默认值为 2）。 */
@@ -35,7 +35,7 @@ export type TranslationProcessorConfig = {
 };
 
 export type GlossaryExtractorConfig = {
-  modelName: string;
+  modelNames: string[];
   maxCharsPerBatch?: number;
   occurrenceTopK?: number;
   occurrenceTopP?: number;
@@ -44,12 +44,12 @@ export type GlossaryExtractorConfig = {
 
 export type GlossaryUpdaterConfig = {
   workflow?: string;
-  modelName: string;
+  modelNames: string[];
   requestOptions?: ChatRequestOptions;
 };
 
 export type PlotSummaryConfig = {
-  modelName: string;
+  modelNames: string[];
   fragmentsPerBatch?: number;
   maxContextSummaries?: number;
   requestOptions?: ChatRequestOptions;
@@ -57,7 +57,7 @@ export type PlotSummaryConfig = {
 
 export type AlignmentRepairConfig = {
   /** 用于对齐补翻 LLM 调用的命名 Chat 配置。 */
-  modelName: string;
+  modelNames: string[];
   requestOptions?: ChatRequestOptions;
 };
 
@@ -131,25 +131,31 @@ export class TranslationGlobalConfig {
       throw new Error("未配置 translationProcessor");
     }
 
-    return { ...config };
+    return { ...config, modelNames: [...config.modelNames] };
   }
 
   getGlossaryUpdaterConfig(): GlossaryUpdaterConfig | undefined {
-    return this.translation?.glossaryUpdater ? { ...this.translation.glossaryUpdater } : undefined;
+    return this.translation?.glossaryUpdater
+      ? { ...this.translation.glossaryUpdater, modelNames: [...this.translation.glossaryUpdater.modelNames] }
+      : undefined;
   }
 
   getGlossaryExtractorConfig(): GlossaryExtractorConfig | undefined {
     return this.translation?.glossaryExtractor
-      ? { ...this.translation.glossaryExtractor }
+      ? { ...this.translation.glossaryExtractor, modelNames: [...this.translation.glossaryExtractor.modelNames] }
       : undefined;
   }
 
   getPlotSummaryConfig(): PlotSummaryConfig | undefined {
-    return this.translation?.plotSummary ? { ...this.translation.plotSummary } : undefined;
+    return this.translation?.plotSummary
+      ? { ...this.translation.plotSummary, modelNames: [...this.translation.plotSummary.modelNames] }
+      : undefined;
   }
 
   getAlignmentRepairConfig(): AlignmentRepairConfig | undefined {
-    return this.translation?.alignmentRepair ? { ...this.translation.alignmentRepair } : undefined;
+    return this.translation?.alignmentRepair
+      ? { ...this.translation.alignmentRepair, modelNames: [...this.translation.alignmentRepair.modelNames] }
+      : undefined;
   }
 
   getEmbeddingConfig(): LlmClientConfigInput | undefined {
@@ -184,10 +190,7 @@ export class TranslationGlobalConfig {
       (glossaryUpdaterConfig
         ? GlossaryUpdaterFactory.createUpdater({
             workflow: glossaryUpdaterConfig.workflow,
-            clientResolver: {
-              provider,
-              modelName: glossaryUpdaterConfig.modelName,
-            },
+            clientResolver: provider.getChatClientWithFallback(glossaryUpdaterConfig.modelNames),
             defaultRequestOptions: glossaryUpdaterConfig.requestOptions,
             logger,
           })
@@ -202,10 +205,7 @@ export class TranslationGlobalConfig {
 
     return TranslationProcessorFactory.createProcessor({
       workflow: config.workflow,
-      clientResolver: {
-        provider,
-        modelName: config.modelName,
-      },
+      clientResolver: provider.getChatClientWithFallback(config.modelNames),
       additionalClientResolvers,
       workflowOptions: config.reviewIterations !== undefined
         ? { reviewIterations: config.reviewIterations }
@@ -280,12 +280,20 @@ function cloneTranslationRuntimeConfig(
   }
 
   const translationProcessor = input.translationProcessor
-    ? { ...input.translationProcessor }
+    ? { ...input.translationProcessor, modelNames: [...input.translationProcessor.modelNames] }
     : undefined;
-  const glossaryExtractor = input.glossaryExtractor ? { ...input.glossaryExtractor } : undefined;
-  const glossaryUpdater = input.glossaryUpdater ? { ...input.glossaryUpdater } : undefined;
-  const plotSummary = input.plotSummary ? { ...input.plotSummary } : undefined;
-  const alignmentRepair = input.alignmentRepair ? { ...input.alignmentRepair } : undefined;
+  const glossaryExtractor = input.glossaryExtractor
+    ? { ...input.glossaryExtractor, modelNames: [...input.glossaryExtractor.modelNames] }
+    : undefined;
+  const glossaryUpdater = input.glossaryUpdater
+    ? { ...input.glossaryUpdater, modelNames: [...input.glossaryUpdater.modelNames] }
+    : undefined;
+  const plotSummary = input.plotSummary
+    ? { ...input.plotSummary, modelNames: [...input.plotSummary.modelNames] }
+    : undefined;
+  const alignmentRepair = input.alignmentRepair
+    ? { ...input.alignmentRepair, modelNames: [...input.alignmentRepair.modelNames] }
+    : undefined;
   if (
     !translationProcessor &&
     !glossaryExtractor &&
@@ -320,7 +328,7 @@ function createOutputRepairer(
 
   const tool = new AlignmentRepairTool(
     new DefaultTextAligner(provider.getEmbeddingClient(GLOBAL_EMBEDDING_CLIENT_NAME)),
-    provider.getChatClient(config.modelName),
+    provider.getChatClientWithFallback(config.modelNames),
   );
 
   return {

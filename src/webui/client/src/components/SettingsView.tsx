@@ -9,7 +9,7 @@ import type {
   TranslationProcessorWorkflowMetadata,
   TranslatorEntry,
 } from '../app/types.ts';
-import { translatorFieldName } from '../app/ui-helpers.ts';
+import { formatModelChain, translatorFieldName } from '../app/ui-helpers.ts';
 import { YamlCodeEditor } from './YamlCodeEditor.tsx';
 
 const { TextArea } = Input;
@@ -335,7 +335,7 @@ export function SettingsView({
                             {workflow ? <Tag color="purple">{workflow.title}</Tag> : null}
                           </Space>
                           <div>{name}</div>
-                          <div>{translator.modelName}</div>
+                          <div>{formatModelChain(translator.modelNames)}</div>
                           {translator.metadata?.description ? (
                             <Paragraph className="settings-list-description" ellipsis={{ rows: 2 }}>
                               {translator.metadata.description}
@@ -476,11 +476,17 @@ export function SettingsView({
                         </Col>
                         <Col span={16}>
                           <Form.Item
-                            name="modelName"
-                            label="模型名"
-                            rules={[{ required: true }]}
+                            name="modelNames"
+                            label="模型链"
+                            extra="按选择顺序执行；后面的模型会作为前面的 Fallback。"
+                            rules={[buildModelChainRule('模型链')]}
                           >
-                            <Select showSearch options={llmProfileOptions} />
+                            <Select
+                              mode="multiple"
+                              showSearch
+                              options={llmProfileOptions}
+                              placeholder="按顺序选择 LLM Profile"
+                            />
                           </Form.Item>
                         </Col>
                       </Row>
@@ -508,11 +514,17 @@ export function SettingsView({
                       <Row gutter={16}>
                         <Col span={12}>
                           <Form.Item
-                            name="modelName"
-                            label="模型名"
-                            rules={[{ required: true }]}
+                            name="modelNames"
+                            label="模型链"
+                            extra="按选择顺序执行；后面的模型会作为前面的 Fallback。"
+                            rules={[buildModelChainRule('模型链')]}
                           >
-                            <Select showSearch options={llmProfileOptions} />
+                            <Select
+                              mode="multiple"
+                              showSearch
+                              options={llmProfileOptions}
+                              placeholder="按顺序选择 LLM Profile"
+                            />
                           </Form.Item>
                         </Col>
                         <Col span={6}>
@@ -549,11 +561,17 @@ export function SettingsView({
                       }
                     >
                       <Form.Item
-                        name="modelName"
-                        label="模型名"
-                        rules={[{ required: true }]}
+                        name="modelNames"
+                        label="模型链"
+                        extra="按选择顺序执行；后面的模型会作为前面的 Fallback。"
+                        rules={[buildModelChainRule('模型链')]}
                       >
-                        <Select showSearch options={llmProfileOptions} />
+                        <Select
+                          mode="multiple"
+                          showSearch
+                          options={llmProfileOptions}
+                          placeholder="按顺序选择 LLM Profile"
+                        />
                       </Form.Item>
                       <Form.Item name="requestOptionsYaml" label="请求选项（YAML）">
                         <YamlCodeEditor height={180} placeholder="temperature: 0.1" />
@@ -624,7 +642,20 @@ function TranslatorFieldSection({
               name={translatorFieldName(field.key)}
               label={field.label}
               tooltip={field.description}
-              rules={field.required ? [{ required: true, message: `请填写${field.label}` }] : undefined}
+              extra={
+                field.input === 'llm-profile'
+                  ? '按选择顺序执行；后面的模型会作为前面的 Fallback。'
+                  : undefined
+              }
+              rules={
+                field.required
+                  ? [
+                      field.input === 'llm-profile'
+                        ? buildModelChainRule(field.label)
+                        : { required: true, message: `请填写${field.label}` },
+                    ]
+                  : undefined
+              }
             >
               {renderTranslatorField(field, llmProfileOptions)}
             </Form.Item>
@@ -640,7 +671,14 @@ function renderTranslatorField(
   llmProfileOptions: Array<{ label: string; value: string }>,
 ) {
   if (field.input === 'llm-profile') {
-    return <Select showSearch options={llmProfileOptions} placeholder="选择一个 LLM Profile" />;
+    return (
+      <Select
+        mode="multiple"
+        showSearch
+        options={llmProfileOptions}
+        placeholder="按顺序选择 LLM Profile"
+      />
+    );
   }
 
   if (field.input === 'number') {
@@ -658,15 +696,32 @@ function AuxiliaryCommonFields({
   return (
     <>
       <Form.Item
-        name="modelName"
-        label="模型名"
-        rules={[{ required: true }]}
+        name="modelNames"
+        label="模型链"
+        extra="按选择顺序执行；后面的模型会作为前面的 Fallback。"
+        rules={[buildModelChainRule('模型链')]}
       >
-        <Select showSearch options={llmProfileOptions} />
+        <Select
+          mode="multiple"
+          showSearch
+          options={llmProfileOptions}
+          placeholder="按顺序选择 LLM Profile"
+        />
       </Form.Item>
       <Form.Item name="requestOptionsYaml" label="请求选项（YAML）">
         <YamlCodeEditor height={180} placeholder="temperature: 0.2" />
       </Form.Item>
     </>
   );
+}
+
+function buildModelChainRule(label: string) {
+  return {
+    validator(_: unknown, value: unknown) {
+      if (Array.isArray(value) && value.length > 0) {
+        return Promise.resolve();
+      }
+      return Promise.reject(new Error(`请至少选择一个${label}`));
+    },
+  };
 }

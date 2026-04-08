@@ -260,7 +260,7 @@ export interface TranslatorMetadata {
 export interface TranslatorEntry {
   metadata?: TranslatorMetadata;
   type?: string;
-  modelName: string;
+  modelNames: string[];
   slidingWindow?: {
     overlapChars?: number;
   };
@@ -289,7 +289,7 @@ export interface TranslationProcessorWorkflowMetadata {
 }
 
 export interface GlossaryExtractorConfig {
-  modelName: string;
+  modelNames: string[];
   maxCharsPerBatch?: number;
   occurrenceTopK?: number;
   occurrenceTopP?: number;
@@ -298,18 +298,18 @@ export interface GlossaryExtractorConfig {
 
 export interface GlossaryUpdaterConfig {
   workflow?: string;
-  modelName: string;
+  modelNames: string[];
   requestOptions?: Record<string, unknown>;
 }
 
 export interface PlotSummaryConfig {
-  modelName: string;
+  modelNames: string[];
   fragmentsPerBatch?: number;
   maxContextSummaries?: number;
   requestOptions?: Record<string, unknown>;
 }
 
 export interface AlignmentRepairConfig {
-  modelName: string;
+  modelNames: string[];
   requestOptions?: Record<string, unknown>;
 }

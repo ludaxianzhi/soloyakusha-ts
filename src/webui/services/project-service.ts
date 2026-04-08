@@ -431,7 +431,7 @@ export class ProjectService {
         const manager = new GlobalConfigManager();
         const globalConfig = await manager.getTranslationGlobalConfig();
         const extractorConfig = globalConfig.getGlossaryExtractorConfig();
-        if (!extractorConfig?.modelName) {
+        if (!extractorConfig || extractorConfig.modelNames.length === 0) {
           throw new Error('未配置术语提取 LLM，请先设置术语提取模型');
         }
 
@@ -447,7 +447,7 @@ export class ProjectService {
         );
 
         const scanner = new FullTextGlossaryScanner(
-          provider.getChatClient(extractorConfig.modelName),
+          provider.getChatClientWithFallback(extractorConfig.modelNames),
           this.createLogger(),
         );
 
@@ -614,7 +614,7 @@ export class ProjectService {
         const manager = new GlobalConfigManager();
         const globalConfig = await manager.getTranslationGlobalConfig();
         const plotConfig = globalConfig.getPlotSummaryConfig();
-        if (!plotConfig?.modelName) {
+        if (!plotConfig || plotConfig.modelNames.length === 0) {
           throw new Error('未配置情节总结 LLM');
         }
 
@@ -636,7 +636,7 @@ export class ProjectService {
         const currentTopology = project.getStoryTopology();
 
         const summarizer = new PlotSummarizer(
-          { provider, modelName: plotConfig.modelName },
+          provider.getChatClientWithFallback(plotConfig.modelNames),
           documentManager,
           summaryPath,
           {
@@ -1223,7 +1223,7 @@ async function createProcessorForProject(
     }
     processorConfig = {
       workflow: entry.type,
-      modelName: entry.modelName,
+      modelNames: entry.modelNames,
       slidingWindow: entry.slidingWindow,
       requestOptions: entry.requestOptions,
       models: entry.models,

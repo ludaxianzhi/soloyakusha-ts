@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  buildTranslatorPayload,
   formatLlmRequestConfigYaml,
+  formatModelChain,
   parseLlmRequestConfigYaml,
   parseYamlObject,
+  translatorFieldName,
+  translatorToForm,
 } from './ui-helpers.ts';
 
 describe('WebUI LLM request config helpers', () => {
@@ -81,5 +85,52 @@ describe('WebUI LLM request config helpers', () => {
         },
       },
     });
+  });
+
+  test('serializes and parses ordered fallback model chains for translator fields', () => {
+    const workflow = {
+      workflow: 'default',
+      title: 'Default',
+      fields: [
+        {
+          key: 'modelNames',
+          label: '默认模型链',
+          input: 'llm-profile' as const,
+          required: true,
+        },
+      ],
+    };
+
+    const formValues = translatorToForm(
+      {
+        modelNames: ['primary', 'fallback-a', 'fallback-b'],
+      },
+      'demo',
+      workflow,
+    );
+
+    expect(formValues[translatorFieldName('modelNames')]).toEqual([
+      'primary',
+      'fallback-a',
+      'fallback-b',
+    ]);
+    expect(
+      buildTranslatorPayload(
+        {
+          [translatorFieldName('modelNames')]: [
+            'primary',
+            'fallback-a',
+            'fallback-b',
+          ],
+        },
+        workflow,
+      ),
+    ).toEqual({
+      modelNames: ['primary', 'fallback-a', 'fallback-b'],
+      type: undefined,
+    });
+    expect(formatModelChain(['primary', 'fallback-a', 'fallback-b'])).toBe(
+      'primary -> fallback-a -> fallback-b',
+    );
   });
 });

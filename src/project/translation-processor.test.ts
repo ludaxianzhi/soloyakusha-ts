@@ -325,10 +325,10 @@ describe("TranslationProcessor", () => {
       retries: 3,
     });
     await manager.setTranslationProcessorConfig({
-      modelName: "shared-chat",
+      modelNames: ["shared-chat"],
     });
     await manager.setAlignmentRepairConfig({
-      modelName: "repair-chat",
+      modelNames: ["repair-chat"],
     });
 
     const config = await manager.getTranslationGlobalConfig();
@@ -448,7 +448,7 @@ describe("TranslationProcessor", () => {
       retries: 3,
     });
     await manager.setTranslationProcessorConfig({
-      modelName: "shared-chat",
+      modelNames: ["shared-chat", "backup-chat"],
       slidingWindow: {
         overlapChars: 8,
       },
@@ -460,7 +460,7 @@ describe("TranslationProcessor", () => {
       },
     });
     await manager.setGlossaryUpdaterConfig({
-      modelName: "glossary-chat",
+      modelNames: ["glossary-chat"],
       requestOptions: {
         requestConfig: {
           topP: 0.4,
@@ -469,7 +469,10 @@ describe("TranslationProcessor", () => {
     });
 
     const config = await manager.getTranslationGlobalConfig();
-    expect(config.getTranslationProcessorConfig().modelName).toBe("shared-chat");
+    expect(config.getTranslationProcessorConfig().modelNames).toEqual([
+      "shared-chat",
+      "backup-chat",
+    ]);
     const providerFromConfig = config.createProvider();
     expect(providerFromConfig).toBeInstanceOf(LlmClientProvider);
 
@@ -485,6 +488,7 @@ describe("TranslationProcessor", () => {
     ]);
     const fakeProvider = new FakeLlmClientProvider({
       "shared-chat": translationClient,
+      "backup-chat": new FakeChatClient([]),
       "glossary-chat": glossaryClient,
     });
     const logger = new MemoryLogger();
@@ -517,6 +521,57 @@ describe("TranslationProcessor", () => {
     });
   });
 
+  test("uses ordered fallback model chain from global config", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-fallback-"));
+    cleanupTargets.push(workspaceDir);
+
+    const configPath = join(workspaceDir, "config.json");
+    const manager = new GlobalConfigManager({ filePath: configPath });
+    await manager.setLlmProfile("primary-chat", {
+      provider: "openai",
+      modelType: "chat",
+      modelName: "gpt-4.1",
+      endpoint: "https://example.com/v1",
+      apiKey: "test-key",
+      retries: 0,
+    });
+    await manager.setLlmProfile("secondary-chat", {
+      provider: "openai",
+      modelType: "chat",
+      modelName: "gpt-4.1-mini",
+      endpoint: "https://example.com/v1",
+      apiKey: "test-key",
+      retries: 0,
+    });
+    await manager.setTranslationProcessorConfig({
+      modelNames: ["primary-chat", "secondary-chat"],
+    });
+
+    const config = await manager.getTranslationGlobalConfig();
+    const primaryClient = new FakeChatClient([new Error("primary failed")]);
+    const secondaryClient = new FakeChatClient([
+      JSON.stringify({
+        translations: [{ id: "1", translation: "Line 1" }],
+      }),
+    ]);
+    const fakeProvider = new FakeLlmClientProvider({
+      "primary-chat": primaryClient,
+      "secondary-chat": secondaryClient,
+    });
+
+    const translator = config.createTranslationProcessor({
+      provider: fakeProvider,
+      logger: new MemoryLogger(),
+    });
+    const result = await translator.process({
+      sourceText: "第一行",
+    });
+
+    expect(result.outputText).toBe("Line 1");
+    expect(primaryClient.requests).toHaveLength(1);
+    expect(secondaryClient.requests).toHaveLength(1);
+  });
+
   test("loads translation settings from nested global config document file", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-file-"));
     cleanupTargets.push(workspaceDir);
@@ -537,11 +592,13 @@ describe("TranslationProcessor", () => {
         "      retries: 3",
         "translation:",
         "  translationProcessor:",
-        '    modelName: "shared-chat"',
+        '    modelNames:',
+        '      - "shared-chat"',
         "    slidingWindow:",
         "      overlapChars: 8",
         "  glossaryUpdater:",
-        '    modelName: "shared-chat"',
+        '    modelNames:',
+        '      - "shared-chat"',
       ].join("\n"),
       "utf8",
     );
@@ -549,13 +606,13 @@ describe("TranslationProcessor", () => {
     const config = await TranslationGlobalConfig.loadFromFile(configPath);
     expect(config.getTranslationProcessorConfig()).toEqual({
       workflow: undefined,
-      modelName: "shared-chat",
+      modelNames: ["shared-chat"],
       slidingWindow: { overlapChars: 8 },
       requestOptions: undefined,
     });
     expect(config.getGlossaryUpdaterConfig()).toEqual({
       workflow: undefined,
-      modelName: "shared-chat",
+      modelNames: ["shared-chat"],
       requestOptions: undefined,
     });
   });
@@ -563,9 +620,9 @@ describe("TranslationProcessor", () => {
 
 class FakeChatClient extends ChatClient {
   readonly requests: Array<{ prompt: string; options?: ChatRequestOptions }> = [];
-  private readonly responses: string[];
+  private readonly responses: Array<string | Error>;
 
-  constructor(responses: string[]) {
+  constructor(responses: Array<string | Error>) {
     super(createFakeChatConfig());
     this.responses = [...responses];
   }
@@ -575,7 +632,11 @@ class FakeChatClient extends ChatClient {
     options?: ChatRequestOptions,
   ): Promise<string> {
     this.requests.push({ prompt, options });
-    return this.responses.shift() ?? '{"translations":[],"glossaryUpdates":[]}';
+    const next = this.responses.shift() ?? '{"translations":[],"glossaryUpdates":[]}';
+    if (next instanceof Error) {
+      throw next;
+    }
+    return next;
   }
 }
 

@@ -57,7 +57,7 @@ export type GlobalLlmConfig = {
 /**
  * 多步骤工作流的各步骤 LLM Profile 名称覆盖。
  * key 为步骤标识（如 "analyzer"、"translator" 等），value 为 LLM Profile 名称。
- * 未指定的步骤使用 TranslatorEntry.modelName 作为默认值。
+ * 未指定的步骤使用 TranslatorEntry.modelNames 作为默认值。
  */
 export type TranslatorModelOverrides = Record<string, string>;
 
@@ -72,8 +72,8 @@ export type TranslatorEntry = {
   metadata?: TranslatorMetadata;
   /** 工作流类型，对应翻译处理器 workflow 参数，留空则使用 "default"。 */
   type?: string;
-  /** 引用的 LLM Profile 名称（同时作为所有步骤的默认模型）。 */
-  modelName: string;
+  /** 引用的 LLM Profile 名称链（同时作为所有步骤的默认模型及回退链）。 */
+  modelNames: string[];
   slidingWindow?: SlidingWindowOptions;
   requestOptions?: ChatRequestOptions;
   /**

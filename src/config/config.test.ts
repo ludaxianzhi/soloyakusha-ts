@@ -167,7 +167,7 @@ describe("GlobalConfigManager", () => {
   test("accepts snake_case aliases in sparse request config", () => {
     const normalized = normalizeTranslationProcessorConfig(
       {
-        modelName: "translator",
+        modelNames: ["translator"],
         requestOptions: {
           requestConfig: {
             top_p: 0.9,
@@ -194,6 +194,74 @@ describe("GlobalConfigManager", () => {
         },
       },
       outputValidationContext: undefined,
+    });
+  });
+
+  test("accepts legacy single modelName fields when reading existing translation config", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-legacy-"));
+    cleanupTargets.push(rootDir);
+
+    const filePath = join(rootDir, "settings.json");
+    await Bun.write(
+      filePath,
+      JSON.stringify(
+        {
+          version: 1,
+          llm: {
+            profiles: {},
+          },
+          translation: {
+            translators: {
+              default: {
+                type: "default",
+                modelName: "legacy-chat",
+              },
+            },
+            glossaryExtractor: {
+              modelName: "legacy-chat",
+              maxCharsPerBatch: 100,
+            },
+            glossaryUpdater: {
+              modelName: "legacy-chat",
+            },
+            plotSummary: {
+              modelName: "legacy-chat",
+              fragmentsPerBatch: 2,
+            },
+            alignmentRepair: {
+              modelName: "legacy-chat",
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const manager = new GlobalConfigManager({ filePath });
+    await manager.setLlmProfile("writer", {
+      provider: "openai",
+      modelType: "chat",
+      modelName: "gpt-4.1",
+      endpoint: "https://example.com/v1",
+      apiKey: "secret",
+      retries: 3,
+    });
+
+    expect(await manager.getTranslator("default")).toMatchObject({
+      modelNames: ["legacy-chat"],
+    });
+    expect(await manager.getGlossaryExtractorConfig()).toMatchObject({
+      modelNames: ["legacy-chat"],
+    });
+    expect(await manager.getGlossaryUpdaterConfig()).toMatchObject({
+      modelNames: ["legacy-chat"],
+    });
+    expect(await manager.getPlotSummaryConfig()).toMatchObject({
+      modelNames: ["legacy-chat"],
+    });
+    expect(await manager.getAlignmentRepairConfig()).toMatchObject({
+      modelNames: ["legacy-chat"],
     });
   });
 
@@ -264,7 +332,7 @@ describe("GlobalConfigManager", () => {
     });
 
     await manager.setTranslationProcessorConfig({
-      modelName: "translator",
+      modelNames: ["translator"],
       slidingWindow: { overlapChars: 12 },
       requestOptions: {
         requestConfig: {
@@ -274,13 +342,13 @@ describe("GlobalConfigManager", () => {
       },
     });
     await manager.setGlossaryExtractorConfig({
-      modelName: "glossary",
+      modelNames: ["glossary", "summary"],
       maxCharsPerBatch: 4096,
       occurrenceTopK: 128,
       occurrenceTopP: 0.25,
     });
     await manager.setGlossaryUpdaterConfig({
-      modelName: "glossary",
+      modelNames: ["glossary"],
       requestOptions: {
         requestConfig: {
           topP: 0.4,
@@ -288,7 +356,7 @@ describe("GlobalConfigManager", () => {
       },
     });
     await manager.setPlotSummaryConfig({
-      modelName: "summary",
+      modelNames: ["summary", "translator"],
       fragmentsPerBatch: 8,
       maxContextSummaries: 10,
     });
@@ -307,7 +375,7 @@ describe("GlobalConfigManager", () => {
       defaultRequestConfig: undefined,
     });
     expect(await reloaded.getTranslationProcessorConfig()).toEqual({
-      modelName: "translator",
+      modelNames: ["translator"],
       workflow: undefined,
       slidingWindow: { overlapChars: 12 },
       requestOptions: {
@@ -319,14 +387,14 @@ describe("GlobalConfigManager", () => {
       },
     });
     expect(await reloaded.getGlossaryExtractorConfig()).toEqual({
-      modelName: "glossary",
+      modelNames: ["glossary", "summary"],
       maxCharsPerBatch: 4096,
       occurrenceTopK: 128,
       occurrenceTopP: 0.25,
       requestOptions: undefined,
     });
     expect(await reloaded.getGlossaryUpdaterConfig()).toEqual({
-      modelName: "glossary",
+      modelNames: ["glossary"],
       workflow: undefined,
       requestOptions: {
         requestConfig: {
@@ -336,7 +404,7 @@ describe("GlobalConfigManager", () => {
       },
     });
     expect(await reloaded.getPlotSummaryConfig()).toEqual({
-      modelName: "summary",
+      modelNames: ["summary", "translator"],
       fragmentsPerBatch: 8,
       maxContextSummaries: 10,
       requestOptions: undefined,
@@ -344,37 +412,37 @@ describe("GlobalConfigManager", () => {
 
     const translationGlobalConfig = await reloaded.getTranslationGlobalConfig();
     expect(translationGlobalConfig).toBeInstanceOf(TranslationGlobalConfig);
-    expect(translationGlobalConfig.getTranslationProcessorConfig().modelName).toBe("translator");
+    expect(translationGlobalConfig.getTranslationProcessorConfig().modelNames).toEqual(["translator"]);
     expect(translationGlobalConfig.getEmbeddingConfig()?.modelName).toBe("text-embedding-3-small");
     expect(translationGlobalConfig.getGlossaryExtractorConfig()).toMatchObject({
-      modelName: "glossary",
+      modelNames: ["glossary", "summary"],
       occurrenceTopK: 128,
       occurrenceTopP: 0.25,
     });
-    expect(translationGlobalConfig.getGlossaryUpdaterConfig()?.modelName).toBe("glossary");
-    expect(translationGlobalConfig.getPlotSummaryConfig()?.modelName).toBe("summary");
+    expect(translationGlobalConfig.getGlossaryUpdaterConfig()?.modelNames).toEqual(["glossary"]);
+    expect(translationGlobalConfig.getPlotSummaryConfig()?.modelNames).toEqual(["summary", "translator"]);
 
     const saved = JSON.parse(await readFile(filePath, "utf8")) as {
       llm?: {
         embedding?: { modelName: string };
       };
       translation?: {
-        translationProcessor?: { modelName: string };
+        translationProcessor?: { modelNames: string[] };
         glossaryExtractor?: {
-          modelName: string;
+          modelNames: string[];
           occurrenceTopK?: number;
           occurrenceTopP?: number;
         };
-        glossaryUpdater?: { modelName: string };
-        plotSummary?: { modelName: string };
+        glossaryUpdater?: { modelNames: string[] };
+        plotSummary?: { modelNames: string[] };
       };
     };
     expect(saved.llm?.embedding?.modelName).toBe("text-embedding-3-small");
-    expect(saved.translation?.translationProcessor?.modelName).toBe("translator");
-    expect(saved.translation?.glossaryExtractor?.modelName).toBe("glossary");
+    expect(saved.translation?.translationProcessor?.modelNames).toEqual(["translator"]);
+    expect(saved.translation?.glossaryExtractor?.modelNames).toEqual(["glossary", "summary"]);
     expect(saved.translation?.glossaryExtractor?.occurrenceTopK).toBe(128);
     expect(saved.translation?.glossaryExtractor?.occurrenceTopP).toBe(0.25);
-    expect(saved.translation?.glossaryUpdater?.modelName).toBe("glossary");
-    expect(saved.translation?.plotSummary?.modelName).toBe("summary");
+    expect(saved.translation?.glossaryUpdater?.modelNames).toEqual(["glossary"]);
+    expect(saved.translation?.plotSummary?.modelNames).toEqual(["summary", "translator"]);
   });
 });

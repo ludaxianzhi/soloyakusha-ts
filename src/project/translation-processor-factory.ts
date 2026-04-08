@@ -95,9 +95,9 @@ export class TranslationProcessorFactory {
           description: "使用单个模型完成译前上下文分析与翻译，配置最少，适合作为通用默认方案。",
           fields: [
             {
-              key: "modelName",
-              label: "默认模型",
-              description: "选择执行整个翻译流程的 LLM Profile。",
+              key: "modelNames",
+              label: "默认模型链",
+              description: "按顺序选择执行整个翻译流程的 LLM Profile，后面的模型会作为前面的回退。",
               input: "llm-profile",
               required: true,
               section: "basic",
@@ -166,9 +166,9 @@ export class TranslationProcessorFactory {
             "先分析再翻译，并在润色、校对与修订阶段循环评审。适合追求质量和一致性的长篇项目。",
           fields: [
             {
-              key: "modelName",
-              label: "默认模型",
-              description: "未单独覆盖步骤时，所有阶段都会使用这个 LLM Profile。",
+              key: "modelNames",
+              label: "默认模型链",
+              description: "未单独覆盖步骤时，所有阶段都会按顺序使用这条 LLM Profile 回退链。",
               input: "llm-profile",
               required: true,
               section: "basic",

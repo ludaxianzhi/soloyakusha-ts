@@ -101,8 +101,31 @@ export function auxToForm(
   }
   return {
     ...config,
+    modelNames: [...config.modelNames],
     requestOptionsYaml: stringifyYaml(config.requestOptions),
   };
+}
+
+export function normalizeModelChain(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const result: string[] = [];
+  for (const item of value) {
+    const normalized = optionalString(item);
+    if (normalized && !result.includes(normalized)) {
+      result.push(normalized);
+    }
+  }
+  return result;
+}
+
+export function formatModelChain(modelNames: ReadonlyArray<string> | undefined): string {
+  if (!modelNames || modelNames.length === 0) {
+    return '-';
+  }
+  return modelNames.join(' -> ');
 }
 
 export function splitLines(value?: string): string[] {
@@ -275,7 +298,7 @@ export function translatorToForm(
   translator: TranslatorEntry | null,
   translatorName: string | undefined,
   workflow: TranslationProcessorWorkflowMetadata | undefined,
-): Record<string, string | number | undefined> {
+): Record<string, string | string[] | number | undefined> {
   if (!translator) {
     return {
       translatorName,
@@ -283,7 +306,7 @@ export function translatorToForm(
     };
   }
 
-  const values: Record<string, string | number | undefined> = {
+  const values: Record<string, string | string[] | number | undefined> = {
     translatorName,
     type: translator.type ?? workflow?.workflow ?? 'default',
     metadataTitle: translator.metadata?.title,
@@ -306,7 +329,7 @@ export function buildTranslatorPayload(
 ): TranslatorEntry {
   const payload: TranslatorEntry = {
     type: workflow.workflow === 'default' ? undefined : workflow.workflow,
-    modelName: '',
+    modelNames: [],
   };
 
   const metadataTitle = optionalString(values.metadataTitle);
@@ -331,8 +354,10 @@ export function buildTranslatorPayload(
 function serializeWorkflowFieldValue(
   field: TranslationProcessorWorkflowFieldMetadata,
   value: unknown,
-): string | number | undefined {
+): string | string[] | number | undefined {
   switch (field.input) {
+    case 'llm-profile':
+      return normalizeModelChain(value);
     case 'yaml':
       return stringifyYaml(value);
     default:
@@ -345,6 +370,8 @@ function parseWorkflowFieldValue(
   field: TranslationProcessorWorkflowFieldMetadata,
 ): unknown {
   switch (field.input) {
+    case 'llm-profile':
+      return normalizeModelChain(value);
     case 'number':
       return optionalNumber(value);
     case 'yaml':

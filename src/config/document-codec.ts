@@ -166,7 +166,7 @@ export function normalizeTranslationProcessorConfig(
 
   return {
     workflow: readOptionalString(value.workflow, `${sourceLabel}.workflow`),
-    modelName: readRequiredString(value.modelName, `${sourceLabel}.modelName`),
+    modelNames: readRequiredModelNames(value, sourceLabel),
     slidingWindow:
       value.slidingWindow === undefined
         ? undefined
@@ -200,7 +200,7 @@ export function normalizeTranslatorEntry(
   return {
     metadata: normalizeTranslatorMetadata(value.metadata, `${sourceLabel}.metadata`),
     type: readOptionalString(value.type, `${sourceLabel}.type`),
-    modelName: readRequiredString(value.modelName, `${sourceLabel}.modelName`),
+    modelNames: readRequiredModelNames(value, sourceLabel),
     slidingWindow:
       value.slidingWindow === undefined
         ? undefined
@@ -262,7 +262,7 @@ export function normalizeGlossaryExtractorConfig(
   }
 
   return {
-    modelName: readRequiredString(value.modelName, `${sourceLabel}.modelName`),
+    modelNames: readRequiredModelNames(value, sourceLabel),
     maxCharsPerBatch: readOptionalPositiveInteger(
       value.maxCharsPerBatch,
       `${sourceLabel}.maxCharsPerBatch`,
@@ -292,7 +292,7 @@ export function normalizeGlossaryUpdaterConfig(
 
   return {
     workflow: readOptionalString(value.workflow, `${sourceLabel}.workflow`),
-    modelName: readRequiredString(value.modelName, `${sourceLabel}.modelName`),
+    modelNames: readRequiredModelNames(value, sourceLabel),
     requestOptions:
       value.requestOptions === undefined
         ? undefined
@@ -309,7 +309,7 @@ export function normalizePlotSummaryConfig(
   }
 
   return {
-    modelName: readRequiredString(value.modelName, `${sourceLabel}.modelName`),
+    modelNames: readRequiredModelNames(value, sourceLabel),
     fragmentsPerBatch: readOptionalPositiveInteger(
       value.fragmentsPerBatch,
       `${sourceLabel}.fragmentsPerBatch`,
@@ -334,7 +334,7 @@ export function normalizeAlignmentRepairConfig(
   }
 
   return {
-    modelName: readRequiredString(value.modelName, `${sourceLabel}.modelName`),
+    modelNames: readRequiredModelNames(value, sourceLabel),
     requestOptions:
       value.requestOptions === undefined
         ? undefined
@@ -481,7 +481,7 @@ export function cloneTranslatorEntry(entry: TranslatorEntry): TranslatorEntry {
   return {
     metadata: entry.metadata ? { ...entry.metadata } : undefined,
     type: entry.type,
-    modelName: entry.modelName,
+    modelNames: [...entry.modelNames],
     slidingWindow: entry.slidingWindow ? { ...entry.slidingWindow } : undefined,
     requestOptions: entry.requestOptions
       ? clonePersistedChatRequestOptions(entry.requestOptions)
@@ -515,7 +515,7 @@ export function cloneTranslationProcessorConfig(
 
   return {
     workflow: config.workflow,
-    modelName: config.modelName,
+    modelNames: [...config.modelNames],
     slidingWindow: config.slidingWindow ? { ...config.slidingWindow } : undefined,
     requestOptions: config.requestOptions
       ? clonePersistedChatRequestOptions(config.requestOptions)
@@ -533,7 +533,7 @@ export function cloneGlossaryExtractorConfig(
   }
 
   return {
-    modelName: config.modelName,
+    modelNames: [...config.modelNames],
     maxCharsPerBatch: config.maxCharsPerBatch,
     occurrenceTopK: config.occurrenceTopK,
     occurrenceTopP: config.occurrenceTopP,
@@ -552,7 +552,7 @@ export function cloneGlossaryUpdaterConfig(
 
   return {
     workflow: config.workflow,
-    modelName: config.modelName,
+    modelNames: [...config.modelNames],
     requestOptions: config.requestOptions
       ? clonePersistedChatRequestOptions(config.requestOptions)
       : undefined,
@@ -567,7 +567,7 @@ export function clonePlotSummaryConfig(
   }
 
   return {
-    modelName: config.modelName,
+    modelNames: [...config.modelNames],
     fragmentsPerBatch: config.fragmentsPerBatch,
     maxContextSummaries: config.maxContextSummaries,
     requestOptions: config.requestOptions
@@ -584,7 +584,7 @@ export function cloneAlignmentRepairConfig(
   }
 
   return {
-    modelName: config.modelName,
+    modelNames: [...config.modelNames],
     requestOptions: config.requestOptions
       ? clonePersistedChatRequestOptions(config.requestOptions)
       : undefined,
@@ -799,7 +799,8 @@ function readAliasedConfigValue(
       `${sourceLabel} 中 ${matchedKeys.join(" / ")} 只能配置其中一个`,
     );
   }
-  return matchedKeys.length === 0 ? undefined : value[matchedKeys[0]];
+  const matchedKey = matchedKeys[0];
+  return matchedKey === undefined ? undefined : value[matchedKey];
 }
 
 function cloneSparseRequestConfig(config: LlmRequestConfigInput): LlmRequestConfigInput {
@@ -918,6 +919,37 @@ function readRequiredString(value: unknown, sourceLabel: string): string {
   }
 
   return result;
+}
+
+function readRequiredStringArray(value: unknown, sourceLabel: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`必须配置非空字符串数组: ${sourceLabel}`);
+  }
+
+  const result: string[] = [];
+  for (const [index, entry] of value.entries()) {
+    const normalized = readRequiredString(entry, `${sourceLabel}[${index}]`);
+    if (!result.includes(normalized)) {
+      result.push(normalized);
+    }
+  }
+
+  if (result.length === 0) {
+    throw new Error(`必须配置至少一个模型: ${sourceLabel}`);
+  }
+
+  return result;
+}
+
+function readRequiredModelNames(
+  value: Record<string, unknown>,
+  sourceLabel: string,
+): string[] {
+  if (value.modelNames !== undefined) {
+    return readRequiredStringArray(value.modelNames, `${sourceLabel}.modelNames`);
+  }
+
+  return [readRequiredString(value.modelName, `${sourceLabel}.modelName`)];
 }
 
 function readOptionalString(value: unknown, sourceLabel: string): string | undefined {

@@ -97,14 +97,14 @@ describe("generateTrainingDataset", () => {
         logger,
         configManager: createFakeConfigManager({
           glossaryExtractorConfig: {
-            modelName: "dict-model",
+            modelNames: ["dict-model"],
             maxCharsPerBatch: 100,
           },
           glossaryUpdaterConfig: {
-            modelName: "dict-model",
+            modelNames: ["dict-model"],
           },
           plotSummaryConfig: {
-            modelName: "outline-model",
+            modelNames: ["outline-model"],
             fragmentsPerBatch: 1,
             maxContextSummaries: 20,
           },
@@ -253,7 +253,7 @@ describe("generateTrainingDataset", () => {
       {
         configManager: createFakeConfigManager({
           glossaryExtractorConfig: {
-            modelName: "dict-model",
+            modelNames: ["dict-model"],
             maxCharsPerBatch: 100,
           },
         }),
@@ -346,7 +346,7 @@ describe("generateTrainingDataset", () => {
       {
         configManager: createFakeConfigManager({
           glossaryExtractorConfig: {
-            modelName: "dict-model",
+            modelNames: ["dict-model"],
             maxCharsPerBatch: 100,
           },
         }),
@@ -484,14 +484,14 @@ describe("generateTrainingDataset", () => {
         configManager: createFakeConfigManager({
           availableModels: ["dict-model", "outline-primary", "outline-fallback"],
           glossaryExtractorConfig: {
-            modelName: "dict-model",
+            modelNames: ["dict-model"],
             maxCharsPerBatch: 100,
           },
           glossaryUpdaterConfig: {
-            modelName: "dict-model",
+            modelNames: ["dict-model"],
           },
           plotSummaryConfig: {
-            modelName: "outline-primary",
+            modelNames: ["outline-primary"],
             fragmentsPerBatch: 1,
             maxContextSummaries: 20,
           },
@@ -603,14 +603,14 @@ describe("generateTrainingDataset", () => {
         configManager: createFakeConfigManager({
           availableModels: ["dict-primary", "dict-fallback", "outline-model"],
           glossaryExtractorConfig: {
-            modelName: "dict-primary",
+            modelNames: ["dict-primary"],
             maxCharsPerBatch: 100,
           },
           glossaryUpdaterConfig: {
-            modelName: "dict-primary",
+            modelNames: ["dict-primary"],
           },
           plotSummaryConfig: {
-            modelName: "outline-model",
+            modelNames: ["outline-model"],
             fragmentsPerBatch: 1,
             maxContextSummaries: 20,
           },

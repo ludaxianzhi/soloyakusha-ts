@@ -12,6 +12,7 @@ import { api } from './api.ts';
 import {
   auxToForm,
   buildTranslatorPayload,
+  normalizeModelChain,
   parseLlmRequestConfigYaml,
   optionalNumber,
   optionalString,
@@ -828,7 +829,7 @@ export function AppShell() {
       await runAction(async () => {
         if (kind === 'extractor') {
           await api.saveGlossaryExtractor({
-            modelName: String(values.modelName ?? ''),
+            modelNames: normalizeModelChain(values.modelNames),
             maxCharsPerBatch: optionalNumber(values.maxCharsPerBatch),
             occurrenceTopK: optionalNumber(values.occurrenceTopK),
             occurrenceTopP: optionalNumber(values.occurrenceTopP),
@@ -837,19 +838,19 @@ export function AppShell() {
         } else if (kind === 'updater') {
           await api.saveGlossaryUpdater({
             workflow: optionalString(values.workflow),
-            modelName: String(values.modelName ?? ''),
+            modelNames: normalizeModelChain(values.modelNames),
             requestOptions: parseYamlObject(values.requestOptionsYaml),
           });
         } else if (kind === 'plot') {
           await api.savePlotSummaryConfig({
-            modelName: String(values.modelName ?? ''),
+            modelNames: normalizeModelChain(values.modelNames),
             fragmentsPerBatch: optionalNumber(values.fragmentsPerBatch),
             maxContextSummaries: optionalNumber(values.maxContextSummaries),
             requestOptions: parseYamlObject(values.requestOptionsYaml),
           });
         } else {
           await api.saveAlignmentRepairConfig({
-            modelName: String(values.modelName ?? ''),
+            modelNames: normalizeModelChain(values.modelNames),
             requestOptions: parseYamlObject(values.requestOptionsYaml),
           });
         }
