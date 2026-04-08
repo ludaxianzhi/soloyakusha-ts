@@ -13,6 +13,7 @@ import type {
   TranslationProjectSnapshot,
   TranslatorEntry,
   TranslationPreviewChapter,
+  WorkspaceArchiveManifest,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
 } from './types.ts';
@@ -82,6 +83,44 @@ async function request<T>(
   return (await response.json()) as T;
 }
 
+async function requestBlob(path: string, init?: ApiRequestInit): Promise<Blob> {
+  const headers = new Headers(init?.headers);
+  let body = init?.body;
+  if (
+    body &&
+    !(body instanceof FormData) &&
+    !(body instanceof Blob) &&
+    typeof body !== 'string'
+  ) {
+    headers.set('Content-Type', 'application/json');
+    body = JSON.stringify(body);
+  }
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+    body: body ?? undefined,
+  });
+
+  if (!response.ok) {
+    let message = `${response.status} ${response.statusText}`;
+    try {
+      const data = (await response.json()) as { error?: string };
+      if (typeof data?.error === 'string') {
+        message = data.error;
+      }
+    } catch {
+      const fallbackText = await response.text().catch(() => '');
+      if (fallbackText) {
+        message = fallbackText;
+      }
+    }
+    throw new Error(message);
+  }
+
+  return response.blob();
+}
+
 export const api = {
   listWorkspaces: () =>
     request<{ workspaces: ManagedWorkspace[] }>('/api/workspaces'),
@@ -104,6 +143,18 @@ export const api = {
       method: 'POST',
       body: formData,
     }),
+  importWorkspaceArchive: (file: File) => {
+    const formData = new FormData();
+    formData.set('file', file);
+    return request<{
+      workspaceDir: string;
+      extractedFiles: string[];
+      manifest: WorkspaceArchiveManifest;
+    }>('/api/workspaces/import', {
+      method: 'POST',
+      body: formData,
+    });
+  },
   deleteWorkspace: (dir: string) =>
     request<{ ok: boolean }>('/api/workspaces', {
       method: 'DELETE',
@@ -176,17 +227,17 @@ export const api = {
   getLogs: () => request<{ logs: LogEntry[] }>('/api/events/logs'),
   clearLogs: () => request('/api/events/logs/clear', { method: 'POST' }),
 
-  async downloadExport(format: string): Promise<Blob> {
-    const response = await fetch(`${API_BASE}/api/project/export`, {
+  downloadExport: (format: string) =>
+    requestBlob('/api/project/export', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ format }),
-    });
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-    return response.blob();
-  },
+      body: { format },
+    }),
+
+  downloadWorkspaceArchive: (dir: string) =>
+    requestBlob('/api/workspaces/export', {
+      method: 'POST',
+      body: { dir },
+    }),
 
   getLlmProfiles: () =>
     request<{

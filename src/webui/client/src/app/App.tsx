@@ -64,6 +64,10 @@ export function AppShell() {
   const [dictionaryModalOpen, setDictionaryModalOpen] = useState(false);
   const [editingTerm, setEditingTerm] = useState<GlossaryTerm | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
+  const [importingWorkspaceArchive, setImportingWorkspaceArchive] = useState(false);
+  const [exportingWorkspaceArchiveDir, setExportingWorkspaceArchiveDir] = useState<
+    string | null
+  >(null);
   const [llmProfiles, setLlmProfiles] = useState<Record<string, LlmProfileConfig>>({});
   const [defaultLlmName, setDefaultLlmName] = useState<string>();
   const [translators, setTranslators] = useState<Record<string, TranslatorEntry>>({});
@@ -390,6 +394,51 @@ export function AppShell() {
       });
     },
     [message, refreshBootData, runAction],
+  );
+
+  const handleImportWorkspaceArchive = useCallback(
+    async (file: File) => {
+      if (importingWorkspaceArchive) {
+        return;
+      }
+
+      setImportingWorkspaceArchive(true);
+      try {
+        const result = await api.importWorkspaceArchive(file);
+        await refreshBootData();
+        message.success(`工作区已导入：${result.manifest.projectName}`);
+      } catch (error) {
+        message.error(toErrorMessage(error));
+      } finally {
+        setImportingWorkspaceArchive(false);
+      }
+    },
+    [importingWorkspaceArchive, message, refreshBootData],
+  );
+
+  const handleExportWorkspaceArchive = useCallback(
+    async (workspace: ManagedWorkspace) => {
+      if (exportingWorkspaceArchiveDir === workspace.dir) {
+        return;
+      }
+
+      setExportingWorkspaceArchiveDir(workspace.dir);
+      try {
+        const blob = await api.downloadWorkspaceArchive(workspace.dir);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${workspace.name}-workspace.zip`;
+        link.click();
+        URL.revokeObjectURL(url);
+        message.success(`已开始导出工作区：${workspace.name}`);
+      } catch (error) {
+        message.error(toErrorMessage(error));
+      } finally {
+        setExportingWorkspaceArchiveDir(null);
+      }
+    },
+    [exportingWorkspaceArchiveDir, message],
   );
 
   const handleProjectCommand = useCallback(
@@ -898,6 +947,10 @@ export function AppShell() {
                     onRefreshBootData={() => void refreshBootData()}
                     onOpenWorkspace={handleOpenWorkspace}
                     onDeleteWorkspace={handleDeleteWorkspace}
+                    onImportWorkspaceArchive={handleImportWorkspaceArchive}
+                    onExportWorkspaceArchive={handleExportWorkspaceArchive}
+                    importingArchive={importingWorkspaceArchive}
+                    exportingArchiveDir={exportingWorkspaceArchiveDir ?? undefined}
                   />
                 }
               />

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { GlobalConfigManager } from '../../config/manager.ts';
@@ -47,4 +47,52 @@ test('WorkspaceManager lists managed workspaces discovered from workspace config
     managed: true,
   });
   expect(workspaces[0]?.lastOpenedAt).toBeString();
+});
+
+test('WorkspaceManager can import and export complete workspace archives', async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'soloyakusha-workspace-manager-'));
+  tempDirs.push(tempRoot);
+
+  const baseDir = join(tempRoot, 'workspaces');
+  const configPath = join(tempRoot, 'config.json');
+  const registry = new WorkspaceRegistry(
+    new GlobalConfigManager({ filePath: configPath }),
+  );
+  const manager = new WorkspaceManager(baseDir, registry);
+
+  const sourceWorkspaceDir = join(tempRoot, 'source-workspace');
+  await mkdir(join(sourceWorkspaceDir, 'Data'), { recursive: true });
+  await mkdir(join(sourceWorkspaceDir, 'chapters'), { recursive: true });
+  await writeFile(
+    join(sourceWorkspaceDir, 'Data', 'workspace-config.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      projectName: 'Roundtrip Workspace',
+      chapters: [{ id: 1, filePath: 'chapters/001.txt' }],
+      glossary: { path: 'Data/glossary.json', autoFilter: true },
+      translator: {},
+      slidingWindow: {},
+      customRequirements: [],
+    }),
+  );
+  await writeFile(
+    join(sourceWorkspaceDir, 'Data', 'project-state.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      pipeline: { stepIds: [], finalStepId: '' },
+      lifecycle: { status: 'idle' },
+    }),
+  );
+  await writeFile(join(sourceWorkspaceDir, 'chapters', '001.txt'), 'hello archive');
+
+  const exported = await manager.exportWorkspaceArchive(sourceWorkspaceDir);
+  const imported = await manager.importWorkspaceArchive(
+    Uint8Array.from(new Uint8Array(exported.archive.buffer)).buffer,
+  );
+
+  expect(imported.manifest.projectName).toBe('Roundtrip Workspace');
+  expect(imported.workspaceDir.startsWith(baseDir)).toBe(true);
+  expect(await readFile(join(imported.workspaceDir, 'chapters', '001.txt'), 'utf8')).toBe(
+    'hello archive',
+  );
 });

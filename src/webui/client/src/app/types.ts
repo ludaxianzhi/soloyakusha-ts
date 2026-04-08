@@ -48,6 +48,17 @@ export interface ManagedWorkspace {
   managed: boolean;
 }
 
+export interface WorkspaceArchiveManifest {
+  archiveType: 'workspace';
+  archiveVersion: 1;
+  workspaceRoot: string;
+  projectName: string;
+  exportedAt: string;
+  sourceDirectoryName: string;
+  workspaceSchemaVersion: number;
+  projectStateSchemaVersion: number;
+}
+
 export interface PlotSummaryProgress {
   status: 'running' | 'done' | 'error';
   totalChapters: number;

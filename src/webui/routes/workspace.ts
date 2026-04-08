@@ -143,6 +143,45 @@ export function createWorkspaceRoutes(
     }
   });
 
+  /** 导入完整工作区归档 */
+  app.post('/import', async (c) => {
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File | null;
+
+    if (!file) {
+      return c.json({ error: '请上传 ZIP 文件' }, 400);
+    }
+
+    try {
+      const zipBuffer = await file.arrayBuffer();
+      const imported = await workspaceManager.importWorkspaceArchive(zipBuffer);
+      return c.json(imported);
+    } catch (error) {
+      return c.json({ error: String(error) }, 400);
+    }
+  });
+
+  /** 导出完整工作区归档 */
+  app.post('/export', async (c) => {
+    const body = await c.req.json<{ dir: string }>();
+    if (!body.dir) {
+      return c.json({ error: '缺少 dir 参数' }, 400);
+    }
+
+    try {
+      const { archive, manifest } = await workspaceManager.exportWorkspaceArchive(body.dir);
+      const fileName = `${sanitizeFileName(manifest.projectName)}-workspace.zip`;
+      return new Response(new Blob([copyArrayBuffer(archive.buffer)]), {
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+        },
+      });
+    } catch (error) {
+      return c.json({ error: String(error) }, 400);
+    }
+  });
+
   /** 打开已有工作区 */
   app.post('/open', async (c) => {
     const body = await c.req.json<{ dir: string; projectName?: string }>();
@@ -380,4 +419,13 @@ function parseTranslationImportMode(
 
 async function cleanupWorkspaceDirectory(workspaceDir: string): Promise<void> {
   await rm(workspaceDir, { recursive: true, force: true });
+}
+
+function sanitizeFileName(name: string): string {
+  const normalized = name.trim().replace(/[^\w\-\u4e00-\u9fff]+/g, '_');
+  return normalized || 'workspace';
+}
+
+function copyArrayBuffer(buffer: ArrayBufferLike): ArrayBuffer {
+  return Uint8Array.from(new Uint8Array(buffer)).buffer;
 }

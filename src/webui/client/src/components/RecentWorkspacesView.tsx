@@ -1,5 +1,11 @@
+import { useCallback, useRef } from 'react';
 import { Button, Card, Empty, Popconfirm, Space, Tag, Typography } from 'antd';
-import { FolderOpenOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  DownloadOutlined,
+  FolderOpenOutlined,
+  ReloadOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
 import type { ManagedWorkspace } from '../app/types.ts';
 
 interface RecentWorkspacesViewProps {
@@ -7,6 +13,10 @@ interface RecentWorkspacesViewProps {
   onRefreshBootData: () => void;
   onOpenWorkspace: (workspace: ManagedWorkspace) => void | Promise<void>;
   onDeleteWorkspace: (workspace: ManagedWorkspace) => void | Promise<void>;
+  onImportWorkspaceArchive: (file: File) => void | Promise<void>;
+  onExportWorkspaceArchive: (workspace: ManagedWorkspace) => void | Promise<void>;
+  importingArchive?: boolean;
+  exportingArchiveDir?: string;
 }
 
 export function RecentWorkspacesView({
@@ -14,7 +24,29 @@ export function RecentWorkspacesView({
   onRefreshBootData,
   onOpenWorkspace,
   onDeleteWorkspace,
+  onImportWorkspaceArchive,
+  onExportWorkspaceArchive,
+  importingArchive,
+  exportingArchiveDir,
 }: RecentWorkspacesViewProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleOpenImportDialog = useCallback(() => {
+    inputRef.current?.click();
+  }, []);
+
+  const handleImportFileChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) {
+        return;
+      }
+      void onImportWorkspaceArchive(file);
+    },
+    [onImportWorkspaceArchive],
+  );
+
   return (
     <Card
       size="small"
@@ -25,11 +57,27 @@ export function RecentWorkspacesView({
         </>
       }
       extra={
-        <Button icon={<ReloadOutlined />} onClick={onRefreshBootData}>
-          刷新
-        </Button>
+        <Space>
+          <Button
+            icon={<UploadOutlined />}
+            onClick={handleOpenImportDialog}
+            loading={importingArchive}
+          >
+            导入工作区
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={onRefreshBootData}>
+            刷新
+          </Button>
+        </Space>
       }
     >
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".zip"
+        style={{ display: 'none' }}
+        onChange={handleImportFileChange}
+      />
       {workspaces.length === 0 ? (
         <Empty description="暂无工作区" />
       ) : (
@@ -53,6 +101,14 @@ export function RecentWorkspacesView({
                   </div>
                 </div>
                 <Space>
+                  <Button
+                    type="link"
+                    icon={<DownloadOutlined />}
+                    loading={exportingArchiveDir === workspace.dir}
+                    onClick={() => void onExportWorkspaceArchive(workspace)}
+                  >
+                    导出
+                  </Button>
                   <Button type="link" onClick={() => void onOpenWorkspace(workspace)}>
                     打开
                   </Button>

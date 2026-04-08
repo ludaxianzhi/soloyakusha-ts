@@ -10,6 +10,11 @@ import JSZip from 'jszip';
 import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
 import type { WorkspaceEntry } from '../../config/types.ts';
 import { openWorkspaceConfig } from '../../project/translation-project-workspace.ts';
+import {
+  exportWorkspaceArchive,
+  importWorkspaceArchive,
+  type WorkspaceArchiveManifest,
+} from './workspace-archive.ts';
 
 const DEFAULT_BASE_DIR = join(homedir(), '.soloyakusha-ts', 'workspaces');
 
@@ -73,6 +78,37 @@ export class WorkspaceManager {
     }
 
     return { workspaceDir, extractedFiles };
+  }
+
+  async importWorkspaceArchive(
+    zipBuffer: ArrayBuffer,
+  ): Promise<{
+    workspaceDir: string;
+    extractedFiles: string[];
+    manifest: WorkspaceArchiveManifest;
+  }> {
+    await this.ensureBaseDir();
+
+    const workspaceDir = join(this.baseDir, `workspace_archive_${Date.now()}`);
+    await mkdir(workspaceDir, { recursive: true });
+
+    try {
+      const imported = await importWorkspaceArchive(zipBuffer, workspaceDir);
+      return {
+        workspaceDir,
+        extractedFiles: imported.extractedFiles,
+        manifest: imported.manifest,
+      };
+    } catch (error) {
+      await rm(workspaceDir, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
+  async exportWorkspaceArchive(
+    dir: string,
+  ): Promise<{ archive: Uint8Array; manifest: WorkspaceArchiveManifest }> {
+    return exportWorkspaceArchive(dir);
   }
 
   async listWorkspaces(): Promise<ManagedWorkspace[]> {
@@ -139,7 +175,7 @@ export class WorkspaceManager {
                 dir,
                 lastOpenedAt: stats.mtime.toISOString(),
                 managed: true,
-              } satisfies ManagedWorkspace;
+              } as ManagedWorkspace;
             } catch {
               return null;
             }
