@@ -23,6 +23,7 @@ import {
 } from './ui-helpers.ts';
 import type {
   AlignmentRepairConfig,
+  CreateStoryBranchPayload,
   GlossaryExtractorConfig,
   GlossaryTerm,
   GlossaryUpdaterConfig,
@@ -32,9 +33,11 @@ import type {
   ManagedWorkspace,
   PlotSummaryConfig,
   ProjectStatus,
+  StoryTopologyDescriptor,
   TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
   TranslatorEntry,
+  UpdateStoryRoutePayload,
   WorkspaceChapterDescriptor,
 } from './types.ts';
 import { useEventStream } from './useEventStream.ts';
@@ -59,6 +62,7 @@ export function AppShell() {
   const [snapshot, setSnapshot] = useState<TranslationProjectSnapshot | null>(null);
   const [dictionary, setDictionary] = useState<GlossaryTerm[]>([]);
   const [chapters, setChapters] = useState<WorkspaceChapterDescriptor[]>([]);
+  const [topology, setTopology] = useState<StoryTopologyDescriptor | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [history, setHistory] = useState<LlmRequestHistoryEntry[]>([]);
   const [dictionaryModalOpen, setDictionaryModalOpen] = useState(false);
@@ -131,14 +135,16 @@ export function AppShell() {
   }, []);
 
   const refreshProjectData = useCallback(async () => {
-    const [dictionaryRes, chaptersRes, configRes, historyRes] = await Promise.all([
+    const [dictionaryRes, chaptersRes, topologyRes, configRes, historyRes] = await Promise.all([
       api.getDictionary().catch(() => ({ terms: [] })),
       api.getChapters().catch(() => ({ chapters: [] })),
+      api.getTopology().catch(() => ({ topology: null })),
       api.getWorkspaceConfig().catch(() => null),
       api.getHistory().catch(() => ({ history: [] })),
     ]);
     setDictionary(dictionaryRes.terms);
     setChapters(chaptersRes.chapters);
+    setTopology(topologyRes.topology);
     setHistory(historyRes.history);
 
     if (configRes) {
@@ -596,6 +602,50 @@ export function AppShell() {
     [message, refreshProjectData, runAction],
   );
 
+  const handleCreateStoryBranch = useCallback(
+    async (payload: CreateStoryBranchPayload) => {
+      await runAction(async () => {
+        await api.createStoryBranch(payload);
+        await refreshProjectData();
+        message.success(`分支“${payload.name}”已创建`);
+      });
+    },
+    [message, refreshProjectData, runAction],
+  );
+
+  const handleUpdateStoryRoute = useCallback(
+    async (routeId: string, payload: UpdateStoryRoutePayload) => {
+      await runAction(async () => {
+        await api.updateStoryRoute(routeId, payload);
+        await refreshProjectData();
+        message.success('路线已更新');
+      });
+    },
+    [message, refreshProjectData, runAction],
+  );
+
+  const handleReorderStoryRouteChapters = useCallback(
+    async (routeId: string, chapterIds: number[]) => {
+      await runAction(async () => {
+        await api.reorderStoryRouteChapters(routeId, chapterIds);
+        await refreshProjectData();
+        message.success('路线内章节顺序已更新');
+      });
+    },
+    [message, refreshProjectData, runAction],
+  );
+
+  const handleRemoveStoryRoute = useCallback(
+    async (routeId: string) => {
+      await runAction(async () => {
+        await api.removeStoryRoute(routeId);
+        await refreshProjectData();
+        message.success('路线已删除');
+      });
+    },
+    [message, refreshProjectData, runAction],
+  );
+
   const handleDownloadExport = useCallback(
     async (format: string) => {
       await runAction(async () => {
@@ -908,6 +958,7 @@ export function AppShell() {
                     projectStatus={projectStatus}
                     dictionary={dictionary}
                     chapters={chapters}
+                    topology={topology}
                     logs={logs}
                     history={history}
                     workspaceForm={workspaceForm}
@@ -920,6 +971,10 @@ export function AppShell() {
                     onMoveChapter={handleMoveChapter}
                     onClearChapterTranslations={handleClearChapterTranslations}
                     onRemoveChapter={handleRemoveChapter}
+                    onCreateStoryBranch={handleCreateStoryBranch}
+                    onUpdateStoryRoute={handleUpdateStoryRoute}
+                    onReorderStoryRouteChapters={handleReorderStoryRouteChapters}
+                    onRemoveStoryRoute={handleRemoveStoryRoute}
                     onDownloadExport={handleDownloadExport}
                     onResetProject={handleResetProject}
                     onClearLogs={handleClearLogs}

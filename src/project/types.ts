@@ -393,6 +393,29 @@ export type WorkspaceChapterDescriptor = {
   sourceLineCount: number;
   translatedLineCount: number;
   hasTranslationData: boolean;
+  routeId?: string;
+  routeName?: string;
+  routeChapterIndex?: number;
+  isForkPoint?: boolean;
+  childBranchCount?: number;
+};
+
+export type StoryTopologyRouteDescriptor = {
+  id: string;
+  name: string;
+  parentRouteId: string | null;
+  forkAfterChapterId: number | null;
+  chapters: number[];
+  childRouteIds: string[];
+  depth: number;
+  isMain: boolean;
+};
+
+export type StoryTopologyDescriptor = {
+  schemaVersion: number;
+  hasPersistedTopology: boolean;
+  hasBranches: boolean;
+  routes: StoryTopologyRouteDescriptor[];
 };
 
 /**

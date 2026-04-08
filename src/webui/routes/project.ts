@@ -121,6 +121,10 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     return c.json({ chapters: projectService.getChapterDescriptors() });
   });
 
+  app.get('/topology', (c) => {
+    return c.json({ topology: projectService.getTopology() });
+  });
+
   app.get('/preview/chapters/:id', (c) => {
     const id = Number(c.req.param('id'));
     const preview = projectService.getChapterPreview(id);
@@ -152,6 +156,37 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
   app.put('/chapters/reorder', async (c) => {
     const body = await c.req.json<{ chapterIds: number[] }>();
     await projectService.reorderChapters(body.chapterIds);
+    return c.json({ ok: true });
+  });
+
+  app.post('/topology/routes', async (c) => {
+    const body = await c.req.json<{
+      name: string;
+      parentRouteId?: string;
+      forkAfterChapterId: number;
+      chapterIds?: number[];
+    }>();
+    await projectService.createStoryBranch(body);
+    return c.json({ ok: true });
+  });
+
+  app.put('/topology/routes/:id', async (c) => {
+    const routeId = c.req.param('id');
+    const body = await c.req.json<{ name?: string; forkAfterChapterId?: number }>();
+    await projectService.updateStoryRoute(routeId, body);
+    return c.json({ ok: true });
+  });
+
+  app.put('/topology/routes/:id/reorder', async (c) => {
+    const routeId = c.req.param('id');
+    const body = await c.req.json<{ chapterIds: number[] }>();
+    await projectService.reorderStoryRouteChapters(routeId, body.chapterIds);
+    return c.json({ ok: true });
+  });
+
+  app.delete('/topology/routes/:id', async (c) => {
+    const routeId = c.req.param('id');
+    await projectService.removeStoryRoute(routeId);
     return c.json({ ok: true });
   });
 

@@ -176,6 +176,41 @@ export interface WorkspaceChapterDescriptor {
   sourceLineCount: number;
   translatedLineCount: number;
   hasTranslationData: boolean;
+  routeId?: string;
+  routeName?: string;
+  routeChapterIndex?: number;
+  isForkPoint?: boolean;
+  childBranchCount?: number;
+}
+
+export interface StoryTopologyRouteDescriptor {
+  id: string;
+  name: string;
+  parentRouteId: string | null;
+  forkAfterChapterId: number | null;
+  chapters: number[];
+  childRouteIds: string[];
+  depth: number;
+  isMain: boolean;
+}
+
+export interface StoryTopologyDescriptor {
+  schemaVersion: number;
+  hasPersistedTopology: boolean;
+  hasBranches: boolean;
+  routes: StoryTopologyRouteDescriptor[];
+}
+
+export interface CreateStoryBranchPayload {
+  name: string;
+  parentRouteId?: string;
+  forkAfterChapterId: number;
+  chapterIds?: number[];
+}
+
+export interface UpdateStoryRoutePayload {
+  name?: string;
+  forkAfterChapterId?: number;
 }
 
 export interface TranslationPreviewUnit {

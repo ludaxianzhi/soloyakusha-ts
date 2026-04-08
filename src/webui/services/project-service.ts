@@ -24,8 +24,9 @@ import { StoryTopology } from '../../project/story-topology.ts';
 import { DefaultTextSplitter } from '../../project/translation-document-manager.ts';
 import type { Logger } from '../../project/logger.ts';
 import type {
-  TranslationProjectSnapshot,
   ProjectExportResult,
+  StoryTopologyDescriptor,
+  TranslationProjectSnapshot,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
   WorkspaceConfigPatch,
@@ -136,6 +137,10 @@ export class ProjectService {
 
   getChapterDescriptors(): WorkspaceChapterDescriptor[] {
     return this.project?.getChapterDescriptors() ?? [];
+  }
+
+  getTopology(): StoryTopologyDescriptor | null {
+    return this.project?.getStoryTopologyDescriptor() ?? null;
   }
 
   getChapterPreview(chapterId: number): TranslationPreviewChapter | null {
@@ -804,6 +809,56 @@ export class ProjectService {
     });
   }
 
+  async createStoryBranch(input: {
+    name: string;
+    parentRouteId?: string;
+    forkAfterChapterId: number;
+    chapterIds?: number[];
+  }): Promise<void> {
+    await this.runAction('创建剧情分支', async () => {
+      if (!this.project) throw new Error('当前没有已初始化的项目');
+      const routeId = this.createNextBranchRouteId();
+      await this.project.createStoryBranch({
+        id: routeId,
+        name: input.name,
+        parentRouteId: input.parentRouteId,
+        forkAfterChapterId: input.forkAfterChapterId,
+        chapterIds: input.chapterIds,
+      });
+      this.refreshSnapshot();
+      this.log('success', `已创建分支“${input.name}”`);
+    });
+  }
+
+  async updateStoryRoute(
+    routeId: string,
+    patch: { name?: string; forkAfterChapterId?: number },
+  ): Promise<void> {
+    await this.runAction('更新剧情路线', async () => {
+      if (!this.project) throw new Error('当前没有已初始化的项目');
+      await this.project.updateStoryRoute(routeId, patch);
+      this.refreshSnapshot();
+      this.log('success', `路线 ${routeId} 已更新`);
+    });
+  }
+
+  async removeStoryRoute(routeId: string): Promise<void> {
+    await this.runAction('删除剧情路线', async () => {
+      if (!this.project) throw new Error('当前没有已初始化的项目');
+      await this.project.removeStoryRoute(routeId);
+      this.refreshSnapshot();
+      this.log('success', `路线 ${routeId} 已删除`);
+    });
+  }
+
+  async reorderStoryRouteChapters(routeId: string, chapterIds: number[]): Promise<void> {
+    await this.runAction('保存路线章节顺序', async () => {
+      if (!this.project) throw new Error('当前没有已初始化的项目');
+      await this.project.reorderStoryRouteChapters(routeId, chapterIds);
+      this.refreshSnapshot();
+    });
+  }
+
   // ─── Config ─────────────────────────────────────────
 
   async updateWorkspaceConfig(patch: WorkspaceConfigPatch): Promise<void> {
@@ -904,10 +959,22 @@ export class ProjectService {
   private refreshSnapshot(): void {
     if (!this.project) {
       this.snapshot = null;
+      this.topology = null;
       return;
     }
     this.snapshot = this.project.getProjectSnapshot();
+    this.topology = this.project.getStoryTopology() ?? null;
     this.broadcastSnapshot();
+  }
+
+  private createNextBranchRouteId(): string {
+    const topology = this.project?.getStoryTopologyDescriptor();
+    const existingIds = new Set(topology?.routes.map((route) => route.id) ?? []);
+    let sequence = Math.max(1, existingIds.size);
+    while (existingIds.has(`branch-${sequence}`)) {
+      sequence += 1;
+    }
+    return `branch-${sequence}`;
   }
 
   private broadcastSnapshot(): void {

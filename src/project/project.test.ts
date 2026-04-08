@@ -300,6 +300,139 @@ describe("TranslationProject", () => {
     expect(predecessorSummaries.map((entry) => entry.chapterId)).toEqual([1]);
   });
 
+  test("builds a synthetic main-route topology descriptor for linear workspaces", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-topology-descriptor-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-2.txt"), "第二章\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "synthetic-topology",
+        projectDir: workspaceDir,
+        chapters: [
+          { id: 1, filePath: "sources\\chapter-1.txt" },
+          { id: 2, filePath: "sources\\chapter-2.txt" },
+        ],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    const topology = project.getStoryTopologyDescriptor();
+    expect(topology.hasPersistedTopology).toBe(false);
+    expect(topology.hasBranches).toBe(false);
+    expect(topology.routes).toEqual([
+      {
+        id: "main",
+        name: "主线",
+        parentRouteId: null,
+        forkAfterChapterId: null,
+        chapters: [1, 2],
+        childRouteIds: [],
+        depth: 0,
+        isMain: true,
+      },
+    ]);
+
+    const descriptors = project.getChapterDescriptors();
+    expect(descriptors.map((chapter) => chapter.routeId)).toEqual(["main", "main"]);
+    expect(descriptors.map((chapter) => chapter.routeChapterIndex)).toEqual([0, 1]);
+  });
+
+  test("creates a persisted branch topology and annotates chapter descriptors", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-branch-topology-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-2.txt"), "第二章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-3.txt"), "第三章\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "branch-topology",
+        projectDir: workspaceDir,
+        chapters: [
+          { id: 1, filePath: "sources\\chapter-1.txt" },
+          { id: 2, filePath: "sources\\chapter-2.txt" },
+          { id: 3, filePath: "sources\\chapter-3.txt" },
+        ],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    await project.createStoryBranch({
+      id: "branch-1",
+      name: "分支 1",
+      forkAfterChapterId: 1,
+      chapterIds: [2, 3],
+    });
+
+    const topology = project.getStoryTopologyDescriptor();
+    expect(topology.hasPersistedTopology).toBe(true);
+    expect(topology.hasBranches).toBe(true);
+    expect(topology.routes).toEqual([
+      {
+        id: "main",
+        name: "主线",
+        parentRouteId: null,
+        forkAfterChapterId: null,
+        chapters: [1],
+        childRouteIds: ["branch-1"],
+        depth: 0,
+        isMain: true,
+      },
+      {
+        id: "branch-1",
+        name: "分支 1",
+        parentRouteId: "main",
+        forkAfterChapterId: 1,
+        chapters: [2, 3],
+        childRouteIds: [],
+        depth: 1,
+        isMain: false,
+      },
+    ]);
+
+    const descriptors = project.getChapterDescriptors();
+    expect(descriptors.find((chapter) => chapter.id === 1)).toMatchObject({
+      routeId: "main",
+      isForkPoint: true,
+      childBranchCount: 1,
+    });
+    expect(descriptors.find((chapter) => chapter.id === 2)).toMatchObject({
+      routeId: "branch-1",
+      routeName: "分支 1",
+      routeChapterIndex: 0,
+    });
+
+    const topologyFile = await readFile(join(workspaceDir, "Data", "story-topology.json"), "utf8");
+    expect(JSON.parse(topologyFile)).toMatchObject({
+      routes: [
+        { id: "main", chapters: [1] },
+        { id: "branch-1", chapters: [2, 3] },
+      ],
+    });
+  });
+
   test("allows different fragments to run at different pipeline steps asynchronously", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-pipeline-"));
     cleanupTargets.push(workspaceDir);

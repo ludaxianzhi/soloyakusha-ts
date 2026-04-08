@@ -39,6 +39,8 @@ import type {
   FragmentEntry,
   GlossaryImportResult,
   GlossaryProgressSnapshot,
+  StoryTopologyDescriptor,
+  StoryTopologyRouteDescriptor,
   ProjectCursor,
   ProjectExportResult,
   ProjectProgressSnapshot,
@@ -312,12 +314,18 @@ export class TranslationProject
 
   getChapterDescriptors(): WorkspaceChapterDescriptor[] {
     this.ensureInitialized();
-    return this.workspaceManager.getChapterDescriptors();
+    const descriptors = this.workspaceManager.getChapterDescriptors();
+    const { topology } = this.getEffectiveStoryTopology();
+    const chapterMetadata = this.buildChapterTopologyMetadata(topology);
+    return descriptors.map((descriptor) => ({
+      ...descriptor,
+      ...(chapterMetadata.get(descriptor.id) ?? {}),
+    }));
   }
 
   getChapterDescriptor(chapterId: number): WorkspaceChapterDescriptor | undefined {
     this.ensureInitialized();
-    return this.workspaceManager.getChapterDescriptor(chapterId);
+    return this.getChapterDescriptors().find((chapter) => chapter.id === chapterId);
   }
 
   getChapterTranslationPreview(chapterId: number): {
@@ -330,7 +338,7 @@ export class TranslationProject
     }>;
   } {
     this.ensureInitialized();
-    const chapter = this.workspaceManager.getChapterDescriptor(chapterId);
+    const chapter = this.getChapterDescriptor(chapterId);
     if (!chapter) {
       throw new Error(`章节 ${chapterId} 不存在`);
     }
@@ -388,6 +396,131 @@ export class TranslationProject
   async reorderChapters(chapterIds: number[]): Promise<void> {
     this.ensureInitialized();
     await this.workspaceManager.reorderChapters(chapterIds);
+  }
+
+  getStoryTopologyDescriptor(): StoryTopologyDescriptor {
+    this.ensureInitialized();
+    const { topology, hasPersistedTopology } = this.getEffectiveStoryTopology();
+    const document = topology.toDocument();
+
+    return {
+      schemaVersion: document.schemaVersion,
+      hasPersistedTopology,
+      hasBranches: topology.getBranches().length > 0,
+      routes: topology.getAllRoutes().map((route) => this.buildRouteDescriptor(topology, route.id)),
+    };
+  }
+
+  async createStoryBranch(definition: {
+    id: string;
+    name: string;
+    parentRouteId?: string;
+    forkAfterChapterId: number;
+    chapterIds?: number[];
+  }): Promise<void> {
+    this.ensureInitialized();
+    const topology = this.getMutableStoryTopology();
+    const parentRouteId = definition.parentRouteId ?? MAIN_ROUTE_ID;
+    const parentRoute = topology.getRoute(parentRouteId);
+    if (!parentRoute) {
+      throw new Error(`父路线不存在: ${parentRouteId}`);
+    }
+
+    const forkIndex = parentRoute.chapters.indexOf(definition.forkAfterChapterId);
+    if (forkIndex === -1) {
+      throw new Error(
+        `分叉章节 ${definition.forkAfterChapterId} 不在父路线 "${parentRouteId}" 中`,
+      );
+    }
+
+    const requestedIds = [...new Set(definition.chapterIds ?? [])];
+    const movableChapterIds = new Set(parentRoute.chapters.slice(forkIndex + 1));
+    for (const chapterId of requestedIds) {
+      if (!movableChapterIds.has(chapterId)) {
+        throw new Error(
+          `章节 ${chapterId} 不是父路线 "${parentRouteId}" 在分叉点之后的可分配章节`,
+        );
+      }
+    }
+
+    const requestedSet = new Set(requestedIds);
+    const orderedChapterIds = parentRoute.chapters.filter(
+      (chapterId, index) => index > forkIndex && requestedSet.has(chapterId),
+    );
+
+    if (orderedChapterIds.length > 0) {
+      this.replaceRouteChapters(
+        topology,
+        parentRouteId,
+        parentRoute.chapters.filter((chapterId) => !requestedSet.has(chapterId)),
+      );
+    }
+
+    topology.addBranch({
+      id: definition.id,
+      name: definition.name,
+      parentRouteId,
+      forkAfterChapterId: definition.forkAfterChapterId,
+      chapters: orderedChapterIds,
+    });
+    await this.saveStoryTopology(topology);
+  }
+
+  async updateStoryRoute(
+    routeId: string,
+    patch: { name?: string; forkAfterChapterId?: number },
+  ): Promise<void> {
+    this.ensureInitialized();
+    const topology = this.getMutableStoryTopology();
+    topology.updateRoute(routeId, patch);
+    await this.saveStoryTopology(topology);
+  }
+
+  async removeStoryRoute(routeId: string): Promise<void> {
+    this.ensureInitialized();
+    const topology = this.getMutableStoryTopology();
+    const route = topology.getRoute(routeId);
+    if (!route) {
+      throw new Error(`路线不存在: ${routeId}`);
+    }
+    if (routeId === MAIN_ROUTE_ID) {
+      throw new Error("不能移除主线");
+    }
+    if (route.chapters.length > 0) {
+      throw new Error(`路线 "${route.name}" 仍包含章节，请先迁移或移除这些章节`);
+    }
+    if (topology.getChildBranches(routeId).length > 0) {
+      throw new Error(`路线 "${route.name}" 仍有子分支，请先删除子分支`);
+    }
+
+    topology.removeBranch(routeId);
+    await this.saveStoryTopology(topology);
+  }
+
+  async reorderStoryRouteChapters(routeId: string, chapterIds: number[]): Promise<void> {
+    this.ensureInitialized();
+    const topology = this.getMutableStoryTopology();
+    const route = topology.getRoute(routeId);
+    if (!route) {
+      throw new Error(`路线不存在: ${routeId}`);
+    }
+
+    if (chapterIds.length !== route.chapters.length) {
+      throw new Error(`路线 "${route.name}" 的章节重排结果长度不匹配`);
+    }
+
+    const routeChapterIds = new Set(route.chapters);
+    if (new Set(chapterIds).size !== route.chapters.length) {
+      throw new Error(`路线 "${route.name}" 的章节重排结果包含重复章节`);
+    }
+    for (const chapterId of chapterIds) {
+      if (!routeChapterIds.has(chapterId)) {
+        throw new Error(`章节 ${chapterId} 不属于路线 "${route.name}"`);
+      }
+    }
+
+    this.replaceRouteChapters(topology, routeId, [...chapterIds]);
+    await this.saveStoryTopology(topology);
   }
 
   async exportChapter(
@@ -1225,6 +1358,103 @@ export class TranslationProject
 
   private getTraversalChapters(): Chapter[] {
     return [...this.chapters];
+  }
+
+  private getEffectiveStoryTopology(): {
+    topology: StoryTopology;
+    hasPersistedTopology: boolean;
+  } {
+    return {
+      topology: this.storyTopology ?? this.createSyntheticStoryTopology(),
+      hasPersistedTopology: this.storyTopology !== undefined,
+    };
+  }
+
+  private getMutableStoryTopology(): StoryTopology {
+    if (!this.storyTopology) {
+      this.storyTopology = this.createSyntheticStoryTopology();
+    }
+    return this.storyTopology;
+  }
+
+  private createSyntheticStoryTopology(): StoryTopology {
+    const topology = StoryTopology.createEmpty();
+    topology.setMainRouteChapters(this.chapters.map((chapter) => chapter.id));
+    return topology;
+  }
+
+  private buildRouteDescriptor(
+    topology: StoryTopology,
+    routeId: string,
+  ): StoryTopologyRouteDescriptor {
+    const route = topology.getRoute(routeId);
+    if (!route) {
+      throw new Error(`路线不存在: ${routeId}`);
+    }
+
+    return {
+      id: route.id,
+      name: route.name,
+      parentRouteId: route.parentRouteId,
+      forkAfterChapterId: route.forkAfterChapterId,
+      chapters: [...route.chapters],
+      childRouteIds: topology.getChildBranches(route.id).map((branch) => branch.id),
+      depth: this.getRouteDepth(topology, route.id),
+      isMain: route.id === MAIN_ROUTE_ID,
+    };
+  }
+
+  private buildChapterTopologyMetadata(
+    topology: StoryTopology,
+  ): Map<number, Partial<WorkspaceChapterDescriptor>> {
+    const metadata = new Map<number, Partial<WorkspaceChapterDescriptor>>();
+    const childBranchCountByFork = new Map<number, number>();
+
+    for (const branch of topology.getBranches()) {
+      if (branch.forkAfterChapterId === null) {
+        continue;
+      }
+      childBranchCountByFork.set(
+        branch.forkAfterChapterId,
+        (childBranchCountByFork.get(branch.forkAfterChapterId) ?? 0) + 1,
+      );
+    }
+
+    for (const route of topology.getAllRoutes()) {
+      route.chapters.forEach((chapterId, routeChapterIndex) => {
+        metadata.set(chapterId, {
+          routeId: route.id,
+          routeName: route.name,
+          routeChapterIndex,
+          isForkPoint: (childBranchCountByFork.get(chapterId) ?? 0) > 0,
+          childBranchCount: childBranchCountByFork.get(chapterId) ?? 0,
+        });
+      });
+    }
+
+    return metadata;
+  }
+
+  private replaceRouteChapters(
+    topology: StoryTopology,
+    routeId: string,
+    chapterIds: number[],
+  ): void {
+    if (routeId === MAIN_ROUTE_ID) {
+      topology.setMainRouteChapters(chapterIds);
+      return;
+    }
+    topology.updateRoute(routeId, { chapters: chapterIds });
+  }
+
+  private getRouteDepth(topology: StoryTopology, routeId: string): number {
+    let depth = 0;
+    let current = topology.getRoute(routeId);
+    while (current?.parentRouteId) {
+      depth += 1;
+      current = topology.getRoute(current.parentRouteId);
+    }
+    return depth;
   }
 
   private getStoryTopologyFilePath(): string {

@@ -9,10 +9,13 @@ import type {
   ManagedWorkspace,
   PlotSummaryConfig,
   ProjectStatus,
+  CreateStoryBranchPayload,
+  StoryTopologyDescriptor,
   TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
   TranslatorEntry,
   TranslationPreviewChapter,
+  UpdateStoryRoutePayload,
   WorkspaceArchiveManifest,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
@@ -195,6 +198,8 @@ export const api = {
 
   getChapters: () =>
     request<{ chapters: WorkspaceChapterDescriptor[] }>('/api/project/chapters'),
+  getTopology: () =>
+    request<{ topology: StoryTopologyDescriptor | null }>('/api/project/topology'),
   getChapterPreview: (chapterId: number) =>
     request<TranslationPreviewChapter>(`/api/project/preview/chapters/${chapterId}`),
   reorderChapters: (chapterIds: number[]) =>
@@ -208,6 +213,25 @@ export const api = {
     request('/api/project/chapters/clear', {
       method: 'POST',
       body: { chapterIds },
+    }),
+  createStoryBranch: (payload: CreateStoryBranchPayload) =>
+    request('/api/project/topology/routes', {
+      method: 'POST',
+      body: payload,
+    }),
+  updateStoryRoute: (routeId: string, payload: UpdateStoryRoutePayload) =>
+    request(`/api/project/topology/routes/${encodeURIComponent(routeId)}`, {
+      method: 'PUT',
+      body: payload,
+    }),
+  reorderStoryRouteChapters: (routeId: string, chapterIds: number[]) =>
+    request(`/api/project/topology/routes/${encodeURIComponent(routeId)}/reorder`, {
+      method: 'PUT',
+      body: { chapterIds },
+    }),
+  removeStoryRoute: (routeId: string) =>
+    request(`/api/project/topology/routes/${encodeURIComponent(routeId)}`, {
+      method: 'DELETE',
     }),
 
   getWorkspaceConfig: () => request<WorkspaceConfig>('/api/project/config'),
