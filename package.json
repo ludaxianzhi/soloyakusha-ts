@@ -4,7 +4,6 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "tui": "bun run src/tui/cli.tsx",
     "webui": "bun x vite build --config vite.webui.config.ts && bun run src/webui/index.ts",
     "webui:dev": "bun run scripts/dev-webui.ts",
     "webui:build": "bun run scripts/build-webui.ts",
@@ -27,9 +26,7 @@
     "@monaco-editor/react": "^4.7.0",
     "@stdlib/blas-base-ddot": "^0.4.1",
     "antd": "^6.3.5",
-    "fullscreen-ink": "^0.1.0",
     "hono": "^4.12.10",
-    "ink": "^6.8.0",
     "jszip": "^3.10.1",
     "liquidjs": "^10.25.1",
     "monaco-editor": "^0.55.1",

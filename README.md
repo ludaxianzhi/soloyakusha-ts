@@ -68,7 +68,7 @@ bunx tsc --noEmit
 
 ## WebUI 开发与构建
 
-现在 WebUI 提供三条清晰的入口：
+现在项目只保留 WebUI 入口：
 
 - `bun run webui`：先构建前端，再由 Bun 服务端在同一端口托管前后端，直接启动 WebUI
 - `bun run webui:dev`：一键同时启动 Bun API 服务端与 Vite 前端开发服务器
