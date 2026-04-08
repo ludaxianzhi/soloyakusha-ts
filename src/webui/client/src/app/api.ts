@@ -12,6 +12,7 @@ import type {
   TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
   TranslatorEntry,
+  TranslationPreviewChapter,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
 } from './types.ts';
@@ -143,6 +144,8 @@ export const api = {
 
   getChapters: () =>
     request<{ chapters: WorkspaceChapterDescriptor[] }>('/api/project/chapters'),
+  getChapterPreview: (chapterId: number) =>
+    request<TranslationPreviewChapter>(`/api/project/preview/chapters/${chapterId}`),
   reorderChapters: (chapterIds: number[]) =>
     request('/api/project/chapters/reorder', {
       method: 'PUT',

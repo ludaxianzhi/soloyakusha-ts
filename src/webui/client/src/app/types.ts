@@ -167,6 +167,18 @@ export interface WorkspaceChapterDescriptor {
   hasTranslationData: boolean;
 }
 
+export interface TranslationPreviewUnit {
+  index: number;
+  sourceText: string;
+  translatedText: string;
+  hasTranslation: boolean;
+}
+
+export interface TranslationPreviewChapter {
+  chapter: WorkspaceChapterDescriptor;
+  units: TranslationPreviewUnit[];
+}
+
 export interface WorkspaceConfig {
   projectName: string;
   glossary: {

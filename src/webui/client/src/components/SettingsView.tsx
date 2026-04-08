@@ -91,18 +91,20 @@ export function SettingsView({
 
   return (
     <Tabs
+      size="small"
       defaultActiveKey="llm"
       items={[
         {
           key: 'llm',
           label: 'LLM Profiles',
           children: (
-            <Row gutter={16}>
+            <Row gutter={12}>
               <Col span={7}>
-                <Card
-                  title="Chat Profiles"
-                  loading={settingsLoading}
-                  extra={<Button onClick={onCreateLlmProfile}>新建</Button>}
+                    <Card
+                      size="small"
+                      title="Chat Profiles"
+                      loading={settingsLoading}
+                      extra={<Button onClick={onCreateLlmProfile}>新建</Button>}
                 >
                   <Space direction="vertical" style={{ width: '100%' }}>
                     {llmNames.map((name) => (
@@ -123,7 +125,7 @@ export function SettingsView({
                 </Card>
               </Col>
               <Col span={17}>
-                <Card title="编辑 Profile" loading={settingsLoading}>
+                <Card size="small" title="编辑 Profile" loading={settingsLoading}>
                   <Form
                     form={llmForm}
                     layout="vertical"

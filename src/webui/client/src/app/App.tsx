@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { App as AntdApp, Button, Form, Layout, Menu, Space, Tag, Typography } from 'antd';
-import type { UploadFile } from 'antd';
 import {
   ClockCircleOutlined,
   FolderOpenOutlined,
@@ -9,7 +8,7 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { ApiError, api } from './api.ts';
+import { api } from './api.ts';
 import {
   auxToForm,
   buildTranslatorPayload,
@@ -18,7 +17,6 @@ import {
   optionalString,
   parseYamlObject,
   profileToForm,
-  resolveLanguagePair,
   splitLines,
   translatorToForm,
   toErrorMessage,
@@ -43,42 +41,17 @@ import { useEventStream } from './useEventStream.ts';
 import { DictionaryEditorModal } from '../components/DictionaryEditorModal.tsx';
 import { RecentWorkspacesView } from '../components/RecentWorkspacesView.tsx';
 import { SettingsView } from '../components/SettingsView.tsx';
-import { WorkspaceCreateView } from '../components/WorkspaceCreateView.tsx';
 import {
   WorkspaceView,
   type ProjectCommand,
   type TaskActivityKind,
 } from '../components/WorkspaceView.tsx';
+import { WorkspaceCreatePage } from '../features/workspace-create/WorkspaceCreatePage.tsx';
 
 const { Header, Sider, Content } = Layout;
 
-type WorkspaceTranslationImportMode = 'source-only' | 'with-translation';
-
-type WorkspaceTranslationChoiceError = {
-  code: 'translation-choice-required';
-  translatedFileCount?: number;
-  translatedUnitCount?: number;
-  error?: string;
-};
-
-function getWorkspaceTranslationChoiceError(
-  error: unknown,
-): WorkspaceTranslationChoiceError | null {
-  if (!(error instanceof ApiError)) {
-    return null;
-  }
-  if (
-    typeof error.data !== 'object' ||
-    error.data === null ||
-    (error.data as { code?: unknown }).code !== 'translation-choice-required'
-  ) {
-    return null;
-  }
-  return error.data as WorkspaceTranslationChoiceError;
-}
-
 export function AppShell() {
-  const { message, modal } = AntdApp.useApp();
+  const { message } = AntdApp.useApp();
   const location = useLocation();
   const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState<ManagedWorkspace[]>([]);
@@ -88,7 +61,6 @@ export function AppShell() {
   const [chapters, setChapters] = useState<WorkspaceChapterDescriptor[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [history, setHistory] = useState<LlmRequestHistoryEntry[]>([]);
-  const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [dictionaryModalOpen, setDictionaryModalOpen] = useState(false);
   const [editingTerm, setEditingTerm] = useState<GlossaryTerm | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -106,7 +78,6 @@ export function AppShell() {
   const [selectedLlmName, setSelectedLlmName] = useState<string>();
   const [selectedTranslatorName, setSelectedTranslatorName] = useState<string>();
 
-  const [uploadForm] = Form.useForm<Record<string, unknown>>();
   const [workspaceForm] = Form.useForm<Record<string, unknown>>();
   const [dictionaryForm] = Form.useForm<Record<string, unknown>>();
   const [llmForm] = Form.useForm<Record<string, unknown>>();
@@ -395,96 +366,6 @@ export function AppShell() {
         value: name,
       })),
     [translators],
-  );
-
-  const requestTranslationImportMode = useCallback(
-    async (
-      choiceError: WorkspaceTranslationChoiceError,
-    ): Promise<WorkspaceTranslationImportMode> =>
-      new Promise((resolve) => {
-        const translatedFileCount = choiceError.translatedFileCount ?? 0;
-        const translatedUnitCount = choiceError.translatedUnitCount ?? 0;
-        modal.confirm({
-          title: '检测到已翻译内容',
-          content: `检测到 ${translatedFileCount} 个文件中存在 ${translatedUnitCount} 行译文。请选择导入译文，或只导入原文并清空未完整翻译文本块里的这些译文。`,
-          okText: '导入译文',
-          cancelText: '只导入原文',
-          closable: false,
-          maskClosable: false,
-          onOk: () => resolve('with-translation'),
-          onCancel: () => resolve('source-only'),
-        });
-      }),
-    [modal],
-  );
-
-  const handleUploadSubmit = useCallback(
-    async (values: Record<string, unknown>) => {
-      await runAction(async () => {
-        const file = uploadFiles[0]?.originFileObj;
-        if (!file) {
-          throw new Error('请先选择 ZIP 文件');
-        }
-
-        const { srcLang, tgtLang } = resolveLanguagePair(values.languagePair);
-        const submitWorkspaceCreate = async (
-          translationImportMode?: WorkspaceTranslationImportMode,
-        ) => {
-          const formData = new FormData();
-          formData.set('file', file);
-          formData.set('projectName', String(values.projectName ?? ''));
-          if (values.importFormat) {
-            formData.set('importFormat', String(values.importFormat));
-          }
-          if (values.importPattern) {
-            formData.set('importPattern', String(values.importPattern));
-          }
-          if (values.translatorName) {
-            formData.set('translatorName', String(values.translatorName));
-          }
-          if (values.textSplitMaxChars !== undefined && values.textSplitMaxChars !== null) {
-            formData.set('textSplitMaxChars', String(values.textSplitMaxChars));
-          }
-          formData.set('srcLang', srcLang);
-          formData.set('tgtLang', tgtLang);
-          if (values.manifestJson) {
-            formData.set('manifestJson', String(values.manifestJson));
-          }
-          if (translationImportMode) {
-            formData.set('translationImportMode', translationImportMode);
-          }
-          await api.createWorkspace(formData);
-        };
-
-        try {
-          await submitWorkspaceCreate();
-        } catch (error) {
-          const choiceError = getWorkspaceTranslationChoiceError(error);
-          if (!choiceError) {
-            throw error;
-          }
-          const translationImportMode = await requestTranslationImportMode(choiceError);
-          await submitWorkspaceCreate(translationImportMode);
-        }
-
-        setUploadFiles([]);
-        uploadForm.resetFields(['manifestJson']);
-        await refreshBootData();
-        await refreshProjectData();
-        navigate('/workspace/current');
-        message.success('工作区已创建并打开');
-      });
-    },
-    [
-      message,
-      navigate,
-      refreshBootData,
-      refreshProjectData,
-      requestTranslationImportMode,
-      runAction,
-      uploadFiles,
-      uploadForm,
-    ],
   );
 
   const handleOpenWorkspace = useCallback(
@@ -927,10 +808,10 @@ export function AppShell() {
   );
 
   return (
-    <>
-      <Layout className="app-shell">
-        <Sider width={220}>
-          <div style={{ padding: 20 }}>
+      <>
+        <Layout className="app-shell">
+        <Sider width={208}>
+          <div style={{ padding: 16 }}>
             <Typography.Title level={4} style={{ margin: 0, color: '#fff' }}>
               SoloYakusha
             </Typography.Title>
@@ -951,6 +832,7 @@ export function AppShell() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
+              padding: '0 16px',
             }}
           >
             <Space>
@@ -966,7 +848,7 @@ export function AppShell() {
               刷新状态
             </Button>
           </Header>
-          <Content style={{ padding: 24 }}>
+          <Content style={{ padding: 16 }}>
             <Routes>
               <Route path="/" element={<Navigate replace to="/workspace/current" />} />
               <Route
@@ -1000,12 +882,11 @@ export function AppShell() {
               <Route
                 path="/workspace/create"
                 element={
-                  <WorkspaceCreateView
-                    uploadForm={uploadForm}
-                    uploadFiles={uploadFiles}
+                  <WorkspaceCreatePage
+                    hasActiveWorkspace={Boolean(snapshot)}
                     translatorOptions={translatorOptions}
-                    onUploadFilesChange={setUploadFiles}
-                    onUploadSubmit={handleUploadSubmit}
+                    onRefreshBootData={refreshBootData}
+                    onRefreshProjectData={refreshProjectData}
                   />
                 }
               />

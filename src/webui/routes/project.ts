@@ -121,6 +121,15 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     return c.json({ chapters: projectService.getChapterDescriptors() });
   });
 
+  app.get('/preview/chapters/:id', (c) => {
+    const id = Number(c.req.param('id'));
+    const preview = projectService.getChapterPreview(id);
+    if (!preview) {
+      return c.json({ error: '当前没有可预览的工作区章节' }, 404);
+    }
+    return c.json(preview);
+  });
+
   app.post('/chapters', async (c) => {
     const body = await c.req.json<{
       filePath: string;

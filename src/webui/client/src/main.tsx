@@ -13,7 +13,15 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         algorithm: theme.darkAlgorithm,
         token: {
           colorPrimary: '#6c8cff',
-          borderRadius: 10,
+          borderRadius: 8,
+          controlHeight: 34,
+          fontSize: 13,
+          padding: 12,
+          paddingSM: 8,
+          paddingLG: 16,
+          margin: 12,
+          marginSM: 8,
+          marginLG: 16,
         },
       }}
     >

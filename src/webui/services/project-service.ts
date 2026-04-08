@@ -83,6 +83,18 @@ export interface ProjectStatus {
   snapshot: TranslationProjectSnapshot | null;
 }
 
+export interface TranslationPreviewUnit {
+  index: number;
+  sourceText: string;
+  translatedText: string;
+  hasTranslation: boolean;
+}
+
+export interface TranslationPreviewChapter {
+  chapter: WorkspaceChapterDescriptor;
+  units: TranslationPreviewUnit[];
+}
+
 // ─── Service ────────────────────────────────────────────
 
 export class ProjectService {
@@ -124,6 +136,13 @@ export class ProjectService {
 
   getChapterDescriptors(): WorkspaceChapterDescriptor[] {
     return this.project?.getChapterDescriptors() ?? [];
+  }
+
+  getChapterPreview(chapterId: number): TranslationPreviewChapter | null {
+    if (!this.project?.getChapterDescriptor(chapterId)) {
+      return null;
+    }
+    return this.project.getChapterTranslationPreview(chapterId);
   }
 
   getGlossaryTerms(): Array<{

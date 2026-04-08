@@ -29,6 +29,7 @@ import {
   CloseOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  EyeOutlined,
   ExportOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
@@ -44,6 +45,7 @@ import type {
   TranslationProjectSnapshot,
   WorkspaceChapterDescriptor,
 } from '../app/types.ts';
+import { TranslationPreviewModal } from './TranslationPreviewModal.tsx';
 
 const { TextArea } = Input;
 export type ProjectCommand =
@@ -106,6 +108,8 @@ export function WorkspaceView({
   onRefreshHistory,
   onDismissTaskActivity,
 }: WorkspaceViewProps) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+
   if (!snapshot) {
     return (
       <Alert
@@ -120,6 +124,7 @@ export function WorkspaceView({
   return (
     <div className="section-stack">
       <Tabs
+        size="small"
         defaultActiveKey="dashboard"
         items={[
             {
@@ -189,7 +194,7 @@ export function WorkspaceView({
                     </Space>
                   </Card>
 
-                  <Row gutter={16}>
+                  <Row gutter={12}>
                     <Col span={6}>
                       <Card>
                         <Statistic
@@ -502,6 +507,13 @@ export function WorkspaceView({
                           >
                             下载纯文本导出 ZIP
                           </Button>
+                          <Button
+                            icon={<EyeOutlined />}
+                            disabled={chapters.length === 0}
+                            onClick={() => setPreviewOpen(true)}
+                          >
+                            网页内预览译文
+                          </Button>
                           <Button onClick={() => void onDownloadExport('naturedialog')}>
                             下载 Nature Dialog 导出 ZIP
                           </Button>
@@ -574,9 +586,10 @@ export function WorkspaceView({
               key: 'history',
               label: '历史与日志',
               children: (
-                <Tabs
-                  defaultActiveKey="runtime-logs"
-                  items={[
+                    <Tabs
+                      size="small"
+                      defaultActiveKey="runtime-logs"
+                      items={[
                     {
                       key: 'runtime-logs',
                       label: '运行日志',
@@ -603,6 +616,11 @@ export function WorkspaceView({
               ),
             },
           ]}
+      />
+      <TranslationPreviewModal
+        open={previewOpen}
+        chapters={chapters}
+        onCancel={() => setPreviewOpen(false)}
       />
     </div>
   );

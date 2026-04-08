@@ -17,6 +17,7 @@ export function RecentWorkspacesView({
 }: RecentWorkspacesViewProps) {
   return (
     <Card
+      size="small"
       title={
         <>
           <FolderOpenOutlined style={{ marginRight: 8 }} />
@@ -36,13 +37,9 @@ export function RecentWorkspacesView({
           {workspaces.map((workspace) => (
             <div
               key={workspace.dir}
-              style={{
-                padding: 12,
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 8,
-              }}
+              className="recent-workspace-card"
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+              <div className="recent-workspace-card-header">
                 <div>
                   <Space>
                     <span>{workspace.name}</span>

@@ -52,6 +52,7 @@ import type {
   TranslationStopMode,
   TranslationStepProgressSnapshot,
   TranslationStepQueueSnapshot,
+  TranslationUnit,
   TranslationUnitParser,
   TranslationUnitSplitter,
   WorkspaceChapterDescriptor,
@@ -317,6 +318,29 @@ export class TranslationProject
   getChapterDescriptor(chapterId: number): WorkspaceChapterDescriptor | undefined {
     this.ensureInitialized();
     return this.workspaceManager.getChapterDescriptor(chapterId);
+  }
+
+  getChapterTranslationPreview(chapterId: number): {
+    chapter: WorkspaceChapterDescriptor;
+    units: Array<{
+      index: number;
+      sourceText: string;
+      translatedText: string;
+      hasTranslation: boolean;
+    }>;
+  } {
+    this.ensureInitialized();
+    const chapter = this.workspaceManager.getChapterDescriptor(chapterId);
+    if (!chapter) {
+      throw new Error(`章节 ${chapterId} 不存在`);
+    }
+
+    return {
+      chapter,
+      units: this.documentManager
+        .getChapterTranslationUnits(chapterId)
+        .map((unit, index) => buildPreviewUnit(index, unit)),
+    };
   }
 
   async addChapter(
@@ -1225,4 +1249,14 @@ async function fileExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function buildPreviewUnit(index: number, unit: TranslationUnit) {
+  const translatedText = unit.target.at(-1) ?? "";
+  return {
+    index,
+    sourceText: unit.source,
+    translatedText,
+    hasTranslation: translatedText.trim().length > 0,
+  };
 }
