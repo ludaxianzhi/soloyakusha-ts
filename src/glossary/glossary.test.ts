@@ -35,8 +35,8 @@ describe("glossary", () => {
 
   test("tracks term status and occurrence stats by text block", () => {
     const glossary = new Glossary([
-      { term: "勇者", translation: "", status: "untranslated" },
-      { term: "陛下", translation: "Your Majesty", status: "translated" },
+      { term: "勇者", translation: "" },
+      { term: "陛下", translation: "Your Majesty" },
     ]);
 
     glossary.updateOccurrenceStats([
@@ -59,9 +59,9 @@ describe("glossary", () => {
 
   test("supports on-demand translated term lookup and incremental updates", () => {
     const glossary = new Glossary([
-      { term: "勇者", translation: "Hero", status: "translated" },
-      { term: "王都", translation: "", status: "untranslated" },
-      { term: "魔王", translation: "Demon Lord", status: "translated" },
+      { term: "勇者", translation: "Hero" },
+      { term: "王都", translation: "" },
+      { term: "魔王", translation: "Demon Lord" },
     ]);
 
     expect(glossary.getTranslatedTermsForText("勇者来到王都")).toMatchObject([
@@ -81,8 +81,8 @@ describe("glossary", () => {
 
   test("updates glossary translations via dedicated updater request", async () => {
     const glossary = new Glossary([
-      { term: "勇者", translation: "Hero", status: "translated" },
-      { term: "王都", translation: "", status: "untranslated", description: "城市名" },
+      { term: "勇者", translation: "Hero" },
+      { term: "王都", translation: "", description: "城市名" },
     ]);
     const client = new FakeChatClient([
       JSON.stringify({
@@ -127,7 +127,6 @@ describe("glossary", () => {
       {
         term: "王都",
         translation: "Royal Capital",
-        status: "translated",
         category: "placeName",
         totalOccurrenceCount: 3,
         textBlockOccurrenceCount: 2,
@@ -217,8 +216,8 @@ describe("glossary", () => {
 
   test("scans full text lines with large batches and formats grouped output", async () => {
     const client = new FakeChatClient([
-      '{"entities":[{"term":"勇者","category":"personName","description":"主角名"},{"term":"陛下","category":"personTitle","description":"对王族的称呼"}]}',
-      '{"entities":[{"term":"勇者","category":"personName","description":"主角"}]}',
+      '{"entities":[{"term":"勇者","category":"personName"},{"term":"陛下","category":"personTitle"}]}',
+      '{"entities":[{"term":"勇者","category":"personName"}]}',
     ]);
     const scanner = new FullTextGlossaryScanner(client);
 
@@ -235,6 +234,8 @@ describe("glossary", () => {
     expect(client.requests[0]?.prompt).toContain("L00001: 勇者来了");
     expect(client.requests[1]?.prompt).toContain("L00003: 勇者说勇者必胜");
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("术语扫描器");
+    expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("只返回 term 和 category 两个字段");
+    expect(client.requests[0]?.options?.requestConfig?.systemPrompt).not.toContain("description");
     expect(result.glossary.getTerm("勇者")).toMatchObject({
       category: "personName",
       status: "untranslated",

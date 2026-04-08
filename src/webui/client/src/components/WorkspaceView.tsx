@@ -3,7 +3,6 @@ import {
   Button,
   Card,
   Col,
-  Collapse,
   Empty,
   Form,
   Input,
@@ -17,37 +16,33 @@ import {
   Tabs,
   Tag,
   Typography,
-  Upload,
 } from 'antd';
-import type { FormInstance, UploadFile } from 'antd';
+import type { FormInstance } from 'antd';
+import type { ReactNode } from 'react';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
   BookOutlined,
-  CloudUploadOutlined,
+  CloseOutlined,
   DeleteOutlined,
   DownloadOutlined,
   ExportOutlined,
-  FileZipOutlined,
-  FolderOpenOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
-  ReloadOutlined,
   RobotOutlined,
   StopOutlined,
 } from '@ant-design/icons';
 import { IMPORT_FORMAT_OPTIONS, logColor, statusColor } from '../app/ui-helpers.ts';
 import type {
   GlossaryTerm,
+  LlmRequestHistoryEntry,
   LogEntry,
-  ManagedWorkspace,
   ProjectStatus,
   TranslationProjectSnapshot,
   WorkspaceChapterDescriptor,
 } from '../app/types.ts';
 
 const { TextArea } = Input;
-
 export type ProjectCommand =
   | 'start'
   | 'pause'
@@ -59,23 +54,15 @@ export type ProjectCommand =
   | 'remove';
 
 interface WorkspaceViewProps {
-  workspaces: ManagedWorkspace[];
   snapshot: TranslationProjectSnapshot | null;
   projectStatus: ProjectStatus | null;
   dictionary: GlossaryTerm[];
   chapters: WorkspaceChapterDescriptor[];
   logs: LogEntry[];
-  history: string;
-  uploadForm: FormInstance<Record<string, unknown>>;
+  history: LlmRequestHistoryEntry[];
   workspaceForm: FormInstance<Record<string, unknown>>;
-  uploadFiles: UploadFile[];
   translatorOptions: Array<{ label: string; value: string }>;
-  onUploadFilesChange: (files: UploadFile[]) => void;
-  onUploadSubmit: (values: Record<string, unknown>) => void | Promise<void>;
-  onRefreshBootData: () => void;
   onRefreshProjectData: () => void;
-  onOpenWorkspace: (workspace: ManagedWorkspace) => void | Promise<void>;
-  onDeleteWorkspace: (workspace: ManagedWorkspace) => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
@@ -90,26 +77,19 @@ interface WorkspaceViewProps {
   ) => void | Promise<void>;
   onClearLogs: () => void | Promise<void>;
   onRefreshHistory: () => void | Promise<void>;
+  onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }
 
 export function WorkspaceView({
-  workspaces,
   snapshot,
   projectStatus,
   dictionary,
   chapters,
   logs,
   history,
-  uploadForm,
   workspaceForm,
-  uploadFiles,
   translatorOptions,
-  onUploadFilesChange,
-  onUploadSubmit,
-  onRefreshBootData,
   onRefreshProjectData,
-  onOpenWorkspace,
-  onDeleteWorkspace,
   onProjectCommand,
   onOpenDictionaryEditor,
   onDeleteDictionary,
@@ -121,162 +101,24 @@ export function WorkspaceView({
   onResetProject,
   onClearLogs,
   onRefreshHistory,
+  onDismissTaskActivity,
 }: WorkspaceViewProps) {
+  if (!snapshot) {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        message="当前没有打开的工作区"
+        description="请前往“创建工作区”或“最近工作区”页面创建 / 打开项目。"
+      />
+    );
+  }
+
   return (
     <div className="section-stack">
-      <Row gutter={16}>
-        <Col span={12}>
-          <Card
-            title={
-              <Space>
-                <FileZipOutlined />
-                上传压缩包创建工作区
-              </Space>
-            }
-            extra={<Tag color="blue">远程友好</Tag>}
-          >
-            <Form
-              form={uploadForm}
-              layout="vertical"
-              className="compact-form"
-              initialValues={{ projectName: '新建项目' }}
-              onFinish={(values) => void onUploadSubmit(values)}
-            >
-              <Form.Item
-                label="项目名称"
-                name="projectName"
-                rules={[{ required: true, message: '请输入项目名称' }]}
-              >
-                <Input placeholder="例如：某轻小说项目" />
-              </Form.Item>
-              <Form.Item label="默认导入格式" name="importFormat">
-                <Select options={IMPORT_FORMAT_OPTIONS} />
-              </Form.Item>
-              <Form.Item label="默认翻译器" name="translatorName">
-                <Select
-                  allowClear
-                  options={translatorOptions}
-                  placeholder="使用全局默认翻译器"
-                />
-              </Form.Item>
-              <Row gutter={12}>
-                <Col span={12}>
-                  <Form.Item label="源语言" name="srcLang">
-                    <Input placeholder="例如：日语" />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item label="目标语言" name="tgtLang">
-                    <Input placeholder="例如：中文" />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Form.Item label="项目压缩包">
-                <Upload.Dragger
-                  accept=".zip"
-                  beforeUpload={() => false}
-                  maxCount={1}
-                  fileList={uploadFiles}
-                  onChange={({ fileList }) => onUploadFilesChange(fileList.slice(-1))}
-                >
-                  <p className="ant-upload-drag-icon">
-                    <CloudUploadOutlined />
-                  </p>
-                  <p>拖入或点击上传 ZIP</p>
-                  <span className="upload-hint">
-                    导入后工作区将由程序托管到独立目录中
-                  </span>
-                </Upload.Dragger>
-              </Form.Item>
-              <Collapse
-                items={[
-                  {
-                    key: 'manifest',
-                    label: '高级：导入 Manifest JSON',
-                    children: (
-                      <Form.Item
-                        label="Manifest JSON"
-                        name="manifestJson"
-                        extra="可选，用于指定 chapterPaths / branches / glossaryPath 等高级导入配置。"
-                      >
-                        <TextArea rows={8} placeholder='{"chapterPaths":["..."]}' />
-                      </Form.Item>
-                    ),
-                  },
-                ]}
-              />
-              <Button type="primary" htmlType="submit" block>
-                创建并打开工作区
-              </Button>
-            </Form>
-          </Card>
-        </Col>
-        <Col span={12}>
-          <Card
-            title={
-              <Space>
-                <FolderOpenOutlined />
-                最近工作区
-              </Space>
-            }
-            extra={
-              <Button icon={<ReloadOutlined />} onClick={onRefreshBootData}>
-                刷新
-              </Button>
-            }
-          >
-            {workspaces.length === 0 ? (
-              <Empty description="暂无工作区" />
-            ) : (
-              <Space direction="vertical" style={{ width: '100%' }}>
-                {workspaces.map((workspace) => (
-                  <div
-                    key={workspace.dir}
-                    style={{
-                      padding: 12,
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 8,
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <div>
-                        <Space>
-                          <span>{workspace.name}</span>
-                          {workspace.managed && <Tag color="green">托管</Tag>}
-                        </Space>
-                        <div>{workspace.dir}</div>
-                        <div>
-                          <Typography.Text type="secondary">
-                            最近打开：{new Date(workspace.lastOpenedAt).toLocaleString()}
-                          </Typography.Text>
-                        </div>
-                      </div>
-                      <Space>
-                        <Button type="link" onClick={() => void onOpenWorkspace(workspace)}>
-                          打开
-                        </Button>
-                        <Popconfirm
-                          title="确认删除该工作区？"
-                          onConfirm={() => void onDeleteWorkspace(workspace)}
-                        >
-                          <Button type="link" danger>
-                            删除
-                          </Button>
-                        </Popconfirm>
-                      </Space>
-                    </div>
-                  </div>
-                ))}
-              </Space>
-            )}
-          </Card>
-        </Col>
-      </Row>
-
-      {snapshot ? (
-        <Tabs
-          defaultActiveKey="dashboard"
-          items={[
+      <Tabs
+        defaultActiveKey="dashboard"
+        items={[
             {
               key: 'dashboard',
               label: '项目总览',
@@ -394,7 +236,10 @@ export function WorkspaceView({
                     </Col>
                   </Row>
 
-                  <ProgressAlerts projectStatus={projectStatus} />
+                  <TaskActivityPanels
+                    projectStatus={projectStatus}
+                    onDismissTaskActivity={onDismissTaskActivity}
+                  />
 
                   <Card title="步骤队列">
                     {snapshot.queueSnapshots.length === 0 ? (
@@ -466,6 +311,11 @@ export function WorkspaceView({
                     </Space>
                   }
                 >
+                  <TaskActivityPanels
+                    projectStatus={projectStatus}
+                    tasks={['scan']}
+                    onDismissTaskActivity={onDismissTaskActivity}
+                  />
                   <Table
                     rowKey="term"
                     dataSource={dictionary}
@@ -728,7 +578,7 @@ export function WorkspaceView({
                       extra={
                         <Space>
                           <Button onClick={() => void onClearLogs()}>清空</Button>
-                          <Button onClick={onRefreshBootData}>刷新</Button>
+                          <Button onClick={onRefreshProjectData}>刷新</Button>
                         </Space>
                       }
                     >
@@ -768,8 +618,66 @@ export function WorkspaceView({
                       title="LLM 请求历史"
                       extra={<Button onClick={() => void onRefreshHistory()}>刷新</Button>}
                     >
-                      {history ? (
-                        <div className="mono-block">{history}</div>
+                      {history.length > 0 ? (
+                        <div className="log-list">
+                          <Space direction="vertical" style={{ width: '100%' }}>
+                            {history.map((entry) => (
+                              <Card
+                                key={`${entry.source ?? 'llm'}-${entry.requestId}-${entry.timestamp}`}
+                                size="small"
+                                title={
+                                  <Space wrap>
+                                    <Tag color={entry.type === 'error' ? 'error' : 'success'}>
+                                      {entry.type === 'error' ? 'ERROR' : 'COMPLETION'}
+                                    </Tag>
+                                    {entry.source ? <Tag>{entry.source}</Tag> : null}
+                                    {entry.modelName ? <Tag color="blue">{entry.modelName}</Tag> : null}
+                                    <Typography.Text type="secondary">
+                                      {new Date(entry.timestamp).toLocaleString()}
+                                    </Typography.Text>
+                                  </Space>
+                                }
+                              >
+                                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                                  <Space wrap>
+                                    <Tag>{`requestId ${entry.requestId}`}</Tag>
+                                    {entry.durationSeconds != null ? (
+                                      <Tag>{`${entry.durationSeconds.toFixed(3)}s`}</Tag>
+                                    ) : null}
+                                    {entry.statistics ? (
+                                      <Tag>{`tokens ${entry.statistics.totalTokens}`}</Tag>
+                                    ) : null}
+                                  </Space>
+                                  {entry.requestConfig?.systemPrompt ? (
+                                    <HistorySection
+                                      title="System Prompt"
+                                      content={entry.requestConfig.systemPrompt}
+                                    />
+                                  ) : null}
+                                  <HistorySection title="User Prompt" content={entry.prompt} />
+                                  {entry.response ? (
+                                    <HistorySection title="Response" content={entry.response} />
+                                  ) : null}
+                                  {entry.errorMessage ? (
+                                    <HistorySection title="Error" content={entry.errorMessage} />
+                                  ) : null}
+                                  {entry.responseBody ? (
+                                    <HistorySection
+                                      title="Response Body"
+                                      content={entry.responseBody}
+                                    />
+                                  ) : null}
+                                  {entry.requestConfig ? (
+                                    <HistorySection
+                                      title="Request Config"
+                                      content={JSON.stringify(entry.requestConfig, null, 2)}
+                                    />
+                                  ) : null}
+                                </Space>
+                              </Card>
+                            ))}
+                          </Space>
+                        </div>
                       ) : (
                         <Empty description="暂无请求历史" />
                       )}
@@ -779,41 +687,208 @@ export function WorkspaceView({
               ),
             },
           ]}
-        />
-      ) : (
-        <Card>
-          <Empty description="当前未打开工作区" />
-        </Card>
-      )}
+      />
     </div>
   );
 }
 
-function ProgressAlerts({ projectStatus }: { projectStatus: ProjectStatus | null }) {
+export type TaskActivityKind = 'scan' | 'plot';
+
+function HistorySection({ title, content }: { title: string; content: string }) {
   return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      {projectStatus?.scanDictionaryProgress && (
-        <Alert
-          type={
-            projectStatus.scanDictionaryProgress.status === 'error'
-              ? 'error'
-              : 'info'
-          }
-          message={`术语扫描：${projectStatus.scanDictionaryProgress.completedBatches}/${projectStatus.scanDictionaryProgress.totalBatches} 批`}
-          description={projectStatus.scanDictionaryProgress.errorMessage}
-        />
-      )}
-      {projectStatus?.plotSummaryProgress && (
-        <Alert
-          type={
-            projectStatus.plotSummaryProgress.status === 'error'
-              ? 'error'
-              : 'info'
-          }
-          message={`情节总结：${projectStatus.plotSummaryProgress.completedBatches}/${projectStatus.plotSummaryProgress.totalBatches} 批`}
-          description={projectStatus.plotSummaryProgress.errorMessage}
-        />
-      )}
-    </Space>
+    <div>
+      <Typography.Text strong>{title}</Typography.Text>
+      <div className="mono-block" style={{ marginTop: 8 }}>
+        {content}
+      </div>
+    </div>
   );
+}
+
+function TaskActivityPanels({
+  projectStatus,
+  tasks = ['scan', 'plot'],
+  onDismissTaskActivity,
+}: {
+  projectStatus: ProjectStatus | null;
+  tasks?: TaskActivityKind[];
+  onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+}) {
+  const visibleTasks: Array<{
+    key: TaskActivityKind;
+    title: string;
+    progress:
+      | NonNullable<ProjectStatus['scanDictionaryProgress']>
+      | NonNullable<ProjectStatus['plotSummaryProgress']>;
+    details: ReactNode;
+  }> = [];
+
+  for (const task of tasks) {
+    if (task === 'scan' && projectStatus?.scanDictionaryProgress) {
+      visibleTasks.push({
+        key: 'scan',
+        title: '术语扫描',
+        progress: projectStatus.scanDictionaryProgress,
+        details: (
+          <Space wrap>
+            <Tag>{`批次 ${projectStatus.scanDictionaryProgress.completedBatches}/${projectStatus.scanDictionaryProgress.totalBatches}`}</Tag>
+            <Tag>{`总行数 ${projectStatus.scanDictionaryProgress.totalLines}`}</Tag>
+          </Space>
+        ),
+      });
+      continue;
+    }
+
+    if (task === 'plot' && projectStatus?.plotSummaryProgress) {
+      visibleTasks.push({
+        key: 'plot',
+        title: '情节大纲',
+        progress: projectStatus.plotSummaryProgress,
+        details: (
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            <Progress
+              percent={toPercent(
+                projectStatus.plotSummaryProgress.completedChapters,
+                projectStatus.plotSummaryProgress.totalChapters,
+                projectStatus.plotSummaryProgress.status,
+              )}
+              status={toProgressStatus(projectStatus.plotSummaryProgress.status)}
+              format={() =>
+                `${projectStatus.plotSummaryProgress.completedChapters}/${projectStatus.plotSummaryProgress.totalChapters} 章节`
+              }
+            />
+            <Space wrap>
+              <Tag>{`批次 ${projectStatus.plotSummaryProgress.completedBatches}/${projectStatus.plotSummaryProgress.totalBatches}`}</Tag>
+              {projectStatus.plotSummaryProgress.currentChapterId != null ? (
+                <Tag color="processing">
+                  {`当前章节 ${projectStatus.plotSummaryProgress.currentChapterId}`}
+                </Tag>
+              ) : null}
+            </Space>
+          </Space>
+        ),
+      });
+    }
+  }
+
+  if (visibleTasks.length === 0) {
+    return null;
+  }
+
+  const colSpan = visibleTasks.length === 1 ? 24 : 12;
+
+  return (
+    <Row gutter={[16, 16]}>
+      {visibleTasks.map((task) => (
+        <Col key={task.key} span={colSpan}>
+          <TaskActivityCard
+            task={task.key}
+            title={task.title}
+            progress={task.progress}
+            details={task.details}
+            onDismiss={() => void onDismissTaskActivity(task.key)}
+          />
+        </Col>
+      ))}
+    </Row>
+  );
+}
+
+function TaskActivityCard({
+  task,
+  title,
+  progress,
+  details,
+  onDismiss,
+}: {
+  task: TaskActivityKind;
+  title: string;
+  progress:
+    | NonNullable<ProjectStatus['scanDictionaryProgress']>
+    | NonNullable<ProjectStatus['plotSummaryProgress']>;
+  details: ReactNode;
+  onDismiss: () => void;
+}) {
+  return (
+    <Card
+      size="small"
+      title={title}
+      extra={
+        <Space size="small">
+          <Tag color={toTaskStatusColor(progress.status)}>
+            {toTaskStatusLabel(progress.status)}
+          </Tag>
+          {progress.status !== 'running' ? (
+            <Button
+              type="text"
+              size="small"
+              icon={<CloseOutlined />}
+              onClick={onDismiss}
+              aria-label={`关闭${task}进度卡片`}
+            />
+          ) : null}
+        </Space>
+      }
+    >
+      <Space direction="vertical" style={{ width: '100%' }} size="middle">
+        <Progress
+          percent={toPercent(
+            progress.completedBatches,
+            progress.totalBatches,
+            progress.status,
+          )}
+          status={toProgressStatus(progress.status)}
+          format={() => `${progress.completedBatches}/${progress.totalBatches} 批`}
+        />
+        {details}
+        {progress.errorMessage ? (
+          <Alert type="error" showIcon message={progress.errorMessage} />
+        ) : null}
+      </Space>
+    </Card>
+  );
+}
+
+function toPercent(
+  completed: number,
+  total: number,
+  status: 'running' | 'done' | 'error',
+): number {
+  if (total <= 0) {
+    return status === 'done' ? 100 : 0;
+  }
+  return Number(((completed / total) * 100).toFixed(1));
+}
+
+function toProgressStatus(status: 'running' | 'done' | 'error'): 'active' | 'success' | 'exception' {
+  switch (status) {
+    case 'done':
+      return 'success';
+    case 'error':
+      return 'exception';
+    default:
+      return 'active';
+  }
+}
+
+function toTaskStatusColor(status: 'running' | 'done' | 'error'): string {
+  switch (status) {
+    case 'done':
+      return 'success';
+    case 'error':
+      return 'error';
+    default:
+      return 'processing';
+  }
+}
+
+function toTaskStatusLabel(status: 'running' | 'done' | 'error'): string {
+  switch (status) {
+    case 'done':
+      return '已完成';
+    case 'error':
+      return '失败';
+    default:
+      return '进行中';
+  }
 }

@@ -5,6 +5,32 @@ export interface LogEntry {
   timestamp: string;
 }
 
+export interface LlmRequestHistoryEntry {
+  version: 1;
+  requestId: string;
+  timestamp: string;
+  type: 'completion' | 'error';
+  source?: string;
+  prompt: string;
+  response?: string;
+  errorMessage?: string;
+  responseBody?: string;
+  requestConfig?: {
+    systemPrompt?: string;
+    temperature?: number;
+    maxTokens?: number;
+    topP?: number;
+    extraBody?: Record<string, unknown>;
+  };
+  statistics?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+  modelName?: string;
+  durationSeconds?: number;
+}
+
 export interface ManagedWorkspace {
   name: string;
   dir: string;

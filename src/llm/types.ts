@@ -131,6 +131,22 @@ export type ErrorLogEntry = {
   responseBody?: string;
 };
 
+export type LlmRequestHistoryEntry = {
+  version: 1;
+  requestId: string;
+  timestamp: string;
+  type: "completion" | "error";
+  source?: string;
+  prompt: string;
+  response?: string;
+  errorMessage?: string;
+  responseBody?: string;
+  requestConfig?: LlmRequestConfig;
+  statistics?: CompletionResponseStatistics;
+  modelName?: string;
+  durationSeconds?: number;
+};
+
 export type RequestHistoryLogger = {
   logCompletion(entry: CompletionLogEntry): void | Promise<void>;
   logError(entry: ErrorLogEntry): void | Promise<void>;

@@ -127,17 +127,23 @@ export function resolveTranslationDependencyMode(
   const matchedGlossaryTerms = options.glossary?.filterTerms(
     options.documentManager.getSourceText(options.chapterId, options.fragmentIndex),
   ) ?? [];
-  const hasCompletedPeer = options.orderedFragments.some(
+  const completedPeerFragments = options.orderedFragments.filter(
     (fragment) =>
       !(
         fragment.chapterId === options.chapterId &&
         fragment.fragmentIndex === options.fragmentIndex
       ) && options.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, options.stepId),
   );
+  const hasCompletedPeer = completedPeerFragments.length > 0;
+  const completedSourceTexts = completedPeerFragments.map((fragment) =>
+    options.documentManager.getSourceText(fragment.chapterId, fragment.fragmentIndex),
+  );
   if (
     hasCompletedPeer &&
     matchedGlossaryTerms.length > 0 &&
-    matchedGlossaryTerms.every((term) => term.status === "translated") &&
+    matchedGlossaryTerms.every((term) =>
+      completedSourceTexts.some((text) => text.includes(term.term)),
+    ) &&
     options.orderedFragments
       .slice(0, Math.floor((currentIndex + 1) / 2))
       .every((fragment) =>
@@ -182,18 +188,24 @@ export function getTranslationDependencyBlockedReason(
       : "waiting_for_glossary_terms";
   }
 
-  const untranslatedTerms = matchedGlossaryTerms.filter((term) => term.status !== "translated");
-  if (untranslatedTerms.length > 0) {
-    return "waiting_for_translated_glossary_terms";
-  }
-
-  const hasCompletedPeer = options.orderedFragments.some(
+  const completedPeerFragments = options.orderedFragments.filter(
     (fragment) =>
       !(
         fragment.chapterId === options.chapterId &&
         fragment.fragmentIndex === options.fragmentIndex
       ) && options.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, options.stepId),
   );
+  const completedSourceTexts = completedPeerFragments.map((fragment) =>
+    options.documentManager.getSourceText(fragment.chapterId, fragment.fragmentIndex),
+  );
+  const termsNotInTranslations = matchedGlossaryTerms.filter(
+    (term) => !completedSourceTexts.some((text) => text.includes(term.term)),
+  );
+  if (termsNotInTranslations.length > 0) {
+    return "waiting_for_terms_in_translations";
+  }
+
+  const hasCompletedPeer = completedPeerFragments.length > 0;
   if (!hasCompletedPeer) {
     return "waiting_for_completed_peer";
   }
@@ -221,7 +233,6 @@ export function upsertGlobalPatternTerm(
     glossary.addTerm({
       term: pattern.text,
       translation: "",
-      status: "untranslated",
       totalOccurrenceCount: pattern.occurrenceCount,
       description: "全局关联模式",
     });

@@ -28,7 +28,6 @@ export type GlossaryTerm = {
   term: string;
   translation: string;
   description?: string;
-  status?: GlossaryTermStatus;
   category?: GlossaryTermCategory;
   totalOccurrenceCount?: number;
   textBlockOccurrenceCount?: number;
@@ -36,7 +35,7 @@ export type GlossaryTerm = {
 
 export type ResolvedGlossaryTerm = Omit<
   GlossaryTerm,
-  "status" | "totalOccurrenceCount" | "textBlockOccurrenceCount"
+  "totalOccurrenceCount" | "textBlockOccurrenceCount"
 > & {
   status: GlossaryTermStatus;
   totalOccurrenceCount: number;
@@ -142,7 +141,6 @@ export class Glossary {
         throw new Error(`术语不存在，无法更新译文: ${termText}`);
       }
       if (
-        existing.status === "translated" &&
         existing.translation.length > 0 &&
         existing.translation !== translation
       ) {
@@ -154,7 +152,7 @@ export class Glossary {
       const nextTerm: ResolvedGlossaryTerm = {
         ...existing,
         translation,
-        status: "translated",
+        status: resolveGlossaryTermStatus(translation),
       };
       this.terms.set(termText, nextTerm);
       appliedTerms.push(cloneResolvedGlossaryTerm(nextTerm));
@@ -193,7 +191,7 @@ export class Glossary {
     terms: ReadonlyArray<GlossaryTerm | ResolvedGlossaryTerm> = this.getAllTerms(),
   ): string {
     const lines = [
-      "Term,Translation,Status,Category,TotalOccurrences,TextBlockOccurrences,Description",
+      "Term,Translation,Category,TotalOccurrences,TextBlockOccurrences,Description",
     ];
     for (const term of terms) {
       const normalized = normalizeGlossaryTerm(term);
@@ -201,7 +199,6 @@ export class Glossary {
         [
           normalized.term,
           normalized.translation,
-          normalized.status,
           normalized.category ?? "",
           normalized.totalOccurrenceCount.toString(),
           normalized.textBlockOccurrenceCount.toString(),
@@ -226,7 +223,7 @@ export function normalizeGlossaryTerm(term: GlossaryTerm): ResolvedGlossaryTerm 
   }
 
   const translation = typeof term.translation === "string" ? term.translation : "";
-  const status = resolveGlossaryTermStatus(term.status, translation);
+  const status = resolveGlossaryTermStatus(translation);
   const category = resolveGlossaryTermCategory(term.category);
 
   return {
@@ -240,19 +237,8 @@ export function normalizeGlossaryTerm(term: GlossaryTerm): ResolvedGlossaryTerm 
   };
 }
 
-function resolveGlossaryTermStatus(
-  status: GlossaryTerm["status"],
-  translation: string,
-): GlossaryTermStatus {
-  if (!status) {
-    return translation.trim().length > 0 ? "translated" : "untranslated";
-  }
-
-  if ((GLOSSARY_TERM_STATUSES as readonly string[]).includes(status)) {
-    return status;
-  }
-
-  throw new Error(`不支持的术语状态: ${status}`);
+function resolveGlossaryTermStatus(translation: string): GlossaryTermStatus {
+  return translation.trim().length > 0 ? "translated" : "untranslated";
 }
 
 function resolveGlossaryTermCategory(
@@ -348,7 +334,7 @@ function normalizeGlossaryStatusFilter(
   }
 
   const values = Array.isArray(status) ? status : [status];
-  return new Set(values.map((value) => resolveGlossaryTermStatus(value, "")));
+  return new Set(values);
 }
 
 function escapeCsvCell(value: string): string {

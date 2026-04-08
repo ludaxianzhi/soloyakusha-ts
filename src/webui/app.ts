@@ -43,22 +43,22 @@ export function createApp(options: CreateAppOptions = {}) {
 
   const clientDistDir = options.clientDistDir ?? join(process.cwd(), 'dist', 'webui');
   app.get('*', async (c) => {
-    const requestedPath = normalizeStaticAssetPath(c.req.path);
-    const expectsSpaShell = c.req.path === '/' || !requestedPath.includes('.');
-    const staticAssetResponse = await resolveStaticAssetResponse(c.req.path, {
-      staticAssets: options.staticAssets,
+    const staticAssetResponse = await resolveStaticAssetResponse(
+      c.req.path,
+      options.staticAssets,
       clientDistDir,
-    });
+    );
     if (staticAssetResponse) {
       return staticAssetResponse;
     }
 
-    if (!expectsSpaShell) {
+    const requestedPath = normalizeStaticAssetPath(c.req.path);
+    if (requestedPath.includes('.')) {
       return c.notFound();
     }
 
     return c.html(
-      '<h1>WebUI client not built</h1><p>Run <code>bun run webui:build:client</code> for source-mode serving, or <code>bun run webui:build</code> to produce a standalone executable with embedded assets.</p>',
+      '<h1>WebUI client not built</h1><p>Run <code>bun run webui</code> to build the frontend and start the server on one port, use <code>bun run webui:dev</code> for the Vite-based development flow, or use <code>bun run webui:build</code> to produce a standalone executable with embedded assets.</p>',
       503,
     );
   });

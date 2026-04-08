@@ -14,7 +14,11 @@ import { TranslationProject } from '../../project/translation-project.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { FullTextGlossaryScanner } from '../../glossary/index.ts';
 import type { GlossaryTermCategory } from '../../glossary/glossary.ts';
-import { FileRequestHistoryLogger } from '../../llm/history.ts';
+import {
+  FileRequestHistoryLogger,
+  readHistoryEntriesFromLogDir,
+} from '../../llm/history.ts';
+import type { LlmRequestHistoryEntry } from '../../llm/types.ts';
 import { PlotSummarizer } from '../../project/plot-summarizer.ts';
 import { StoryTopology } from '../../project/story-topology.ts';
 import type { Logger } from '../../project/logger.ts';
@@ -141,17 +145,13 @@ export class ProjectService {
     }));
   }
 
-  async getRequestHistory(): Promise<string> {
-    if (!this.project) return '';
+  async getRequestHistory(): Promise<LlmRequestHistoryEntry[]> {
+    if (!this.project) return [];
     try {
       const projectDir = this.project.getWorkspaceFileManifest().projectDir;
-      const logDir = join(projectDir, 'logs');
-      const latestFile = await findLatestLogFile(logDir);
-      if (!latestFile) return '';
-      const content = await Bun.file(latestFile).text();
-      return content.slice(-4000);
+      return await readHistoryEntriesFromLogDir(join(projectDir, 'logs'));
     } catch {
-      return '';
+      return [];
     }
   }
 
@@ -269,6 +269,11 @@ export class ProjectService {
         translatorName: input.translatorName,
       });
 
+      if (!hasConfig) {
+        await nextProject.saveProgress();
+        this.log('info', '工作区初始化数据已即时保存');
+      }
+
       // Register workspace
       const registry = new WorkspaceRegistry();
       await registry.touchWorkspace({
@@ -369,6 +374,7 @@ export class ProjectService {
       return;
     }
 
+    this.clearTaskProgressUi('all');
     this.isBusy = true;
     this.scanDictionaryProgress = {
       status: 'running',
@@ -475,7 +481,6 @@ export class ProjectService {
     translation: string;
     description?: string;
     category?: string;
-    status?: 'translated' | 'untranslated';
   }): Promise<void> {
     await this.runAction('保存字典条目', async () => {
       if (!this.project) throw new Error('当前没有已初始化的项目');
@@ -491,8 +496,6 @@ export class ProjectService {
         translation: args.translation,
         description: args.description,
         category: normalizeGlossaryCategory(args.category),
-        status:
-          args.status ?? (args.translation.trim() ? 'translated' : 'untranslated'),
         totalOccurrenceCount: existing?.totalOccurrenceCount ?? 0,
         textBlockOccurrenceCount: existing?.textBlockOccurrenceCount ?? 0,
       };
@@ -554,6 +557,7 @@ export class ProjectService {
       return;
     }
 
+    this.clearTaskProgressUi('all');
     this.isBusy = true;
     this.plotSummaryProgress = {
       status: 'running',
@@ -693,6 +697,17 @@ export class ProjectService {
         this.isBusy = false;
       }
     })();
+  }
+
+  clearTaskProgressUi(task: 'scan' | 'plot' | 'all' = 'all'): void {
+    if (task === 'scan' || task === 'all') {
+      this.scanDictionaryProgress = null;
+      this.broadcastScanProgress();
+    }
+    if (task === 'plot' || task === 'all') {
+      this.plotSummaryProgress = null;
+      this.broadcastPlotProgress();
+    }
   }
 
   // ─── Export ─────────────────────────────────────────
@@ -1144,16 +1159,3 @@ async function maybePersistProgress(
   }
 }
 
-async function findLatestLogFile(logDir: string): Promise<string | null> {
-  try {
-    const { readdir } = await import('node:fs/promises');
-    const files = await readdir(logDir);
-    const logFiles = files
-      .filter((f) => f.endsWith('.log') || f.endsWith('.jsonl'))
-      .sort()
-      .reverse();
-    return logFiles.length > 0 ? join(logDir, logFiles[0]!) : null;
-  } catch {
-    return null;
-  }
-}

@@ -1,7 +1,7 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { useEffect, useMemo, useState } from 'react';
 import { useInput } from 'ink';
+import { readHistoryEntriesFromLogDir } from '../../llm/history.ts';
 import { ScrollableTextBox } from '../components/scrollable-text-box.tsx';
 import { useLog } from '../context/log.tsx';
 import { useNavigation } from '../context/navigation.tsx';
@@ -43,13 +43,29 @@ export function WorkspaceHistoryScreen() {
       }
 
       const projectDir = project.getWorkspaceFileManifest().projectDir;
-      const logPath = join(projectDir, 'logs', 'llm_requests.txt');
-      try {
-        const content = await readFile(logPath, 'utf8');
-        setLlmHistory(content.slice(-4000));
-      } catch {
-        setLlmHistory('');
-      }
+        try {
+          const entries = await readHistoryEntriesFromLogDir(join(projectDir, 'logs'), 20);
+          setLlmHistory(
+            entries.length === 0
+              ? ''
+              : entries
+                  .flatMap((entry) => [
+                    `[${new Date(entry.timestamp).toLocaleString('zh-CN', { hour12: false })}] ${entry.type.toUpperCase()} ${entry.source ?? 'llm'} ${entry.modelName ?? ''}`.trim(),
+                    `  Request ID: ${entry.requestId}`,
+                    ...(entry.requestConfig?.systemPrompt
+                      ? [`  System: ${entry.requestConfig.systemPrompt}`]
+                      : []),
+                    `  Prompt: ${entry.prompt}`,
+                    ...(entry.response ? [`  Response: ${entry.response}`] : []),
+                    ...(entry.errorMessage ? [`  Error: ${entry.errorMessage}`] : []),
+                    ...(entry.responseBody ? [`  Response Body: ${entry.responseBody}`] : []),
+                    '',
+                  ])
+                  .join('\n'),
+          );
+        } catch {
+          setLlmHistory('');
+        }
     })();
   }, [project]);
 

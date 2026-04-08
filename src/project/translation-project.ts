@@ -763,7 +763,6 @@ export class TranslationProject
     const resetTerms = glossary.getAllTerms().map((term) => ({
       ...term,
       translation: "",
-      status: "untranslated" as const,
     }));
     this.replaceGlossary(new Glossary(resetTerms));
     await this.workspaceManager.saveGlossaryIfNeeded();

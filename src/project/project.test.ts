@@ -106,7 +106,6 @@ describe("TranslationProject", () => {
       {
         term: "王都",
         translation: "",
-        status: "untranslated",
       },
     ]);
 
@@ -149,14 +148,6 @@ describe("TranslationProject", () => {
       chapterId: 1,
       fragmentIndex: 1,
       outputText: "Church bells of the royal capital",
-    });
-
-    glossary.updateTerm("王都", {
-      term: "王都",
-      translation: "Royal Capital",
-      status: "translated",
-      totalOccurrenceCount: 3,
-      textBlockOccurrenceCount: 3,
     });
 
     const thirdBatch = await translationQueue.dispatchReadyItems();
@@ -728,7 +719,6 @@ describe("TranslationProject", () => {
       {
         term: "勇者",
         translation: "Hero",
-        status: "translated",
       },
     ]);
 
@@ -779,7 +769,6 @@ describe("TranslationProject", () => {
         {
           term: "王都",
           translation: "Royal Capital",
-          status: "translated",
         },
       ]),
       glossaryPath,

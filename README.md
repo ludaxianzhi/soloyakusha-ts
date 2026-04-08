@@ -68,22 +68,30 @@ bunx tsc --noEmit
 
 ## WebUI 开发与构建
 
-开发模式下，仍然使用 Bun 服务端配合 Vite dev server：
+现在 WebUI 提供三条清晰的入口：
+
+- `bun run webui`：先构建前端，再由 Bun 服务端在同一端口托管前后端，直接启动 WebUI
+- `bun run webui:dev`：一键同时启动 Bun API 服务端与 Vite 前端开发服务器
+- `bun run webui:build`：构建一个内嵌前端静态资源的单文件 WebUI 可执行程序
+
+如果你想直接启动一个单端口 WebUI：
+
+```bash
+bun run webui
+```
+
+该命令会先构建前端静态资源到 `dist\webui`，然后由后端在默认 `8000` 端口直接托管它们。
+
+开发模式下，直接运行：
 
 ```bash
 bun run webui:dev
 ```
 
-```bash
-bun run webui:client
-```
+该命令会同时拉起：
 
-如果你想以源码模式直接由 Bun 服务端托管构建后的前端静态文件，可先构建客户端：
-
-```bash
-bun run webui:build:client
-bun run webui
-```
+- 前端开发服务器：`http://localhost:5173`
+- 后端 API 服务：`http://localhost:8000`
 
 如果你想分发一个已经把前端静态资源直接打包进服务端的单文件可执行程序，可使用：
 

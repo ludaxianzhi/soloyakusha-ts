@@ -2,6 +2,7 @@
  * 工作区 REST API：列表、创建（ZIP 上传）、打开、删除。
  */
 
+import { join } from 'node:path';
 import { Hono } from 'hono';
 import type { ProjectService } from '../services/project-service.ts';
 import type { WorkspaceManager } from '../services/workspace-manager.ts';
@@ -25,6 +26,7 @@ export function createWorkspaceRoutes(
     const file = formData.get('file') as File | null;
     const projectName = (formData.get('projectName') as string) || 'Untitled';
     const importFormat = (formData.get('importFormat') as string) || undefined;
+    const importPattern = (formData.get('importPattern') as string) || undefined;
     const translatorName =
       (formData.get('translatorName') as string) || undefined;
     const srcLang = (formData.get('srcLang') as string) || undefined;
@@ -44,14 +46,22 @@ export function createWorkspaceRoutes(
       const chapterFiles = (
         manifest?.chapterPaths?.length
           ? manifest.chapterPaths
-          : extractedFiles.filter((f) => isTranslationFile(f))
+          : await resolveImportedChapterFiles(
+              workspaceDir,
+              extractedFiles,
+              manifest?.importPattern ?? importPattern,
+            )
       ).sort();
 
       if (chapterFiles.length === 0) {
         return c.json(
           {
-            error: '压缩包中未发现可识别的翻译源文件',
+            error:
+              manifest?.importPattern ?? importPattern
+                ? '压缩包中没有文件匹配导入 Pattern'
+                : '压缩包中未发现可识别的翻译源文件',
             extractedFiles,
+            importPattern: manifest?.importPattern ?? importPattern,
           },
           400,
         );
@@ -144,6 +154,7 @@ export function createWorkspaceRoutes(
 type UploadedWorkspaceManifest = {
   projectName?: string;
   chapterPaths?: string[];
+  importPattern?: string;
   glossaryPath?: string;
   srcLang?: string;
   tgtLang?: string;
@@ -152,24 +163,15 @@ type UploadedWorkspaceManifest = {
   branches?: BranchImportInput[];
 };
 
-function isTranslationFile(filePath: string): boolean {
+function isVisibleWorkspaceFile(filePath: string): boolean {
   const lower = filePath.toLowerCase();
-  // 跳过隐藏文件和 macOS 资源文件
   if (lower.includes('/__macosx/') || lower.startsWith('__macosx/')) {
     return false;
   }
   if (lower.includes('/.') || lower.startsWith('.')) {
     return false;
   }
-  return (
-    lower.endsWith('.txt') ||
-    lower.endsWith('.m3t') ||
-    lower.endsWith('.json') ||
-    lower.endsWith('.csv') ||
-    lower.endsWith('.tsv') ||
-    lower.endsWith('.yaml') ||
-    lower.endsWith('.yml')
-  );
+  return true;
 }
 
 function parseWorkspaceManifest(raw: string): UploadedWorkspaceManifest {
@@ -181,4 +183,61 @@ function parseWorkspaceManifest(raw: string): UploadedWorkspaceManifest {
     throw new Error('manifest.branches 必须是数组');
   }
   return parsed;
+}
+
+async function resolveImportedChapterFiles(
+  workspaceDir: string,
+  extractedFiles: string[],
+  importPattern?: string,
+): Promise<string[]> {
+  const normalizedPattern = normalizeImportPattern(importPattern);
+  const visibleFiles = extractedFiles.filter((filePath) => isVisibleWorkspaceFile(filePath));
+
+  const candidateFiles = normalizedPattern
+    ? visibleFiles.filter((filePath) => {
+        const normalizedFilePath = filePath.replace(/\\/g, '/');
+        return buildImportGlobPatterns(normalizedPattern).some((pattern) =>
+          new Bun.Glob(pattern).match(normalizedFilePath),
+        );
+      })
+    : visibleFiles;
+
+  const detectedFiles = await Promise.all(
+    candidateFiles.map(async (filePath) =>
+      (await isLikelyTextFile(join(workspaceDir, ...filePath.split('/')))) ? filePath : null,
+    ),
+  );
+  return detectedFiles.filter((filePath): filePath is string => Boolean(filePath));
+}
+
+function normalizeImportPattern(importPattern?: string): string | undefined {
+  const normalizedPattern = importPattern?.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+  return normalizedPattern ? normalizedPattern : undefined;
+}
+
+function buildImportGlobPatterns(importPattern: string): string[] {
+  const patterns = [importPattern];
+  if (!importPattern.includes('/')) {
+    patterns.push(`**/${importPattern}`);
+  }
+  return [...new Set(patterns)];
+}
+
+async function isLikelyTextFile(filePath: string): Promise<boolean> {
+  const sample = new Uint8Array(await Bun.file(filePath).slice(0, 4096).arrayBuffer());
+  if (sample.length === 0) {
+    return true;
+  }
+
+  let controlCharCount = 0;
+  for (const byte of sample) {
+    if (byte === 0) {
+      return false;
+    }
+    if ((byte < 9 || (byte > 13 && byte < 32)) && byte !== 27) {
+      controlCharCount += 1;
+    }
+  }
+
+  return controlCharCount / sample.length < 0.05;
 }
