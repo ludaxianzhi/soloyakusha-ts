@@ -195,3 +195,195 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ─── Kanban Board ──────────────────────────────── */
+
+.kanban-board {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 8px 0 16px;
+  min-height: 420px;
+  align-items: flex-start;
+}
+
+.kanban-column {
+  flex: 0 0 280px;
+  max-height: calc(100vh - 320px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: border-color 0.2s;
+}
+
+.kanban-column.kanban-column-over {
+  border-color: rgba(108, 140, 255, 0.4);
+  background: rgba(108, 140, 255, 0.04);
+}
+
+.kanban-column-header {
+  padding: 10px 10px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.kanban-column-title {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kanban-column-fork-info {
+  padding: 4px 10px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.kanban-column-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 60px;
+}
+
+.kanban-column-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60px;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+/* ─── Kanban Card ───────────────────────────────── */
+
+.kanban-card {
+  padding: 8px 10px 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
+  user-select: none;
+}
+
+.kanban-card:hover {
+  border-color: rgba(108, 140, 255, 0.3);
+}
+
+.kanban-card.fork-point {
+  border-left: 3px solid #faad14;
+}
+
+.kanban-card.fork-point:hover {
+  border-color: rgba(255, 255, 255, 0.08);
+  border-left-color: #faad14;
+}
+
+.kanban-card.dragging {
+  opacity: 0.35;
+}
+
+.kanban-card.kanban-card-overlay {
+  background: rgba(25, 28, 35, 0.97);
+  border: 2px solid rgba(108, 140, 255, 0.6);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 8px 10px 6px;
+}
+
+.kanban-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.kanban-card-grip {
+  color: rgba(255, 255, 255, 0.3);
+  cursor: grab;
+  padding-top: 2px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.kanban-card-grip.fork-icon {
+  color: #faad14;
+  cursor: default;
+}
+
+.kanban-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kanban-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kanban-card-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.kanban-card-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: #6c8cff;
+  transition: width 0.3s;
+}
+
+.kanban-card-progress-fill.complete {
+  background: #52c41a;
+}
+
+.kanban-card-actions {
+  display: flex;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.kanban-card:hover .kanban-card-actions {
+  opacity: 1;
+}
+
+/* ─── Chapter info list (List tab) ──────────────── */
+
+.chapter-info-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chapter-info-bar {
+  width: 60px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.chapter-info-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: #6c8cff;
+}
+
+.chapter-info-bar-fill.complete {
+  background: #52c41a;
+}

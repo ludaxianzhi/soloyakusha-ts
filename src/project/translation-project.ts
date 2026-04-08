@@ -486,14 +486,71 @@ export class TranslationProject
     if (routeId === MAIN_ROUTE_ID) {
       throw new Error("不能移除主线");
     }
-    if (route.chapters.length > 0) {
-      throw new Error(`路线 "${route.name}" 仍包含章节，请先迁移或移除这些章节`);
-    }
     if (topology.getChildBranches(routeId).length > 0) {
       throw new Error(`路线 "${route.name}" 仍有子分支，请先删除子分支`);
     }
 
+    // Merge chapters back into parent route after the fork point
+    if (route.chapters.length > 0 && route.parentRouteId) {
+      const parentRoute = topology.getRoute(route.parentRouteId);
+      if (parentRoute && route.forkAfterChapterId !== null) {
+        const forkIndex = parentRoute.chapters.indexOf(route.forkAfterChapterId);
+        const insertAt = forkIndex === -1 ? parentRoute.chapters.length : forkIndex + 1;
+        const merged = [...parentRoute.chapters];
+        merged.splice(insertAt, 0, ...route.chapters);
+        this.replaceRouteChapters(topology, route.parentRouteId, merged);
+      }
+    }
+
     topology.removeBranch(routeId);
+    await this.saveStoryTopology(topology);
+  }
+
+  async moveChapterToRoute(
+    chapterId: number,
+    targetRouteId: string,
+    targetIndex: number,
+  ): Promise<void> {
+    this.ensureInitialized();
+    const topology = this.getMutableStoryTopology();
+
+    const sourceRoute = topology.findRouteForChapter(chapterId);
+    if (!sourceRoute) {
+      throw new Error(`章节 ${chapterId} 不在任何路线中`);
+    }
+
+    // Fork point chapters cannot be moved
+    const childBranches = topology
+      .getBranches()
+      .filter((b) => b.forkAfterChapterId === chapterId);
+    if (childBranches.length > 0) {
+      throw new Error(`章节 ${chapterId} 是分叉点，不能移动`);
+    }
+
+    const targetRoute = topology.getRoute(targetRouteId);
+    if (!targetRoute) {
+      throw new Error(`目标路线不存在: ${targetRouteId}`);
+    }
+
+    if (sourceRoute.id === targetRouteId) {
+      // Same route — reorder
+      const chapters = [...sourceRoute.chapters];
+      const currentIndex = chapters.indexOf(chapterId);
+      if (currentIndex === -1) return;
+      chapters.splice(currentIndex, 1);
+      const clampedIndex = Math.min(targetIndex, chapters.length);
+      chapters.splice(clampedIndex, 0, chapterId);
+      this.replaceRouteChapters(topology, targetRouteId, chapters);
+    } else {
+      // Cross-route move
+      topology.removeChapter(sourceRoute.id, chapterId);
+      const clampedIndex = Math.min(
+        targetIndex,
+        (topology.getRoute(targetRouteId)?.chapters.length ?? 0),
+      );
+      topology.insertChapter(targetRouteId, chapterId, clampedIndex);
+    }
+
     await this.saveStoryTopology(topology);
   }
 

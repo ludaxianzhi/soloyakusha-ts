@@ -190,6 +190,20 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     return c.json({ ok: true });
   });
 
+  app.post('/topology/move-chapter', async (c) => {
+    const body = await c.req.json<{
+      chapterId: number;
+      targetRouteId: string;
+      targetIndex: number;
+    }>();
+    await projectService.moveChapterToRoute(
+      body.chapterId,
+      body.targetRouteId,
+      body.targetIndex,
+    );
+    return c.json({ ok: true });
+  });
+
   app.post('/chapters/clear', async (c) => {
     const body = await c.req.json<{ chapterIds: number[] }>();
     await projectService.clearChapterTranslations(body.chapterIds);

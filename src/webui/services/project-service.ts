@@ -859,6 +859,18 @@ export class ProjectService {
     });
   }
 
+  async moveChapterToRoute(
+    chapterId: number,
+    targetRouteId: string,
+    targetIndex: number,
+  ): Promise<void> {
+    await this.runAction('移动章节到路线', async () => {
+      if (!this.project) throw new Error('当前没有已初始化的项目');
+      await this.project.moveChapterToRoute(chapterId, targetRouteId, targetIndex);
+      this.refreshSnapshot();
+    });
+  }
+
   // ─── Config ─────────────────────────────────────────
 
   async updateWorkspaceConfig(patch: WorkspaceConfigPatch): Promise<void> {

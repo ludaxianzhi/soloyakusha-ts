@@ -559,27 +559,6 @@ export function AppShell() {
     [message, refreshProjectData, runAction],
   );
 
-  const handleMoveChapter = useCallback(
-    async (index: number, delta: -1 | 1) => {
-      await runAction(async () => {
-        const nextIndex = index + delta;
-        if (nextIndex < 0 || nextIndex >= chapters.length) {
-          return;
-        }
-        const next = [...chapters];
-        const [current] = next.splice(index, 1);
-        if (!current) {
-          return;
-        }
-        next.splice(nextIndex, 0, current);
-        await api.reorderChapters(next.map((chapter) => chapter.id));
-        setChapters(next);
-        message.success('章节顺序已更新');
-      });
-    },
-    [chapters, message, runAction],
-  );
-
   const handleClearChapterTranslations = useCallback(
     async (chapterIds: number[]) => {
       await runAction(async () => {
@@ -646,7 +625,18 @@ export function AppShell() {
     [message, refreshProjectData, runAction],
   );
 
-  const handleDownloadExport = useCallback(
+  const handleMoveChapterToRoute = useCallback(
+    async (chapterId: number, targetRouteId: string, targetIndex: number) => {
+      await runAction(async () => {
+        await api.moveChapterToRoute(chapterId, targetRouteId, targetIndex);
+        await refreshProjectData();
+        message.success('章节已移动');
+      });
+    },
+    [message, refreshProjectData, runAction],
+  );
+
+  const handleDownloadExport= useCallback(
     async (format: string) => {
       await runAction(async () => {
         const blob = await api.downloadExport(format);
@@ -968,12 +958,12 @@ export function AppShell() {
                     onOpenDictionaryEditor={openDictionaryEditor}
                     onDeleteDictionary={handleDeleteDictionary}
                     onWorkspaceConfigSave={handleWorkspaceConfigSave}
-                    onMoveChapter={handleMoveChapter}
                     onClearChapterTranslations={handleClearChapterTranslations}
                     onRemoveChapter={handleRemoveChapter}
                     onCreateStoryBranch={handleCreateStoryBranch}
                     onUpdateStoryRoute={handleUpdateStoryRoute}
                     onReorderStoryRouteChapters={handleReorderStoryRouteChapters}
+                    onMoveChapterToRoute={handleMoveChapterToRoute}
                     onRemoveStoryRoute={handleRemoveStoryRoute}
                     onDownloadExport={handleDownloadExport}
                     onResetProject={handleResetProject}

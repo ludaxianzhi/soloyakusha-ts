@@ -233,6 +233,11 @@ export const api = {
     request(`/api/project/topology/routes/${encodeURIComponent(routeId)}`, {
       method: 'DELETE',
     }),
+  moveChapterToRoute: (chapterId: number, targetRouteId: string, targetIndex: number) =>
+    request('/api/project/topology/move-chapter', {
+      method: 'POST',
+      body: { chapterId, targetRouteId, targetIndex },
+    }),
 
   getWorkspaceConfig: () => request<WorkspaceConfig>('/api/project/config'),
   updateWorkspaceConfig: (patch: Record<string, unknown>) =>

@@ -38,7 +38,6 @@ export interface WorkspaceViewProps {
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
-  onMoveChapter: (index: number, delta: -1 | 1) => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapter: (chapterId: number) => void | Promise<void>;
   onCreateStoryBranch: (payload: CreateStoryBranchPayload) => void | Promise<void>;
@@ -49,6 +48,11 @@ export interface WorkspaceViewProps {
   onReorderStoryRouteChapters: (
     routeId: string,
     chapterIds: number[],
+  ) => void | Promise<void>;
+  onMoveChapterToRoute: (
+    chapterId: number,
+    targetRouteId: string,
+    targetIndex: number,
   ) => void | Promise<void>;
   onRemoveStoryRoute: (routeId: string) => void | Promise<void>;
   onDownloadExport: (format: string) => void | Promise<void>;
