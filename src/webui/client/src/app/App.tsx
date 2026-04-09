@@ -294,7 +294,7 @@ export function AppShell() {
 
   const { connected } = useEventStream(eventHandlers);
   const isWorkspaceCurrentRoute = location.pathname === '/workspace/current';
-  const workspacePollingEnabled = isWorkspaceCurrentRoute && snapshot !== null;
+  const workspacePollingEnabled = isWorkspaceCurrentRoute && snapshot !== null && !connected;
 
   usePollingTask({
     enabled: workspacePollingEnabled,
@@ -597,12 +597,22 @@ export function AppShell() {
     [message, refreshProjectData, runAction],
   );
 
-  const handleRemoveChapter = useCallback(
-    async (chapterId: number) => {
+  const handleRemoveChapters = useCallback(
+    async (
+      chapterIds: number[],
+      options: { cascadeBranches?: boolean } = {},
+    ) => {
+      if (chapterIds.length === 0) {
+        return;
+      }
       await runAction(async () => {
-        await api.removeChapter(chapterId);
+        await api.removeChapters(chapterIds, options);
         await refreshProjectData();
-        message.success('章节已移除');
+        message.success(
+          chapterIds.length === 1
+            ? '章节已移除'
+            : `已移除 ${chapterIds.length} 个章节`,
+        );
       });
     },
     [message, refreshProjectData, runAction],
@@ -610,13 +620,16 @@ export function AppShell() {
 
   const handleCreateStoryBranch = useCallback(
     async (payload: CreateStoryBranchPayload) => {
-      await runAction(async () => {
+      try {
         await api.createStoryBranch(payload);
         await refreshProjectData();
         message.success(`分支“${payload.name}”已创建`);
-      });
+      } catch (error) {
+        message.error(toErrorMessage(error));
+        throw error;
+      }
     },
-    [message, refreshProjectData, runAction],
+    [message, refreshProjectData],
   );
 
   const handleUpdateStoryRoute = useCallback(
@@ -974,7 +987,7 @@ export function AppShell() {
                     onDeleteDictionary={handleDeleteDictionary}
                     onWorkspaceConfigSave={handleWorkspaceConfigSave}
                     onClearChapterTranslations={handleClearChapterTranslations}
-                    onRemoveChapter={handleRemoveChapter}
+                    onRemoveChapters={handleRemoveChapters}
                     onCreateStoryBranch={handleCreateStoryBranch}
                     onUpdateStoryRoute={handleUpdateStoryRoute}
                     onReorderStoryRouteChapters={handleReorderStoryRouteChapters}

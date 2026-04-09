@@ -153,6 +153,14 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     return c.json({ ok: true });
   });
 
+  app.post('/chapters/remove', async (c) => {
+    const body = await c.req.json<{ chapterIds: number[]; cascadeBranches?: boolean }>();
+    await projectService.removeChapters(body.chapterIds, {
+      cascadeBranches: body.cascadeBranches,
+    });
+    return c.json({ ok: true });
+  });
+
   app.put('/chapters/reorder', async (c) => {
     const body = await c.req.json<{ chapterIds: number[] }>();
     await projectService.reorderChapters(body.chapterIds);

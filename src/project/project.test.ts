@@ -433,6 +433,177 @@ describe("TranslationProject", () => {
     });
   });
 
+  test("batch-remove cascades descendant branches when fork points are selected", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-batch-remove-cascade-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-2.txt"), "第二章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-3.txt"), "第三章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-4.txt"), "第四章\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "batch-remove-cascade",
+        projectDir: workspaceDir,
+        chapters: [
+          { id: 1, filePath: "sources/chapter-1.txt" },
+          { id: 2, filePath: "sources/chapter-2.txt" },
+          { id: 3, filePath: "sources/chapter-3.txt" },
+          { id: 4, filePath: "sources/chapter-4.txt" },
+        ],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    await project.createStoryBranch({
+      id: "branch-a",
+      name: "分支 A",
+      forkAfterChapterId: 1,
+      chapterIds: [2, 3, 4],
+    });
+    await project.createStoryBranch({
+      id: "branch-a-sub",
+      name: "分支 A 子线",
+      parentRouteId: "branch-a",
+      forkAfterChapterId: 2,
+      chapterIds: [3, 4],
+    });
+
+    await project.removeChapters([1], { cascadeBranches: true });
+
+    expect(project.getChapterDescriptors()).toEqual([]);
+    expect(project.getStoryTopologyDescriptor().routes).toEqual([
+      {
+        id: "main",
+        name: "主线",
+        parentRouteId: null,
+        forkAfterChapterId: null,
+        chapters: [],
+        childRouteIds: [],
+        depth: 0,
+        isMain: true,
+      },
+    ]);
+  });
+
+  test("batch-remove blocks deleting fork points when cascade is disabled", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-batch-remove-block-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-2.txt"), "第二章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-3.txt"), "第三章\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "batch-remove-block",
+        projectDir: workspaceDir,
+        chapters: [
+          { id: 1, filePath: "sources/chapter-1.txt" },
+          { id: 2, filePath: "sources/chapter-2.txt" },
+          { id: 3, filePath: "sources/chapter-3.txt" },
+        ],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.createStoryBranch({
+      id: "branch-a",
+      name: "分支 A",
+      forkAfterChapterId: 1,
+      chapterIds: [2, 3],
+    });
+
+    await expect(project.removeChapters([1], { cascadeBranches: false })).rejects.toThrow(
+      "分叉点",
+    );
+    expect(project.getChapterDescriptors().map((chapter) => chapter.id)).toEqual([1, 2, 3]);
+  });
+
+  test("batch-remove deduplicates chapter IDs before deletion", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-batch-remove-dedupe-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-2.txt"), "第二章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-3.txt"), "第三章\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "batch-remove-dedupe",
+        projectDir: workspaceDir,
+        chapters: [
+          { id: 1, filePath: "sources/chapter-1.txt" },
+          { id: 2, filePath: "sources/chapter-2.txt" },
+          { id: 3, filePath: "sources/chapter-3.txt" },
+        ],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    await project.removeChapters([2, 2]);
+    expect(project.getChapterDescriptors().map((chapter) => chapter.id)).toEqual([1, 3]);
+  });
+
+  test("batch-remove validates full input and avoids partial deletion on invalid chapter IDs", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-batch-remove-validate-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-2.txt"), "第二章\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "batch-remove-validate",
+        projectDir: workspaceDir,
+        chapters: [
+          { id: 1, filePath: "sources/chapter-1.txt" },
+          { id: 2, filePath: "sources/chapter-2.txt" },
+        ],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    await expect(project.removeChapters([1, 99])).rejects.toThrow("章节 99 不存在");
+    expect(project.getChapterDescriptors().map((chapter) => chapter.id)).toEqual([1, 2]);
+  });
+
   test("allows different fragments to run at different pipeline steps asynchronously", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-pipeline-"));
     cleanupTargets.push(workspaceDir);

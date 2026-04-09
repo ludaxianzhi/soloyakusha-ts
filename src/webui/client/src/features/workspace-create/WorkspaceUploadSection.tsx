@@ -33,10 +33,14 @@ export function WorkspaceUploadSection({
         label="项目压缩包"
         required
         validateStatus={activeFile ? undefined : 'warning'}
-        help={activeFile ? 'ZIP 将被解压到新的托管工作区目录。' : '请先选择一个 ZIP 文件。'}
+        help={
+          activeFile
+            ? '压缩包将被解压到新的托管工作区目录。'
+            : '请先选择一个 ZIP / 7Z 文件。'
+        }
       >
         <Upload.Dragger
-          accept=".zip"
+          accept=".zip,.7z"
           beforeUpload={() => false}
           maxCount={1}
           disabled={disabled}
@@ -46,7 +50,7 @@ export function WorkspaceUploadSection({
           <p className="ant-upload-drag-icon">
             <CloudUploadOutlined />
           </p>
-          <p>拖入或点击上传 ZIP</p>
+          <p>拖入或点击上传 ZIP / 7Z</p>
           <span className="upload-hint">导入后工作区将由程序托管到独立目录中</span>
         </Upload.Dragger>
       </Form.Item>

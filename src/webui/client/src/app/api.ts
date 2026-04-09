@@ -209,6 +209,17 @@ export const api = {
     }),
   removeChapter: (chapterId: number) =>
     request(`/api/project/chapters/${chapterId}`, { method: 'DELETE' }),
+  removeChapters: (
+    chapterIds: number[],
+    options: { cascadeBranches?: boolean } = {},
+  ) =>
+    request('/api/project/chapters/remove', {
+      method: 'POST',
+      body: {
+        chapterIds,
+        cascadeBranches: options.cascadeBranches,
+      },
+    }),
   clearChapterTranslations: (chapterIds: number[]) =>
     request('/api/project/chapters/clear', {
       method: 'POST',

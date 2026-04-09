@@ -802,6 +802,18 @@ export class ProjectService {
     });
   }
 
+  async removeChapters(
+    chapterIds: number[],
+    options: { cascadeBranches?: boolean } = {},
+  ): Promise<void> {
+    await this.runAction('批量删除章节', async () => {
+      if (!this.project) throw new Error('当前没有已初始化的项目');
+      await this.project.removeChapters(chapterIds, options);
+      this.refreshSnapshot();
+      this.log('success', `已批量移除 ${chapterIds.length} 个章节`);
+    });
+  }
+
   async reorderChapters(chapterIds: number[]): Promise<void> {
     await this.runAction('保存章节排序', async () => {
       if (!this.project) throw new Error('当前没有已初始化的项目');
@@ -960,8 +972,25 @@ export class ProjectService {
     this.pollTimer = setInterval(() => {
       if (!this.project) return;
       try {
-        this.snapshot = this.project.getProjectSnapshot();
-        this.broadcastSnapshot();
+        const nextSnapshot = this.project.getProjectSnapshot();
+        const previousSnapshot = this.snapshot;
+        this.snapshot = nextSnapshot;
+
+        // 空闲阶段无需每秒推送同构快照，避免 SSE 长时间占用带宽。
+        const lifecycleChanged =
+          previousSnapshot?.lifecycle.status !== nextSnapshot.lifecycle.status;
+        const queueChanged =
+          previousSnapshot?.lifecycle.queuedWorkItems !== nextSnapshot.lifecycle.queuedWorkItems ||
+          previousSnapshot?.lifecycle.activeWorkItems !== nextSnapshot.lifecycle.activeWorkItems;
+        const progressChanged =
+          previousSnapshot?.progress.translatedChapters !==
+            nextSnapshot.progress.translatedChapters ||
+          previousSnapshot?.progress.translatedFragments !==
+            nextSnapshot.progress.translatedFragments;
+
+        if (!previousSnapshot || lifecycleChanged || queueChanged || progressChanged) {
+          this.broadcastSnapshot();
+        }
       } catch {
         // ignore
       }
@@ -1271,4 +1300,3 @@ async function maybePersistProgress(
     await project.saveProgress();
   }
 }
-

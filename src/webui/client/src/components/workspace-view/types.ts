@@ -38,7 +38,10 @@ export interface WorkspaceViewProps {
   onDeleteDictionary: (term: string) => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
-  onRemoveChapter: (chapterId: number) => void | Promise<void>;
+  onRemoveChapters: (
+    chapterIds: number[],
+    options?: { cascadeBranches?: boolean },
+  ) => void | Promise<void>;
   onCreateStoryBranch: (payload: CreateStoryBranchPayload) => void | Promise<void>;
   onUpdateStoryRoute: (
     routeId: string,

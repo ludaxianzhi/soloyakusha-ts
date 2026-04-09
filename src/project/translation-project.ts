@@ -393,6 +393,90 @@ export class TranslationProject
     }
   }
 
+  async removeChapters(
+    chapterIds: number[],
+    options: { cascadeBranches?: boolean } = {},
+  ): Promise<void> {
+    this.ensureInitialized();
+    const normalizedChapterIds = [...new Set(chapterIds)];
+    if (normalizedChapterIds.length === 0) {
+      return;
+    }
+
+    const existingChapterIds = new Set(this.chapters.map((chapter) => chapter.id));
+    for (const chapterId of normalizedChapterIds) {
+      if (!existingChapterIds.has(chapterId)) {
+        throw new Error(`章节 ${chapterId} 不存在`);
+      }
+    }
+
+    const topology = this.storyTopology;
+    if (!topology) {
+      for (const chapterId of normalizedChapterIds) {
+        await this.workspaceManager.removeChapter(chapterId);
+      }
+      return;
+    }
+
+    const selectedChapterIdSet = new Set(normalizedChapterIds);
+    const cascadeBranches = options.cascadeBranches ?? false;
+    const branchesForkedFromSelected = topology
+      .getBranches()
+      .filter(
+        (route) =>
+          route.forkAfterChapterId !== null && selectedChapterIdSet.has(route.forkAfterChapterId),
+      );
+
+    if (!cascadeBranches && branchesForkedFromSelected.length > 0) {
+      const blockingBranch = branchesForkedFromSelected[0]!;
+      throw new Error(
+        `章节 ${blockingBranch.forkAfterChapterId} 是分支“${blockingBranch.name}”的分叉点，暂时不能删除`,
+      );
+    }
+
+    const chapterIdsToRemove = new Set<number>(normalizedChapterIds);
+    const routeIdsToRemove = new Set<string>();
+    if (cascadeBranches) {
+      for (const route of branchesForkedFromSelected) {
+        routeIdsToRemove.add(route.id);
+        for (const descendantRouteId of this.collectDescendantRouteIds(topology, route.id)) {
+          routeIdsToRemove.add(descendantRouteId);
+        }
+      }
+      for (const routeId of routeIdsToRemove) {
+        const route = topology.getRoute(routeId);
+        if (!route) {
+          continue;
+        }
+        for (const chapterId of route.chapters) {
+          chapterIdsToRemove.add(chapterId);
+        }
+      }
+    }
+
+    const chapterRouteIdMap = new Map<number, string>();
+    for (const route of topology.getAllRoutes()) {
+      for (const chapterId of route.chapters) {
+        chapterRouteIdMap.set(chapterId, route.id);
+      }
+    }
+
+    for (const routeId of routeIdsToRemove) {
+      topology.removeBranch(routeId);
+    }
+
+    const orderedChapterIdsToRemove = [...chapterIdsToRemove].sort((left, right) => left - right);
+    for (const chapterId of orderedChapterIdsToRemove) {
+      const routeId = chapterRouteIdMap.get(chapterId);
+      if (routeId && topology.getRoute(routeId)) {
+        topology.removeChapter(routeId, chapterId);
+      }
+      await this.workspaceManager.removeChapter(chapterId);
+    }
+
+    await this.saveStoryTopology(topology);
+  }
+
   async reorderChapters(chapterIds: number[]): Promise<void> {
     this.ensureInitialized();
     await this.workspaceManager.reorderChapters(chapterIds);
@@ -1512,6 +1596,23 @@ export class TranslationProject
       current = topology.getRoute(current.parentRouteId);
     }
     return depth;
+  }
+
+  private collectDescendantRouteIds(
+    topology: StoryTopology,
+    routeId: string,
+  ): string[] {
+    const descendants: string[] = [];
+    const queue = [routeId];
+    while (queue.length > 0) {
+      const currentRouteId = queue.shift()!;
+      const childBranches = topology.getChildBranches(currentRouteId);
+      for (const branch of childBranches) {
+        descendants.push(branch.id);
+        queue.push(branch.id);
+      }
+    }
+    return descendants;
   }
 
   private getStoryTopologyFilePath(): string {

@@ -23,7 +23,7 @@ export function createWorkspaceRoutes(
     return c.json({ workspaces });
   });
 
-  /** 从 ZIP 创建新工作区 */
+  /** 从压缩包创建新工作区 */
   app.post('/', async (c) => {
     const formData = await c.req.formData();
     const file = formData.get('file') as File | null;
@@ -45,15 +45,15 @@ export function createWorkspaceRoutes(
     );
 
     if (!file) {
-      return c.json({ error: '请上传 ZIP 文件' }, 400);
+      return c.json({ error: '请上传压缩包（ZIP / 7Z）' }, 400);
     }
 
     let workspaceDir: string | undefined;
     try {
       const manifest = manifestJson ? parseWorkspaceManifest(manifestJson) : undefined;
-      const zipBuffer = await file.arrayBuffer();
+      const archiveBuffer = await file.arrayBuffer();
       const createdWorkspace =
-        await workspaceManager.createFromZip(projectName, zipBuffer);
+        await workspaceManager.createFromZip(projectName, archiveBuffer, file.name);
       workspaceDir = createdWorkspace.workspaceDir;
       const { extractedFiles } = createdWorkspace;
       const resolvedImportFormat = manifest?.importFormat ?? importFormat;

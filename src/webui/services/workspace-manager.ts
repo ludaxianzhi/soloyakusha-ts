@@ -2,7 +2,7 @@
  * 工作区目录管理：ZIP 上传解压、工作区列表、删除。
  */
 
-import { access, mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { access, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { normalize as normalizePosix } from 'node:path/posix';
 import { homedir } from 'node:os';
@@ -17,6 +17,10 @@ import {
 } from './workspace-archive.ts';
 
 const DEFAULT_BASE_DIR = join(homedir(), '.soloyakusha-ts', 'workspaces');
+const WINDOWS_7Z_CANDIDATES = [
+  'C:\\Program Files\\7-Zip\\7z.exe',
+  'C:\\Program Files (x86)\\7-Zip\\7z.exe',
+];
 
 export interface ManagedWorkspace extends WorkspaceEntry {
   managed: boolean;
@@ -40,12 +44,14 @@ export class WorkspaceManager {
   }
 
   /**
-   * 从上传的 ZIP 创建工作区目录并解压文件。
+   * 从上传的压缩包创建工作区目录并解压文件。
+   * 解压优先使用 7z（支持更多压缩方法与 7z 格式），不可用时回退 JSZip。
    * 返回工作区根目录和解压出的相对文件路径列表。
    */
   async createFromZip(
     projectName: string,
-    zipBuffer: ArrayBuffer,
+    archiveBuffer: ArrayBuffer,
+    archiveFileName = 'archive.zip',
   ): Promise<{ workspaceDir: string; extractedFiles: string[] }> {
     await this.ensureBaseDir();
 
@@ -54,30 +60,32 @@ export class WorkspaceManager {
     const workspaceDir = join(this.baseDir, dirName);
     await mkdir(workspaceDir, { recursive: true });
 
-    const zip = await JSZip.loadAsync(zipBuffer);
-    const extractedFiles: string[] = [];
+    let extractedBy7z: string[] | null = null;
+    let externalExtractionError: unknown;
 
-    // 识别 ZIP 内是否有唯一根目录（常见打包方式），若有则剥离
-    const entries = Object.keys(zip.files);
-    const rootPrefix = detectSingleRootPrefix(entries);
-
-    for (const [rawPath, zipEntry] of Object.entries(zip.files)) {
-      if (zipEntry.dir) continue;
-
-      const relativePath = normalizeZipEntryPath(
-        rootPrefix ? rawPath.slice(rootPrefix.length) : rawPath,
+    try {
+      extractedBy7z = await tryExtractArchiveWith7z(
+        workspaceDir,
+        archiveBuffer,
+        archiveFileName,
       );
-      if (!relativePath) continue;
-
-      const targetPath = join(workspaceDir, relativePath);
-      await mkdir(dirname(targetPath), { recursive: true });
-
-      const content = await zipEntry.async('nodebuffer');
-      await Bun.write(targetPath, content);
-      extractedFiles.push(relativePath);
+    } catch (error) {
+      externalExtractionError = error;
     }
 
-    return { workspaceDir, extractedFiles };
+    if (extractedBy7z && extractedBy7z.length > 0) {
+      return {
+        workspaceDir,
+        extractedFiles: extractedBy7z,
+      };
+    }
+
+    try {
+      const extractedFiles = await extractWithJsZipFallback(workspaceDir, archiveBuffer);
+      return { workspaceDir, extractedFiles };
+    } catch (error) {
+      throw buildArchiveExtractionError(error, externalExtractionError);
+    }
   }
 
   async importWorkspaceArchive(
@@ -189,6 +197,185 @@ export class WorkspaceManager {
   }
 }
 
+function buildArchiveExtractionError(
+  jsZipError: unknown,
+  externalExtractionError: unknown,
+): Error {
+  const jsZipMessage = toErrorMessage(jsZipError);
+  const externalMessage = toErrorMessage(externalExtractionError);
+  const hasUnknownCompressionMessage =
+    jsZipMessage.includes('compression') && jsZipMessage.includes('unknown');
+  if (hasUnknownCompressionMessage) {
+    return new Error(
+      externalMessage
+        ? `压缩包解压失败：当前归档使用了 JSZip 不支持的压缩方法，且 7z 解压不可用/失败。JSZip=${jsZipMessage}；7z=${externalMessage}`
+        : `压缩包解压失败：当前归档使用了 JSZip 不支持的压缩方法（${jsZipMessage}）。请安装 7z，或改用常见 ZIP 压缩方法（deflate/store）重新打包。`,
+    );
+  }
+
+  return new Error(
+    externalMessage
+      ? `压缩包解压失败：JSZip=${jsZipMessage}；7z=${externalMessage}`
+      : `压缩包解压失败：${jsZipMessage}`,
+  );
+}
+
+async function extractWithJsZipFallback(
+  workspaceDir: string,
+  archiveBuffer: ArrayBuffer,
+): Promise<string[]> {
+  const zip = await JSZip.loadAsync(archiveBuffer);
+  const extractedFiles: string[] = [];
+
+  // 识别 ZIP 内是否有唯一根目录（常见打包方式），若有则剥离
+  const entries = Object.keys(zip.files);
+  const rootPrefix = detectSingleRootPrefix(entries);
+
+  for (const [rawPath, zipEntry] of Object.entries(zip.files)) {
+    if (zipEntry.dir) continue;
+
+    const relativePath = normalizeZipEntryPath(
+      rootPrefix ? rawPath.slice(rootPrefix.length) : rawPath,
+    );
+    if (!relativePath) continue;
+
+    const targetPath = join(workspaceDir, ...relativePath.split('/'));
+    await mkdir(dirname(targetPath), { recursive: true });
+
+    const content = await zipEntry.async('nodebuffer');
+    await Bun.write(targetPath, content);
+    extractedFiles.push(relativePath);
+  }
+
+  return extractedFiles;
+}
+
+async function tryExtractArchiveWith7z(
+  workspaceDir: string,
+  archiveBuffer: ArrayBuffer,
+  archiveFileName: string,
+): Promise<string[] | null> {
+  const sevenZipBinary = await resolve7zBinaryPath();
+  if (!sevenZipBinary) {
+    return null;
+  }
+
+  const tempArchivePath = join(workspaceDir, buildTempArchiveName(archiveFileName));
+  const extractTempDir = join(workspaceDir, '__archive_extract__');
+  await mkdir(extractTempDir, { recursive: true });
+  await Bun.write(tempArchivePath, archiveBuffer);
+
+  try {
+    const process = Bun.spawn({
+      cmd: [sevenZipBinary, 'x', '-y', `-o${extractTempDir}`, tempArchivePath],
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const exitCode = await process.exited;
+    if (exitCode !== 0) {
+      const stdout = await new Response(process.stdout).text();
+      const stderr = await new Response(process.stderr).text();
+      throw new Error(
+        `exit=${exitCode}; stderr=${stderr.trim() || '-'}; stdout=${stdout.trim() || '-'}`,
+      );
+    }
+
+    const extractedFiles = await collectRelativeFiles(extractTempDir);
+    const rootPrefix = detectSingleRootPrefix(extractedFiles);
+    const mappedPaths = new Set<string>();
+
+    for (const sourceRelativePath of extractedFiles) {
+      const outputRelativePath = normalizeZipEntryPath(
+        rootPrefix ? sourceRelativePath.slice(rootPrefix.length) : sourceRelativePath,
+      );
+      if (!outputRelativePath) {
+        continue;
+      }
+      if (mappedPaths.has(outputRelativePath)) {
+        throw new Error(`压缩包中存在冲突路径: ${outputRelativePath}`);
+      }
+      mappedPaths.add(outputRelativePath);
+
+      const sourcePath = join(extractTempDir, ...sourceRelativePath.split('/'));
+      const targetPath = join(workspaceDir, ...outputRelativePath.split('/'));
+      await mkdir(dirname(targetPath), { recursive: true });
+      await rename(sourcePath, targetPath);
+    }
+
+    return [...mappedPaths].sort((left, right) => left.localeCompare(right));
+  } catch (error) {
+    throw new Error(`7z 解压失败（${sevenZipBinary}）：${toErrorMessage(error)}`);
+  } finally {
+    await rm(tempArchivePath, { force: true });
+    await rm(extractTempDir, { recursive: true, force: true });
+  }
+}
+
+async function collectRelativeFiles(rootDir: string): Promise<string[]> {
+  const result: string[] = [];
+
+  async function walk(dirPath: string, prefix: string): Promise<void> {
+    const entries = await readdir(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const normalizedName = entry.name.replace(/\\/g, '/');
+      const nextRelativePath = prefix ? `${prefix}/${normalizedName}` : normalizedName;
+      const absolutePath = join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        await walk(absolutePath, nextRelativePath);
+        continue;
+      }
+      result.push(nextRelativePath);
+    }
+  }
+
+  await walk(rootDir, '');
+  return result.sort((left, right) => left.localeCompare(right));
+}
+
+function buildTempArchiveName(archiveFileName: string): string {
+  const lowerName = archiveFileName.toLowerCase();
+  if (lowerName.endsWith('.7z')) {
+    return '__upload__.7z';
+  }
+  if (lowerName.endsWith('.zip')) {
+    return '__upload__.zip';
+  }
+  return '__upload__.bin';
+}
+
+async function resolve7zBinaryPath(): Promise<string | undefined> {
+  const fromEnv = process.env.SEVEN_ZIP_BIN?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  for (const command of ['7z', '7za']) {
+    const resolved = Bun.which(command);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  if (process.platform === 'win32') {
+    for (const candidate of WINDOWS_7Z_CANDIDATES) {
+      if (await fileExists(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** 检测 ZIP 条目是否都在同一个根文件夹下 */
 function detectSingleRootPrefix(entries: string[]): string | undefined {
   if (entries.length === 0) return undefined;
@@ -217,4 +404,11 @@ function normalizeZipEntryPath(path: string): string {
   }
 
   return normalized;
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error ?? 'unknown error');
 }

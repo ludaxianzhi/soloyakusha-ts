@@ -23,7 +23,7 @@ export function WorkspaceView({
   onDeleteDictionary,
   onWorkspaceConfigSave,
   onClearChapterTranslations,
-  onRemoveChapter,
+  onRemoveChapters,
   onCreateStoryBranch,
   onUpdateStoryRoute,
   onReorderStoryRouteChapters,
@@ -85,7 +85,7 @@ export function WorkspaceView({
                 chapters={chapters}
                 topology={topology}
                 onClearChapterTranslations={onClearChapterTranslations}
-                onRemoveChapter={onRemoveChapter}
+                onRemoveChapters={onRemoveChapters}
                 onCreateStoryBranch={onCreateStoryBranch}
                 onUpdateStoryRoute={onUpdateStoryRoute}
                 onReorderStoryRouteChapters={onReorderStoryRouteChapters}
