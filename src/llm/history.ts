@@ -14,6 +14,36 @@ import type {
   RequestHistoryLogger,
 } from "./types.ts";
 
+export type LlmRequestHistoryDigest = {
+  total: number;
+  latestId: number;
+};
+
+export type LlmRequestHistoryListItem = {
+  id: number;
+  version: 1;
+  requestId: string;
+  timestamp: string;
+  type: "completion" | "error";
+  source?: string;
+  meta?: LlmRequestHistoryEntry["meta"];
+  statistics?: LlmRequestHistoryEntry["statistics"];
+  modelName?: string;
+  durationSeconds?: number;
+  errorMessage?: string;
+};
+
+export type LlmRequestHistoryDetail = LlmRequestHistoryEntry & {
+  id: number;
+};
+
+export type LlmRequestHistoryPage = {
+  items: LlmRequestHistoryListItem[];
+  total: number;
+  latestId: number;
+  nextBeforeId?: number;
+};
+
 export class FileRequestHistoryLogger implements RequestHistoryLogger {
   private readonly databasePath: string;
   private readonly source: string;
@@ -148,6 +178,29 @@ export async function readHistoryEntriesFromLogDir(
   return readHistoryEntriesFromDatabase(getHistoryDatabasePath(logDir), { limit });
 }
 
+export async function readHistoryDigestFromLogDir(
+  logDir: string,
+): Promise<LlmRequestHistoryDigest> {
+  return readHistoryDigestFromDatabase(getHistoryDatabasePath(logDir));
+}
+
+export async function readHistoryPageFromLogDir(
+  logDir: string,
+  options: { limit?: number; beforeId?: number } = {},
+): Promise<LlmRequestHistoryPage> {
+  return readHistoryPageFromDatabase(getHistoryDatabasePath(logDir), {
+    limit: options.limit ?? 20,
+    beforeId: options.beforeId,
+  });
+}
+
+export async function readHistoryDetailFromLogDir(
+  logDir: string,
+  id: number,
+): Promise<LlmRequestHistoryDetail | null> {
+  return readHistoryDetailFromDatabase(getHistoryDatabasePath(logDir), id);
+}
+
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
@@ -157,6 +210,11 @@ const DATABASE_WRITE_QUEUES = new Map<string, Promise<void>>();
 type HistoryReadOptions = {
   limit: number;
   source?: string;
+};
+
+type HistoryPageReadOptions = {
+  limit: number;
+  beforeId?: number;
 };
 
 async function readHistoryEntriesFromDatabase(
@@ -227,6 +285,173 @@ async function readHistoryEntriesFromDatabase(
           )
           .all(options.limit) as HistoryRow[]);
     return rows.map(mapHistoryRow);
+  } finally {
+    db.close(false);
+  }
+}
+
+async function readHistoryDigestFromDatabase(
+  databasePath: string,
+): Promise<LlmRequestHistoryDigest> {
+  try {
+    await stat(databasePath);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return {
+        total: 0,
+        latestId: 0,
+      };
+    }
+    throw error;
+  }
+
+  const db = openHistoryDatabase(databasePath);
+  try {
+    const row = db
+      .query(
+        `
+          SELECT
+            COUNT(*) AS total,
+            COALESCE(MAX(id), 0) AS latest_id
+          FROM llm_request_history
+        `,
+      )
+      .get() as { total: number; latest_id: number } | null;
+    return {
+      total: row?.total ?? 0,
+      latestId: row?.latest_id ?? 0,
+    };
+  } finally {
+    db.close(false);
+  }
+}
+
+async function readHistoryPageFromDatabase(
+  databasePath: string,
+  options: HistoryPageReadOptions,
+): Promise<LlmRequestHistoryPage> {
+  try {
+    await stat(databasePath);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return {
+        items: [],
+        total: 0,
+        latestId: 0,
+      };
+    }
+    throw error;
+  }
+
+  const db = openHistoryDatabase(databasePath);
+  try {
+    const digest = db
+      .query(
+        `
+          SELECT
+            COUNT(*) AS total,
+            COALESCE(MAX(id), 0) AS latest_id
+          FROM llm_request_history
+        `,
+      )
+      .get() as { total: number; latest_id: number } | null;
+    const rows = (options.beforeId
+      ? db
+          .query(
+            `
+              SELECT
+                id,
+                source,
+                version,
+                request_id,
+                timestamp,
+                type,
+                meta_json,
+                statistics_json,
+                model_name,
+                duration_seconds,
+                error_message
+              FROM llm_request_history
+              WHERE id < ?
+              ORDER BY id DESC
+              LIMIT ?
+            `,
+          )
+          .all(options.beforeId, options.limit)
+      : db
+          .query(
+            `
+              SELECT
+                id,
+                source,
+                version,
+                request_id,
+                timestamp,
+                type,
+                meta_json,
+                statistics_json,
+                model_name,
+                duration_seconds,
+                error_message
+              FROM llm_request_history
+              ORDER BY id DESC
+              LIMIT ?
+            `,
+          )
+          .all(options.limit)) as HistorySummaryRow[];
+    return {
+      items: rows.map(mapHistorySummaryRow),
+      total: digest?.total ?? 0,
+      latestId: digest?.latest_id ?? 0,
+      nextBeforeId:
+        rows.length === options.limit ? rows[rows.length - 1]?.id : undefined,
+    };
+  } finally {
+    db.close(false);
+  }
+}
+
+async function readHistoryDetailFromDatabase(
+  databasePath: string,
+  id: number,
+): Promise<LlmRequestHistoryDetail | null> {
+  try {
+    await stat(databasePath);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return null;
+    }
+    throw error;
+  }
+
+  const db = openHistoryDatabase(databasePath);
+  try {
+    const row = db
+      .query(
+        `
+          SELECT
+            id,
+            source,
+            version,
+            request_id,
+            timestamp,
+            type,
+            prompt,
+            response,
+            error_message,
+            response_body,
+            request_config_json,
+            meta_json,
+            statistics_json,
+            model_name,
+            duration_seconds,
+            reasoning
+          FROM llm_request_history
+          WHERE id = ?
+        `,
+      )
+      .get(id) as HistoryDetailRow | null;
+    return row ? mapHistoryDetailRow(row) : null;
   } finally {
     db.close(false);
   }
@@ -310,6 +535,24 @@ type HistoryRow = {
   reasoning: string | null;
 };
 
+type HistorySummaryRow = {
+  id: number;
+  source: string;
+  version: number;
+  request_id: string;
+  timestamp: string;
+  type: "completion" | "error";
+  meta_json: string | null;
+  statistics_json: string | null;
+  model_name: string | null;
+  duration_seconds: number | null;
+  error_message: string | null;
+};
+
+type HistoryDetailRow = HistoryRow & {
+  id: number;
+};
+
 function mapHistoryRow(row: HistoryRow): LlmRequestHistoryEntry {
   return {
     version: row.version === 1 ? 1 : 1,
@@ -327,6 +570,29 @@ function mapHistoryRow(row: HistoryRow): LlmRequestHistoryEntry {
     modelName: row.model_name ?? undefined,
     durationSeconds: row.duration_seconds ?? undefined,
     reasoning: row.reasoning ?? undefined,
+  };
+}
+
+function mapHistorySummaryRow(row: HistorySummaryRow): LlmRequestHistoryListItem {
+  return {
+    id: row.id,
+    version: row.version === 1 ? 1 : 1,
+    requestId: row.request_id,
+    timestamp: row.timestamp,
+    type: row.type === "error" ? "error" : "completion",
+    source: row.source,
+    meta: parseJsonColumn(row.meta_json),
+    statistics: parseJsonColumn(row.statistics_json),
+    modelName: row.model_name ?? undefined,
+    durationSeconds: row.duration_seconds ?? undefined,
+    errorMessage: row.error_message ?? undefined,
+  };
+}
+
+function mapHistoryDetailRow(row: HistoryDetailRow): LlmRequestHistoryDetail {
+  return {
+    id: row.id,
+    ...mapHistoryRow(row),
   };
 }
 

@@ -3,13 +3,18 @@ import type {
   DictionaryImportResult,
   GlossaryExtractorConfig,
   GlossaryTerm,
+  LlmRequestHistoryDetail,
+  LlmRequestHistoryDigest,
   ImportArchiveResult,
-  LlmRequestHistoryEntry,
+  LlmRequestHistoryPage,
   GlossaryUpdaterConfig,
   LlmProfileConfig,
+  LogDigest,
   LogEntry,
+  LogPage,
   ManagedWorkspace,
   PlotSummaryConfig,
+  ProjectResourceVersions,
   ProjectStatus,
   CreateStoryBranchPayload,
   StoryTopologyDescriptor,
@@ -172,6 +177,8 @@ export const api = {
     request<{ ok: boolean }>('/api/workspaces/remove', { method: 'POST' }),
 
   getProjectStatus: () => request<ProjectStatus>('/api/project/status'),
+  getProjectResourceVersions: () =>
+    request<ProjectResourceVersions>('/api/project/resources/versions'),
   getSnapshot: () =>
     request<TranslationProjectSnapshot | null>('/api/project/snapshot'),
   getSnapshotWithEntries: () =>
@@ -281,9 +288,18 @@ export const api = {
       body: payload,
     }),
 
-  getHistory: () =>
-    request<{ history: LlmRequestHistoryEntry[] }>('/api/project/history'),
-  getLogs: () => request<{ logs: LogEntry[] }>('/api/events/logs'),
+  getHistorySummary: () =>
+    request<LlmRequestHistoryDigest>('/api/project/history/summary'),
+  getHistory: (params?: { limit?: number; beforeId?: number }) =>
+    request<LlmRequestHistoryPage>(
+      `/api/project/history${buildQueryString(params)}`,
+    ),
+  getHistoryDetail: (id: number) =>
+    request<LlmRequestHistoryDetail>(`/api/project/history/${id}`),
+  getLogsSummary: () =>
+    request<LogDigest>('/api/events/logs/summary'),
+  getLogs: (params?: { limit?: number; beforeId?: number }) =>
+    request<LogPage>(`/api/events/logs${buildQueryString(params)}`),
   clearLogs: () => request('/api/events/logs/clear', { method: 'POST' }),
 
   downloadExport: (format: string) =>
@@ -377,3 +393,20 @@ export const api = {
       body: config,
     }),
 };
+
+function buildQueryString(
+  params?: Record<string, string | number | undefined>,
+): string {
+  if (!params) {
+    return '';
+  }
+  const searchParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') {
+      continue;
+    }
+    searchParams.set(key, String(value));
+  }
+  const query = searchParams.toString();
+  return query ? `?${query}` : '';
+}

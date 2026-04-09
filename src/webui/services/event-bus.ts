@@ -11,6 +11,18 @@ export interface LogEntry {
   timestamp: string;
 }
 
+export interface LogDigest {
+  total: number;
+  latestId: number;
+}
+
+export interface LogPage {
+  items: LogEntry[];
+  total: number;
+  latestId: number;
+  nextBeforeId?: number;
+}
+
 export type BusEventType =
   | 'snapshot'
   | 'log'
@@ -62,6 +74,28 @@ export class EventBus {
 
   getLogs(): LogEntry[] {
     return [...this.logs];
+  }
+
+  getLogDigest(): LogDigest {
+    return {
+      total: this.logs.length,
+      latestId: this.logs[this.logs.length - 1]?.id ?? 0,
+    };
+  }
+
+  getLogPage(options: { limit?: number; beforeId?: number } = {}): LogPage {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    const beforeId = options.beforeId;
+    const filtered = beforeId
+      ? this.logs.filter((entry) => entry.id < beforeId)
+      : this.logs;
+    const items = filtered.slice(-limit).reverse();
+    const oldestEntry = items[items.length - 1];
+    return {
+      items,
+      ...this.getLogDigest(),
+      nextBeforeId: items.length === limit ? oldestEntry?.id : undefined,
+    };
   }
 
   clearLogs(): void {

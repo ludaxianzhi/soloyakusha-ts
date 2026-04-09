@@ -18,6 +18,7 @@ import type {
   GlossaryTerm,
   ProjectStatus,
 } from '../../app/types.ts';
+import { usePollingTask } from '../../app/usePollingTask.ts';
 import { TaskActivityPanels } from './TaskActivityPanels.tsx';
 import type { ProjectCommand, TaskActivityKind } from './types.ts';
 
@@ -93,6 +94,14 @@ export function WorkspaceDictionaryTab({
 
     void Promise.all([onRefreshProjectStatus(), onRefreshDictionary()]);
   }, [active, onRefreshDictionary, onRefreshProjectStatus]);
+
+  usePollingTask({
+    enabled: active,
+    intervalMs: 5_000,
+    task: async () => {
+      await onRefreshDictionary();
+    },
+  });
 
   return (
     <>

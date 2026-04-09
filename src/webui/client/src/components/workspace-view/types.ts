@@ -4,8 +4,6 @@ import type {
   DictionaryImportResult,
   GlossaryTerm,
   ImportArchiveResult,
-  LlmRequestHistoryEntry,
-  LogEntry,
   ProjectStatus,
   StoryTopologyDescriptor,
   TranslationProjectSnapshot,
@@ -28,19 +26,18 @@ export type TaskActivityKind = 'scan' | 'plot';
 export interface WorkspaceViewProps {
   snapshot: TranslationProjectSnapshot | null;
   projectStatus: ProjectStatus | null;
+  sseConnected: boolean;
   dictionary: GlossaryTerm[];
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
-  logs: LogEntry[];
-  history: LlmRequestHistoryEntry[];
   workspaceForm: FormInstance<Record<string, unknown>>;
   defaultImportFormat?: string;
   translatorOptions: Array<{ label: string; value: string }>;
   onRefreshProjectStatus: () => void | Promise<void>;
-  onRefreshProjectLogs: () => void | Promise<void>;
-  onRefreshProjectHistory: () => void | Promise<void>;
   onRefreshDictionary: () => void | Promise<void>;
   onRefreshChapters: () => void | Promise<void>;
+  onRefreshTopology: () => void | Promise<void>;
+  onRefreshWorkspaceConfig: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;

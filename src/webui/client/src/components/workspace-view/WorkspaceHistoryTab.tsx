@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  App as AntdApp,
   Button,
   Card,
   Descriptions,
@@ -11,28 +12,36 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import type { LlmRequestHistoryEntry, LogEntry } from '../../app/types.ts';
+import type {
+  LlmRequestHistoryDetail,
+  LlmRequestHistoryDigest,
+  LlmRequestHistorySummaryItem,
+  LogDigest,
+  LogEntry,
+} from '../../app/types.ts';
+import { api } from '../../app/api.ts';
 import { usePollingTask } from '../../app/usePollingTask.ts';
-import { logColor } from '../../app/ui-helpers.ts';
+import { logColor, toErrorMessage } from '../../app/ui-helpers.ts';
+
+const LOG_PAGE_SIZE = 50;
+const HISTORY_PAGE_SIZE = 20;
 
 interface WorkspaceHistoryTabProps {
   active: boolean;
-  logs: LogEntry[];
-  history: LlmRequestHistoryEntry[];
-  onRefreshProjectLogs: () => void | Promise<void>;
-  onRefreshProjectHistory: () => void | Promise<void>;
+  workspaceKey: string;
   onClearLogs: () => void | Promise<void>;
 }
 
 export function WorkspaceHistoryTab({
   active,
-  logs,
-  history,
-  onRefreshProjectLogs,
-  onRefreshProjectHistory,
+  workspaceKey,
   onClearLogs,
 }: WorkspaceHistoryTabProps) {
   const [activeTabKey, setActiveTabKey] = useState('runtime-logs');
+
+  useEffect(() => {
+    setActiveTabKey('runtime-logs');
+  }, [workspaceKey]);
 
   return (
     <Tabs
@@ -46,8 +55,7 @@ export function WorkspaceHistoryTab({
           children: (
             <LogsPanel
               active={active && activeTabKey === 'runtime-logs'}
-              logs={logs}
-              onRefreshProjectLogs={onRefreshProjectLogs}
+              workspaceKey={workspaceKey}
               onClearLogs={onClearLogs}
             />
           ),
@@ -58,8 +66,7 @@ export function WorkspaceHistoryTab({
           children: (
             <LlmHistoryPanel
               active={active && activeTabKey === 'llm-history'}
-              history={history}
-              onRefreshProjectHistory={onRefreshProjectHistory}
+              workspaceKey={workspaceKey}
             />
           ),
         },
@@ -70,24 +77,107 @@ export function WorkspaceHistoryTab({
 
 function LogsPanel({
   active,
-  logs,
-  onRefreshProjectLogs,
+  workspaceKey,
   onClearLogs,
 }: {
   active: boolean;
-  logs: LogEntry[];
-  onRefreshProjectLogs: () => void | Promise<void>;
+  workspaceKey: string;
   onClearLogs: () => void | Promise<void>;
 }) {
+  const { message } = AntdApp.useApp();
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+  const [nextBeforeId, setNextBeforeId] = useState<number>();
+  const [digest, setDigest] = useState<LogDigest>({ total: 0, latestId: 0 });
+
+  useEffect(() => {
+    setLogs([]);
+    setSelectedLog(null);
+    setLoading(false);
+    setLoadingMore(false);
+    setInitialized(false);
+    setNextBeforeId(undefined);
+    setDigest({ total: 0, latestId: 0 });
+  }, [workspaceKey]);
+
+  const loadLogs = useCallback(
+    async (mode: 'replace' | 'append' = 'replace') => {
+      if (mode === 'append' && nextBeforeId === undefined) {
+        return;
+      }
+      if (mode === 'replace') {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+      try {
+        const page = await api.getLogs({
+          limit: LOG_PAGE_SIZE,
+          beforeId: mode === 'append' ? nextBeforeId : undefined,
+        });
+        setLogs((prev) => (mode === 'append' ? [...prev, ...page.items] : page.items));
+        setNextBeforeId(page.nextBeforeId);
+        setDigest({
+          total: page.total,
+          latestId: page.latestId,
+        });
+        setInitialized(true);
+      } catch (error) {
+        message.error(toErrorMessage(error));
+      } finally {
+        if (mode === 'replace') {
+          setLoading(false);
+        } else {
+          setLoadingMore(false);
+        }
+      }
+    },
+    [message, nextBeforeId],
+  );
+
+  const refreshIfChanged = useCallback(async () => {
+    try {
+      const nextDigest = await api.getLogsSummary();
+      if (
+        !initialized ||
+        nextDigest.latestId !== digest.latestId ||
+        nextDigest.total !== digest.total
+      ) {
+        await loadLogs('replace');
+      }
+    } catch {
+      // keep background polling quiet
+    }
+  }, [digest.latestId, digest.total, initialized, loadLogs]);
+
+  useEffect(() => {
+    if (!active || initialized) {
+      return;
+    }
+    void loadLogs('replace');
+  }, [active, initialized, loadLogs]);
 
   usePollingTask({
     enabled: active,
     intervalMs: 2_000,
-    task: async () => {
-      await onRefreshProjectLogs();
-    },
+    task: refreshIfChanged,
   });
+
+  const handleClear = useCallback(async () => {
+    try {
+      await onClearLogs();
+      setLogs([]);
+      setSelectedLog(null);
+      setNextBeforeId(undefined);
+      setDigest({ total: 0, latestId: 0 });
+      setInitialized(true);
+    } catch (error) {
+      message.error(toErrorMessage(error));
+    }
+  }, [message, onClearLogs]);
 
   return (
     <>
@@ -95,15 +185,26 @@ function LogsPanel({
         title="事件日志"
         extra={
           <Space>
-            <Button onClick={() => void onClearLogs()}>清空</Button>
+            <Tag>{`共 ${digest.total} 条`}</Tag>
+            <Button onClick={() => void handleClear()}>清空</Button>
           </Space>
         }
       >
-        {logs.length === 0 ? (
+        {logs.length === 0 && !loading ? (
           <Empty description="暂无日志" />
         ) : (
           <List
-            dataSource={[...logs].reverse()}
+            loading={loading}
+            dataSource={logs}
+            loadMore={
+              nextBeforeId ? (
+                <div style={{ textAlign: 'center', marginTop: 12 }}>
+                  <Button loading={loadingMore} onClick={() => void loadLogs('append')}>
+                    加载更多
+                  </Button>
+                </div>
+              ) : undefined
+            }
             renderItem={(item) => (
               <List.Item
                 key={item.id}
@@ -159,39 +260,154 @@ function LogsPanel({
 
 function LlmHistoryPanel({
   active,
-  history,
-  onRefreshProjectHistory,
+  workspaceKey,
 }: {
   active: boolean;
-  history: LlmRequestHistoryEntry[];
-  onRefreshProjectHistory: () => void | Promise<void>;
+  workspaceKey: string;
 }) {
-  const [selectedEntry, setSelectedEntry] = useState<LlmRequestHistoryEntry | null>(null);
+  const { message } = AntdApp.useApp();
+  const [items, setItems] = useState<LlmRequestHistorySummaryItem[]>([]);
+  const [selectedEntry, setSelectedEntry] = useState<LlmRequestHistoryDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+  const [nextBeforeId, setNextBeforeId] = useState<number>();
+  const [digest, setDigest] = useState<LlmRequestHistoryDigest>({
+    total: 0,
+    latestId: 0,
+  });
+  const detailRequestRef = useRef(0);
+
+  useEffect(() => {
+    setItems([]);
+    setSelectedEntry(null);
+    setDetailLoading(false);
+    setLoading(false);
+    setLoadingMore(false);
+    setInitialized(false);
+    setNextBeforeId(undefined);
+    setDigest({ total: 0, latestId: 0 });
+    detailRequestRef.current += 1;
+  }, [workspaceKey]);
+
+  const loadHistory = useCallback(
+    async (mode: 'replace' | 'append' = 'replace') => {
+      if (mode === 'append' && nextBeforeId === undefined) {
+        return;
+      }
+      if (mode === 'replace') {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+      try {
+        const page = await api.getHistory({
+          limit: HISTORY_PAGE_SIZE,
+          beforeId: mode === 'append' ? nextBeforeId : undefined,
+        });
+        setItems((prev) => (mode === 'append' ? [...prev, ...page.items] : page.items));
+        setNextBeforeId(page.nextBeforeId);
+        setDigest({
+          total: page.total,
+          latestId: page.latestId,
+        });
+        setInitialized(true);
+      } catch (error) {
+        message.error(toErrorMessage(error));
+      } finally {
+        if (mode === 'replace') {
+          setLoading(false);
+        } else {
+          setLoadingMore(false);
+        }
+      }
+    },
+    [message, nextBeforeId],
+  );
+
+  const refreshIfChanged = useCallback(async () => {
+    try {
+      const nextDigest = await api.getHistorySummary();
+      if (
+        !initialized ||
+        nextDigest.latestId !== digest.latestId ||
+        nextDigest.total !== digest.total
+      ) {
+        await loadHistory('replace');
+      }
+    } catch {
+      // keep background polling quiet
+    }
+  }, [digest.latestId, digest.total, initialized, loadHistory]);
+
+  useEffect(() => {
+    if (!active || initialized) {
+      return;
+    }
+    void loadHistory('replace');
+  }, [active, initialized, loadHistory]);
 
   usePollingTask({
     enabled: active,
     intervalMs: 5_000,
-    task: async () => {
-      await onRefreshProjectHistory();
-    },
+    task: refreshIfChanged,
   });
+
+  const handleOpenDetail = useCallback(
+    async (entryId: number) => {
+      const requestId = detailRequestRef.current + 1;
+      detailRequestRef.current = requestId;
+      setDetailLoading(true);
+      setSelectedEntry(null);
+      try {
+        const detail = await api.getHistoryDetail(entryId);
+        if (detailRequestRef.current === requestId) {
+          setSelectedEntry(detail);
+        }
+      } catch (error) {
+        message.error(toErrorMessage(error));
+      } finally {
+        if (detailRequestRef.current === requestId) {
+          setDetailLoading(false);
+        }
+      }
+    },
+    [message],
+  );
+
+  const handleCloseDetail = useCallback(() => {
+    detailRequestRef.current += 1;
+    setDetailLoading(false);
+    setSelectedEntry(null);
+  }, []);
 
   return (
     <>
-      <Card title="LLM 请求历史">
-        {history.length === 0 ? (
+      <Card title="LLM 请求历史" extra={<Tag>{`共 ${digest.total} 条`}</Tag>}>
+        {items.length === 0 && !loading ? (
           <Empty description="暂无请求历史" />
         ) : (
           <List
-            dataSource={history}
+            loading={loading}
+            dataSource={items}
+            loadMore={
+              nextBeforeId ? (
+                <div style={{ textAlign: 'center', marginTop: 12 }}>
+                  <Button loading={loadingMore} onClick={() => void loadHistory('append')}>
+                    加载更多
+                  </Button>
+                </div>
+              ) : undefined
+            }
             renderItem={(entry) => (
               <List.Item
-                key={`${entry.source ?? 'llm'}-${entry.requestId}-${entry.timestamp}`}
+                key={entry.id}
                 actions={[
                   <Button
                     key="detail"
                     type="link"
-                    onClick={() => setSelectedEntry(entry)}
+                    onClick={() => void handleOpenDetail(entry.id)}
                   >
                     详情
                   </Button>,
@@ -212,6 +428,11 @@ function LlmHistoryPanel({
                   {entry.statistics ? (
                     <Tag>{`tokens ${entry.statistics.totalTokens}`}</Tag>
                   ) : null}
+                  {entry.errorMessage ? (
+                    <Typography.Text type="danger" ellipsis style={{ maxWidth: 360 }}>
+                      {entry.errorMessage}
+                    </Typography.Text>
+                  ) : null}
                   <Typography.Text type="secondary">
                     {new Date(entry.timestamp).toLocaleString()}
                   </Typography.Text>
@@ -222,13 +443,15 @@ function LlmHistoryPanel({
         )}
       </Card>
       <Modal
-        open={selectedEntry !== null}
+        open={selectedEntry !== null || detailLoading}
         title="LLM 请求详情"
         width={960}
-        footer={<Button onClick={() => setSelectedEntry(null)}>关闭</Button>}
-        onCancel={() => setSelectedEntry(null)}
+        footer={<Button onClick={handleCloseDetail}>关闭</Button>}
+        onCancel={handleCloseDetail}
       >
-        {selectedEntry ? (
+        {detailLoading ? (
+          <Typography.Text type="secondary">正在加载详情...</Typography.Text>
+        ) : selectedEntry ? (
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
             <Descriptions column={2} size="small" bordered>
               <Descriptions.Item label="状态">

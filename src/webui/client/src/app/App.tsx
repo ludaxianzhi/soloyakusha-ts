@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { App as AntdApp, Form, Layout, Menu, Space, Tag, Typography } from 'antd';
 import {
   ClockCircleOutlined,
@@ -27,12 +27,11 @@ import type {
   GlossaryExtractorConfig,
   GlossaryTerm,
   GlossaryUpdaterConfig,
-  LlmRequestHistoryEntry,
   LlmProfileConfig,
-  LogEntry,
   ManagedWorkspace,
   PlotSummaryConfig,
   ProjectStatus,
+  ProjectResourceVersions,
   StoryTopologyDescriptor,
   TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
@@ -41,7 +40,6 @@ import type {
   WorkspaceChapterDescriptor,
 } from './types.ts';
 import { useEventStream } from './useEventStream.ts';
-import { usePollingTask } from './usePollingTask.ts';
 import { DictionaryEditorModal } from '../components/DictionaryEditorModal.tsx';
 import { RecentWorkspacesView } from '../components/RecentWorkspacesView.tsx';
 import { SettingsView } from '../components/SettingsView.tsx';
@@ -53,9 +51,6 @@ import {
 import { WorkspaceCreatePage } from '../features/workspace-create/WorkspaceCreatePage.tsx';
 
 const { Header, Sider, Content } = Layout;
-const WORKSPACE_STATUS_POLL_INTERVAL_MS = 2_000;
-const WORKSPACE_LOGS_POLL_INTERVAL_MS = 2_000;
-const WORKSPACE_DATA_POLL_INTERVAL_MS = 5_000;
 
 export function AppShell() {
   const { message } = AntdApp.useApp();
@@ -67,8 +62,6 @@ export function AppShell() {
   const [dictionary, setDictionary] = useState<GlossaryTerm[]>([]);
   const [chapters, setChapters] = useState<WorkspaceChapterDescriptor[]>([]);
   const [topology, setTopology] = useState<StoryTopologyDescriptor | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [history, setHistory] = useState<LlmRequestHistoryEntry[]>([]);
   const [dictionaryModalOpen, setDictionaryModalOpen] = useState(false);
   const [editingTerm, setEditingTerm] = useState<GlossaryTerm | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -89,6 +82,12 @@ export function AppShell() {
   const [alignmentConfig, setAlignmentConfig] = useState<AlignmentRepairConfig | null>(null);
   const [selectedLlmName, setSelectedLlmName] = useState<string>();
   const [selectedTranslatorName, setSelectedTranslatorName] = useState<string>();
+  const workspaceResourceVersionsRef = useRef<ProjectResourceVersions>({
+    dictionaryRevision: 0,
+    chaptersRevision: 0,
+    topologyRevision: 0,
+    workspaceConfigRevision: 0,
+  });
 
   const [workspaceForm] = Form.useForm<Record<string, unknown>>();
   const [dictionaryForm] = Form.useForm<Record<string, unknown>>();
@@ -120,16 +119,14 @@ export function AppShell() {
   );
 
   const refreshBootData = useCallback(async () => {
-    const [workspaceRes, activeRes, logsRes, translatorsRes] = await Promise.all([
+    const [workspaceRes, activeRes, translatorsRes] = await Promise.all([
       api.listWorkspaces(),
       api.getActiveProject(),
-      api.getLogs(),
       api.getTranslators().catch(() => ({ translators: {} })),
     ]);
     setWorkspaces(workspaceRes.workspaces);
     setProjectStatus(activeRes);
     setSnapshot(activeRes.snapshot);
-    setLogs(logsRes.logs);
     setTranslators(translatorsRes.translators);
   }, []);
 
@@ -139,26 +136,94 @@ export function AppShell() {
     setSnapshot(status.snapshot);
   }, []);
 
-  const refreshProjectLogs = useCallback(async () => {
-    const logsRes = await api.getLogs();
-    setLogs(logsRes.logs);
+  const resetWorkspaceResourceVersions = useCallback((value = 0) => {
+    workspaceResourceVersionsRef.current = {
+      dictionaryRevision: value,
+      chaptersRevision: value,
+      topologyRevision: value,
+      workspaceConfigRevision: value,
+    };
   }, []);
 
+  const resetWorkspaceDataCaches = useCallback(() => {
+    setDictionary([]);
+    setChapters([]);
+    setTopology(null);
+    workspaceForm.resetFields();
+    resetWorkspaceResourceVersions(0);
+  }, [resetWorkspaceResourceVersions, workspaceForm]);
+
   const refreshDictionary = useCallback(async () => {
+    let nextRevision: number | undefined;
+    try {
+      const versions = await api.getProjectResourceVersions();
+      nextRevision = versions.dictionaryRevision;
+      if (nextRevision === workspaceResourceVersionsRef.current.dictionaryRevision) {
+        return;
+      }
+    } catch {
+      // ignore version probe failures and fall back to direct fetch
+    }
     const dictionaryRes = await api.getDictionary().catch(() => ({ terms: [] }));
     setDictionary(dictionaryRes.terms);
+    workspaceResourceVersionsRef.current = {
+      ...workspaceResourceVersionsRef.current,
+      dictionaryRevision:
+        nextRevision ?? workspaceResourceVersionsRef.current.dictionaryRevision + 1,
+    };
   }, []);
 
   const refreshChapters = useCallback(async () => {
-    const [chaptersRes, topologyRes] = await Promise.all([
-      api.getChapters().catch(() => ({ chapters: [] })),
-      api.getTopology().catch(() => ({ topology: null })),
-    ]);
+    let nextRevision: number | undefined;
+    try {
+      const versions = await api.getProjectResourceVersions();
+      nextRevision = versions.chaptersRevision;
+      if (nextRevision === workspaceResourceVersionsRef.current.chaptersRevision) {
+        return;
+      }
+    } catch {
+      // ignore version probe failures and fall back to direct fetch
+    }
+    const chaptersRes = await api.getChapters().catch(() => ({ chapters: [] }));
     setChapters(chaptersRes.chapters);
+    workspaceResourceVersionsRef.current = {
+      ...workspaceResourceVersionsRef.current,
+      chaptersRevision:
+        nextRevision ?? workspaceResourceVersionsRef.current.chaptersRevision + 1,
+    };
+  }, []);
+
+  const refreshTopology = useCallback(async () => {
+    let nextRevision: number | undefined;
+    try {
+      const versions = await api.getProjectResourceVersions();
+      nextRevision = versions.topologyRevision;
+      if (nextRevision === workspaceResourceVersionsRef.current.topologyRevision) {
+        return;
+      }
+    } catch {
+      // ignore version probe failures and fall back to direct fetch
+    }
+    const topologyRes = await api.getTopology().catch(() => ({ topology: null }));
     setTopology(topologyRes.topology);
+    workspaceResourceVersionsRef.current = {
+      ...workspaceResourceVersionsRef.current,
+      topologyRevision:
+        nextRevision ?? workspaceResourceVersionsRef.current.topologyRevision + 1,
+    };
   }, []);
 
   const refreshWorkspaceConfig = useCallback(async () => {
+    let nextRevision: number | undefined;
+    try {
+      const versions = await api.getProjectResourceVersions();
+      nextRevision = versions.workspaceConfigRevision;
+      if (nextRevision === workspaceResourceVersionsRef.current.workspaceConfigRevision) {
+        return;
+      }
+    } catch {
+      // ignore version probe failures and fall back to direct fetch
+    }
     const configRes = await api.getWorkspaceConfig().catch(() => null);
     if (!configRes) {
       return;
@@ -172,26 +237,12 @@ export function AppShell() {
       defaultExportFormat: configRes.defaultExportFormat,
       customRequirements: configRes.customRequirements.join('\n'),
     });
+    workspaceResourceVersionsRef.current = {
+      ...workspaceResourceVersionsRef.current,
+      workspaceConfigRevision:
+        nextRevision ?? workspaceResourceVersionsRef.current.workspaceConfigRevision + 1,
+    };
   }, [workspaceForm]);
-
-  const refreshProjectHistory = useCallback(async () => {
-    const historyRes = await api.getHistory().catch(() => ({ history: [] }));
-    setHistory(historyRes.history);
-  }, []);
-
-  const refreshProjectData = useCallback(async () => {
-    await Promise.all([
-      refreshDictionary(),
-      refreshChapters(),
-      refreshWorkspaceConfig(),
-      refreshProjectHistory(),
-    ]);
-  }, [
-    refreshChapters,
-    refreshDictionary,
-    refreshProjectHistory,
-    refreshWorkspaceConfig,
-  ]);
 
   const selectLlmProfile = useCallback((name: string) => {
     setSelectedLlmName(name);
@@ -253,10 +304,6 @@ export function AppShell() {
     }
   }, []);
 
-  const appendLog = useCallback((entry: LogEntry) => {
-    setLogs((prev) => [...prev, entry].slice(-500));
-  }, []);
-
   const eventHandlers = useMemo(
     () => ({
       onSnapshot: (nextSnapshot: TranslationProjectSnapshot | null) => {
@@ -278,7 +325,6 @@ export function AppShell() {
               },
         );
       },
-      onLog: appendLog,
       onScanProgress: (progress: ProjectStatus['scanDictionaryProgress']) =>
         {
           setProjectStatus((prev) =>
@@ -292,7 +338,6 @@ export function AppShell() {
           );
           if (progress && progress.status !== 'running') {
             void refreshProjectStatus().catch(() => undefined);
-            void refreshDictionary().catch(() => undefined);
           }
         },
       onPlotProgress: (progress: ProjectStatus['plotSummaryProgress']) =>
@@ -313,28 +358,10 @@ export function AppShell() {
           }
         },
     }),
-    [appendLog, refreshDictionary, refreshProjectStatus],
+    [refreshProjectStatus],
   );
 
   const { connected } = useEventStream(eventHandlers);
-  const isWorkspaceCurrentRoute = location.pathname === '/workspace/current';
-  const workspacePollingEnabled = isWorkspaceCurrentRoute && snapshot !== null && !connected;
-
-  usePollingTask({
-    enabled: workspacePollingEnabled,
-    intervalMs: WORKSPACE_STATUS_POLL_INTERVAL_MS,
-    task: refreshProjectStatus,
-  });
-  usePollingTask({
-    enabled: workspacePollingEnabled,
-    intervalMs: WORKSPACE_LOGS_POLL_INTERVAL_MS,
-    task: refreshProjectLogs,
-  });
-  usePollingTask({
-    enabled: workspacePollingEnabled,
-    intervalMs: WORKSPACE_DATA_POLL_INTERVAL_MS,
-    task: refreshProjectData,
-  });
 
   useEffect(() => {
     void refreshBootData();
@@ -347,15 +374,8 @@ export function AppShell() {
   }, [location.pathname, refreshSettings]);
 
   useEffect(() => {
-    if (snapshot) {
-      void refreshProjectData();
-    } else {
-      setDictionary([]);
-      setChapters([]);
-      setTopology(null);
-      setHistory([]);
-    }
-  }, [refreshProjectData, snapshot?.projectName]);
+    resetWorkspaceDataCaches();
+  }, [resetWorkspaceDataCaches, snapshot?.projectName]);
 
   useEffect(() => {
     if (location.pathname !== '/settings') {
@@ -435,12 +455,12 @@ export function AppShell() {
       await runAction(async () => {
         await api.openWorkspace(workspace.dir, workspace.name);
         await refreshBootData();
-        await refreshProjectData();
+        resetWorkspaceDataCaches();
         navigate('/workspace/current');
         message.success(`已打开工作区：${workspace.name}`);
       });
     },
-    [message, navigate, refreshBootData, refreshProjectData, runAction],
+    [message, navigate, refreshBootData, resetWorkspaceDataCaches, runAction],
   );
 
   const handleDeleteWorkspace = useCallback(
@@ -536,19 +556,21 @@ export function AppShell() {
           case 'close':
             await api.closeWorkspace();
             await refreshBootData();
+            resetWorkspaceDataCaches();
             navigate('/workspaces/recent');
             message.success('已关闭工作区');
             break;
           case 'remove':
             await api.removeCurrentWorkspace();
             await refreshBootData();
+            resetWorkspaceDataCaches();
             navigate('/workspaces/recent');
             message.success('已移除工作区');
             break;
         }
       });
     },
-    [message, navigate, refreshBootData, runAction],
+    [message, navigate, refreshBootData, resetWorkspaceDataCaches, runAction],
   );
 
   const openDictionaryEditor = useCallback(
@@ -599,7 +621,7 @@ export function AppShell() {
     async (content: string, format: 'csv' | 'tsv') => {
       try {
         const result = await api.importDictionaryFromContent(content, format);
-        await refreshProjectData();
+        await Promise.all([refreshDictionary(), refreshProjectStatus()]);
         message.success(
           `术语导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
         );
@@ -609,7 +631,7 @@ export function AppShell() {
         throw error;
       }
     },
-    [message, refreshProjectData],
+    [message, refreshDictionary, refreshProjectStatus],
   );
 
   const handleWorkspaceConfigSave = useCallback(
@@ -659,7 +681,7 @@ export function AppShell() {
       }
       await runAction(async () => {
         await api.removeChapters(chapterIds, options);
-        await refreshProjectData();
+        await Promise.all([refreshChapters(), refreshTopology(), refreshProjectStatus()]);
         message.success(
           chapterIds.length === 1
             ? '章节已移除'
@@ -667,7 +689,7 @@ export function AppShell() {
         );
       });
     },
-    [message, refreshProjectData, runAction],
+    [message, refreshChapters, refreshProjectStatus, refreshTopology, runAction],
   );
 
   const handleImportChapterArchive = useCallback(
@@ -691,69 +713,69 @@ export function AppShell() {
 
       const result = await api.importChapterArchive(formData);
       if (result.addedCount > 0) {
-        await refreshProjectData();
+        await Promise.all([refreshChapters(), refreshTopology(), refreshProjectStatus()]);
       }
       return result;
     },
-    [refreshProjectData],
+    [refreshChapters, refreshProjectStatus, refreshTopology],
   );
 
   const handleCreateStoryBranch = useCallback(
     async (payload: CreateStoryBranchPayload) => {
       try {
         await api.createStoryBranch(payload);
-        await refreshChapters();
+        await Promise.all([refreshChapters(), refreshTopology()]);
         message.success(`分支“${payload.name}”已创建`);
       } catch (error) {
         message.error(toErrorMessage(error));
         throw error;
       }
     },
-    [message, refreshChapters],
+    [message, refreshChapters, refreshTopology],
   );
 
   const handleUpdateStoryRoute = useCallback(
     async (routeId: string, payload: UpdateStoryRoutePayload) => {
       await runAction(async () => {
         await api.updateStoryRoute(routeId, payload);
-        await refreshChapters();
+        await Promise.all([refreshChapters(), refreshTopology()]);
         message.success('路线已更新');
       });
     },
-    [message, refreshChapters, runAction],
+    [message, refreshChapters, refreshTopology, runAction],
   );
 
   const handleReorderStoryRouteChapters = useCallback(
     async (routeId: string, chapterIds: number[]) => {
       await runAction(async () => {
         await api.reorderStoryRouteChapters(routeId, chapterIds);
-        await refreshChapters();
+        await Promise.all([refreshChapters(), refreshTopology()]);
         message.success('路线内章节顺序已更新');
       });
     },
-    [message, refreshChapters, runAction],
+    [message, refreshChapters, refreshTopology, runAction],
   );
 
   const handleRemoveStoryRoute = useCallback(
     async (routeId: string) => {
       await runAction(async () => {
         await api.removeStoryRoute(routeId);
-        await refreshChapters();
+        await Promise.all([refreshChapters(), refreshTopology()]);
         message.success('路线已删除');
       });
     },
-    [message, refreshChapters, runAction],
+    [message, refreshChapters, refreshTopology, runAction],
   );
 
   const handleMoveChapterToRoute = useCallback(
     async (chapterId: number, targetRouteId: string, targetIndex: number) => {
       await runAction(async () => {
         await api.moveChapterToRoute(chapterId, targetRouteId, targetIndex);
-        await refreshChapters();
+        await Promise.all([refreshChapters(), refreshTopology()]);
         message.success('章节已移动');
       });
     },
-    [message, refreshChapters, runAction],
+    [message, refreshChapters, refreshTopology, runAction],
   );
 
   const handleDownloadExport= useCallback(
@@ -779,18 +801,27 @@ export function AppShell() {
         await Promise.all([
           refreshDictionary(),
           refreshChapters(),
+          refreshTopology(),
+          refreshWorkspaceConfig(),
           refreshProjectStatus(),
         ]);
         message.success(successText);
       });
     },
-    [message, refreshChapters, refreshDictionary, refreshProjectStatus, runAction],
+    [
+      message,
+      refreshChapters,
+      refreshDictionary,
+      refreshProjectStatus,
+      refreshTopology,
+      refreshWorkspaceConfig,
+      runAction,
+    ],
   );
 
   const handleClearLogs = useCallback(async () => {
     await runAction(async () => {
       await api.clearLogs();
-      setLogs([]);
       message.success('日志已清空');
     });
   }, [message, runAction]);
@@ -1057,13 +1088,13 @@ export function AppShell() {
                 path="/workspace/current"
                 element={
                   <WorkspaceView
+                    key={snapshot?.projectName ?? 'no-workspace'}
                     snapshot={snapshot}
                     projectStatus={projectStatus}
+                    sseConnected={connected}
                     dictionary={dictionary}
                     chapters={chapters}
                     topology={topology}
-                    logs={logs}
-                    history={history}
                     workspaceForm={workspaceForm}
                     defaultImportFormat={
                       typeof defaultImportFormat === 'string'
@@ -1072,10 +1103,10 @@ export function AppShell() {
                     }
                     translatorOptions={translatorOptions}
                     onRefreshProjectStatus={refreshProjectStatus}
-                    onRefreshProjectLogs={refreshProjectLogs}
-                    onRefreshProjectHistory={refreshProjectHistory}
                     onRefreshDictionary={refreshDictionary}
                     onRefreshChapters={refreshChapters}
+                    onRefreshTopology={refreshTopology}
+                    onRefreshWorkspaceConfig={refreshWorkspaceConfig}
                     onProjectCommand={handleProjectCommand}
                     onOpenDictionaryEditor={openDictionaryEditor}
                     onDeleteDictionary={handleDeleteDictionary}
@@ -1103,7 +1134,7 @@ export function AppShell() {
                     hasActiveWorkspace={Boolean(snapshot)}
                     translatorOptions={translatorOptions}
                     onRefreshBootData={refreshBootData}
-                    onRefreshProjectData={refreshProjectData}
+                    onRefreshProjectData={async () => undefined}
                   />
                 }
               />

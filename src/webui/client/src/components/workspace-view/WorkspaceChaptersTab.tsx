@@ -29,6 +29,7 @@ import {
   DEFAULT_ARCHIVE_IMPORT_PATTERN,
   IMPORT_FORMAT_OPTIONS,
 } from '../../app/ui-helpers.ts';
+import { usePollingTask } from '../../app/usePollingTask.ts';
 import { ChapterKanbanBoard } from '../topology/ChapterKanbanBoard.tsx';
 import {
   buildChapterImportGroups,
@@ -42,6 +43,7 @@ interface WorkspaceChaptersTabProps {
   topology: StoryTopologyDescriptor | null;
   defaultImportFormat?: string;
   onRefreshChapters: () => void | Promise<void>;
+  onRefreshTopology: () => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
@@ -94,6 +96,7 @@ export function WorkspaceChaptersTab({
   topology,
   defaultImportFormat,
   onRefreshChapters,
+  onRefreshTopology,
   onClearChapterTranslations,
   onRemoveChapters,
   onCreateStoryBranch,
@@ -103,6 +106,8 @@ export function WorkspaceChaptersTab({
   onRemoveStoryRoute,
   onImportChapterArchive,
 }: WorkspaceChaptersTabProps) {
+  const [activeTabKey, setActiveTabKey] = useState('arrange');
+
   useEffect(() => {
     if (!active) {
       return;
@@ -110,6 +115,21 @@ export function WorkspaceChaptersTab({
 
     void onRefreshChapters();
   }, [active, onRefreshChapters]);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    void onRefreshTopology();
+  }, [active, onRefreshTopology]);
+
+  usePollingTask({
+    enabled: active,
+    intervalMs: 5_000,
+    task: async () => {
+      await onRefreshChapters();
+    },
+  });
 
   const routeCount = topology?.routes.length ?? 0;
   const branchCount = routeCount > 1 ? routeCount - 1 : 0;
@@ -128,7 +148,8 @@ export function WorkspaceChaptersTab({
     >
       <Tabs
         size="small"
-        defaultActiveKey="arrange"
+        activeKey={activeTabKey}
+        onChange={setActiveTabKey}
         items={[
           {
             key: 'arrange',

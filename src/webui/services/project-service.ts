@@ -18,7 +18,13 @@ import { GlossaryPersisterFactory } from '../../glossary/persister.ts';
 import type { GlossaryTermCategory } from '../../glossary/glossary.ts';
 import {
   FileRequestHistoryLogger,
+  readHistoryDetailFromLogDir,
+  readHistoryDigestFromLogDir,
   readHistoryEntriesFromLogDir,
+  readHistoryPageFromLogDir,
+  type LlmRequestHistoryDetail,
+  type LlmRequestHistoryDigest,
+  type LlmRequestHistoryPage,
 } from '../../llm/history.ts';
 import type { LlmRequestHistoryEntry } from '../../llm/types.ts';
 import { PlotSummarizer } from '../../project/plot-summarizer.ts';
@@ -134,6 +140,13 @@ export interface TranslationPreviewChapter {
   units: TranslationPreviewUnit[];
 }
 
+export interface ProjectResourceVersions {
+  dictionaryRevision: number;
+  chaptersRevision: number;
+  topologyRevision: number;
+  workspaceConfigRevision: number;
+}
+
 // ─── Service ────────────────────────────────────────────
 
 export class ProjectService {
@@ -147,6 +160,12 @@ export class ProjectService {
   private plotSummaryProgress: PlotSummaryProgress | null = null;
   private scanDictionaryProgress: ScanDictionaryProgress | null = null;
   private plotSummaryReady = false;
+  private resourceVersions: ProjectResourceVersions = {
+    dictionaryRevision: 0,
+    chaptersRevision: 0,
+    topologyRevision: 0,
+    workspaceConfigRevision: 0,
+  };
 
   constructor(
     private readonly eventBus: EventBus,
@@ -193,6 +212,10 @@ export class ProjectService {
     return this.project?.getStoryTopologyDescriptor() ?? null;
   }
 
+  getResourceVersions(): ProjectResourceVersions {
+    return { ...this.resourceVersions };
+  }
+
   getChapterPreview(chapterId: number): TranslationPreviewChapter | null {
     if (!this.project?.getChapterDescriptor(chapterId)) {
       return null;
@@ -230,6 +253,40 @@ export class ProjectService {
     } catch {
       return [];
     }
+  }
+
+  async getRequestHistoryDigest(): Promise<LlmRequestHistoryDigest> {
+    if (!this.project) {
+      return {
+        total: 0,
+        latestId: 0,
+      };
+    }
+    const projectDir = this.project.getWorkspaceFileManifest().projectDir;
+    return readHistoryDigestFromLogDir(join(projectDir, 'logs'));
+  }
+
+  async getRequestHistoryPage(options: {
+    limit?: number;
+    beforeId?: number;
+  }): Promise<LlmRequestHistoryPage> {
+    if (!this.project) {
+      return {
+        items: [],
+        total: 0,
+        latestId: 0,
+      };
+    }
+    const projectDir = this.project.getWorkspaceFileManifest().projectDir;
+    return readHistoryPageFromLogDir(join(projectDir, 'logs'), options);
+  }
+
+  async getRequestHistoryDetail(id: number): Promise<LlmRequestHistoryDetail | null> {
+    if (!this.project) {
+      return null;
+    }
+    const projectDir = this.project.getWorkspaceFileManifest().projectDir;
+    return readHistoryDetailFromLogDir(join(projectDir, 'logs'), id);
   }
 
   // ─── Lifecycle ──────────────────────────────────────
@@ -375,6 +432,7 @@ export class ProjectService {
       this.topology = nextTopology;
       this.fullSnapshot = nextProject.getProjectSnapshot();
       this.snapshot = toProgressSnapshot(this.fullSnapshot);
+      this.resetResourceVersions(1);
       this.startPolling();
 
       this.log(
@@ -540,6 +598,7 @@ export class ProjectService {
         project.replaceGlossary(result.glossary);
         await project.saveProgress();
         this.refreshSnapshot();
+        this.markDictionaryChanged();
         this.scanDictionaryProgress = {
           status: 'done',
           totalBatches: batches.length,
@@ -598,6 +657,7 @@ export class ProjectService {
 
       await this.project.saveProgress();
       this.refreshSnapshot();
+      this.markDictionaryChanged();
       this.log('success', `字典条目已保存：${args.term}`);
     });
   }
@@ -610,6 +670,7 @@ export class ProjectService {
       glossary.removeTerm(term);
       await this.project.saveProgress();
       this.refreshSnapshot();
+      this.markDictionaryChanged();
       this.log('success', `字典条目已删除：${term}`);
     });
   }
@@ -620,6 +681,7 @@ export class ProjectService {
       const result = await this.project.importGlossary(filePath);
       await this.project.saveProgress();
       this.refreshSnapshot();
+      this.markDictionaryChanged();
       this.log(
         'success',
         `术语表导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
@@ -701,6 +763,7 @@ export class ProjectService {
 
       await this.project.saveProgress();
       this.refreshSnapshot();
+      this.markDictionaryChanged();
       this.log(
         'success',
         `术语粘贴导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
@@ -925,6 +988,8 @@ export class ProjectService {
           : 1;
       const result = await this.project.addChapter(nextId, filePath, options);
       this.refreshSnapshot();
+      this.markChaptersChanged();
+      this.markTopologyChanged();
       this.log(
         'success',
         `已添加章节 ${result.chapterId}（${result.fragmentCount} 文本块）`,
@@ -1028,6 +1093,8 @@ export class ProjectService {
       }
 
       this.refreshSnapshot();
+      this.markChaptersChanged();
+      this.markTopologyChanged();
 
       if (failedFiles.length > 0) {
         this.log(
@@ -1059,6 +1126,8 @@ export class ProjectService {
       if (!this.project) throw new Error('当前没有已初始化的项目');
       await this.project.removeChapter(chapterId);
       this.refreshSnapshot();
+      this.markChaptersChanged();
+      this.markTopologyChanged();
       this.log('success', `章节 ${chapterId} 已移除`);
     });
   }
@@ -1071,6 +1140,8 @@ export class ProjectService {
       if (!this.project) throw new Error('当前没有已初始化的项目');
       await this.project.removeChapters(chapterIds, options);
       this.refreshSnapshot();
+      this.markChaptersChanged();
+      this.markTopologyChanged();
       this.log('success', `已批量移除 ${chapterIds.length} 个章节`);
     });
   }
@@ -1079,6 +1150,8 @@ export class ProjectService {
     await this.runAction('保存章节排序', async () => {
       if (!this.project) throw new Error('当前没有已初始化的项目');
       await this.project.reorderChapters(chapterIds);
+      this.markChaptersChanged();
+      this.markTopologyChanged();
     });
   }
 
@@ -1099,6 +1172,8 @@ export class ProjectService {
         chapterIds: input.chapterIds,
       });
       this.refreshSnapshot();
+      this.markChaptersChanged();
+      this.markTopologyChanged();
       this.log('success', `已创建分支“${input.name}”`);
     });
   }
@@ -1111,6 +1186,8 @@ export class ProjectService {
       if (!this.project) throw new Error('当前没有已初始化的项目');
       await this.project.updateStoryRoute(routeId, patch);
       this.refreshSnapshot();
+      this.markChaptersChanged();
+      this.markTopologyChanged();
       this.log('success', `路线 ${routeId} 已更新`);
     });
   }
@@ -1120,6 +1197,8 @@ export class ProjectService {
       if (!this.project) throw new Error('当前没有已初始化的项目');
       await this.project.removeStoryRoute(routeId);
       this.refreshSnapshot();
+      this.markChaptersChanged();
+      this.markTopologyChanged();
       this.log('success', `路线 ${routeId} 已删除`);
     });
   }
@@ -1129,6 +1208,8 @@ export class ProjectService {
       if (!this.project) throw new Error('当前没有已初始化的项目');
       await this.project.reorderStoryRouteChapters(routeId, chapterIds);
       this.refreshSnapshot();
+      this.markChaptersChanged();
+      this.markTopologyChanged();
     });
   }
 
@@ -1141,6 +1222,8 @@ export class ProjectService {
       if (!this.project) throw new Error('当前没有已初始化的项目');
       await this.project.moveChapterToRoute(chapterId, targetRouteId, targetIndex);
       this.refreshSnapshot();
+      this.markChaptersChanged();
+      this.markTopologyChanged();
     });
   }
 
@@ -1151,6 +1234,7 @@ export class ProjectService {
       if (!this.project) throw new Error('当前没有已初始化的项目');
       await this.project.updateWorkspaceConfig(patch);
       this.refreshSnapshot();
+      this.markWorkspaceConfigChanged();
     });
   }
 
@@ -1167,13 +1251,16 @@ export class ProjectService {
 
       if (options.clearAllTranslations) {
         await this.project.clearAllTranslations();
+        this.markChaptersChanged();
         this.log('success', '已清空所有译文');
       }
       if (options.clearGlossary) {
         await this.project.clearGlossary();
+        this.markDictionaryChanged();
         this.log('success', '已清除术语表');
       } else if (options.clearGlossaryTranslations) {
         await this.project.clearGlossaryTranslations();
+        this.markDictionaryChanged();
         this.log('success', '已清除术语表译文');
       }
       if (options.clearPlotSummaries) {
@@ -1190,6 +1277,7 @@ export class ProjectService {
       if (!this.project) throw new Error('当前没有已初始化的项目');
       await this.project.clearChapterTranslations(chapterIds);
       this.refreshSnapshot();
+      this.markChaptersChanged();
       this.log('success', `已清除 ${chapterIds.length} 个章节的译文`);
     });
   }
@@ -1227,6 +1315,7 @@ export class ProjectService {
     this.plotSummaryProgress = null;
     this.scanDictionaryProgress = null;
     this.isBusy = false;
+    this.resetResourceVersions(0);
   }
 
   private startPolling(): void {
@@ -1251,6 +1340,9 @@ export class ProjectService {
             nextProgress.translatedFragments;
 
         if (!previousSnapshot || lifecycleChanged || queueChanged || progressChanged) {
+          if (progressChanged) {
+            this.markChaptersChanged();
+          }
           this.refreshSnapshot();
         }
       } catch {
@@ -1301,6 +1393,31 @@ export class ProjectService {
       type: 'plotProgress',
       data: this.plotSummaryProgress,
     });
+  }
+
+  private resetResourceVersions(value: number): void {
+    this.resourceVersions = {
+      dictionaryRevision: value,
+      chaptersRevision: value,
+      topologyRevision: value,
+      workspaceConfigRevision: value,
+    };
+  }
+
+  private markDictionaryChanged(): void {
+    this.resourceVersions.dictionaryRevision += 1;
+  }
+
+  private markChaptersChanged(): void {
+    this.resourceVersions.chaptersRevision += 1;
+  }
+
+  private markTopologyChanged(): void {
+    this.resourceVersions.topologyRevision += 1;
+  }
+
+  private markWorkspaceConfigChanged(): void {
+    this.resourceVersions.workspaceConfigRevision += 1;
   }
 
   private async runAction(

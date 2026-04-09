@@ -19,7 +19,7 @@ export function useEventStream(handlers: EventHandlers) {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const source = new window.EventSource(`${API_BASE}/api/events`);
+    const source = new window.EventSource(`${API_BASE}/api/events?includeLogs=0`);
 
     source.addEventListener('open', () => setConnected(true));
     source.addEventListener('error', () => setConnected(false));

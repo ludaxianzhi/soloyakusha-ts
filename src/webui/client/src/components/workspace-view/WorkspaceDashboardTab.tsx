@@ -25,6 +25,7 @@ import type { ProjectCommand, TaskActivityKind } from './types.ts';
 
 interface WorkspaceDashboardTabProps {
   active: boolean;
+  sseConnected: boolean;
   snapshot: TranslationProjectSnapshot;
   projectStatus: ProjectStatus | null;
   onRefreshProjectStatus: () => void | Promise<void>;
@@ -34,6 +35,7 @@ interface WorkspaceDashboardTabProps {
 
 export function WorkspaceDashboardTab({
   active,
+  sseConnected,
   snapshot,
   projectStatus,
   onRefreshProjectStatus,
@@ -41,7 +43,7 @@ export function WorkspaceDashboardTab({
   onDismissTaskActivity,
 }: WorkspaceDashboardTabProps) {
   usePollingTask({
-    enabled: active,
+    enabled: active && !sseConnected,
     intervalMs: 2_000,
     task: async () => {
       await onRefreshProjectStatus();

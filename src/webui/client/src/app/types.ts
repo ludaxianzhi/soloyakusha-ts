@@ -5,6 +5,18 @@ export interface LogEntry {
   timestamp: string;
 }
 
+export interface LogDigest {
+  total: number;
+  latestId: number;
+}
+
+export interface LogPage {
+  items: LogEntry[];
+  total: number;
+  latestId: number;
+  nextBeforeId?: number;
+}
+
 export interface LlmRequestHistoryEntry {
   version: 1;
   requestId: string;
@@ -39,6 +51,43 @@ export interface LlmRequestHistoryEntry {
   modelName?: string;
   durationSeconds?: number;
   reasoning?: string;
+}
+
+export interface LlmRequestHistorySummaryItem {
+  id: number;
+  version: 1;
+  requestId: string;
+  timestamp: string;
+  type: 'completion' | 'error';
+  source?: string;
+  meta?: LlmRequestHistoryEntry['meta'];
+  statistics?: LlmRequestHistoryEntry['statistics'];
+  modelName?: string;
+  durationSeconds?: number;
+  errorMessage?: string;
+}
+
+export interface LlmRequestHistoryDigest {
+  total: number;
+  latestId: number;
+}
+
+export interface LlmRequestHistoryPage {
+  items: LlmRequestHistorySummaryItem[];
+  total: number;
+  latestId: number;
+  nextBeforeId?: number;
+}
+
+export interface LlmRequestHistoryDetail extends LlmRequestHistoryEntry {
+  id: number;
+}
+
+export interface ProjectResourceVersions {
+  dictionaryRevision: number;
+  chaptersRevision: number;
+  topologyRevision: number;
+  workspaceConfigRevision: number;
 }
 
 export interface ManagedWorkspace {

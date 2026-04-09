@@ -12,19 +12,18 @@ export type { ProjectCommand, TaskActivityKind } from './workspace-view/types.ts
 export function WorkspaceView({
   snapshot,
   projectStatus,
+  sseConnected,
   dictionary,
   chapters,
   topology,
-  logs,
-  history,
   workspaceForm,
   defaultImportFormat,
   translatorOptions,
   onRefreshProjectStatus,
-  onRefreshProjectLogs,
-  onRefreshProjectHistory,
   onRefreshDictionary,
   onRefreshChapters,
+  onRefreshTopology,
+  onRefreshWorkspaceConfig,
   onProjectCommand,
   onOpenDictionaryEditor,
   onDeleteDictionary,
@@ -69,6 +68,7 @@ export function WorkspaceView({
             children: (
               <WorkspaceDashboardTab
                 active={activeTabKey === 'dashboard'}
+                sseConnected={sseConnected}
                 snapshot={snapshot}
                 projectStatus={projectStatus}
                 onRefreshProjectStatus={onRefreshProjectStatus}
@@ -105,6 +105,7 @@ export function WorkspaceView({
                 topology={topology}
                 defaultImportFormat={defaultImportFormat}
                 onRefreshChapters={onRefreshChapters}
+                onRefreshTopology={onRefreshTopology}
                 onClearChapterTranslations={onClearChapterTranslations}
                 onRemoveChapters={onRemoveChapters}
                 onCreateStoryBranch={onCreateStoryBranch}
@@ -121,9 +122,12 @@ export function WorkspaceView({
             label: '工作区配置',
             children: (
               <WorkspaceConfigTab
+                active={activeTabKey === 'workspace-config'}
                 workspaceForm={workspaceForm}
                 translatorOptions={translatorOptions}
                 chapters={chapters}
+                onRefreshWorkspaceConfig={onRefreshWorkspaceConfig}
+                onRefreshPreviewChapters={onRefreshChapters}
                 onWorkspaceConfigSave={onWorkspaceConfigSave}
                 onDownloadExport={onDownloadExport}
                 onResetProject={onResetProject}
@@ -136,10 +140,7 @@ export function WorkspaceView({
             children: (
               <WorkspaceHistoryTab
                 active={activeTabKey === 'history'}
-                logs={logs}
-                history={history}
-                onRefreshProjectLogs={onRefreshProjectLogs}
-                onRefreshProjectHistory={onRefreshProjectHistory}
+                workspaceKey={snapshot.projectName}
                 onClearLogs={onClearLogs}
               />
             ),

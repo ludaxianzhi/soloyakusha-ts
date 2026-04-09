@@ -31,6 +31,10 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     return c.json(projectService.getStatus());
   });
 
+  app.get('/resources/versions', (c) => {
+    return c.json(projectService.getResourceVersions());
+  });
+
   app.get('/queue/:stepId/entries', (c) => {
     const stepId = c.req.param('stepId');
     return c.json({
@@ -302,9 +306,29 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
 
   // ─── 历史 ───────────────────────────────────────
 
+  app.get('/history/summary', async (c) => {
+    return c.json(await projectService.getRequestHistoryDigest());
+  });
+
+  app.get('/history/:id', async (c) => {
+    const id = Number(c.req.param('id'));
+    if (!Number.isFinite(id) || id <= 0) {
+      return c.json({ error: '无效的历史记录 ID' }, 400);
+    }
+    const entry = await projectService.getRequestHistoryDetail(id);
+    if (!entry) {
+      return c.json({ error: '未找到对应的请求历史' }, 404);
+    }
+    return c.json(entry);
+  });
+
   app.get('/history', async (c) => {
-    const history = await projectService.getRequestHistory();
-    return c.json({ history });
+    return c.json(
+      await projectService.getRequestHistoryPage({
+        limit: readPositiveIntegerQuery(c.req.query('limit'), 20, 100),
+        beforeId: readOptionalPositiveIntegerQuery(c.req.query('beforeId')),
+      }),
+    );
   });
 
   return app;
@@ -340,6 +364,26 @@ function normalizeOptionalString(value: FormDataEntryValue | null): string | und
   }
   const normalized = value.trim();
   return normalized ? normalized : undefined;
+}
+
+function readPositiveIntegerQuery(
+  value: string | undefined,
+  fallback: number,
+  max: number,
+): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(parsed, max);
+}
+
+function readOptionalPositiveIntegerQuery(value: string | undefined): number | undefined {
+  const parsed = Number.parseInt(value ?? '', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+  return parsed;
 }
 
 function parseBooleanField(value: FormDataEntryValue | null, fallback: boolean): boolean {

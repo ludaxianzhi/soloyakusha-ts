@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { DeleteOutlined, DownloadOutlined, ExportOutlined, EyeOutlined } from '@ant-design/icons';
 import {
   Button,
@@ -13,14 +13,18 @@ import {
 import type { FormInstance } from 'antd';
 import type { WorkspaceChapterDescriptor } from '../../app/types.ts';
 import { IMPORT_FORMAT_OPTIONS } from '../../app/ui-helpers.ts';
+import { usePollingTask } from '../../app/usePollingTask.ts';
 import { TranslationPreviewModal } from '../TranslationPreviewModal.tsx';
 
 const { TextArea } = Input;
 
 interface WorkspaceConfigTabProps {
+  active: boolean;
   workspaceForm: FormInstance<Record<string, unknown>>;
   translatorOptions: Array<{ label: string; value: string }>;
   chapters: WorkspaceChapterDescriptor[];
+  onRefreshWorkspaceConfig: () => void | Promise<void>;
+  onRefreshPreviewChapters: () => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
   onDownloadExport: (format: string) => void | Promise<void>;
   onResetProject: (
@@ -30,14 +34,39 @@ interface WorkspaceConfigTabProps {
 }
 
 export function WorkspaceConfigTab({
+  active,
   workspaceForm,
   translatorOptions,
   chapters,
+  onRefreshWorkspaceConfig,
+  onRefreshPreviewChapters,
   onWorkspaceConfigSave,
   onDownloadExport,
   onResetProject,
 }: WorkspaceConfigTabProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    void onRefreshWorkspaceConfig();
+  }, [active, onRefreshWorkspaceConfig]);
+
+  usePollingTask({
+    enabled: active,
+    intervalMs: 5_000,
+    task: async () => {
+      await onRefreshWorkspaceConfig();
+    },
+  });
+
+  useEffect(() => {
+    if (!previewOpen) {
+      return;
+    }
+    void onRefreshPreviewChapters();
+  }, [onRefreshPreviewChapters, previewOpen]);
 
   return (
     <div className="section-stack">
