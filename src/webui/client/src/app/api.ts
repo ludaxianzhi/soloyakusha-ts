@@ -15,6 +15,7 @@ import type {
   StoryTopologyDescriptor,
   TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
+  TranslationStepQueueEntryDetail,
   TranslatorEntry,
   TranslationPreviewChapter,
   UpdateStoryRoutePayload,
@@ -173,10 +174,16 @@ export const api = {
   getProjectStatus: () => request<ProjectStatus>('/api/project/status'),
   getSnapshot: () =>
     request<TranslationProjectSnapshot | null>('/api/project/snapshot'),
+  getSnapshotWithEntries: () =>
+    request<TranslationProjectSnapshot | null>('/api/project/snapshot?includeEntries=1'),
   startTranslation: () => request('/api/project/start', { method: 'POST' }),
   pauseTranslation: () => request('/api/project/pause', { method: 'POST' }),
   resumeTranslation: () => request('/api/project/resume', { method: 'POST' }),
   abortTranslation: () => request('/api/project/abort', { method: 'POST' }),
+  getQueueEntries: (stepId: string) =>
+    request<{ stepId: string; entries: TranslationStepQueueEntryDetail[] }>(
+      `/api/project/queue/${encodeURIComponent(stepId)}/entries`,
+    ),
 
   getDictionary: () =>
     request<{ terms: GlossaryTerm[] }>('/api/project/dictionary'),

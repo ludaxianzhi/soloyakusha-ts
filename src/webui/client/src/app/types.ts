@@ -159,6 +159,23 @@ export interface TranslationStepQueueEntrySnapshot {
   errorMessage?: string;
 }
 
+export interface TranslationStepQueueEntryDetail
+  extends TranslationStepQueueEntrySnapshot {
+  queueSequence: number;
+  attemptCount: number;
+  queuedAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  updatedAt?: string;
+  runId?: string;
+  inputText: string;
+  outputText?: string;
+  dependencyMode?: 'previousTranslations' | 'glossaryTerms';
+  readyToDispatch: boolean;
+  blockedReason?: string;
+  metadata: Record<string, string | number | boolean>;
+}
+
 export interface GlossaryTerm {
   term: string;
   translation: string;

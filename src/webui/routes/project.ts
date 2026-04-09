@@ -14,11 +14,29 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
   // ─── 快照与状态 ─────────────────────────────────
 
   app.get('/snapshot', (c) => {
+    if (readIncludeEntriesQuery(c.req.query('includeEntries'))) {
+      return c.json(projectService.getSnapshotWithEntries());
+    }
     return c.json(projectService.getSnapshot());
   });
 
   app.get('/status', (c) => {
+    if (readIncludeEntriesQuery(c.req.query('includeEntries'))) {
+      const status = projectService.getStatus();
+      return c.json({
+        ...status,
+        snapshot: projectService.getSnapshotWithEntries(),
+      });
+    }
     return c.json(projectService.getStatus());
+  });
+
+  app.get('/queue/:stepId/entries', (c) => {
+    const stepId = c.req.param('stepId');
+    return c.json({
+      stepId,
+      entries: projectService.getQueueEntries(stepId),
+    });
   });
 
   // ─── 翻译控制 ───────────────────────────────────
@@ -336,4 +354,8 @@ function parseBooleanField(value: FormDataEntryValue | null, fallback: boolean):
     return false;
   }
   return fallback;
+}
+
+function readIncludeEntriesQuery(value: string | undefined): boolean {
+  return value === '1' || value === 'true';
 }

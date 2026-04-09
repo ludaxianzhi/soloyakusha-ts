@@ -30,6 +30,8 @@ import type {
   ProjectExportResult,
   StoryTopologyDescriptor,
   TranslationProjectSnapshot,
+  TranslationStepQueueEntrySnapshot,
+  TranslationStepQueueSnapshot,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
   WorkspaceConfigPatch,
@@ -99,13 +101,23 @@ export interface ImportArchiveChaptersResult {
 
 export class ProjectServiceUserInputError extends Error {}
 
+export interface TranslationProjectProgressSnapshot
+  extends Omit<
+    TranslationProjectSnapshot,
+    'queueSnapshots' | 'activeWorkItems' | 'readyWorkItems'
+  > {
+  queueSnapshots: Array<Omit<TranslationStepQueueSnapshot, 'entries'>>;
+  activeWorkItems: [];
+  readyWorkItems: [];
+}
+
 export interface ProjectStatus {
   hasProject: boolean;
   isBusy: boolean;
   plotSummaryReady: boolean;
   plotSummaryProgress: PlotSummaryProgress | null;
   scanDictionaryProgress: ScanDictionaryProgress | null;
-  snapshot: TranslationProjectSnapshot | null;
+  snapshot: TranslationProjectProgressSnapshot | null;
 }
 
 export interface TranslationPreviewUnit {
@@ -124,7 +136,8 @@ export interface TranslationPreviewChapter {
 
 export class ProjectService {
   private project: TranslationProject | null = null;
-  private snapshot: TranslationProjectSnapshot | null = null;
+  private snapshot: TranslationProjectProgressSnapshot | null = null;
+  private fullSnapshot: TranslationProjectSnapshot | null = null;
   private topology: StoryTopology | null = null;
   private isBusy = false;
   private processingToken = 0;
@@ -151,8 +164,19 @@ export class ProjectService {
     };
   }
 
-  getSnapshot(): TranslationProjectSnapshot | null {
+  getSnapshot(): TranslationProjectProgressSnapshot | null {
     return this.snapshot;
+  }
+
+  getSnapshotWithEntries(): TranslationProjectSnapshot | null {
+    return this.fullSnapshot;
+  }
+
+  getQueueEntries(stepId: string): TranslationStepQueueEntrySnapshot[] {
+    if (!this.project) {
+      return [];
+    }
+    return this.project.getQueueSnapshot(stepId).entries;
   }
 
   getWorkspaceConfig(): WorkspaceConfig | null {
@@ -347,12 +371,13 @@ export class ProjectService {
       this.closeInternal();
       this.project = nextProject;
       this.topology = nextTopology;
-      this.snapshot = nextProject.getProjectSnapshot();
+      this.fullSnapshot = nextProject.getProjectSnapshot();
+      this.snapshot = toProgressSnapshot(this.fullSnapshot);
       this.startPolling();
 
       this.log(
         'success',
-        `${hasConfig ? '已打开工作区' : '已初始化项目'}：${this.snapshot.projectName}`,
+        `${hasConfig ? '已打开工作区' : '已初始化项目'}：${this.snapshot?.projectName ?? ''}`,
       );
       this.broadcastSnapshot();
       return true;
@@ -1195,6 +1220,7 @@ export class ProjectService {
     }
     this.project = null;
     this.snapshot = null;
+    this.fullSnapshot = null;
     this.topology = null;
     this.plotSummaryProgress = null;
     this.scanDictionaryProgress = null;
@@ -1206,24 +1232,24 @@ export class ProjectService {
     this.pollTimer = setInterval(() => {
       if (!this.project) return;
       try {
-        const nextSnapshot = this.project.getProjectSnapshot();
         const previousSnapshot = this.snapshot;
-        this.snapshot = nextSnapshot;
+        const nextLifecycle = this.project.getLifecycleSnapshot();
+        const nextProgress = this.project.getProgressSnapshot();
 
         // 空闲阶段无需每秒推送同构快照，避免 SSE 长时间占用带宽。
         const lifecycleChanged =
-          previousSnapshot?.lifecycle.status !== nextSnapshot.lifecycle.status;
+          previousSnapshot?.lifecycle.status !== nextLifecycle.status;
         const queueChanged =
-          previousSnapshot?.lifecycle.queuedWorkItems !== nextSnapshot.lifecycle.queuedWorkItems ||
-          previousSnapshot?.lifecycle.activeWorkItems !== nextSnapshot.lifecycle.activeWorkItems;
+          previousSnapshot?.lifecycle.queuedWorkItems !== nextLifecycle.queuedWorkItems ||
+          previousSnapshot?.lifecycle.activeWorkItems !== nextLifecycle.activeWorkItems;
         const progressChanged =
           previousSnapshot?.progress.translatedChapters !==
-            nextSnapshot.progress.translatedChapters ||
+            nextProgress.translatedChapters ||
           previousSnapshot?.progress.translatedFragments !==
-            nextSnapshot.progress.translatedFragments;
+            nextProgress.translatedFragments;
 
         if (!previousSnapshot || lifecycleChanged || queueChanged || progressChanged) {
-          this.broadcastSnapshot();
+          this.refreshSnapshot();
         }
       } catch {
         // ignore
@@ -1234,10 +1260,12 @@ export class ProjectService {
   private refreshSnapshot(): void {
     if (!this.project) {
       this.snapshot = null;
+      this.fullSnapshot = null;
       this.topology = null;
       return;
     }
-    this.snapshot = this.project.getProjectSnapshot();
+    this.fullSnapshot = this.project.getProjectSnapshot();
+    this.snapshot = toProgressSnapshot(this.fullSnapshot);
     this.topology = this.project.getStoryTopology() ?? null;
     this.broadcastSnapshot();
   }
@@ -1419,6 +1447,21 @@ export class ProjectService {
 function toMsg(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function toProgressSnapshot(
+  snapshot: TranslationProjectSnapshot | null,
+): TranslationProjectProgressSnapshot | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  return {
+    ...snapshot,
+    queueSnapshots: snapshot.queueSnapshots.map(({ entries: _entries, ...queue }) => queue),
+    activeWorkItems: [],
+    readyWorkItems: [],
+  };
 }
 
 async function fileExists(path: string): Promise<boolean> {
