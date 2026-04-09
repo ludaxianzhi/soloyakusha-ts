@@ -5,6 +5,7 @@
  */
 
 import type { Glossary, ResolvedGlossaryTerm } from "../glossary/glossary.ts";
+import { matchGlossaryTermsWithCascadeForInjection } from "./glossary-cascade-matcher.ts";
 import type { PlotSummaryEntry } from "./plot-summarizer.ts";
 import {
   formatPlotSummaryForContext,
@@ -121,7 +122,7 @@ export class TranslationContextView {
 
     const autoFilter = this.options.glossaryConfig?.autoFilter ?? true;
     return autoFilter
-      ? this.options.glossary.filterTerms(this.sourceText)
+      ? matchGlossaryTermsWithCascadeForInjection(this.options.glossary, this.sourceText)
       : this.options.glossary.getAllTerms();
   }
 
