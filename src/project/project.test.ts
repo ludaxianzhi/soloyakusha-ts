@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Glossary } from "../glossary/glossary.ts";
 import { GlossaryPersisterFactory } from "../glossary/persister.ts";
 import type { TranslationPipelineDefinition } from "./pipeline.ts";
@@ -602,6 +602,99 @@ describe("TranslationProject", () => {
 
     await expect(project.removeChapters([1, 99])).rejects.toThrow("章节 99 不存在");
     expect(project.getChapterDescriptors().map((chapter) => chapter.id)).toEqual([1, 2]);
+  });
+
+  test("removing a chapter deletes its orphaned source file inside workspace", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-remove-source-file-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    const chapterPath = join(sourceDir, "chapter-1.txt");
+    await writeFile(chapterPath, "第一章\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "remove-source-file",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources/chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    expect(await fileExists(chapterPath)).toBe(true);
+    await project.removeChapter(1);
+    expect(await fileExists(chapterPath)).toBe(false);
+  });
+
+  test("removing one chapter does not delete source file when still referenced by another chapter", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-remove-shared-source-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    const chapterPath = join(sourceDir, "shared.txt");
+    await writeFile(chapterPath, "共享章节\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "remove-shared-source",
+        projectDir: workspaceDir,
+        chapters: [
+          { id: 1, filePath: "sources/shared.txt" },
+          { id: 2, filePath: "sources/shared.txt" },
+        ],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    await project.removeChapter(1);
+    expect(await fileExists(chapterPath)).toBe(true);
+    await project.removeChapter(2);
+    expect(await fileExists(chapterPath)).toBe(false);
+  });
+
+  test("removing a chapter does not delete source files outside workspace", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-remove-external-source-"));
+    cleanupTargets.push(workspaceDir);
+
+    const externalDir = await mkdtemp(join(tmpdir(), "soloyakusha-external-source-"));
+    cleanupTargets.push(externalDir);
+    const externalPath = join(externalDir, "chapter-external.txt");
+    await writeFile(externalPath, "外部章节\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "remove-external-source",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: resolve(externalPath) }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    await project.removeChapter(1);
+    expect(await fileExists(externalPath)).toBe(true);
   });
 
   test("allows different fragments to run at different pipeline steps asynchronously", async () => {
@@ -1206,3 +1299,12 @@ describe("TranslationProject", () => {
     expect(project.getWorkspaceFileManifest().glossaryPath).toBe(glossaryPath);
   });
 });
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}

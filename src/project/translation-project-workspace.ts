@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { readFile, rm } from "node:fs/promises";
+import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import type {
   TranslationFileHandler,
 } from "../file-handlers/base.ts";
@@ -108,9 +108,11 @@ export class TranslationProjectWorkspace {
       throw new Error(`章节 ${chapterId} 不存在`);
     }
 
+    const removedChapter = this.chapters[index]!;
     await this.documentManager.removeChapter(chapterId);
     this.chapters.splice(index, 1);
     await this.persistChapterOrder();
+    await this.cleanupOrphanedSourceFile(removedChapter.filePath);
     await this.onProjectMutation();
   }
 
@@ -282,6 +284,28 @@ export class TranslationProjectWorkspace {
     await this.documentManager.saveWorkspaceConfig(nextConfig);
   }
 
+  private async cleanupOrphanedSourceFile(filePath: string): Promise<void> {
+    const resolvedPath = resolveChapterPath(this.projectDir, filePath);
+    const hasOtherReference = this.chapters.some(
+      (chapter) => resolveChapterPath(this.projectDir, chapter.filePath) === resolvedPath,
+    );
+    if (hasOtherReference) {
+      return;
+    }
+
+    if (!isPathInsideDir(resolvedPath, this.projectDir)) {
+      return;
+    }
+
+    try {
+      await rm(resolvedPath, { force: true });
+    } catch (error) {
+      if (!isMissingFileError(error)) {
+        throw error;
+      }
+    }
+  }
+
   private getRequiredChapterDescriptor(chapterId: number): WorkspaceChapterDescriptor {
     const chapter = this.documentManager.getChapterById(chapterId);
     const chapterConfig = this.chapters.find((currentChapter) => currentChapter.id === chapterId);
@@ -444,6 +468,17 @@ export function cloneWorkspaceConfig(config: WorkspaceConfig): WorkspaceConfig {
     slidingWindow: { ...config.slidingWindow },
     customRequirements: [...config.customRequirements],
   };
+}
+
+function isPathInsideDir(candidatePath: string, baseDir: string): boolean {
+  const resolvedCandidate = resolve(candidatePath);
+  const resolvedBase = resolve(baseDir);
+  const rel = relative(resolvedBase, resolvedCandidate);
+  return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 const FORMAT_FILE_EXTENSIONS: Record<string, string> = {
