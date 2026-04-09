@@ -1,16 +1,46 @@
+/* ── Embedded Fonts ─────────────────────────────── */
+
+@font-face {
+  font-family: 'Cascadia Mono';
+  src: url('./assets/fonts/CascadiaMono.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Sans CJK SC';
+  src: url('./assets/fonts/NotoSansCJKsc-VF.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-family: 'Cascadia Mono', 'Noto Sans CJK SC', sans-serif;
+  --ant-font-family: var(--font-family);
+}
+
 html,
 body,
 #root {
   min-height: 100%;
+  font-family: var(--font-family);
 }
 
 body {
   margin: 0;
   background: #0f1115;
+  font-family: var(--font-family);
 }
 
 .app-shell {
   min-height: 100vh;
+}
+
+.app-shell,
+.app-shell * {
+  font-family: var(--font-family);
 }
 
 .section-stack {
@@ -43,7 +73,7 @@ body {
 }
 
 .mono-block {
-  font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-family: var(--font-family);
   white-space: pre-wrap;
   word-break: break-word;
   background: rgba(255, 255, 255, 0.03);
@@ -159,13 +189,7 @@ body {
   border-color: rgba(255, 255, 255, 0.15) !important;
   color: #f2f6ff !important;
   -webkit-text-fill-color: #f2f6ff !important;
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    Segoe UI,
-    PingFang SC,
-    Microsoft YaHei,
-    sans-serif !important;
+  font-family: var(--font-family) !important;
   font-size: 14px !important;
   line-height: 1.6 !important;
 }

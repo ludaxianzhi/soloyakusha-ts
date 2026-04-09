@@ -23,7 +23,7 @@ export function YamlCodeEditor({
         value={value ?? ''}
         options={{
           automaticLayout: true,
-          fontFamily: 'Cascadia Code, JetBrains Mono, Consolas, monospace',
+          fontFamily: 'Cascadia Mono, Noto Sans CJK SC, sans-serif',
           fontSize: 13,
           lineNumbersMinChars: 3,
           minimap: { enabled: false },

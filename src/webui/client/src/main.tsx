@@ -14,6 +14,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         token: {
           colorPrimary: '#6c8cff',
           borderRadius: 8,
+          fontFamily: 'Cascadia Mono, Noto Sans CJK SC, sans-serif',
           controlHeight: 34,
           fontSize: 13,
           padding: 12,
