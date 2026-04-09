@@ -12,30 +12,42 @@ import {
   Typography,
 } from 'antd';
 import type { LlmRequestHistoryEntry, LogEntry } from '../../app/types.ts';
+import { usePollingTask } from '../../app/usePollingTask.ts';
 import { logColor } from '../../app/ui-helpers.ts';
 
 interface WorkspaceHistoryTabProps {
+  active: boolean;
   logs: LogEntry[];
   history: LlmRequestHistoryEntry[];
+  onRefreshProjectLogs: () => void | Promise<void>;
+  onRefreshProjectHistory: () => void | Promise<void>;
   onClearLogs: () => void | Promise<void>;
 }
 
 export function WorkspaceHistoryTab({
+  active,
   logs,
   history,
+  onRefreshProjectLogs,
+  onRefreshProjectHistory,
   onClearLogs,
 }: WorkspaceHistoryTabProps) {
+  const [activeTabKey, setActiveTabKey] = useState('runtime-logs');
+
   return (
     <Tabs
       size="small"
-      defaultActiveKey="runtime-logs"
+      activeKey={activeTabKey}
+      onChange={setActiveTabKey}
       items={[
         {
           key: 'runtime-logs',
           label: '运行日志',
           children: (
             <LogsPanel
+              active={active && activeTabKey === 'runtime-logs'}
               logs={logs}
+              onRefreshProjectLogs={onRefreshProjectLogs}
               onClearLogs={onClearLogs}
             />
           ),
@@ -43,7 +55,13 @@ export function WorkspaceHistoryTab({
         {
           key: 'llm-history',
           label: 'LLM 请求历史',
-          children: <LlmHistoryPanel history={history} />,
+          children: (
+            <LlmHistoryPanel
+              active={active && activeTabKey === 'llm-history'}
+              history={history}
+              onRefreshProjectHistory={onRefreshProjectHistory}
+            />
+          ),
         },
       ]}
     />
@@ -51,13 +69,25 @@ export function WorkspaceHistoryTab({
 }
 
 function LogsPanel({
+  active,
   logs,
+  onRefreshProjectLogs,
   onClearLogs,
 }: {
+  active: boolean;
   logs: LogEntry[];
+  onRefreshProjectLogs: () => void | Promise<void>;
   onClearLogs: () => void | Promise<void>;
 }) {
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+
+  usePollingTask({
+    enabled: active,
+    intervalMs: 2_000,
+    task: async () => {
+      await onRefreshProjectLogs();
+    },
+  });
 
   return (
     <>
@@ -127,8 +157,24 @@ function LogsPanel({
   );
 }
 
-function LlmHistoryPanel({ history }: { history: LlmRequestHistoryEntry[] }) {
+function LlmHistoryPanel({
+  active,
+  history,
+  onRefreshProjectHistory,
+}: {
+  active: boolean;
+  history: LlmRequestHistoryEntry[];
+  onRefreshProjectHistory: () => void | Promise<void>;
+}) {
   const [selectedEntry, setSelectedEntry] = useState<LlmRequestHistoryEntry | null>(null);
+
+  usePollingTask({
+    enabled: active,
+    intervalMs: 5_000,
+    task: async () => {
+      await onRefreshProjectHistory();
+    },
+  });
 
   return (
     <>

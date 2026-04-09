@@ -37,9 +37,11 @@ import {
 } from './utils.ts';
 
 interface WorkspaceChaptersTabProps {
+  active: boolean;
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
   defaultImportFormat?: string;
+  onRefreshChapters: () => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
@@ -87,9 +89,11 @@ type ImportArchiveFormValues = {
 };
 
 export function WorkspaceChaptersTab({
+  active,
   chapters,
   topology,
   defaultImportFormat,
+  onRefreshChapters,
   onClearChapterTranslations,
   onRemoveChapters,
   onCreateStoryBranch,
@@ -99,6 +103,14 @@ export function WorkspaceChaptersTab({
   onRemoveStoryRoute,
   onImportChapterArchive,
 }: WorkspaceChaptersTabProps) {
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+
+    void onRefreshChapters();
+  }, [active, onRefreshChapters]);
+
   const routeCount = topology?.routes.length ?? 0;
   const branchCount = routeCount > 1 ? routeCount - 1 : 0;
 

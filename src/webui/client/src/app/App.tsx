@@ -144,30 +144,54 @@ export function AppShell() {
     setLogs(logsRes.logs);
   }, []);
 
-  const refreshProjectData = useCallback(async () => {
-    const [dictionaryRes, chaptersRes, topologyRes, configRes, historyRes] = await Promise.all([
-      api.getDictionary().catch(() => ({ terms: [] })),
+  const refreshDictionary = useCallback(async () => {
+    const dictionaryRes = await api.getDictionary().catch(() => ({ terms: [] }));
+    setDictionary(dictionaryRes.terms);
+  }, []);
+
+  const refreshChapters = useCallback(async () => {
+    const [chaptersRes, topologyRes] = await Promise.all([
       api.getChapters().catch(() => ({ chapters: [] })),
       api.getTopology().catch(() => ({ topology: null })),
-      api.getWorkspaceConfig().catch(() => null),
-      api.getHistory().catch(() => ({ history: [] })),
     ]);
-    setDictionary(dictionaryRes.terms);
     setChapters(chaptersRes.chapters);
     setTopology(topologyRes.topology);
-    setHistory(historyRes.history);
+  }, []);
 
-    if (configRes) {
-      workspaceForm.setFieldsValue({
-        projectName: configRes.projectName,
-        glossaryPath: configRes.glossary.path,
-        translatorName: configRes.translator.translatorName,
-        defaultImportFormat: configRes.defaultImportFormat,
-        defaultExportFormat: configRes.defaultExportFormat,
-        customRequirements: configRes.customRequirements.join('\n'),
-      });
+  const refreshWorkspaceConfig = useCallback(async () => {
+    const configRes = await api.getWorkspaceConfig().catch(() => null);
+    if (!configRes) {
+      return;
     }
+
+    workspaceForm.setFieldsValue({
+      projectName: configRes.projectName,
+      glossaryPath: configRes.glossary.path,
+      translatorName: configRes.translator.translatorName,
+      defaultImportFormat: configRes.defaultImportFormat,
+      defaultExportFormat: configRes.defaultExportFormat,
+      customRequirements: configRes.customRequirements.join('\n'),
+    });
   }, [workspaceForm]);
+
+  const refreshProjectHistory = useCallback(async () => {
+    const historyRes = await api.getHistory().catch(() => ({ history: [] }));
+    setHistory(historyRes.history);
+  }, []);
+
+  const refreshProjectData = useCallback(async () => {
+    await Promise.all([
+      refreshDictionary(),
+      refreshChapters(),
+      refreshWorkspaceConfig(),
+      refreshProjectHistory(),
+    ]);
+  }, [
+    refreshChapters,
+    refreshDictionary,
+    refreshProjectHistory,
+    refreshWorkspaceConfig,
+  ]);
 
   const selectLlmProfile = useCallback((name: string) => {
     setSelectedLlmName(name);
@@ -268,7 +292,7 @@ export function AppShell() {
           );
           if (progress && progress.status !== 'running') {
             void refreshProjectStatus().catch(() => undefined);
-            void refreshProjectData().catch(() => undefined);
+            void refreshDictionary().catch(() => undefined);
           }
         },
       onPlotProgress: (progress: ProjectStatus['plotSummaryProgress']) =>
@@ -286,11 +310,10 @@ export function AppShell() {
           );
           if (progress && progress.status !== 'running') {
             void refreshProjectStatus().catch(() => undefined);
-            void refreshProjectData().catch(() => undefined);
           }
         },
     }),
-    [appendLog, refreshProjectData, refreshProjectStatus],
+    [appendLog, refreshDictionary, refreshProjectStatus],
   );
 
   const { connected } = useEventStream(eventHandlers);
@@ -329,6 +352,7 @@ export function AppShell() {
     } else {
       setDictionary([]);
       setChapters([]);
+      setTopology(null);
       setHistory([]);
     }
   }, [refreshProjectData, snapshot?.projectName]);
@@ -481,26 +505,32 @@ export function AppShell() {
         switch (command) {
           case 'start':
             await api.startTranslation();
+            await refreshProjectStatus();
             message.success('翻译已启动');
             break;
           case 'pause':
             await api.pauseTranslation();
+            await refreshProjectStatus();
             message.success('暂停请求已提交');
             break;
           case 'resume':
             await api.resumeTranslation();
+            await refreshProjectStatus();
             message.success('翻译已恢复');
             break;
           case 'abort':
             await api.abortTranslation();
+            await refreshProjectStatus();
             message.success('翻译已中止');
             break;
           case 'scan':
             await api.scanDictionary();
+            await refreshProjectStatus();
             message.success('已开始扫描术语表');
             break;
           case 'plot':
             await api.startPlotSummary();
+            await refreshProjectStatus();
             message.success('已开始生成情节大纲');
             break;
           case 'close':
@@ -547,22 +577,22 @@ export function AppShell() {
           values as Partial<GlossaryTerm> & { term: string },
         );
         setDictionaryModalOpen(false);
-        await refreshProjectData();
+        await Promise.all([refreshDictionary(), refreshProjectStatus()]);
         message.success('术语条目已保存');
       });
     },
-    [message, refreshProjectData, runAction],
+    [message, refreshDictionary, refreshProjectStatus, runAction],
   );
 
   const handleDeleteDictionary = useCallback(
     async (term: string) => {
       await runAction(async () => {
         await api.deleteDictionaryTerm(term);
-        await refreshProjectData();
+        await Promise.all([refreshDictionary(), refreshProjectStatus()]);
         message.success('术语条目已删除');
       });
     },
-    [message, refreshProjectData, runAction],
+    [message, refreshDictionary, refreshProjectStatus, runAction],
   );
 
   const handleImportDictionaryFromContent = useCallback(
@@ -597,22 +627,26 @@ export function AppShell() {
           defaultExportFormat: String(values.defaultExportFormat ?? '') || null,
           customRequirements: splitLines(String(values.customRequirements ?? '')),
         });
-        await refreshProjectData();
+        await Promise.all([
+          refreshWorkspaceConfig(),
+          refreshProjectStatus(),
+          refreshBootData(),
+        ]);
         message.success('工作区配置已保存');
       });
     },
-    [message, refreshProjectData, runAction],
+    [message, refreshBootData, refreshProjectStatus, refreshWorkspaceConfig, runAction],
   );
 
   const handleClearChapterTranslations = useCallback(
     async (chapterIds: number[]) => {
       await runAction(async () => {
         await api.clearChapterTranslations(chapterIds);
-        await refreshProjectData();
+        await Promise.all([refreshChapters(), refreshProjectStatus()]);
         message.success('章节译文已清空');
       });
     },
-    [message, refreshProjectData, runAction],
+    [message, refreshChapters, refreshProjectStatus, runAction],
   );
 
   const handleRemoveChapters = useCallback(
@@ -668,58 +702,58 @@ export function AppShell() {
     async (payload: CreateStoryBranchPayload) => {
       try {
         await api.createStoryBranch(payload);
-        await refreshProjectData();
+        await refreshChapters();
         message.success(`分支“${payload.name}”已创建`);
       } catch (error) {
         message.error(toErrorMessage(error));
         throw error;
       }
     },
-    [message, refreshProjectData],
+    [message, refreshChapters],
   );
 
   const handleUpdateStoryRoute = useCallback(
     async (routeId: string, payload: UpdateStoryRoutePayload) => {
       await runAction(async () => {
         await api.updateStoryRoute(routeId, payload);
-        await refreshProjectData();
+        await refreshChapters();
         message.success('路线已更新');
       });
     },
-    [message, refreshProjectData, runAction],
+    [message, refreshChapters, runAction],
   );
 
   const handleReorderStoryRouteChapters = useCallback(
     async (routeId: string, chapterIds: number[]) => {
       await runAction(async () => {
         await api.reorderStoryRouteChapters(routeId, chapterIds);
-        await refreshProjectData();
+        await refreshChapters();
         message.success('路线内章节顺序已更新');
       });
     },
-    [message, refreshProjectData, runAction],
+    [message, refreshChapters, runAction],
   );
 
   const handleRemoveStoryRoute = useCallback(
     async (routeId: string) => {
       await runAction(async () => {
         await api.removeStoryRoute(routeId);
-        await refreshProjectData();
+        await refreshChapters();
         message.success('路线已删除');
       });
     },
-    [message, refreshProjectData, runAction],
+    [message, refreshChapters, runAction],
   );
 
   const handleMoveChapterToRoute = useCallback(
     async (chapterId: number, targetRouteId: string, targetIndex: number) => {
       await runAction(async () => {
         await api.moveChapterToRoute(chapterId, targetRouteId, targetIndex);
-        await refreshProjectData();
+        await refreshChapters();
         message.success('章节已移动');
       });
     },
-    [message, refreshProjectData, runAction],
+    [message, refreshChapters, runAction],
   );
 
   const handleDownloadExport= useCallback(
@@ -742,11 +776,15 @@ export function AppShell() {
     async (payload: Record<string, unknown>, successText: string) => {
       await runAction(async () => {
         await api.resetProject(payload);
-        await refreshProjectData();
+        await Promise.all([
+          refreshDictionary(),
+          refreshChapters(),
+          refreshProjectStatus(),
+        ]);
         message.success(successText);
       });
     },
-    [message, refreshProjectData, runAction],
+    [message, refreshChapters, refreshDictionary, refreshProjectStatus, runAction],
   );
 
   const handleClearLogs = useCallback(async () => {
@@ -1033,6 +1071,11 @@ export function AppShell() {
                         : undefined
                     }
                     translatorOptions={translatorOptions}
+                    onRefreshProjectStatus={refreshProjectStatus}
+                    onRefreshProjectLogs={refreshProjectLogs}
+                    onRefreshProjectHistory={refreshProjectHistory}
+                    onRefreshDictionary={refreshDictionary}
+                    onRefreshChapters={refreshChapters}
                     onProjectCommand={handleProjectCommand}
                     onOpenDictionaryEditor={openDictionaryEditor}
                     onDeleteDictionary={handleDeleteDictionary}

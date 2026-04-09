@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BookOutlined } from '@ant-design/icons';
 import {
   Alert,
@@ -24,8 +24,11 @@ import type { ProjectCommand, TaskActivityKind } from './types.ts';
 const { TextArea } = Input;
 
 interface WorkspaceDictionaryTabProps {
+  active: boolean;
   dictionary: GlossaryTerm[];
   projectStatus: ProjectStatus | null;
+  onRefreshProjectStatus: () => void | Promise<void>;
+  onRefreshDictionary: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
@@ -37,8 +40,11 @@ interface WorkspaceDictionaryTabProps {
 }
 
 export function WorkspaceDictionaryTab({
+  active,
   dictionary,
   projectStatus,
+  onRefreshProjectStatus,
+  onRefreshDictionary,
   onProjectCommand,
   onOpenDictionaryEditor,
   onDeleteDictionary,
@@ -79,6 +85,14 @@ export function WorkspaceDictionaryTab({
       setImporting(false);
     }
   };
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+
+    void Promise.all([onRefreshProjectStatus(), onRefreshDictionary()]);
+  }, [active, onRefreshDictionary, onRefreshProjectStatus]);
 
   return (
     <>
