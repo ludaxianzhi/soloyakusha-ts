@@ -26,7 +26,8 @@ import type {
   CompletionResponseStatistics,
   LlmClientConfig,
 } from "./types.ts";
-import { resolveRequestConfig } from "./types.ts";
+import { resolveRequestConfig, ThinkingLoopError } from "./types.ts";
+import { ThinkingLoopDetector } from "./thinking-loop-detector.ts";
 import {
   ApiConnectionError,
   ApiHttpError,
@@ -86,6 +87,7 @@ export class AnthropicChatClient extends ChatClient {
       const result = await retryAsync(
         async () => {
           const release = await this.rateLimiter.acquire();
+          const thinkingLoopDetector = new ThinkingLoopDetector();
           try {
             const requestBody: Record<string, unknown> = {
               model: this.config.modelName,
@@ -141,6 +143,7 @@ export class AnthropicChatClient extends ChatClient {
                 if (delta?.type === "thinking_delta") {
                   const thinkingText = extractAnthropicReasoningDelta(delta);
                   if (thinkingText) {
+                    thinkingLoopDetector.addThinkingText(thinkingText);
                     reasoning += thinkingText;
                   }
                 }
@@ -154,6 +157,7 @@ export class AnthropicChatClient extends ChatClient {
                 if (contentBlock?.type === "thinking") {
                   const thinkingText = extractAnthropicReasoningDelta(contentBlock);
                   if (thinkingText) {
+                    thinkingLoopDetector.addThinkingText(thinkingText);
                     reasoning += thinkingText;
                   }
                 }
@@ -257,7 +261,11 @@ function isRetryableAnthropicError(error: unknown): boolean {
     return error.status === 429 || error.status >= 500;
   }
 
-  return error instanceof ApiConnectionError || error instanceof AnthropicEmptyResponseError;
+  return (
+    error instanceof ApiConnectionError ||
+    error instanceof AnthropicEmptyResponseError ||
+    error instanceof ThinkingLoopError
+  );
 }
 
 function normalizeAnthropicError(error: unknown): Error {

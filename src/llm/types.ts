@@ -110,6 +110,16 @@ export class LlmOutputValidationError extends Error {
   }
 }
 
+/**
+ * 模型思考流检测到死循环时抛出的错误。
+ */
+export class ThinkingLoopError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ThinkingLoopError";
+  }
+}
+
 export type LlmOutputValidator = (
   responseText: string,
   context?: LlmOutputValidationContext,

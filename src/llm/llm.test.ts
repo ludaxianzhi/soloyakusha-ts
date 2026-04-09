@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { AnthropicChatClient } from "./anthropic-chat-client.ts";
 import { ChatClient } from "./base.ts";
 import { isRetryableOutputValidationError, runOutputValidator } from "./chat-request.ts";
 import { FallbackChatClient } from "./fallback-chat-client.ts";
 import { OpenAIChatClient } from "./openai-chat-client.ts";
 import { LlmClientProvider } from "./provider.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "./types.ts";
-import { createLlmClientConfig, resolveRequestConfig } from "./types.ts";
+import { createLlmClientConfig, resolveRequestConfig, ThinkingLoopError } from "./types.ts";
 import { retryAsync } from "./utils.ts";
 
 describe("resolveRequestConfig", () => {
@@ -228,6 +229,102 @@ describe("OpenAIChatClient", () => {
         operation: "最终翻译",
       },
     });
+  });
+
+  test("throws ThinkingLoopError when reasoning stream enters repetitive loop", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = Object.assign(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              const encoder = new TextEncoder();
+              const repeatedChunk = "a".repeat(2000);
+              const lines = Array.from({ length: 5 }, () =>
+                `data: ${JSON.stringify({
+                  choices: [{ delta: { reasoning_content: repeatedChunk } }],
+                })}`,
+              );
+
+              controller.enqueue(
+                encoder.encode([...lines, "data: [DONE]", ""].join("\n")),
+              );
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        ),
+      {
+        preconnect: originalFetch.preconnect,
+      },
+    ) satisfies typeof fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = new OpenAIChatClient({
+        ...createStubConfig("reasoning-loop-model"),
+        retries: 1,
+      });
+
+      await expect(client.singleTurnRequest("prompt")).rejects.toBeInstanceOf(
+        ThinkingLoopError,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("AnthropicChatClient", () => {
+  test("throws ThinkingLoopError when thinking stream enters repetitive loop", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = Object.assign(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              const encoder = new TextEncoder();
+              const repeatedChunk = "a".repeat(2000);
+              const lines = Array.from({ length: 5 }, () =>
+                `data: ${JSON.stringify({
+                  type: "content_block_delta",
+                  delta: {
+                    type: "thinking_delta",
+                    thinking: repeatedChunk,
+                  },
+                })}`,
+              );
+
+              controller.enqueue(
+                encoder.encode([...lines, 'data: {"type":"message_stop"}', ""].join("\n")),
+              );
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        ),
+      {
+        preconnect: originalFetch.preconnect,
+      },
+    ) satisfies typeof fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = new AnthropicChatClient({
+        provider: "anthropic",
+        modelName: "claude-loop-model",
+        endpoint: "https://example.com/v1",
+        apiKey: "secret",
+        modelType: "chat",
+        retries: 1,
+      });
+
+      await expect(client.singleTurnRequest("prompt")).rejects.toBeInstanceOf(
+        ThinkingLoopError,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

@@ -195,13 +195,16 @@ export async function collectJsonSse<T>(
         continue;
       }
 
+      let parsed: T;
       try {
-        const parsed = JSON.parse(payload) as T;
-        events.push(parsed);
-        await onEvent(parsed);
+        parsed = JSON.parse(payload) as T;
       } catch {
         parseErrors.push(line);
+        continue;
       }
+
+      events.push(parsed);
+      await onEvent(parsed);
     }
   }
 
@@ -212,12 +215,16 @@ export async function collectJsonSse<T>(
     if (trimmedLine.startsWith("data: ")) {
       const payload = trimmedLine.slice(6);
       if (payload !== "[DONE]") {
+        let parsed: T | undefined;
         try {
-          const parsed = JSON.parse(payload) as T;
-          events.push(parsed);
-          await onEvent(parsed);
+          parsed = JSON.parse(payload) as T;
         } catch {
           parseErrors.push(trailingLine);
+        }
+
+        if (parsed !== undefined) {
+          events.push(parsed);
+          await onEvent(parsed);
         }
       }
     }

@@ -26,7 +26,8 @@ import type {
   CompletionResponseStatistics,
   LlmClientConfig,
 } from "./types.ts";
-import { resolveRequestConfig } from "./types.ts";
+import { resolveRequestConfig, ThinkingLoopError } from "./types.ts";
+import { ThinkingLoopDetector } from "./thinking-loop-detector.ts";
 import {
   ApiConnectionError,
   ApiHttpError,
@@ -88,6 +89,7 @@ export class OpenAIChatClient extends ChatClient {
       const result = await retryAsync(
         async () => {
           const release = await this.rateLimiter.acquire();
+          const thinkingLoopDetector = new ThinkingLoopDetector();
 
           try {
             const messages: Array<{ role: "system" | "user"; content: string }> = [
@@ -168,6 +170,7 @@ export class OpenAIChatClient extends ChatClient {
                       continue;
                     }
 
+                    thinkingLoopDetector.addThinkingText(reasoningText);
                     reasoning += reasoningText;
                     thinkingTokensEstimate += estimateTokensFromText(reasoningText);
                     this.requestObserver?.onRequestProgress?.({
@@ -238,6 +241,13 @@ export class OpenAIChatClient extends ChatClient {
           multiplier: 2,
           shouldRetry: isRetryableOpenAiError,
           onRetry: ({ attempt, maxAttempts, nextDelayMs, error }) => {
+            if (error instanceof ThinkingLoopError) {
+              console.warn(
+                `OpenAI 检测到思考死循环，${(nextDelayMs / 1000).toFixed(1)} 秒后进行第 ${attempt + 1}/${maxAttempts} 次尝试`,
+              );
+              return;
+            }
+
             if (error instanceof ApiHttpError && error.status === 429) {
               console.warn(
                 `OpenAI 遇到 429 限流，${(nextDelayMs / 1000).toFixed(1)} 秒后进行第 ${attempt + 1}/${maxAttempts} 次尝试`,
@@ -418,7 +428,11 @@ function isRetryableOpenAiError(error: unknown): boolean {
     return error.status === 429 || error.status >= 500;
   }
 
-  return error instanceof ApiConnectionError || error instanceof OpenAIEmptyResponseError;
+  return (
+    error instanceof ApiConnectionError ||
+    error instanceof OpenAIEmptyResponseError ||
+    error instanceof ThinkingLoopError
+  );
 }
 
 function normalizeOpenAiError(error: unknown, responseBody?: string): Error {
