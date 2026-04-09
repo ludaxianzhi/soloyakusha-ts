@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Alert, Tabs } from 'antd';
 import { WorkspaceChaptersTab } from './workspace-view/WorkspaceChaptersTab.tsx';
 import { WorkspaceConfigTab } from './workspace-view/WorkspaceConfigTab.tsx';
@@ -18,6 +19,11 @@ export function WorkspaceView({
   history,
   workspaceForm,
   translatorOptions,
+  onRefreshProjectStatus,
+  onRefreshProjectLogs,
+  onRefreshProjectHistory,
+  onRefreshDictionary,
+  onRefreshChapters,
   onProjectCommand,
   onOpenDictionaryEditor,
   onDeleteDictionary,
@@ -34,6 +40,8 @@ export function WorkspaceView({
   onClearLogs,
   onDismissTaskActivity,
 }: WorkspaceViewProps) {
+  const [activeTabKey, setActiveTabKey] = useState('dashboard');
+
   if (!snapshot) {
     return (
       <Alert
@@ -49,15 +57,18 @@ export function WorkspaceView({
     <div className="section-stack">
       <Tabs
         size="small"
-        defaultActiveKey="dashboard"
+        activeKey={activeTabKey}
+        onChange={setActiveTabKey}
         items={[
           {
             key: 'dashboard',
             label: '项目总览',
             children: (
               <WorkspaceDashboardTab
+                active={activeTabKey === 'dashboard'}
                 snapshot={snapshot}
                 projectStatus={projectStatus}
+                onRefreshProjectStatus={onRefreshProjectStatus}
                 onProjectCommand={onProjectCommand}
                 onDismissTaskActivity={onDismissTaskActivity}
               />
@@ -68,8 +79,11 @@ export function WorkspaceView({
             label: '术语表',
             children: (
               <WorkspaceDictionaryTab
+                active={activeTabKey === 'dictionary'}
                 dictionary={dictionary}
                 projectStatus={projectStatus}
+                onRefreshProjectStatus={onRefreshProjectStatus}
+                onRefreshDictionary={onRefreshDictionary}
                 onProjectCommand={onProjectCommand}
                 onOpenDictionaryEditor={onOpenDictionaryEditor}
                 onDeleteDictionary={onDeleteDictionary}
@@ -82,8 +96,10 @@ export function WorkspaceView({
             label: '章节管理',
             children: (
               <WorkspaceChaptersTab
+                active={activeTabKey === 'chapters'}
                 chapters={chapters}
                 topology={topology}
+                onRefreshChapters={onRefreshChapters}
                 onClearChapterTranslations={onClearChapterTranslations}
                 onRemoveChapter={onRemoveChapter}
                 onCreateStoryBranch={onCreateStoryBranch}
@@ -113,8 +129,11 @@ export function WorkspaceView({
             label: '历史与日志',
             children: (
               <WorkspaceHistoryTab
+                active={activeTabKey === 'history'}
                 logs={logs}
                 history={history}
+                onRefreshProjectLogs={onRefreshProjectLogs}
+                onRefreshProjectHistory={onRefreshProjectHistory}
                 onClearLogs={onClearLogs}
               />
             ),

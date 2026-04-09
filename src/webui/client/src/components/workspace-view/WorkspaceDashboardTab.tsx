@@ -1,3 +1,4 @@
+import { usePollingTask } from '../../app/usePollingTask.ts';
 import {
   Button,
   Card,
@@ -23,18 +24,30 @@ import { TaskActivityPanels } from './TaskActivityPanels.tsx';
 import type { ProjectCommand, TaskActivityKind } from './types.ts';
 
 interface WorkspaceDashboardTabProps {
+  active: boolean;
   snapshot: TranslationProjectSnapshot;
   projectStatus: ProjectStatus | null;
+  onRefreshProjectStatus: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }
 
 export function WorkspaceDashboardTab({
+  active,
   snapshot,
   projectStatus,
+  onRefreshProjectStatus,
   onProjectCommand,
   onDismissTaskActivity,
 }: WorkspaceDashboardTabProps) {
+  usePollingTask({
+    enabled: active,
+    intervalMs: 2_000,
+    task: async () => {
+      await onRefreshProjectStatus();
+    },
+  });
+
   return (
     <div className="section-stack">
       <Card

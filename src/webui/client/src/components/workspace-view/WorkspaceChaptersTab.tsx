@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Button, Card, Popconfirm, Space, Table, Tabs, Tag } from 'antd';
 import type {
   CreateStoryBranchPayload,
@@ -8,8 +9,10 @@ import type {
 import { ChapterKanbanBoard } from '../topology/ChapterKanbanBoard.tsx';
 
 interface WorkspaceChaptersTabProps {
+  active: boolean;
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
+  onRefreshChapters: () => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapter: (chapterId: number) => void | Promise<void>;
   onCreateStoryBranch: (payload: CreateStoryBranchPayload) => void | Promise<void>;
@@ -30,8 +33,10 @@ interface WorkspaceChaptersTabProps {
 }
 
 export function WorkspaceChaptersTab({
+  active,
   chapters,
   topology,
+  onRefreshChapters,
   onClearChapterTranslations,
   onRemoveChapter,
   onCreateStoryBranch,
@@ -40,6 +45,14 @@ export function WorkspaceChaptersTab({
   onMoveChapterToRoute,
   onRemoveStoryRoute,
 }: WorkspaceChaptersTabProps) {
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+
+    void onRefreshChapters();
+  }, [active, onRefreshChapters]);
+
   const routeCount = topology?.routes.length ?? 0;
   const branchCount = routeCount > 1 ? routeCount - 1 : 0;
 

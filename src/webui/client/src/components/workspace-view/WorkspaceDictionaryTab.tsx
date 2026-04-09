@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BookOutlined } from '@ant-design/icons';
 import { Button, Card, Popconfirm, Space, Table, Tag } from 'antd';
 import type { GlossaryTerm, ProjectStatus } from '../../app/types.ts';
@@ -5,8 +6,11 @@ import { TaskActivityPanels } from './TaskActivityPanels.tsx';
 import type { ProjectCommand, TaskActivityKind } from './types.ts';
 
 interface WorkspaceDictionaryTabProps {
+  active: boolean;
   dictionary: GlossaryTerm[];
   projectStatus: ProjectStatus | null;
+  onRefreshProjectStatus: () => void | Promise<void>;
+  onRefreshDictionary: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
@@ -14,13 +18,24 @@ interface WorkspaceDictionaryTabProps {
 }
 
 export function WorkspaceDictionaryTab({
+  active,
   dictionary,
   projectStatus,
+  onRefreshProjectStatus,
+  onRefreshDictionary,
   onProjectCommand,
   onOpenDictionaryEditor,
   onDeleteDictionary,
   onDismissTaskActivity,
 }: WorkspaceDictionaryTabProps) {
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+
+    void Promise.all([onRefreshProjectStatus(), onRefreshDictionary()]);
+  }, [active, onRefreshDictionary, onRefreshProjectStatus]);
+
   return (
     <Card
       title={
