@@ -104,9 +104,11 @@ export class ProjectServiceUserInputError extends Error {}
 export interface TranslationProjectProgressSnapshot
   extends Omit<
     TranslationProjectSnapshot,
-    'queueSnapshots' | 'activeWorkItems' | 'readyWorkItems'
+    'activeWorkItems' | 'readyWorkItems'
   > {
-  queueSnapshots: Array<Omit<TranslationStepQueueSnapshot, 'entries'>>;
+  queueSnapshots: Array<
+    Omit<TranslationStepQueueSnapshot, 'entries'> & { entries: [] }
+  >;
   activeWorkItems: [];
   readyWorkItems: [];
 }
@@ -1458,7 +1460,10 @@ function toProgressSnapshot(
 
   return {
     ...snapshot,
-    queueSnapshots: snapshot.queueSnapshots.map(({ entries: _entries, ...queue }) => queue),
+    queueSnapshots: snapshot.queueSnapshots.map(({ entries: _entries, ...queue }) => ({
+      ...queue,
+      entries: [],
+    })),
     activeWorkItems: [],
     readyWorkItems: [],
   };

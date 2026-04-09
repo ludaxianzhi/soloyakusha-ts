@@ -5,6 +5,7 @@ import {
   Empty,
   Input,
   Modal,
+  Segmented,
   Select,
   Space,
   Spin,
@@ -15,6 +16,8 @@ import {
 import type { WorkspaceChapterDescriptor, TranslationPreviewChapter } from '../app/types.ts';
 import { api } from '../app/api.ts';
 import { toErrorMessage } from '../app/ui-helpers.ts';
+
+type PreviewViewMode = 'safe' | 'card';
 
 interface TranslationPreviewModalProps {
   open: boolean;
@@ -33,6 +36,7 @@ export function TranslationPreviewModal({
   const [errorMessage, setErrorMessage] = useState<string>();
   const [onlyTranslated, setOnlyTranslated] = useState(false);
   const [keyword, setKeyword] = useState('');
+  const [previewMode, setPreviewMode] = useState<PreviewViewMode>('card');
 
   const chapterOptions = useMemo(
     () =>
@@ -89,7 +93,7 @@ export function TranslationPreviewModal({
   const filteredUnits = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
     return (preview?.units ?? []).filter((unit) => {
-      if (onlyTranslated && !unit.hasTranslation) {
+      if (onlyTranslated && !hasVisibleText(unit.translatedText)) {
         return false;
       }
       if (!normalizedKeyword) {
@@ -126,6 +130,15 @@ export function TranslationPreviewModal({
               <Switch checked={onlyTranslated} onChange={setOnlyTranslated} />
               <Typography.Text>仅看已翻译</Typography.Text>
             </Space>
+            <Segmented<PreviewViewMode>
+              size="small"
+              value={previewMode}
+              onChange={(value) => setPreviewMode(value)}
+              options={[
+                { label: '卡片视图', value: 'card' },
+                { label: '安全文本视图', value: 'safe' },
+              ]}
+            />
             <Input.Search
               allowClear
               placeholder="搜索原文或译文"
@@ -161,30 +174,63 @@ export function TranslationPreviewModal({
                 }
               />
             ) : (
-              <div className="translation-preview-list">
-                {filteredUnits.map((unit) => (
-                  <div key={unit.index} className="translation-preview-unit">
-                    <div className="translation-preview-line source">
-                      <span className="translation-preview-marker">○</span>
-                      <div className="translation-preview-text">{unit.sourceText}</div>
-                    </div>
-                    <div
-                      className={`translation-preview-line target${
-                        unit.hasTranslation ? '' : ' empty'
-                      }`}
-                    >
-                      <span className="translation-preview-marker">●</span>
-                      <div className="translation-preview-text">
-                        {unit.translatedText || '（暂无译文）'}
+              previewMode === 'safe' ? (
+                <Input.TextArea
+                  readOnly
+                  autoSize={{ minRows: 18, maxRows: 28 }}
+                  value={buildPreviewPlainText(filteredUnits)}
+                  className="translation-preview-safe-textarea"
+                />
+              ) : (
+                <div className="translation-preview-card-list">
+                  {filteredUnits.map((unit) => (
+                    <div key={unit.index} className="translation-preview-card-item">
+                      <div className="translation-preview-card-line">
+                        <span className="translation-preview-card-marker">○</span>
+                        <span className="translation-preview-card-text">
+                          {displayPreviewText(unit.sourceText, '（原文为空）')}
+                        </span>
+                      </div>
+                      <div className="translation-preview-card-line">
+                        <span className="translation-preview-card-marker">●</span>
+                        <span
+                          className={`translation-preview-card-text${
+                            hasVisibleText(unit.translatedText)
+                              ? ''
+                              : ' translation-preview-card-text-empty'
+                          }`}
+                        >
+                          {displayPreviewText(unit.translatedText, '（暂无译文）')}
+                        </span>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )
             )
           ) : null}
         </Space>
       )}
     </Modal>
   );
+}
+
+function hasVisibleText(text: string): boolean {
+  return text.replace(/[\u200B-\u200D\uFEFF]/g, '').trim().length > 0;
+}
+
+function displayPreviewText(text: string, fallback: string): string {
+  return hasVisibleText(text) ? text : fallback;
+}
+
+function buildPreviewPlainText(
+  units: TranslationPreviewChapter['units'],
+): string {
+  return units
+    .map((unit, index) => {
+      const source = displayPreviewText(unit.sourceText, '（原文为空）');
+      const target = displayPreviewText(unit.translatedText, '（暂无译文）');
+      return `#${index + 1}\n○ ${source}\n● ${target}`;
+    })
+    .join('\n\n');
 }

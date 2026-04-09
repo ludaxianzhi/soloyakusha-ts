@@ -154,46 +154,71 @@ body {
   padding: 32px 0;
 }
 
-.translation-preview-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 62vh;
-  overflow: auto;
-  padding-right: 4px;
+.translation-preview-safe-textarea {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: #f2f6ff !important;
+  -webkit-text-fill-color: #f2f6ff !important;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    Segoe UI,
+    PingFang SC,
+    Microsoft YaHei,
+    sans-serif !important;
+  font-size: 14px !important;
+  line-height: 1.6 !important;
 }
 
-.translation-preview-unit {
-  border: 1px solid rgba(255, 255, 255, 0.08);
+.translation-preview-card-list {
+  max-height: 62vh;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
-  overflow: hidden;
+  padding: 8px;
   background: rgba(255, 255, 255, 0.02);
 }
 
-.translation-preview-line {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+.translation-preview-card-item {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 6px;
+}
+
+.translation-preview-card-item:last-child {
+  border-bottom: none;
+}
+
+.translation-preview-card-line {
+  display: flex;
+  align-items: flex-start;
   gap: 8px;
-  padding: 10px 12px;
+  margin-bottom: 6px;
 }
 
-.translation-preview-line.source {
-  background: rgba(255, 255, 255, 0.015);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+.translation-preview-card-line:last-child {
+  margin-bottom: 0;
 }
 
-.translation-preview-line.target.empty {
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.translation-preview-marker {
+.translation-preview-card-marker {
   color: #8ba2ff;
+  -webkit-text-fill-color: #8ba2ff;
   font-weight: 700;
+  line-height: 22px;
+  min-width: 16px;
 }
 
-.translation-preview-text {
+.translation-preview-card-text {
+  color: #f2f6ff;
+  -webkit-text-fill-color: #f2f6ff;
+  font-size: 14px;
+  line-height: 22px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.translation-preview-card-text-empty {
+  color: rgba(255, 255, 255, 0.45);
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.45);
 }
 
 /* ─── Kanban Board ──────────────────────────────── */
