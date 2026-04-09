@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
+  App as AntdApp,
   Button,
   Card,
   Form,
@@ -8,17 +10,25 @@ import {
   Popconfirm,
   Select,
   Space,
+  Switch,
   Table,
   Tabs,
   Tag,
   Typography,
+  Upload,
 } from 'antd';
+import type { UploadFile } from 'antd';
 import type {
   CreateStoryBranchPayload,
+  ImportArchiveResult,
   StoryTopologyDescriptor,
   UpdateStoryRoutePayload,
   WorkspaceChapterDescriptor,
 } from '../../app/types.ts';
+import {
+  DEFAULT_ARCHIVE_IMPORT_PATTERN,
+  IMPORT_FORMAT_OPTIONS,
+} from '../../app/ui-helpers.ts';
 import { ChapterKanbanBoard } from '../topology/ChapterKanbanBoard.tsx';
 import {
   buildChapterImportGroups,
@@ -29,6 +39,7 @@ import {
 interface WorkspaceChaptersTabProps {
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
+  defaultImportFormat?: string;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
@@ -49,6 +60,12 @@ interface WorkspaceChaptersTabProps {
     targetIndex: number,
   ) => void | Promise<void>;
   onRemoveStoryRoute: (routeId: string) => void | Promise<void>;
+  onImportChapterArchive: (payload: {
+    file: File;
+    importFormat?: string;
+    importPattern?: string;
+    importTranslation?: boolean;
+  }) => Promise<ImportArchiveResult>;
 }
 
 type RouteAttachCandidate = {
@@ -63,9 +80,16 @@ type AttachGroupBranchFormValues = {
   forkAfterChapterId: number;
 };
 
+type ImportArchiveFormValues = {
+  importFormat?: string;
+  importPattern?: string;
+  importTranslation?: boolean;
+};
+
 export function WorkspaceChaptersTab({
   chapters,
   topology,
+  defaultImportFormat,
   onClearChapterTranslations,
   onRemoveChapters,
   onCreateStoryBranch,
@@ -73,6 +97,7 @@ export function WorkspaceChaptersTab({
   onReorderStoryRouteChapters,
   onMoveChapterToRoute,
   onRemoveStoryRoute,
+  onImportChapterArchive,
 }: WorkspaceChaptersTabProps) {
   const routeCount = topology?.routes.length ?? 0;
   const branchCount = routeCount > 1 ? routeCount - 1 : 0;
@@ -115,9 +140,11 @@ export function WorkspaceChaptersTab({
               <ChapterInfoTable
                 chapters={chapters}
                 topology={topology}
+                defaultImportFormat={defaultImportFormat}
                 onClearChapterTranslations={onClearChapterTranslations}
                 onRemoveChapters={onRemoveChapters}
                 onCreateStoryBranch={onCreateStoryBranch}
+                onImportChapterArchive={onImportChapterArchive}
               />
             ),
           },
@@ -200,22 +227,37 @@ function resolveAttachableChapterIds(
 function ChapterInfoTable({
   chapters,
   topology,
+  defaultImportFormat,
   onClearChapterTranslations,
   onRemoveChapters,
   onCreateStoryBranch,
+  onImportChapterArchive,
 }: {
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
+  defaultImportFormat?: string;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
   ) => void | Promise<void>;
   onCreateStoryBranch: (payload: CreateStoryBranchPayload) => void | Promise<void>;
+  onImportChapterArchive: (payload: {
+    file: File;
+    importFormat?: string;
+    importPattern?: string;
+    importTranslation?: boolean;
+  }) => Promise<ImportArchiveResult>;
 }) {
+  const { message } = AntdApp.useApp();
   const [selectedChapterIds, setSelectedChapterIds] = useState<number[]>([]);
   const [attachGroup, setAttachGroup] = useState<ChapterImportGroupDescriptor | null>(null);
   const [attachForm] = Form.useForm<AttachGroupBranchFormValues>();
+  const [importArchiveOpen, setImportArchiveOpen] = useState(false);
+  const [importArchiveSubmitting, setImportArchiveSubmitting] = useState(false);
+  const [importArchiveFiles, setImportArchiveFiles] = useState<UploadFile[]>([]);
+  const [importArchiveResult, setImportArchiveResult] = useState<ImportArchiveResult | null>(null);
+  const [importArchiveForm] = Form.useForm<ImportArchiveFormValues>();
   const selectedParentRouteId = Form.useWatch('parentRouteId', attachForm);
   const selectedForkAfterChapterId = Form.useWatch('forkAfterChapterId', attachForm);
 
@@ -363,6 +405,64 @@ function ChapterInfoTable({
     setSelectedChapterIds([]);
   };
 
+  const openImportArchiveModal = () => {
+    setImportArchiveResult(null);
+    setImportArchiveFiles([]);
+    importArchiveForm.setFieldsValue({
+      importFormat: defaultImportFormat ?? '',
+      importPattern: DEFAULT_ARCHIVE_IMPORT_PATTERN,
+      importTranslation: false,
+    });
+    setImportArchiveOpen(true);
+  };
+
+  const closeImportArchiveModal = () => {
+    if (importArchiveSubmitting) {
+      return;
+    }
+    setImportArchiveOpen(false);
+    setImportArchiveFiles([]);
+    setImportArchiveResult(null);
+    importArchiveForm.resetFields();
+  };
+
+  const handleImportArchiveSubmit = async () => {
+    const file = importArchiveFiles[0]?.originFileObj;
+    if (!file) {
+      message.error('请先选择 ZIP / 7Z 压缩包');
+      return;
+    }
+
+    const values = await importArchiveForm.validateFields();
+    setImportArchiveSubmitting(true);
+    try {
+      const result = await onImportChapterArchive({
+        file,
+        importFormat: values.importFormat,
+        importPattern: values.importPattern,
+        importTranslation: values.importTranslation,
+      });
+      setImportArchiveResult(result);
+      if (result.addedCount > 0) {
+        message.success(
+          result.failedCount > 0
+            ? `追加完成：新增 ${result.addedCount} 章节，失败 ${result.failedCount} 文件`
+            : `追加完成：新增 ${result.addedCount} 章节`,
+        );
+      } else {
+        message.warning(
+          result.failedCount > 0
+            ? `追加未成功：${result.failedCount} 个文件处理失败`
+            : '追加未成功：没有新增章节',
+        );
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setImportArchiveSubmitting(false);
+    }
+  };
+
   return (
     <>
       <Card size="small" title="导入分组" style={{ marginBottom: 12 }}>
@@ -402,6 +502,9 @@ function ChapterInfoTable({
 
       <div className="chapter-batch-toolbar">
         <Space wrap size={[8, 8]}>
+          <Button type="primary" size="small" onClick={openImportArchiveModal}>
+            追加压缩包
+          </Button>
           <Tag color={selectedChapterIds.length > 0 ? 'processing' : undefined}>
             已选 {selectedChapterIds.length} 章节
           </Tag>
@@ -522,6 +625,86 @@ function ChapterInfoTable({
           },
         ]}
       />
+
+      <Modal
+        title="追加压缩包为新章节"
+        open={importArchiveOpen}
+        okText="开始追加"
+        cancelText="关闭"
+        confirmLoading={importArchiveSubmitting}
+        onCancel={closeImportArchiveModal}
+        onOk={() => void handleImportArchiveSubmit()}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Form
+            form={importArchiveForm}
+            layout="vertical"
+            initialValues={{
+              importFormat: defaultImportFormat ?? '',
+              importPattern: DEFAULT_ARCHIVE_IMPORT_PATTERN,
+              importTranslation: false,
+            }}
+          >
+            <Form.Item
+              label="压缩包文件"
+              required
+              help={
+                importArchiveFiles[0]
+                  ? `当前文件：${importArchiveFiles[0].name}`
+                  : '请选择一个 ZIP / 7Z 压缩包'
+              }
+            >
+              <Upload.Dragger
+                accept=".zip,.7z"
+                beforeUpload={() => false}
+                maxCount={1}
+                disabled={importArchiveSubmitting}
+                fileList={importArchiveFiles}
+                onChange={({ fileList }) => setImportArchiveFiles(fileList.slice(-1))}
+              >
+                <p>拖入或点击上传 ZIP / 7Z</p>
+              </Upload.Dragger>
+            </Form.Item>
+            <Form.Item label="导入格式" name="importFormat">
+              <Select options={IMPORT_FORMAT_OPTIONS} />
+            </Form.Item>
+            <Form.Item
+              label="压缩包内 Pattern"
+              name="importPattern"
+              rules={[{ required: true, message: '请输入压缩包内 Pattern' }]}
+            >
+              <Input placeholder={DEFAULT_ARCHIVE_IMPORT_PATTERN} />
+            </Form.Item>
+            <Form.Item
+              label="导入译文"
+              name="importTranslation"
+              valuePropName="checked"
+              extra="开启后会尽量导入文件内已有译文；关闭则只导入原文。"
+            >
+              <Switch />
+            </Form.Item>
+          </Form>
+
+          {importArchiveResult ? (
+            <Alert
+              type={importArchiveResult.ok ? 'success' : 'warning'}
+              showIcon
+              message={`新增 ${importArchiveResult.addedCount} 章节，失败 ${importArchiveResult.failedCount} 文件`}
+              description={
+                importArchiveResult.failedFiles.length > 0
+                  ? (
+                    <div style={{ whiteSpace: 'pre-wrap' }}>
+                      {importArchiveResult.failedFiles
+                        .map((entry) => `${entry.filePath}: ${entry.error}`)
+                        .join('\n')}
+                    </div>
+                  )
+                  : '全部文件处理成功'
+              }
+            />
+          ) : null}
+        </Space>
+      </Modal>
 
       <Modal
         title="挂接分组为分支"

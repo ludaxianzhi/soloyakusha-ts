@@ -99,6 +99,7 @@ export function AppShell() {
   const [updaterForm] = Form.useForm<Record<string, unknown>>();
   const [plotForm] = Form.useForm<Record<string, unknown>>();
   const [alignmentForm] = Form.useForm<Record<string, unknown>>();
+  const defaultImportFormat = Form.useWatch('defaultImportFormat', workspaceForm);
   const workflowMap = useMemo(
     () =>
       new Map(
@@ -618,6 +619,34 @@ export function AppShell() {
     [message, refreshProjectData, runAction],
   );
 
+  const handleImportChapterArchive = useCallback(
+    async (payload: {
+      file: File;
+      importFormat?: string;
+      importPattern?: string;
+      importTranslation?: boolean;
+    }) => {
+      const formData = new FormData();
+      formData.set('file', payload.file);
+      if (payload.importFormat) {
+        formData.set('importFormat', payload.importFormat);
+      }
+      if (payload.importPattern) {
+        formData.set('importPattern', payload.importPattern);
+      }
+      if (payload.importTranslation !== undefined) {
+        formData.set('importTranslation', String(payload.importTranslation));
+      }
+
+      const result = await api.importChapterArchive(formData);
+      if (result.addedCount > 0) {
+        await refreshProjectData();
+      }
+      return result;
+    },
+    [refreshProjectData],
+  );
+
   const handleCreateStoryBranch = useCallback(
     async (payload: CreateStoryBranchPayload) => {
       try {
@@ -981,6 +1010,11 @@ export function AppShell() {
                     logs={logs}
                     history={history}
                     workspaceForm={workspaceForm}
+                    defaultImportFormat={
+                      typeof defaultImportFormat === 'string'
+                        ? defaultImportFormat
+                        : undefined
+                    }
                     translatorOptions={translatorOptions}
                     onProjectCommand={handleProjectCommand}
                     onOpenDictionaryEditor={openDictionaryEditor}
@@ -993,6 +1027,7 @@ export function AppShell() {
                     onReorderStoryRouteChapters={handleReorderStoryRouteChapters}
                     onMoveChapterToRoute={handleMoveChapterToRoute}
                     onRemoveStoryRoute={handleRemoveStoryRoute}
+                    onImportChapterArchive={handleImportChapterArchive}
                     onDownloadExport={handleDownloadExport}
                     onResetProject={handleResetProject}
                     onClearLogs={handleClearLogs}

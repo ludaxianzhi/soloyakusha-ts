@@ -2,6 +2,7 @@ import type { FormInstance } from 'antd';
 import type {
   CreateStoryBranchPayload,
   GlossaryTerm,
+  ImportArchiveResult,
   LlmRequestHistoryEntry,
   LogEntry,
   ProjectStatus,
@@ -32,6 +33,7 @@ export interface WorkspaceViewProps {
   logs: LogEntry[];
   history: LlmRequestHistoryEntry[];
   workspaceForm: FormInstance<Record<string, unknown>>;
+  defaultImportFormat?: string;
   translatorOptions: Array<{ label: string; value: string }>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
@@ -57,6 +59,12 @@ export interface WorkspaceViewProps {
     targetIndex: number,
   ) => void | Promise<void>;
   onRemoveStoryRoute: (routeId: string) => void | Promise<void>;
+  onImportChapterArchive: (payload: {
+    file: File;
+    importFormat?: string;
+    importPattern?: string;
+    importTranslation?: boolean;
+  }) => Promise<ImportArchiveResult>;
   onDownloadExport: (format: string) => void | Promise<void>;
   onResetProject: (
     payload: Record<string, unknown>,

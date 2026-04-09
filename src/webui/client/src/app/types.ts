@@ -183,6 +183,24 @@ export interface WorkspaceChapterDescriptor {
   childBranchCount?: number;
 }
 
+export interface ImportArchiveFailedFile {
+  filePath: string;
+  error: string;
+}
+
+export interface ImportArchiveChapterResult {
+  chapterId: number;
+  filePath: string;
+}
+
+export interface ImportArchiveResult {
+  ok: boolean;
+  addedCount: number;
+  failedCount: number;
+  addedChapters: ImportArchiveChapterResult[];
+  failedFiles: ImportArchiveFailedFile[];
+}
+
 export interface StoryTopologyRouteDescriptor {
   id: string;
   name: string;

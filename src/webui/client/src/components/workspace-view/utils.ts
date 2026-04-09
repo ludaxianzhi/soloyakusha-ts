@@ -37,7 +37,7 @@ export function buildChapterImportGroups(
   };
 
   for (const chapter of chapters) {
-    const normalizedPath = chapter.filePath.replace(/\\/g, '/');
+    const normalizedPath = normalizePathForGrouping(chapter.filePath);
     const segments = normalizedPath.split('/').filter(Boolean);
     const dirSegments = segments.slice(0, -1);
 
@@ -56,6 +56,12 @@ export function buildChapterImportGroups(
   }
 
   return flattenImportGroups(rootNode);
+}
+
+function normalizePathForGrouping(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+  const appendedPrefixPattern = /^sources\/appended\/\d+\//i;
+  return normalized.replace(appendedPrefixPattern, '');
 }
 
 function getOrCreateChildNode(

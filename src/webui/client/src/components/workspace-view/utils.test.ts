@@ -77,6 +77,30 @@ describe('buildChapterImportGroups', () => {
   test('returns empty result when there are no chapters', () => {
     expect(buildChapterImportGroups([])).toEqual([]);
   });
+
+  test('normalizes legacy appended path prefix for group display', () => {
+    const groups = buildChapterImportGroups([
+      asChapter(1, 'sources/appended/1775700464510/1未依/001.txt'),
+      asChapter(2, 'sources/appended/1775700464510/2漂音/002.txt'),
+    ]);
+
+    expect(groups).toEqual([
+      {
+        id: '1未依',
+        name: '1未依',
+        path: '1未依',
+        depth: 0,
+        chapterIds: [1],
+      },
+      {
+        id: '2漂音',
+        name: '2漂音',
+        path: '2漂音',
+        depth: 0,
+        chapterIds: [2],
+      },
+    ]);
+  });
 });
 
 function asChapter(id: number, filePath: string) {

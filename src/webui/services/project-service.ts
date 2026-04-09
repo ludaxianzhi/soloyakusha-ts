@@ -5,7 +5,8 @@
  * 改用 EventBus 发布状态变更事件。
  */
 
-import { join } from 'node:path';
+import { mkdir, rename, rm } from 'node:fs/promises';
+import { basename, dirname, extname, join, relative } from 'node:path';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
 import { TranslationGlobalConfig } from '../../project/config.ts';
@@ -32,6 +33,7 @@ import type {
   WorkspaceConfigPatch,
 } from '../../project/types.ts';
 import type { EventBus } from './event-bus.ts';
+import { extractArchiveToDirectory } from './archive-extractor.ts';
 import type { WorkspaceManager } from './workspace-manager.ts';
 
 // ─── Types ──────────────────────────────────────────────
@@ -74,6 +76,26 @@ export interface ScanDictionaryProgress {
   totalLines: number;
   errorMessage?: string;
 }
+
+export interface ImportedArchiveChapter {
+  chapterId: number;
+  filePath: string;
+}
+
+export interface ImportedArchiveFailedFile {
+  filePath: string;
+  error: string;
+}
+
+export interface ImportArchiveChaptersResult {
+  ok: boolean;
+  addedCount: number;
+  failedCount: number;
+  addedChapters: ImportedArchiveChapter[];
+  failedFiles: ImportedArchiveFailedFile[];
+}
+
+export class ProjectServiceUserInputError extends Error {}
 
 export interface ProjectStatus {
   hasProject: boolean;
@@ -793,6 +815,128 @@ export class ProjectService {
     });
   }
 
+  async importChaptersFromArchive(input: {
+    archiveBuffer: ArrayBuffer;
+    archiveFileName: string;
+    importFormat?: string;
+    importPattern?: string;
+    importTranslation?: boolean;
+  }): Promise<ImportArchiveChaptersResult> {
+    if (this.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!this.project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    this.isBusy = true;
+    this.log('info', '正在从压缩包追加章节...');
+
+    const project = this.project;
+    const workspaceDir = project.getWorkspaceFileManifest().projectDir;
+    const importRootRelativePath = `Data/.archive-import/${Date.now()}`;
+    const importRootAbsolutePath = join(workspaceDir, ...importRootRelativePath.split('/'));
+
+    try {
+      await mkdir(importRootAbsolutePath, { recursive: true });
+      const extractedFiles = await extractArchiveToDirectory(
+        importRootAbsolutePath,
+        input.archiveBuffer,
+        {
+          archiveFileName: input.archiveFileName,
+          stripSingleRoot: true,
+        },
+      );
+
+      const matchedFiles = await resolveImportedArchiveTextFiles(
+        importRootAbsolutePath,
+        extractedFiles,
+        input.importPattern,
+      );
+      if (matchedFiles.length === 0) {
+        throw new ProjectServiceUserInputError(
+          '压缩包中没有文件匹配追加 Pattern，或匹配文件不是可识别的文本文件',
+        );
+      }
+
+      const normalizedImportFormat = normalizeOptionalString(input.importFormat);
+      const normalizedImportTranslation = input.importTranslation ?? false;
+      const addedChapters: ImportedArchiveChapter[] = [];
+      const failedFiles: ImportedArchiveFailedFile[] = [];
+      const descriptors = project.getChapterDescriptors();
+      let nextChapterId =
+        descriptors.length > 0
+          ? Math.max(...descriptors.map((descriptor) => descriptor.id)) + 1
+          : 1;
+
+      for (const relativeArchivePath of matchedFiles) {
+        const absoluteFilePath = join(importRootAbsolutePath, ...relativeArchivePath.split('/'));
+        const targetRelativePath = await resolveAppendTargetRelativePath(
+          workspaceDir,
+          relativeArchivePath,
+        );
+        const targetAbsolutePath = join(workspaceDir, ...targetRelativePath.split('/'));
+
+        try {
+          await mkdir(dirname(targetAbsolutePath), { recursive: true });
+          await rename(absoluteFilePath, targetAbsolutePath);
+
+          const result = await project.addChapter(nextChapterId, targetRelativePath, {
+            format: normalizedImportFormat,
+            importTranslation: normalizedImportTranslation,
+          });
+          nextChapterId += 1;
+          addedChapters.push({
+            chapterId: result.chapterId,
+            filePath: result.filePath,
+          });
+        } catch (error) {
+          await rm(targetAbsolutePath, { force: true }).catch(() => undefined);
+          failedFiles.push({
+            filePath: targetRelativePath,
+            error: toMsg(error),
+          });
+        }
+      }
+
+      if (addedChapters.length === 0) {
+        this.log('warning', `压缩包追加未成功：${failedFiles.length} 个文件均导入失败`);
+        return {
+          ok: false,
+          addedCount: 0,
+          failedCount: failedFiles.length,
+          addedChapters,
+          failedFiles,
+        };
+      }
+
+      this.refreshSnapshot();
+
+      if (failedFiles.length > 0) {
+        this.log(
+          'warning',
+          `压缩包追加完成：成功 ${addedChapters.length} 个章节，失败 ${failedFiles.length} 个文件`,
+        );
+      } else {
+        this.log('success', `压缩包追加完成：新增 ${addedChapters.length} 个章节`);
+      }
+
+      return {
+        ok: failedFiles.length === 0,
+        addedCount: addedChapters.length,
+        failedCount: failedFiles.length,
+        addedChapters,
+        failedFiles,
+      };
+    } catch (error) {
+      this.log('error', `压缩包追加失败：${toMsg(error)}`);
+      throw error;
+    } finally {
+      await rm(importRootAbsolutePath, { recursive: true, force: true }).catch(() => undefined);
+      this.isBusy = false;
+    }
+  }
+
   async removeChapter(chapterId: number): Promise<void> {
     await this.runAction('删除章节', async () => {
       if (!this.project) throw new Error('当前没有已初始化的项目');
@@ -1198,6 +1342,116 @@ async function fileExists(path: string): Promise<boolean> {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeOptionalString(value?: string): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function normalizeImportPattern(importPattern?: string): string | undefined {
+  const normalizedPattern = importPattern?.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+  return normalizedPattern ? normalizedPattern : undefined;
+}
+
+function buildImportGlobPatterns(importPattern: string): string[] {
+  const patterns = [importPattern];
+  if (!importPattern.includes('/')) {
+    patterns.push(`**/${importPattern}`);
+  }
+  return [...new Set(patterns)];
+}
+
+function isVisibleWorkspaceFile(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+  if (lower.includes('/__macosx/') || lower.startsWith('__macosx/')) {
+    return false;
+  }
+  if (lower.includes('/.') || lower.startsWith('.')) {
+    return false;
+  }
+  return true;
+}
+
+async function resolveImportedArchiveTextFiles(
+  rootDir: string,
+  extractedFiles: string[],
+  importPattern?: string,
+): Promise<string[]> {
+  const normalizedPattern = normalizeImportPattern(importPattern);
+  const visibleFiles = extractedFiles.filter((filePath) => isVisibleWorkspaceFile(filePath));
+
+  const candidateFiles = normalizedPattern
+    ? visibleFiles.filter((filePath) => {
+        const normalizedFilePath = filePath.replace(/\\/g, '/');
+        return buildImportGlobPatterns(normalizedPattern).some((pattern) =>
+          new Bun.Glob(pattern).match(normalizedFilePath),
+        );
+      })
+    : visibleFiles;
+
+  const detectedFiles = await Promise.all(
+    candidateFiles.map(async (filePath) =>
+      (await isLikelyTextFile(join(rootDir, ...filePath.split('/')))) ? filePath : null,
+    ),
+  );
+  return detectedFiles
+    .filter((filePath): filePath is string => Boolean(filePath))
+    .sort((left, right) => left.localeCompare(right));
+}
+
+async function isLikelyTextFile(filePath: string): Promise<boolean> {
+  const sample = new Uint8Array(await Bun.file(filePath).slice(0, 4096).arrayBuffer());
+  if (sample.length === 0) {
+    return true;
+  }
+
+  let controlCharCount = 0;
+  for (const byte of sample) {
+    if (byte === 0) {
+      return false;
+    }
+    if ((byte < 9 || (byte > 13 && byte < 32)) && byte !== 27) {
+      controlCharCount += 1;
+    }
+  }
+
+  return controlCharCount / sample.length < 0.05;
+}
+
+const RESERVED_WORKSPACE_PREFIXES = ['data/', 'logs/', 'export/'];
+
+async function resolveAppendTargetRelativePath(
+  workspaceDir: string,
+  archiveRelativePath: string,
+): Promise<string> {
+  const normalizedArchivePath = archiveRelativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  const baseRelativePath = RESERVED_WORKSPACE_PREFIXES.some((prefix) =>
+    normalizedArchivePath.toLowerCase().startsWith(prefix),
+  )
+    ? `sources/${normalizedArchivePath}`
+    : normalizedArchivePath;
+
+  const absolutePath = join(workspaceDir, ...baseRelativePath.split('/'));
+  if (!(await fileExists(absolutePath))) {
+    return baseRelativePath;
+  }
+
+  const extension = extname(baseRelativePath);
+  const baseName = basename(baseRelativePath, extension);
+  const dirName = dirname(baseRelativePath).replace(/\\/g, '/');
+
+  let sequence = 1;
+  while (true) {
+    const candidateName = `${baseName}__append_${sequence}${extension}`;
+    const candidateRelativePath =
+      dirName === '.' ? candidateName : `${dirName}/${candidateName}`;
+    const candidateAbsolutePath = join(workspaceDir, ...candidateRelativePath.split('/'));
+    if (!(await fileExists(candidateAbsolutePath))) {
+      return candidateRelativePath;
+    }
+    sequence += 1;
+  }
 }
 
 const GLOSSARY_CATEGORIES = new Set([

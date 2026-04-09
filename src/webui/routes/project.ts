@@ -6,7 +6,10 @@ import { readdir } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 import { Hono } from 'hono';
 import JSZip from 'jszip';
-import type { ProjectService } from '../services/project-service.ts';
+import {
+  ProjectServiceUserInputError,
+  type ProjectService,
+} from '../services/project-service.ts';
 
 export function createProjectRoutes(projectService: ProjectService): Hono {
   const app = new Hono();
@@ -147,6 +150,34 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     return c.json({ ok: true });
   });
 
+  app.post('/chapters/import-archive', async (c) => {
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File | null;
+    if (!file) {
+      return c.json({ error: '请上传 ZIP / 7Z 压缩包' }, 400);
+    }
+
+    const importFormat = normalizeOptionalString(formData.get('importFormat'));
+    const importPattern = normalizeOptionalString(formData.get('importPattern'));
+    const importTranslation = parseBooleanField(formData.get('importTranslation'), false);
+
+    try {
+      const result = await projectService.importChaptersFromArchive({
+        archiveBuffer: await file.arrayBuffer(),
+        archiveFileName: file.name,
+        importFormat,
+        importPattern,
+        importTranslation,
+      });
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: String(error) }, 500);
+    }
+  });
+
   app.delete('/chapters/:id', async (c) => {
     const id = Number(c.req.param('id'));
     await projectService.removeChapter(id);
@@ -270,4 +301,26 @@ async function addDirectoryToZip(
     const relativePath = relative(baseDir, absolutePath).replace(/\\/g, '/');
     zip.file(relativePath || basename(absolutePath), await Bun.file(absolutePath).arrayBuffer());
   }
+}
+
+function normalizeOptionalString(value: FormDataEntryValue | null): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim();
+  return normalized ? normalized : undefined;
+}
+
+function parseBooleanField(value: FormDataEntryValue | null, fallback: boolean): boolean {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true') {
+    return true;
+  }
+  if (normalized === 'false') {
+    return false;
+  }
+  return fallback;
 }

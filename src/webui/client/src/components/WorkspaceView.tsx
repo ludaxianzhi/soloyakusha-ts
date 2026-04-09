@@ -17,6 +17,7 @@ export function WorkspaceView({
   logs,
   history,
   workspaceForm,
+  defaultImportFormat,
   translatorOptions,
   onProjectCommand,
   onOpenDictionaryEditor,
@@ -29,6 +30,7 @@ export function WorkspaceView({
   onReorderStoryRouteChapters,
   onMoveChapterToRoute,
   onRemoveStoryRoute,
+  onImportChapterArchive,
   onDownloadExport,
   onResetProject,
   onClearLogs,
@@ -84,6 +86,7 @@ export function WorkspaceView({
               <WorkspaceChaptersTab
                 chapters={chapters}
                 topology={topology}
+                defaultImportFormat={defaultImportFormat}
                 onClearChapterTranslations={onClearChapterTranslations}
                 onRemoveChapters={onRemoveChapters}
                 onCreateStoryBranch={onCreateStoryBranch}
@@ -91,6 +94,7 @@ export function WorkspaceView({
                 onReorderStoryRouteChapters={onReorderStoryRouteChapters}
                 onMoveChapterToRoute={onMoveChapterToRoute}
                 onRemoveStoryRoute={onRemoveStoryRoute}
+                onImportChapterArchive={onImportChapterArchive}
               />
             ),
           },

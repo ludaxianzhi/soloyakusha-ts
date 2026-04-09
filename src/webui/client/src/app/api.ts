@@ -2,6 +2,7 @@ import type {
   AlignmentRepairConfig,
   GlossaryExtractorConfig,
   GlossaryTerm,
+  ImportArchiveResult,
   LlmRequestHistoryEntry,
   GlossaryUpdaterConfig,
   LlmProfileConfig,
@@ -202,6 +203,11 @@ export const api = {
     request<{ topology: StoryTopologyDescriptor | null }>('/api/project/topology'),
   getChapterPreview: (chapterId: number) =>
     request<TranslationPreviewChapter>(`/api/project/preview/chapters/${chapterId}`),
+  importChapterArchive: (formData: FormData) =>
+    request<ImportArchiveResult>('/api/project/chapters/import-archive', {
+      method: 'POST',
+      body: formData,
+    }),
   reorderChapters: (chapterIds: number[]) =>
     request('/api/project/chapters/reorder', {
       method: 'PUT',
