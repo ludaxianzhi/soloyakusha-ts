@@ -565,6 +565,23 @@ export function AppShell() {
     [message, refreshProjectData, runAction],
   );
 
+  const handleImportDictionaryFromContent = useCallback(
+    async (content: string, format: 'csv' | 'tsv') => {
+      try {
+        const result = await api.importDictionaryFromContent(content, format);
+        await refreshProjectData();
+        message.success(
+          `术语导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
+        );
+        return result;
+      } catch (error) {
+        message.error(toErrorMessage(error));
+        throw error;
+      }
+    },
+    [message, refreshProjectData],
+  );
+
   const handleWorkspaceConfigSave = useCallback(
     async (values: Record<string, unknown>) => {
       await runAction(async () => {
@@ -1019,6 +1036,7 @@ export function AppShell() {
                     onProjectCommand={handleProjectCommand}
                     onOpenDictionaryEditor={openDictionaryEditor}
                     onDeleteDictionary={handleDeleteDictionary}
+                    onImportDictionaryFromContent={handleImportDictionaryFromContent}
                     onWorkspaceConfigSave={handleWorkspaceConfigSave}
                     onClearChapterTranslations={handleClearChapterTranslations}
                     onRemoveChapters={handleRemoveChapters}

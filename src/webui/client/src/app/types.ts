@@ -169,6 +169,13 @@ export interface GlossaryTerm {
   textBlockOccurrenceCount?: number;
 }
 
+export interface DictionaryImportResult {
+  filePath: string;
+  termCount: number;
+  newTermCount: number;
+  updatedTermCount: number;
+}
+
 export interface WorkspaceChapterDescriptor {
   id: number;
   filePath: string;

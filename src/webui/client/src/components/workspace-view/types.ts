@@ -1,6 +1,7 @@
 import type { FormInstance } from 'antd';
 import type {
   CreateStoryBranchPayload,
+  DictionaryImportResult,
   GlossaryTerm,
   ImportArchiveResult,
   LlmRequestHistoryEntry,
@@ -38,6 +39,10 @@ export interface WorkspaceViewProps {
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
+  onImportDictionaryFromContent: (
+    content: string,
+    format: 'csv' | 'tsv',
+  ) => Promise<DictionaryImportResult>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (

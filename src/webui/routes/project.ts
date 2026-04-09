@@ -6,10 +6,7 @@ import { readdir } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 import { Hono } from 'hono';
 import JSZip from 'jszip';
-import {
-  ProjectServiceUserInputError,
-  type ProjectService,
-} from '../services/project-service.ts';
+import { ProjectServiceUserInputError, type ProjectService } from '../services/project-service.ts';
 
 export function createProjectRoutes(projectService: ProjectService): Hono {
   const app = new Hono();
@@ -73,6 +70,22 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     const body = await c.req.json<{ filePath: string }>();
     await projectService.importGlossary(body.filePath);
     return c.json({ ok: true });
+  });
+
+  app.post('/dictionary/import-content', async (c) => {
+    const body = await c.req.json<{ content: string; format: 'csv' | 'tsv' }>();
+    try {
+      const result = await projectService.importGlossaryFromContent(
+        String(body.content ?? ''),
+        body.format === 'tsv' ? 'tsv' : 'csv',
+      );
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: String(error) }, 500);
+    }
   });
 
   app.post('/dictionary/export', async (c) => {

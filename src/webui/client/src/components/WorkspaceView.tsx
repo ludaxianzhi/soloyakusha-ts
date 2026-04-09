@@ -22,6 +22,7 @@ export function WorkspaceView({
   onProjectCommand,
   onOpenDictionaryEditor,
   onDeleteDictionary,
+  onImportDictionaryFromContent,
   onWorkspaceConfigSave,
   onClearChapterTranslations,
   onRemoveChapters,
@@ -75,6 +76,7 @@ export function WorkspaceView({
                 onProjectCommand={onProjectCommand}
                 onOpenDictionaryEditor={onOpenDictionaryEditor}
                 onDeleteDictionary={onDeleteDictionary}
+                onImportDictionaryFromContent={onImportDictionaryFromContent}
                 onDismissTaskActivity={onDismissTaskActivity}
               />
             ),

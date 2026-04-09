@@ -5,7 +5,7 @@
  * 改用 EventBus 发布状态变更事件。
  */
 
-import { mkdir, rename, rm } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative } from 'node:path';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
@@ -14,6 +14,7 @@ import type { TranslationProcessorConfig } from '../../project/config.ts';
 import { TranslationProject } from '../../project/translation-project.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { FullTextGlossaryScanner } from '../../glossary/index.ts';
+import { GlossaryPersisterFactory } from '../../glossary/persister.ts';
 import type { GlossaryTermCategory } from '../../glossary/glossary.ts';
 import {
   FileRequestHistoryLogger,
@@ -25,6 +26,7 @@ import { StoryTopology } from '../../project/story-topology.ts';
 import { DefaultTextSplitter } from '../../project/translation-document-manager.ts';
 import type { Logger } from '../../project/logger.ts';
 import type {
+  GlossaryImportResult,
   ProjectExportResult,
   StoryTopologyDescriptor,
   TranslationProjectSnapshot,
@@ -596,6 +598,94 @@ export class ProjectService {
         `术语表导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
       );
     });
+  }
+
+  async importGlossaryFromContent(
+    content: string,
+    format: 'csv' | 'tsv',
+  ): Promise<GlossaryImportResult> {
+    if (this.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!this.project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+    if (!content.trim()) {
+      throw new ProjectServiceUserInputError('粘贴内容不能为空');
+    }
+
+    this.isBusy = true;
+    this.log('info', `正在导入粘贴术语（${format.toUpperCase()}）...`);
+    const projectDir = this.project.getWorkspaceFileManifest().projectDir;
+    const tempPath = join(
+      projectDir,
+      'Data',
+      '.tmp',
+      `glossary-paste-import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${format}`,
+    );
+
+    try {
+      await mkdir(dirname(tempPath), { recursive: true });
+      await writeFile(tempPath, content, 'utf8');
+      const importedGlossary =
+        await GlossaryPersisterFactory.getPersister(tempPath).loadGlossary(tempPath);
+      const importedTerms = importedGlossary
+        .getAllTerms()
+        .map((term) => ({
+          term: term.term.trim(),
+          translation: term.translation,
+          description: term.description,
+        }))
+        .filter((term) => term.term.length > 0);
+
+      const glossary = this.project.getGlossary();
+      if (!glossary) {
+        throw new ProjectServiceUserInputError('当前项目还没有术语表');
+      }
+
+      let newTermCount = 0;
+      let updatedTermCount = 0;
+      for (const term of importedTerms) {
+        const existing = glossary.getTerm(term.term);
+        const nextTerm = {
+          term: term.term,
+          translation: term.translation,
+          description: term.description,
+          category: existing?.category,
+          totalOccurrenceCount: existing?.totalOccurrenceCount ?? 0,
+          textBlockOccurrenceCount: existing?.textBlockOccurrenceCount ?? 0,
+        };
+
+        if (existing) {
+          glossary.updateTerm(term.term, nextTerm);
+          updatedTermCount += 1;
+        } else {
+          glossary.addTerm(nextTerm);
+          newTermCount += 1;
+        }
+      }
+
+      const result: GlossaryImportResult = {
+        filePath: `pasted.${format}`,
+        termCount: importedTerms.length,
+        newTermCount,
+        updatedTermCount,
+      };
+
+      await this.project.saveProgress();
+      this.refreshSnapshot();
+      this.log(
+        'success',
+        `术语粘贴导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
+      );
+      return result;
+    } catch (error) {
+      this.log('error', `术语粘贴导入失败：${toMsg(error)}`);
+      throw error;
+    } finally {
+      await rm(tempPath, { force: true }).catch(() => undefined);
+      this.isBusy = false;
+    }
   }
 
   async exportGlossary(outputPath: string): Promise<void> {

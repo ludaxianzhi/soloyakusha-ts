@@ -1,5 +1,6 @@
 import type {
   AlignmentRepairConfig,
+  DictionaryImportResult,
   GlossaryExtractorConfig,
   GlossaryTerm,
   ImportArchiveResult,
@@ -188,6 +189,11 @@ export const api = {
     }),
   scanDictionary: () =>
     request('/api/project/dictionary/scan', { method: 'POST' }),
+  importDictionaryFromContent: (content: string, format: 'csv' | 'tsv') =>
+    request<DictionaryImportResult>('/api/project/dictionary/import-content', {
+      method: 'POST',
+      body: { content, format },
+    }),
 
   startPlotSummary: () =>
     request('/api/project/plot-summary', { method: 'POST' }),
