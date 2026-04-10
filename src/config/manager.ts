@@ -15,6 +15,8 @@ import { dirname, join } from "node:path";
 import { createLlmClientConfig } from "../llm/types.ts";
 import type { LlmClientConfig } from "../llm/types.ts";
 import { TranslationGlobalConfig } from "../project/config.ts";
+import { createVectorStoreConfig } from "../vector/types.ts";
+import type { VectorStoreConfig } from "../vector/types.ts";
 import type {
   AlignmentRepairConfig,
   GlossaryExtractorConfig,
@@ -27,7 +29,9 @@ import type {
   GlobalConfigManagerOptions,
   GlobalLlmConfig,
   GlobalTranslationConfig,
+  GlobalVectorConfig,
   PersistedLlmClientConfig,
+  PersistedVectorStoreConfig,
   TranslatorEntry,
   WorkspaceEntry,
 } from "./types.ts";
@@ -41,22 +45,26 @@ import {
   cloneGlossaryUpdaterConfig,
   cloneLlmConfig,
   clonePersistedLlmClientConfig,
+  clonePersistedVectorStoreConfig,
   clonePlotSummaryConfig,
   cloneAlignmentRepairConfig,
   cloneProfiles,
   cloneTranslationConfig,
   cloneTranslationProcessorConfig,
   cloneTranslatorEntry,
+  cloneVectorConfig,
   createEmptyDocument,
   normalizeGlossaryExtractorConfig,
   normalizeGlossaryUpdaterConfig,
   normalizeGlobalConfigDocument,
   normalizePersistedLlmClientConfig,
+  normalizePersistedVectorStoreConfig,
   normalizePlotSummaryConfig,
   normalizeAlignmentRepairConfig,
   normalizeTranslationProcessorConfig,
   normalizeTranslatorEntry,
   pruneEmptyTranslationConfig,
+  pruneEmptyVectorConfig,
 } from "./document-codec.ts";
 
 export class GlobalConfigManager {
@@ -83,6 +91,10 @@ export class GlobalConfigManager {
 
   async getLlmConfig(): Promise<GlobalLlmConfig> {
     return cloneLlmConfig((await this.loadDocument()).llm);
+  }
+
+  async getVectorConfig(): Promise<GlobalVectorConfig | undefined> {
+    return cloneVectorConfig((await this.loadDocument()).vector);
   }
 
   async getTranslationConfig(): Promise<GlobalTranslationConfig | undefined> {
@@ -372,6 +384,88 @@ export class GlobalConfigManager {
     return createLlmClientConfig(await this.getRequiredEmbeddingConfig());
   }
 
+  async listVectorStoreNames(): Promise<string[]> {
+    return Object.keys((await this.loadDocument()).vector?.stores ?? {}).sort();
+  }
+
+  async getDefaultVectorStoreName(): Promise<string | undefined> {
+    return (await this.loadDocument()).vector?.defaultStoreName;
+  }
+
+  async setDefaultVectorStoreName(storeName?: string): Promise<void> {
+    const document = await this.loadDocument();
+    const vector = document.vector ?? { stores: {} };
+    if (storeName !== undefined && !vector.stores[storeName]) {
+      throw new Error(`未找到名为 '${storeName}' 的向量数据库配置`);
+    }
+
+    vector.defaultStoreName = storeName;
+    document.vector = pruneEmptyVectorConfig(vector);
+    await this.persistDocument(document);
+  }
+
+  async getVectorStore(
+    storeName: string,
+  ): Promise<PersistedVectorStoreConfig | undefined> {
+    const store = (await this.loadDocument()).vector?.stores[storeName];
+    return store ? clonePersistedVectorStoreConfig(store) : undefined;
+  }
+
+  async getRequiredVectorStore(storeName?: string): Promise<PersistedVectorStoreConfig> {
+    const document = await this.loadDocument();
+    const resolvedName = storeName ?? document.vector?.defaultStoreName;
+    if (!resolvedName) {
+      throw new Error("未提供向量数据库配置名称，且未设置默认向量数据库配置");
+    }
+
+    const store = document.vector?.stores[resolvedName];
+    if (!store) {
+      throw new Error(`未找到名为 '${resolvedName}' 的向量数据库配置`);
+    }
+
+    return clonePersistedVectorStoreConfig(store);
+  }
+
+  async getResolvedVectorStoreConfig(storeName?: string): Promise<VectorStoreConfig> {
+    return createVectorStoreConfig(await this.getRequiredVectorStore(storeName));
+  }
+
+  async setVectorStore(
+    storeName: string,
+    config: PersistedVectorStoreConfig,
+  ): Promise<PersistedVectorStoreConfig> {
+    validateVectorStoreName(storeName);
+    const document = await this.loadDocument();
+    const vector = document.vector ?? { stores: {} };
+    const normalized = normalizePersistedVectorStoreConfig(
+      config,
+      `vector.stores.${storeName}`,
+    );
+
+    vector.stores[storeName] = normalized;
+    document.vector = pruneEmptyVectorConfig(vector);
+    await this.persistDocument(document);
+    return clonePersistedVectorStoreConfig(normalized);
+  }
+
+  async removeVectorStore(storeName: string): Promise<boolean> {
+    validateVectorStoreName(storeName);
+    const document = await this.loadDocument();
+    const vector = document.vector;
+    if (!vector?.stores[storeName]) {
+      return false;
+    }
+
+    delete vector.stores[storeName];
+    if (vector.defaultStoreName === storeName) {
+      vector.defaultStoreName = undefined;
+    }
+
+    document.vector = pruneEmptyVectorConfig(vector);
+    await this.persistDocument(document);
+    return true;
+  }
+
   async getRecentWorkspaces(): Promise<WorkspaceEntry[]> {
     const document = await this.loadDocument();
     return document.recentWorkspaces ? [...document.recentWorkspaces] : [];
@@ -444,6 +538,12 @@ function validateProfileName(profileName: string): void {
 function validateTranslatorName(name: string): void {
   if (name.trim().length === 0) {
     throw new Error("翻译器名称不能为空字符串");
+  }
+}
+
+function validateVectorStoreName(name: string): void {
+  if (name.trim().length === 0) {
+    throw new Error("向量数据库配置名称不能为空字符串");
   }
 }
 

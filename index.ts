@@ -28,3 +28,4 @@ export * from "./src/project/translation-processor-factory.ts";
 export * from "./src/project/translation-project.ts";
 export * from "./src/project/types.ts";
 export * from "./src/utils/index.ts";
+export * from "./src/vector/index.ts";

@@ -273,6 +273,7 @@ describe("GlobalConfigManager", () => {
     cleanupTargets.push(rootDir);
 
     process.env.SOLOYAKUSHA_GLOBAL_TEST_KEY = "env-secret";
+    process.env.SOLOYAKUSHA_VECTOR_TEST_KEY = "vector-env-secret";
 
     const manager = new GlobalConfigManager({
       filePath: join(rootDir, "settings.json"),
@@ -291,7 +292,23 @@ describe("GlobalConfigManager", () => {
     expect(resolved.apiKey).toBe("env-secret");
     expect(resolved.modelType).toBe("embedding");
 
+    await manager.setVectorStore("memory", {
+      provider: "qdrant",
+      endpoint: "https://vector.example.com",
+      apiKeyEnv: "SOLOYAKUSHA_VECTOR_TEST_KEY",
+      defaultCollection: "chapters",
+      distance: "cosine",
+      timeoutMs: 15_000,
+      retries: 4,
+    });
+
+    const resolvedVector = await manager.getResolvedVectorStoreConfig("memory");
+    expect(resolvedVector.apiKey).toBe("vector-env-secret");
+    expect(resolvedVector.defaultCollection).toBe("chapters");
+    expect(resolvedVector.distance).toBe("cosine");
+
     delete process.env.SOLOYAKUSHA_GLOBAL_TEST_KEY;
+    delete process.env.SOLOYAKUSHA_VECTOR_TEST_KEY;
   });
 
   test("persists embedding and feature configs in global file", async () => {
@@ -333,6 +350,22 @@ describe("GlobalConfigManager", () => {
       apiKey: "secret",
       retries: 3,
     });
+    await manager.setVectorStore("memory", {
+      provider: "qdrant",
+      endpoint: "https://vector.example.com",
+      apiKey: "vector-secret",
+      defaultCollection: "chapters",
+      distance: "dot",
+      timeoutMs: 20_000,
+      retries: 5,
+      extraHeaders: {
+        "x-trace-id": "trace-1",
+      },
+      options: {
+        shard_number: 2,
+      },
+    });
+    await manager.setDefaultVectorStoreName("memory");
 
     await manager.setTranslationProcessorConfig({
       modelNames: ["translator"],
@@ -377,6 +410,23 @@ describe("GlobalConfigManager", () => {
       apiKeyEnv: undefined,
       defaultRequestConfig: undefined,
     });
+    expect(await reloaded.getVectorStore("memory")).toEqual({
+      provider: "qdrant",
+      endpoint: "https://vector.example.com",
+      apiKey: "vector-secret",
+      apiKeyEnv: undefined,
+      defaultCollection: "chapters",
+      distance: "dot",
+      timeoutMs: 20_000,
+      retries: 5,
+      extraHeaders: {
+        "x-trace-id": "trace-1",
+      },
+      options: {
+        shard_number: 2,
+      },
+    });
+    expect(await reloaded.getDefaultVectorStoreName()).toBe("memory");
     expect(await reloaded.getTranslationProcessorConfig()).toEqual({
       modelNames: ["translator"],
       workflow: undefined,
@@ -429,6 +479,15 @@ describe("GlobalConfigManager", () => {
       llm?: {
         embedding?: { modelName: string };
       };
+      vector?: {
+        defaultStoreName?: string;
+        stores?: {
+          memory?: {
+            provider?: string;
+            defaultCollection?: string;
+          };
+        };
+      };
       translation?: {
         translationProcessor?: { modelNames: string[] };
         glossaryExtractor?: {
@@ -441,6 +500,9 @@ describe("GlobalConfigManager", () => {
       };
     };
     expect(saved.llm?.embedding?.modelName).toBe("text-embedding-3-small");
+    expect(saved.vector?.defaultStoreName).toBe("memory");
+    expect(saved.vector?.stores?.memory?.provider).toBe("qdrant");
+    expect(saved.vector?.stores?.memory?.defaultCollection).toBe("chapters");
     expect(saved.translation?.translationProcessor?.modelNames).toEqual(["translator"]);
     expect(saved.translation?.glossaryExtractor?.modelNames).toEqual(["glossary", "summary"]);
     expect(saved.translation?.glossaryExtractor?.occurrenceTopK).toBe(128);

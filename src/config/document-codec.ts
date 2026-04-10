@@ -17,8 +17,10 @@ import type {
   GlobalConfigDocument,
   GlobalLlmConfig,
   GlobalTranslationConfig,
+  GlobalVectorConfig,
   PersistedLlmClientConfig,
   PersistedLlmRequestConfig,
+  PersistedVectorStoreConfig,
   TranslatorMetadata,
   TranslatorEntry,
   WorkspaceEntry,
@@ -92,6 +94,11 @@ export function normalizeGlobalConfigDocument(
     throw new Error(`llm.embedding 必须是 embedding 类型配置: ${sourceLabel}`);
   }
 
+  const vector =
+    value.vector === undefined
+      ? undefined
+      : normalizeVectorConfig(value.vector, `${sourceLabel}:vector`);
+
   const translation = normalizeOptionalTranslationConfig(
     value.translation,
     `${sourceLabel}:translation`,
@@ -109,6 +116,7 @@ export function normalizeGlobalConfigDocument(
       profiles,
       embedding,
     },
+    vector,
     translation,
     recentWorkspaces,
   };
@@ -249,6 +257,88 @@ function normalizeTranslatorModelOverrides(
   }
 
   return Object.keys(result).length > 0 ? result : undefined;
+}
+
+export function normalizePersistedVectorStoreConfig(
+  value: unknown,
+  sourceLabel: string,
+): PersistedVectorStoreConfig {
+  if (!isRecord(value)) {
+    throw new Error(`向量数据库配置必须是对象: ${sourceLabel}`);
+  }
+
+  const provider = normalizeVectorStoreProvider(value.provider, `${sourceLabel}.provider`);
+  const endpoint = readRequiredString(value.endpoint, `${sourceLabel}.endpoint`);
+  const apiKey = readOptionalString(value.apiKey, `${sourceLabel}.apiKey`);
+  const apiKeyEnv = readOptionalString(value.apiKeyEnv, `${sourceLabel}.apiKeyEnv`);
+  const defaultCollection = readOptionalString(
+    value.defaultCollection,
+    `${sourceLabel}.defaultCollection`,
+  );
+  const distance = normalizeVectorDistance(value.distance, `${sourceLabel}.distance`);
+  const timeoutMs =
+    readOptionalPositiveInteger(value.timeoutMs, `${sourceLabel}.timeoutMs`) ?? 60_000;
+  const retries = readOptionalNonNegativeInteger(value.retries, `${sourceLabel}.retries`) ?? 3;
+  const extraHeaders = normalizeOptionalStringMap(
+    value.extraHeaders,
+    `${sourceLabel}.extraHeaders`,
+  );
+  const options = normalizeOptionalJsonObject(value.options, `${sourceLabel}.options`);
+
+  if (apiKey && apiKeyEnv) {
+    throw new Error(`${sourceLabel} 中 apiKey 和 apiKeyEnv 只能配置其中一个`);
+  }
+
+  return {
+    provider,
+    endpoint,
+    apiKey,
+    apiKeyEnv,
+    defaultCollection,
+    distance,
+    timeoutMs,
+    retries,
+    extraHeaders,
+    options,
+  };
+}
+
+export function normalizeVectorConfig(
+  value: unknown,
+  sourceLabel: string,
+): GlobalVectorConfig {
+  if (!isRecord(value)) {
+    throw new Error(`全局配置的 vector 字段必须是对象: ${sourceLabel}`);
+  }
+
+  const storesValue = value.stores ?? {};
+  if (!isRecord(storesValue)) {
+    throw new Error(`全局配置的 vector.stores 字段必须是对象: ${sourceLabel}`);
+  }
+
+  const stores: Record<string, PersistedVectorStoreConfig> = {};
+  for (const [storeName, storeValue] of Object.entries(storesValue)) {
+    validateProfileName(storeName);
+    stores[storeName] = normalizePersistedVectorStoreConfig(
+      storeValue,
+      `${sourceLabel}.stores.${storeName}`,
+    );
+  }
+
+  const defaultStoreName = readOptionalString(
+    value.defaultStoreName,
+    `${sourceLabel}.defaultStoreName`,
+  );
+  if (defaultStoreName !== undefined && !stores[defaultStoreName]) {
+    throw new Error(
+      `vector.defaultStoreName 指向了不存在的 store: ${defaultStoreName} (${sourceLabel})`,
+    );
+  }
+
+  return {
+    defaultStoreName,
+    stores,
+  };
 }
 
 export function normalizeTranslators(
@@ -461,8 +551,11 @@ export function cloneDocument(document: GlobalConfigDocument): GlobalConfigDocum
   return {
     version: document.version,
     llm: cloneLlmConfig(document.llm),
+    vector: cloneVectorConfig(document.vector),
     translation: cloneTranslationConfig(document.translation),
-    recentWorkspaces: document.recentWorkspaces ? [...document.recentWorkspaces.map(cloneWorkspaceEntry)] : undefined,
+    recentWorkspaces: document.recentWorkspaces
+      ? [...document.recentWorkspaces.map(cloneWorkspaceEntry)]
+      : undefined,
   };
 }
 
@@ -471,6 +564,24 @@ export function cloneLlmConfig(config: GlobalLlmConfig): GlobalLlmConfig {
     defaultProfileName: config.defaultProfileName,
     profiles: cloneProfiles(config.profiles),
     embedding: config.embedding ? clonePersistedLlmClientConfig(config.embedding) : undefined,
+  };
+}
+
+export function cloneVectorConfig(
+  config: GlobalVectorConfig | undefined,
+): GlobalVectorConfig | undefined {
+  if (!config) {
+    return undefined;
+  }
+
+  const stores: Record<string, PersistedVectorStoreConfig> = {};
+  for (const [name, store] of Object.entries(config.stores)) {
+    stores[name] = clonePersistedVectorStoreConfig(store);
+  }
+
+  return {
+    defaultStoreName: config.defaultStoreName,
+    stores,
   };
 }
 
@@ -635,6 +746,23 @@ export function clonePersistedLlmClientConfig(
     defaultRequestConfig: config.defaultRequestConfig
       ? cloneRequestConfig(config.defaultRequestConfig)
       : undefined,
+  };
+}
+
+export function clonePersistedVectorStoreConfig(
+  config: PersistedVectorStoreConfig,
+): PersistedVectorStoreConfig {
+  return {
+    provider: config.provider,
+    endpoint: config.endpoint,
+    apiKey: config.apiKey,
+    apiKeyEnv: config.apiKeyEnv,
+    defaultCollection: config.defaultCollection,
+    distance: config.distance,
+    timeoutMs: config.timeoutMs,
+    retries: config.retries,
+    extraHeaders: config.extraHeaders ? { ...config.extraHeaders } : undefined,
+    options: config.options ? cloneJsonObject(config.options) : undefined,
   };
 }
 
@@ -884,6 +1012,37 @@ function normalizeLlmProvider(value: unknown, sourceLabel: string): LlmProvider 
   throw new Error(`provider 非法: ${sourceLabel}`);
 }
 
+function normalizeVectorStoreProvider(
+  value: unknown,
+  sourceLabel: string,
+): PersistedVectorStoreConfig["provider"] {
+  if (value === "qdrant" || value === "chroma") {
+    return value;
+  }
+
+  throw new Error(`vector provider 非法: ${sourceLabel}`);
+}
+
+function normalizeVectorDistance(
+  value: unknown,
+  sourceLabel: string,
+): PersistedVectorStoreConfig["distance"] {
+  if (value === undefined) {
+    return "cosine";
+  }
+
+  if (
+    value === "cosine" ||
+    value === "dot" ||
+    value === "euclid" ||
+    value === "manhattan"
+  ) {
+    return value;
+  }
+
+  throw new Error(`vector distance 非法: ${sourceLabel}`);
+}
+
 function normalizeModelType(value: unknown, sourceLabel: string) {
   if (value === undefined) {
     return "chat";
@@ -911,6 +1070,30 @@ function normalizeOptionalJsonObject(
   return cloneJsonObject(value);
 }
 
+function normalizeOptionalStringMap(
+  value: unknown,
+  sourceLabel: string,
+): Record<string, string> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`字符串映射必须是对象: ${sourceLabel}`);
+  }
+
+  const result: Record<string, string> = {};
+  for (const [key, entryValue] of Object.entries(value)) {
+    const normalized = readOptionalStringAllowEmpty(entryValue, `${sourceLabel}.${key}`);
+    if (normalized === undefined) {
+      throw new Error(`${sourceLabel}.${key} 必须是字符串`);
+    }
+    result[key] = normalized;
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 function cloneJsonObject(value: JsonObject): JsonObject {
   return Object.fromEntries(
     Object.entries(value).map(([key, entryValue]) => [key, cloneJsonValue(entryValue)]),
@@ -927,6 +1110,16 @@ function cloneJsonValue(value: JsonValue): JsonValue {
   }
 
   return value;
+}
+
+export function pruneEmptyVectorConfig(
+  config: GlobalVectorConfig | undefined,
+): GlobalVectorConfig | undefined {
+  if (!config || Object.keys(config.stores).length === 0) {
+    return undefined;
+  }
+
+  return cloneVectorConfig(config);
 }
 
 function readRequiredString(value: unknown, sourceLabel: string): string {

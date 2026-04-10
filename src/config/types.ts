@@ -21,6 +21,10 @@ import type {
   TranslationProcessorConfig,
 } from "../project/config.ts";
 import type { SlidingWindowOptions } from "../project/types.ts";
+import type {
+  VectorDistanceMetric,
+  VectorStoreProviderName,
+} from "../vector/types.ts";
 
 export const GLOBAL_CONFIG_VERSION = 1;
 export const DEFAULT_GLOBAL_CONFIG_DIR_NAME = ".soloyakusha-ts";
@@ -52,6 +56,24 @@ export type GlobalLlmConfig = {
   defaultProfileName?: string;
   profiles: Record<string, PersistedLlmClientConfig>;
   embedding?: PersistedLlmClientConfig;
+};
+
+export type PersistedVectorStoreConfig = {
+  provider: VectorStoreProviderName;
+  endpoint: string;
+  apiKey?: string;
+  apiKeyEnv?: string;
+  defaultCollection?: string;
+  distance: VectorDistanceMetric;
+  timeoutMs: number;
+  retries: number;
+  extraHeaders?: Record<string, string>;
+  options?: JsonObject;
+};
+
+export type GlobalVectorConfig = {
+  defaultStoreName?: string;
+  stores: Record<string, PersistedVectorStoreConfig>;
 };
 
 /**
@@ -112,6 +134,7 @@ export type GlobalTranslationConfig = {
 export type GlobalConfigDocument = {
   version: typeof GLOBAL_CONFIG_VERSION;
   llm: GlobalLlmConfig;
+  vector?: GlobalVectorConfig;
   translation?: GlobalTranslationConfig;
   recentWorkspaces?: WorkspaceEntry[];
 };
