@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Tabs } from 'antd';
 import { WorkspaceChaptersTab } from './workspace-view/WorkspaceChaptersTab.tsx';
 import { WorkspaceConfigTab } from './workspace-view/WorkspaceConfigTab.tsx';
+import { WorkspaceConsistencyTab } from './workspace-view/WorkspaceConsistencyTab.tsx';
 import { WorkspaceDashboardTab } from './workspace-view/WorkspaceDashboardTab.tsx';
 import { WorkspaceDictionaryTab } from './workspace-view/WorkspaceDictionaryTab.tsx';
 import { WorkspaceHistoryTab } from './workspace-view/WorkspaceHistoryTab.tsx';
@@ -14,6 +15,7 @@ export function WorkspaceView({
   projectStatus,
   sseConnected,
   dictionary,
+  repeatedPatterns,
   chapters,
   topology,
   workspaceForm,
@@ -21,6 +23,8 @@ export function WorkspaceView({
   translatorOptions,
   onRefreshProjectStatus,
   onRefreshDictionary,
+  onRefreshRepeatedPatterns,
+  onSaveRepeatedPatternTranslation,
   onRefreshChapters,
   onRefreshTopology,
   onRefreshWorkspaceConfig,
@@ -142,6 +146,18 @@ export function WorkspaceView({
                 active={activeTabKey === 'history'}
                 workspaceKey={snapshot.projectName}
                 onClearLogs={onClearLogs}
+              />
+            ),
+          },
+          {
+            key: 'consistency-analysis',
+            label: '一致性分析',
+            children: (
+              <WorkspaceConsistencyTab
+                active={activeTabKey === 'consistency-analysis'}
+                repeatedPatterns={repeatedPatterns}
+                onRefreshRepeatedPatterns={onRefreshRepeatedPatterns}
+                onSaveRepeatedPatternTranslation={onSaveRepeatedPatternTranslation}
               />
             ),
           },

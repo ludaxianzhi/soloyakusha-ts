@@ -172,6 +172,45 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     return c.json(preview);
   });
 
+  app.get('/repetition-patterns', (c) => {
+    try {
+      const result = projectService.getRepeatedPatterns({
+        minOccurrences: readOptionalPositiveIntegerQuery(c.req.query('minOccurrences')),
+        minLength: readOptionalPositiveIntegerQuery(c.req.query('minLength')),
+        maxResults: readOptionalPositiveIntegerQuery(c.req.query('maxResults')),
+      });
+      if (!result) {
+        return c.json({ error: '当前没有已初始化的项目' }, 404);
+      }
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
+
+  app.put('/repetition-patterns/translation', async (c) => {
+    try {
+      const body = await c.req.json<{
+        chapterId: number;
+        fragmentIndex: number;
+        lineIndex: number;
+        translation: string;
+      }>();
+      await projectService.updateRepeatedPatternTranslation({
+        chapterId: body.chapterId,
+        fragmentIndex: body.fragmentIndex,
+        lineIndex: body.lineIndex,
+        translation: String(body.translation ?? ''),
+      });
+      return c.json({ ok: true });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
   app.post('/chapters', async (c) => {
     const body = await c.req.json<{
       filePath: string;

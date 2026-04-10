@@ -5,6 +5,7 @@ import type {
   GlossaryTerm,
   ImportArchiveResult,
   ProjectStatus,
+  RepetitionPatternAnalysisResult,
   StoryTopologyDescriptor,
   TranslationProjectSnapshot,
   UpdateStoryRoutePayload,
@@ -28,6 +29,7 @@ export interface WorkspaceViewProps {
   projectStatus: ProjectStatus | null;
   sseConnected: boolean;
   dictionary: GlossaryTerm[];
+  repeatedPatterns: RepetitionPatternAnalysisResult | null;
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
   workspaceForm: FormInstance<Record<string, unknown>>;
@@ -35,6 +37,17 @@ export interface WorkspaceViewProps {
   translatorOptions: Array<{ label: string; value: string }>;
   onRefreshProjectStatus: () => void | Promise<void>;
   onRefreshDictionary: () => void | Promise<void>;
+  onRefreshRepeatedPatterns: (options?: {
+    minOccurrences?: number;
+    minLength?: number;
+    maxResults?: number;
+  }) => Promise<RepetitionPatternAnalysisResult | null>;
+  onSaveRepeatedPatternTranslation: (input: {
+    chapterId: number;
+    fragmentIndex: number;
+    lineIndex: number;
+    translation: string;
+  }) => Promise<void>;
   onRefreshChapters: () => void | Promise<void>;
   onRefreshTopology: () => void | Promise<void>;
   onRefreshWorkspaceConfig: () => void | Promise<void>;

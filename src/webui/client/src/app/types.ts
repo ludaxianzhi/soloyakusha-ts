@@ -225,6 +225,44 @@ export interface TranslationStepQueueEntryDetail
   metadata: Record<string, string | number | boolean>;
 }
 
+export interface RepetitionPatternLocation {
+  chapterId: number;
+  chapterFilePath: string;
+  unitIndex: number;
+  fragmentIndex: number;
+  lineIndex: number;
+  sourceSentence: string;
+  translatedSentence: string;
+  globalStartIndex: number;
+  globalEndIndex: number;
+  sentenceStartIndex: number;
+  sentenceEndIndex: number;
+  matchStartInSentence: number;
+  matchEndInSentence: number;
+}
+
+export interface RepetitionPatternTranslationVariant {
+  text: string;
+  normalizedText: string;
+  count: number;
+  locations: RepetitionPatternLocation[];
+}
+
+export interface RepetitionPatternAnalysis {
+  text: string;
+  length: number;
+  occurrenceCount: number;
+  locations: RepetitionPatternLocation[];
+  translations: RepetitionPatternTranslationVariant[];
+  isTranslationConsistent: boolean;
+}
+
+export interface RepetitionPatternAnalysisResult {
+  fullTextLength: number;
+  totalSentenceCount: number;
+  patterns: RepetitionPatternAnalysis[];
+}
+
 export interface GlossaryTerm {
   term: string;
   translation: string;

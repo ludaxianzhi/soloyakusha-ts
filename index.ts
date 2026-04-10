@@ -14,6 +14,7 @@ export * from "./src/project/multi-stage-translation-processor.ts";
 export * from "./src/project/global-pattern-scanner.ts";
 export * from "./src/project/logger.ts";
 export * from "./src/project/pipeline.ts";
+export * from "./src/project/project-repetition-analysis.ts";
 export {
   PromptManager as ProjectPromptManager,
 } from "./src/project/prompt-manager.ts";
@@ -26,6 +27,7 @@ export * from "./src/project/translation-document-manager.ts";
 export * from "./src/project/translation-processor.ts";
 export * from "./src/project/translation-processor-factory.ts";
 export * from "./src/project/translation-project.ts";
+export * from "./src/project/repetition-pattern-analysis.ts";
 export * from "./src/project/types.ts";
 export * from "./src/utils/index.ts";
 export * from "./src/vector/index.ts";

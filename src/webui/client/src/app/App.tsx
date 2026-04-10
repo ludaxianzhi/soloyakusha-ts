@@ -33,6 +33,7 @@ import type {
   PlotSummaryConfig,
   ProjectStatus,
   ProjectResourceVersions,
+  RepetitionPatternAnalysisResult,
   StoryTopologyDescriptor,
   TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
@@ -82,6 +83,9 @@ export function AppShell() {
   const [projectStatus, setProjectStatus] = useState<ProjectStatus | null>(null);
   const [snapshot, setSnapshot] = useState<TranslationProjectSnapshot | null>(null);
   const [dictionary, setDictionary] = useState<GlossaryTerm[]>([]);
+  const [repeatedPatterns, setRepeatedPatterns] = useState<RepetitionPatternAnalysisResult | null>(
+    null,
+  );
   const [chapters, setChapters] = useState<WorkspaceChapterDescriptor[]>([]);
   const [topology, setTopology] = useState<StoryTopologyDescriptor | null>(null);
   const [dictionaryModalOpen, setDictionaryModalOpen] = useState(false);
@@ -195,6 +199,7 @@ export function AppShell() {
 
   const resetWorkspaceDataCaches = useCallback(() => {
     setDictionary([]);
+    setRepeatedPatterns(null);
     setChapters([]);
     setTopology(null);
     workspaceForm.resetFields();
@@ -220,6 +225,32 @@ export function AppShell() {
         nextRevision ?? workspaceResourceVersionsRef.current.dictionaryRevision + 1,
     };
   }, []);
+
+  const refreshRepeatedPatterns = useCallback(
+    async (options?: {
+      minOccurrences?: number;
+      minLength?: number;
+      maxResults?: number;
+    }) => {
+      const result = await api.getRepeatedPatterns(options);
+      setRepeatedPatterns(result);
+      return result;
+    },
+    [],
+  );
+
+  const handleSaveRepeatedPatternTranslation = useCallback(
+    async (input: {
+      chapterId: number;
+      fragmentIndex: number;
+      lineIndex: number;
+      translation: string;
+    }) => {
+      await api.saveRepeatedPatternTranslation(input);
+      await refreshProjectStatus();
+    },
+    [refreshProjectStatus],
+  );
 
   const refreshChapters = useCallback(async () => {
     let nextRevision: number | undefined;
@@ -1218,6 +1249,7 @@ export function AppShell() {
                     projectStatus={projectStatus}
                     sseConnected={connected}
                     dictionary={dictionary}
+                    repeatedPatterns={repeatedPatterns}
                     chapters={chapters}
                     topology={topology}
                     workspaceForm={workspaceForm}
@@ -1229,6 +1261,8 @@ export function AppShell() {
                     translatorOptions={translatorOptions}
                     onRefreshProjectStatus={refreshProjectStatus}
                     onRefreshDictionary={refreshDictionary}
+                    onRefreshRepeatedPatterns={refreshRepeatedPatterns}
+                    onSaveRepeatedPatternTranslation={handleSaveRepeatedPatternTranslation}
                     onRefreshChapters={refreshChapters}
                     onRefreshTopology={refreshTopology}
                     onRefreshWorkspaceConfig={refreshWorkspaceConfig}

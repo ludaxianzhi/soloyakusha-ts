@@ -22,6 +22,11 @@ import type {
 } from "./global-pattern-scanner.ts";
 import { GlobalAssociationPatternScanner } from "./global-pattern-scanner.ts";
 import {
+  analyzeProjectRepeatedPatterns,
+  type RepetitionPatternAnalysisOptions,
+  type RepetitionPatternAnalysisResult,
+} from "./project-repetition-analysis.ts";
+import {
   TranslationPipeline,
   TranslationStepWorkQueue,
   type OrderedFragmentSnapshot,
@@ -1029,6 +1034,34 @@ export class TranslationProject
     );
 
     return result;
+  }
+
+  analyzeRepeatedPatterns(
+    options: RepetitionPatternAnalysisOptions = {},
+  ): RepetitionPatternAnalysisResult {
+    this.ensureInitialized();
+    return analyzeProjectRepeatedPatterns(
+      {
+        documentManager: this.documentManager,
+        chapters: this.getTraversalChapters(),
+      },
+      options,
+    );
+  }
+
+  async updateTranslatedLine(
+    chapterId: number,
+    fragmentIndex: number,
+    lineIndex: number,
+    translation: string,
+  ): Promise<void> {
+    this.ensureInitialized();
+    await this.documentManager.updateTranslatedLine(
+      chapterId,
+      fragmentIndex,
+      lineIndex,
+      translation,
+    );
   }
 
   async saveProgress(): Promise<void> {

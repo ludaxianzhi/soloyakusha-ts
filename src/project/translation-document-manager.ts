@@ -183,6 +183,23 @@ export class TranslationDocumentManager {
     await this.saveChapterById(chapterId);
   }
 
+  async updateTranslatedLine(
+    chapterId: number,
+    fragmentIndex: number,
+    lineIndex: number,
+    translation: string,
+  ): Promise<void> {
+    const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
+    if (lineIndex < 0 || lineIndex >= fragment.source.lines.length) {
+      throw new Error(
+        `文本行不存在: chapter=${chapterId}, fragment=${fragmentIndex}, line=${lineIndex}`,
+      );
+    }
+
+    fragment.translation.lines[lineIndex] = translation;
+    await this.saveChapterById(chapterId);
+  }
+
   /**
    * 原子更新步骤状态与译文，确保二者在同一次写入中落盘，避免中途崩溃导致译文丢失。
    */

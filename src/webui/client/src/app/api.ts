@@ -16,6 +16,7 @@ import type {
   PlotSummaryConfig,
   ProjectResourceVersions,
   ProjectStatus,
+  RepetitionPatternAnalysisResult,
   CreateStoryBranchPayload,
   StoryTopologyDescriptor,
   TranslationProcessorWorkflowMetadata,
@@ -191,6 +192,24 @@ export const api = {
     request<{ stepId: string; entries: TranslationStepQueueEntryDetail[] }>(
       `/api/project/queue/${encodeURIComponent(stepId)}/entries`,
     ),
+  getRepeatedPatterns: (options?: {
+    minOccurrences?: number;
+    minLength?: number;
+    maxResults?: number;
+  }) =>
+    request<RepetitionPatternAnalysisResult>(
+      `/api/project/repetition-patterns${buildQueryString(options)}`,
+    ),
+  saveRepeatedPatternTranslation: (input: {
+    chapterId: number;
+    fragmentIndex: number;
+    lineIndex: number;
+    translation: string;
+  }) =>
+    request('/api/project/repetition-patterns/translation', {
+      method: 'PUT',
+      body: input,
+    }),
 
   getDictionary: () =>
     request<{ terms: GlossaryTerm[] }>('/api/project/dictionary'),

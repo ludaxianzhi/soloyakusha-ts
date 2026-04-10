@@ -28,6 +28,10 @@ import {
 } from '../../llm/history.ts';
 import type { LlmRequestHistoryEntry } from '../../llm/types.ts';
 import { PlotSummarizer } from '../../project/plot-summarizer.ts';
+import type {
+  RepetitionPatternAnalysisOptions,
+  RepetitionPatternAnalysisResult,
+} from '../../project/repetition-pattern-analysis.ts';
 import { StoryTopology } from '../../project/story-topology.ts';
 import { DefaultTextSplitter } from '../../project/translation-document-manager.ts';
 import type { Logger } from '../../project/logger.ts';
@@ -219,6 +223,45 @@ export class ProjectService {
       return null;
     }
     return this.project.getChapterTranslationPreview(chapterId);
+  }
+
+  getRepeatedPatterns(
+    options: RepetitionPatternAnalysisOptions = {},
+  ): RepetitionPatternAnalysisResult | null {
+    return this.project?.analyzeRepeatedPatterns(options) ?? null;
+  }
+
+  async updateRepeatedPatternTranslation(input: {
+    chapterId: number;
+    fragmentIndex: number;
+    lineIndex: number;
+    translation: string;
+  }): Promise<void> {
+    if (this.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!this.project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    this.isBusy = true;
+    this.log(
+      'info',
+      `正在保存一致性分析译文：Ch${input.chapterId}/F${input.fragmentIndex + 1}/L${input.lineIndex + 1}`,
+    );
+    try {
+      await this.project.updateTranslatedLine(
+        input.chapterId,
+        input.fragmentIndex,
+        input.lineIndex,
+        input.translation,
+      );
+      this.refreshSnapshot();
+      this.markChaptersChanged();
+      this.log('success', '一致性分析译文已保存');
+    } finally {
+      this.isBusy = false;
+    }
   }
 
   getGlossaryTerms(): Array<{
