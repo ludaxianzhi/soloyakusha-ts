@@ -92,8 +92,16 @@ export function RecentWorkspacesView({
                   <Space>
                     <span>{workspace.name}</span>
                     {workspace.managed && <Tag color="green">托管</Tag>}
+                    {workspace.deprecated && <Tag color="red">旧版</Tag>}
                   </Space>
                   <div>{workspace.dir}</div>
+                  {workspace.deprecated && workspace.deprecationMessage ? (
+                    <div>
+                      <Typography.Text type="danger">
+                        {workspace.deprecationMessage}
+                      </Typography.Text>
+                    </div>
+                  ) : null}
                   <div>
                     <Typography.Text type="secondary">
                       最近打开：{new Date(workspace.lastOpenedAt).toLocaleString()}
@@ -105,15 +113,20 @@ export function RecentWorkspacesView({
                     type="link"
                     icon={<DownloadOutlined />}
                     loading={exportingArchiveDir === workspace.dir}
+                    disabled={workspace.deprecated}
                     onClick={() => void onExportWorkspaceArchive(workspace)}
                   >
                     导出
                   </Button>
-                  <Button type="link" onClick={() => void onOpenWorkspace(workspace)}>
+                  <Button
+                    type="link"
+                    disabled={workspace.deprecated}
+                    onClick={() => void onOpenWorkspace(workspace)}
+                  >
                     打开
                   </Button>
                   <Popconfirm
-                    title="确认删除该工作区？"
+                    title={workspace.deprecated ? "确认删除该旧版工作区？" : "确认删除该工作区？"}
                     onConfirm={() => void onDeleteWorkspace(workspace)}
                   >
                     <Button type="link" danger>

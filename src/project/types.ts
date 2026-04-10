@@ -423,13 +423,12 @@ export type StoryTopologyDescriptor = {
  */
 export type WorkspaceFileManifest = {
   projectDir: string;
-  configPath: string;
-  projectStatePath: string;
+  bootstrapPath: string;
+  databasePath: string;
   glossaryPath?: string;
   chapters: Array<{
     id: number;
     sourceFilePath: string;
-    dataFilePath: string;
   }>;
 };
 

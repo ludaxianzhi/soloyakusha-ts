@@ -1,10 +1,11 @@
-import { readFile, rm } from "node:fs/promises";
-import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import type {
   TranslationFileHandler,
 } from "../file-handlers/base.ts";
 import { TranslationFileHandlerFactory } from "../file-handlers/factory.ts";
 import { Glossary, GlossaryPersisterFactory } from "../glossary/index.ts";
+import { SqliteProjectStorage } from "./sqlite-project-storage.ts";
 import type { TranslationDocumentManager } from "./translation-document-manager.ts";
 import type {
   Chapter,
@@ -17,6 +18,30 @@ import type {
   WorkspaceConfigPatch,
   WorkspaceFileManifest,
 } from "./types.ts";
+
+export const WORKSPACE_BOOTSTRAP_SCHEMA_VERSION = 2;
+export const DEFAULT_WORKSPACE_DATABASE_FILE_PATH = "Data\\project.sqlite";
+
+export type WorkspaceBootstrapDocument = {
+  schemaVersion: typeof WORKSPACE_BOOTSTRAP_SCHEMA_VERSION;
+  storage: "sqlite";
+  projectName: string;
+  databasePath: string;
+};
+
+type WorkspaceBootstrapInspection =
+  | {
+      kind: "current";
+      document: WorkspaceBootstrapDocument;
+    }
+  | {
+      kind: "deprecated";
+      projectName?: string;
+      message: string;
+    }
+  | {
+      kind: "missing";
+    };
 
 export class TranslationProjectWorkspace {
   constructor(
@@ -239,13 +264,12 @@ export class TranslationProjectWorkspace {
 
     return {
       projectDir: this.projectDir,
-      configPath: this.documentManager.workspaceConfigPath,
-      projectStatePath: this.documentManager.projectStatePath,
+      bootstrapPath: this.documentManager.workspaceConfigPath,
+      databasePath: this.documentManager.databasePath,
       glossaryPath,
       chapters: this.chapters.map((chapter) => ({
         id: chapter.id,
         sourceFilePath: resolveChapterPath(this.projectDir, chapter.filePath),
-        dataFilePath: join(this.documentManager.dataDir, `${chapter.id}.json`),
       })),
     };
   }
@@ -337,15 +361,13 @@ export class TranslationProjectWorkspace {
 export async function openWorkspaceConfig(
   projectDir: string,
 ): Promise<WorkspaceConfig> {
-  const resolvedDir = resolve(projectDir);
-  const configPath = join(resolvedDir, "Data", "workspace-config.json");
-
-  try {
-    const content = await readFile(configPath, "utf8");
-    return JSON.parse(content) as WorkspaceConfig;
-  } catch {
-    throw new Error(`工作区配置不存在: ${configPath}`);
+  const bootstrap = await loadWorkspaceBootstrap(projectDir);
+  const databasePath = resolveWorkspaceDatabasePath(projectDir, bootstrap.databasePath);
+  const config = await new SqliteProjectStorage(databasePath).loadWorkspaceConfig();
+  if (!config) {
+    throw new Error(`工作区数据库缺少配置数据: ${databasePath}`);
   }
+  return config;
 }
 
 export function resolveFileHandlerFromOptions(
@@ -468,6 +490,101 @@ export function cloneWorkspaceConfig(config: WorkspaceConfig): WorkspaceConfig {
     slidingWindow: { ...config.slidingWindow },
     customRequirements: [...config.customRequirements],
   };
+}
+
+export function buildWorkspaceBootstrapDocument(
+  projectName: string,
+  databasePath = DEFAULT_WORKSPACE_DATABASE_FILE_PATH,
+): WorkspaceBootstrapDocument {
+  return {
+    schemaVersion: WORKSPACE_BOOTSTRAP_SCHEMA_VERSION,
+    storage: "sqlite",
+    projectName,
+    databasePath,
+  };
+}
+
+export function getWorkspaceBootstrapPath(projectDir: string): string {
+  return join(resolve(projectDir), "Data", "workspace-config.json");
+}
+
+export function resolveWorkspaceDatabasePath(projectDir: string, databasePath: string): string {
+  return resolve(projectDir, databasePath);
+}
+
+export async function saveWorkspaceBootstrap(
+  projectDir: string,
+  bootstrap: WorkspaceBootstrapDocument,
+): Promise<void> {
+  const bootstrapPath = getWorkspaceBootstrapPath(projectDir);
+  await mkdir(dirname(bootstrapPath), { recursive: true });
+  await writeFile(bootstrapPath, `${JSON.stringify(bootstrap, null, 2)}\n`, "utf8");
+}
+
+export async function inspectWorkspaceBootstrap(
+  projectDir: string,
+): Promise<WorkspaceBootstrapInspection> {
+  const bootstrapPath = getWorkspaceBootstrapPath(projectDir);
+
+  let content: string;
+  try {
+    content = await readFile(bootstrapPath, "utf8");
+  } catch {
+    return { kind: "missing" };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error(`工作区引导文件无法解析: ${bootstrapPath}`);
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error(`工作区引导文件必须是对象: ${bootstrapPath}`);
+  }
+
+  const schemaVersion = parsed.schemaVersion;
+  if (
+    schemaVersion === WORKSPACE_BOOTSTRAP_SCHEMA_VERSION &&
+    parsed.storage === "sqlite" &&
+    typeof parsed.projectName === "string" &&
+    typeof parsed.databasePath === "string"
+  ) {
+    return {
+      kind: "current",
+      document: {
+        schemaVersion: WORKSPACE_BOOTSTRAP_SCHEMA_VERSION,
+        storage: "sqlite",
+        projectName: parsed.projectName,
+        databasePath: parsed.databasePath,
+      },
+    };
+  }
+
+  const projectName = typeof parsed.projectName === "string" ? parsed.projectName : undefined;
+  return {
+    kind: "deprecated",
+    projectName,
+    message: `检测到旧版 JSON 工作区：${bootstrapPath}。当前版本仅支持 SQLite 工作区，请删除该旧工作区后重新创建。`,
+  };
+}
+
+export async function loadWorkspaceBootstrap(
+  projectDir: string,
+): Promise<WorkspaceBootstrapDocument> {
+  const inspection = await inspectWorkspaceBootstrap(projectDir);
+  if (inspection.kind === "current") {
+    return inspection.document;
+  }
+  if (inspection.kind === "deprecated") {
+    throw new Error(inspection.message);
+  }
+  throw new Error(`工作区引导文件不存在: ${getWorkspaceBootstrapPath(projectDir)}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function isPathInsideDir(candidatePath: string, baseDir: string): boolean {

@@ -7,7 +7,10 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
 import type { WorkspaceEntry } from '../../config/types.ts';
-import { openWorkspaceConfig } from '../../project/translation-project-workspace.ts';
+import {
+  inspectWorkspaceBootstrap,
+  openWorkspaceConfig,
+} from '../../project/translation-project-workspace.ts';
 import {
   exportWorkspaceArchive,
   importWorkspaceArchive,
@@ -19,6 +22,8 @@ const DEFAULT_BASE_DIR = join(homedir(), '.soloyakusha-ts', 'workspaces');
 
 export interface ManagedWorkspace extends WorkspaceEntry {
   managed: boolean;
+  deprecated?: boolean;
+  deprecationMessage?: string;
 }
 
 export class WorkspaceManager {
@@ -148,10 +153,25 @@ export class WorkspaceManager {
 
             try {
               await access(configPath);
-              const [config, stats] = await Promise.all([
-                openWorkspaceConfig(dir),
+              const [inspection, stats] = await Promise.all([
+                inspectWorkspaceBootstrap(dir),
                 stat(configPath),
               ]);
+              if (inspection.kind === 'deprecated') {
+                return {
+                  name: inspection.projectName?.trim() || `${entry.name}（已弃用）`,
+                  dir,
+                  lastOpenedAt: stats.mtime.toISOString(),
+                  managed: true,
+                  deprecated: true,
+                  deprecationMessage: inspection.message,
+                } as ManagedWorkspace;
+              }
+              if (inspection.kind !== 'current') {
+                return null;
+              }
+
+              const config = await openWorkspaceConfig(dir);
               return {
                 name: config.projectName?.trim() || entry.name,
                 dir,

@@ -4,6 +4,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
+import { SqliteProjectStorage } from '../../project/sqlite-project-storage.ts';
+import {
+  buildWorkspaceBootstrapDocument,
+  saveWorkspaceBootstrap,
+} from '../../project/translation-project-workspace.ts';
 import { WorkspaceManager } from './workspace-manager.ts';
 
 const tempDirs: string[] = [];
@@ -14,7 +19,7 @@ afterEach(async () => {
   );
 });
 
-test('WorkspaceManager lists managed workspaces discovered from workspace config', async () => {
+test('WorkspaceManager lists managed SQLite workspaces discovered from workspace bootstrap', async () => {
   const tempRoot = await mkdtemp(join(tmpdir(), 'soloyakusha-workspace-manager-'));
   tempDirs.push(tempRoot);
 
@@ -27,16 +32,16 @@ test('WorkspaceManager lists managed workspaces discovered from workspace config
 
   const workspaceDir = join(baseDir, 'demo-workspace');
   await mkdir(join(workspaceDir, 'Data'), { recursive: true });
-  await Bun.write(
-    join(workspaceDir, 'Data', 'workspace-config.json'),
-    JSON.stringify({
-      projectName: 'Demo Project',
-      chapters: [],
-      glossary: {},
-      translator: {},
-      customRequirements: [],
-    }),
-  );
+  await new SqliteProjectStorage(join(workspaceDir, 'Data', 'project.sqlite')).saveWorkspaceConfig({
+    schemaVersion: 1,
+    projectName: 'Demo Project',
+    chapters: [],
+    glossary: {},
+    translator: {},
+    slidingWindow: {},
+    customRequirements: [],
+  });
+  await saveWorkspaceBootstrap(workspaceDir, buildWorkspaceBootstrapDocument('Demo Project'));
 
   const workspaces = await manager.listWorkspaces();
 
@@ -47,6 +52,44 @@ test('WorkspaceManager lists managed workspaces discovered from workspace config
     managed: true,
   });
   expect(workspaces[0]?.lastOpenedAt).toBeString();
+});
+
+test('WorkspaceManager marks old JSON workspaces as deprecated for deletion', async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'soloyakusha-workspace-manager-'));
+  tempDirs.push(tempRoot);
+
+  const baseDir = join(tempRoot, 'workspaces');
+  const configPath = join(tempRoot, 'config.json');
+  const registry = new WorkspaceRegistry(
+    new GlobalConfigManager({ filePath: configPath }),
+  );
+  const manager = new WorkspaceManager(baseDir, registry);
+
+  const workspaceDir = join(baseDir, 'legacy-workspace');
+  await mkdir(join(workspaceDir, 'Data'), { recursive: true });
+  await writeFile(
+    join(workspaceDir, 'Data', 'workspace-config.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      projectName: 'Legacy Project',
+      chapters: [],
+      glossary: {},
+      translator: {},
+      slidingWindow: {},
+      customRequirements: [],
+    }),
+  );
+
+  const workspaces = await manager.listWorkspaces();
+
+  expect(workspaces).toHaveLength(1);
+  expect(workspaces[0]).toMatchObject({
+    name: 'Legacy Project',
+    dir: workspaceDir,
+    managed: true,
+    deprecated: true,
+  });
+  expect(workspaces[0]?.deprecationMessage).toContain('请删除该旧工作区');
 });
 
 test('WorkspaceManager can import and export complete workspace archives', async () => {
@@ -63,25 +106,23 @@ test('WorkspaceManager can import and export complete workspace archives', async
   const sourceWorkspaceDir = join(tempRoot, 'source-workspace');
   await mkdir(join(sourceWorkspaceDir, 'Data'), { recursive: true });
   await mkdir(join(sourceWorkspaceDir, 'chapters'), { recursive: true });
-  await writeFile(
-    join(sourceWorkspaceDir, 'Data', 'workspace-config.json'),
-    JSON.stringify({
-      schemaVersion: 1,
-      projectName: 'Roundtrip Workspace',
-      chapters: [{ id: 1, filePath: 'chapters/001.txt' }],
-      glossary: { path: 'Data/glossary.json', autoFilter: true },
-      translator: {},
-      slidingWindow: {},
-      customRequirements: [],
-    }),
-  );
-  await writeFile(
-    join(sourceWorkspaceDir, 'Data', 'project-state.json'),
-    JSON.stringify({
-      schemaVersion: 1,
-      pipeline: { stepIds: [], finalStepId: '' },
-      lifecycle: { status: 'idle' },
-    }),
+  await new SqliteProjectStorage(join(sourceWorkspaceDir, 'Data', 'project.sqlite')).saveWorkspaceConfig({
+    schemaVersion: 1,
+    projectName: 'Roundtrip Workspace',
+    chapters: [{ id: 1, filePath: 'chapters/001.txt' }],
+    glossary: { path: 'Data/glossary.json', autoFilter: true },
+    translator: {},
+    slidingWindow: {},
+    customRequirements: [],
+  });
+  await new SqliteProjectStorage(join(sourceWorkspaceDir, 'Data', 'project.sqlite')).saveProjectState({
+    schemaVersion: 1,
+    pipeline: { stepIds: [], finalStepId: '' },
+    lifecycle: { status: 'idle' },
+  });
+  await saveWorkspaceBootstrap(
+    sourceWorkspaceDir,
+    buildWorkspaceBootstrapDocument('Roundtrip Workspace'),
   );
   await writeFile(join(sourceWorkspaceDir, 'chapters', '001.txt'), 'hello archive');
 

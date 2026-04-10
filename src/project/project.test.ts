@@ -5,7 +5,12 @@ import { join, resolve } from "node:path";
 import { Glossary } from "../glossary/glossary.ts";
 import { GlossaryPersisterFactory } from "../glossary/persister.ts";
 import type { TranslationPipelineDefinition } from "./pipeline.ts";
+import { SqliteProjectStorage } from "./sqlite-project-storage.ts";
 import { TranslationProject } from "./translation-project.ts";
+import {
+  buildWorkspaceBootstrapDocument,
+  saveWorkspaceBootstrap,
+} from "./translation-project-workspace.ts";
 
 const cleanupTargets: string[] = [];
 
@@ -1185,10 +1190,10 @@ describe("TranslationProject", () => {
     expect(lifecycle.lastSavedAt).toBeTruthy();
     expect(lifecycle.canSave).toBe(true);
 
-    const persistedState = JSON.parse(
-      await readFile(join(workspaceDir, "Data", "project-state.json"), "utf8"),
-    ) as { lifecycle?: { lastSavedAt?: string } };
-    expect(persistedState.lifecycle?.lastSavedAt).toBe(lifecycle.lastSavedAt);
+    const persistedState = await new SqliteProjectStorage(join(workspaceDir, "Data", "project.sqlite"))
+      .loadProjectState();
+    expect(persistedState).toBeTruthy();
+    expect(persistedState!.lifecycle?.lastSavedAt).toBe(lifecycle.lastSavedAt);
   });
 
   test("saves glossary using the current workspace glossary path", async () => {
@@ -1243,7 +1248,6 @@ describe("TranslationProject", () => {
     cleanupTargets.push(workspaceDir);
 
     const sourceDir = join(workspaceDir, "sources");
-    await mkdir(join(workspaceDir, "Data"), { recursive: true });
     await mkdir(sourceDir, { recursive: true });
     await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n", "utf8");
 
@@ -1258,32 +1262,20 @@ describe("TranslationProject", () => {
       glossaryPath,
     );
 
-    await writeFile(
-      join(workspaceDir, "Data", "workspace-config.json"),
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          projectName: "glossary-load",
-          chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
-          glossary: {
-            path: "glossary.json",
-          },
-          translator: {},
-          slidingWindow: {},
-          customRequirements: [],
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-
-    const project = new TranslationProject(
-      {
-        projectName: "glossary-load",
-        projectDir: workspaceDir,
-        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+    await createPersistedWorkspaceFixture(workspaceDir, {
+      schemaVersion: 1,
+      projectName: "glossary-load",
+      chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      glossary: {
+        path: "glossary.json",
       },
+      translator: {},
+      slidingWindow: {},
+      customRequirements: [],
+    });
+
+    const project = await TranslationProject.openWorkspace(
+      workspaceDir,
       {
         textSplitter: {
           split(units) {
@@ -1293,10 +1285,32 @@ describe("TranslationProject", () => {
       },
     );
 
-    await project.initialize();
-
     expect(project.getGlossary()?.getTerm("王都")?.translation).toBe("Royal Capital");
     expect(project.getWorkspaceFileManifest().glossaryPath).toBe(glossaryPath);
+  });
+
+  test("rejects deprecated JSON workspaces and asks users to delete them", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-legacy-"));
+    cleanupTargets.push(workspaceDir);
+
+    await mkdir(join(workspaceDir, "Data"), { recursive: true });
+    await writeFile(
+      join(workspaceDir, "Data", "workspace-config.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        projectName: "legacy-workspace",
+        chapters: [],
+        glossary: {},
+        translator: {},
+        slidingWindow: {},
+        customRequirements: [],
+      }),
+      "utf8",
+    );
+
+    await expect(TranslationProject.openWorkspace(workspaceDir)).rejects.toThrow(
+      "请删除该旧工作区后重新创建",
+    );
   });
 });
 
@@ -1307,4 +1321,29 @@ async function fileExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function createPersistedWorkspaceFixture(
+  workspaceDir: string,
+  config: {
+    schemaVersion: 1;
+    projectName: string;
+    chapters: Array<{ id: number; filePath: string }>;
+    glossary: { path?: string; autoFilter?: boolean };
+    translator: Record<string, unknown>;
+    slidingWindow: Record<string, unknown>;
+    customRequirements: string[];
+    textSplitMaxChars?: number;
+    contextSize?: number;
+    defaultImportFormat?: string;
+    defaultExportFormat?: string;
+  },
+): Promise<void> {
+  const databasePath = join(workspaceDir, "Data", "project.sqlite");
+  const storage = new SqliteProjectStorage(databasePath);
+  await storage.saveWorkspaceConfig(config);
+  await saveWorkspaceBootstrap(
+    workspaceDir,
+    buildWorkspaceBootstrapDocument(config.projectName),
+  );
 }

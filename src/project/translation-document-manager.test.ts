@@ -82,95 +82,28 @@ describe("TranslationDocumentManager sliding window views", () => {
     expect(reloadedManager.getChapterTranslationUnits(1)).toHaveLength(4);
   });
 
-  test("upgrades legacy sliding-window chapter files to base fragments without persisting window metadata", async () => {
-    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-window-upgrade-"));
+  test("reloads persisted fragments from SQLite workspace storage", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-window-reload-"));
     cleanupTargets.push(workspaceDir);
 
     const sourcePath = join(workspaceDir, "chapter.txt");
     await writeFile(sourcePath, "aaaa\nbbbb\ncccc\ndddd\n", "utf8");
 
-    const chapterDataPath = join(workspaceDir, "Data", "Chapters", "1.json");
-    await mkdir(join(workspaceDir, "Data", "Chapters"), { recursive: true });
-    await writeFile(
-      chapterDataPath,
-      JSON.stringify(
-        {
-          id: 1,
-          filePath: sourcePath,
-          fragments: [
-            {
-              source: { lines: ["aaaa", "bbbb"] },
-              translation: { lines: ["A1", "B1"] },
-              pipelineStates: {},
-              meta: {
-                metadataList: [null, null],
-                targetGroups: [[], []],
-                originalUnitIndexes: [0, 1],
-                windowStartUnitIndex: 0,
-                windowEndUnitIndex: 2,
-              },
-              hash: "legacy-0",
-            },
-            {
-              source: { lines: ["bbbb", "cccc"] },
-              translation: { lines: ["B2", "C2"] },
-              pipelineStates: {},
-              meta: {
-                metadataList: [null, null],
-                targetGroups: [[], []],
-                originalUnitIndexes: [1, 2],
-                windowStartUnitIndex: 1,
-                windowEndUnitIndex: 3,
-              },
-              hash: "legacy-1",
-            },
-            {
-              source: { lines: ["cccc", "dddd"] },
-              translation: { lines: ["C3", "D3"] },
-              pipelineStates: {},
-              meta: {
-                metadataList: [null, null],
-                targetGroups: [[], []],
-                originalUnitIndexes: [2, 3],
-                windowStartUnitIndex: 2,
-                windowEndUnitIndex: 4,
-              },
-              hash: "legacy-2",
-            },
-          ],
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-
     const manager = new TranslationDocumentManager(workspaceDir, {
       textSplitter: new DefaultTextSplitter(4),
     });
     await manager.loadChapters([{ chapterId: 1, filePath: sourcePath }]);
+    await manager.updateTranslation(1, 0, ["A1"]);
+    await manager.updateTranslation(1, 1, ["B1"]);
+    await manager.updateTranslation(1, 2, ["C2"]);
+    await manager.updateTranslation(1, 3, ["D3"]);
 
-    expect(manager.getChapterTranslatedText(1)).toBe("A1\nB1\nC2\nD3");
-    expect(manager.getChapterById(1)?.fragments).toHaveLength(4);
+    const reloadedManager = new TranslationDocumentManager(workspaceDir, {
+      textSplitter: new DefaultTextSplitter(4),
+    });
+    await reloadedManager.loadChapters([{ chapterId: 1, filePath: sourcePath }]);
 
-    const persisted = JSON.parse(await readFile(chapterDataPath, "utf8")) as {
-      fragments: Array<{
-        meta?: {
-          metadataList?: unknown[];
-          targetGroups?: string[][];
-          originalUnitIndexes?: number[];
-          windowStartUnitIndex?: number;
-          windowEndUnitIndex?: number;
-        };
-      }>;
-    };
-    expect(
-      persisted.fragments.every(
-        (fragment) =>
-          fragment.meta?.originalUnitIndexes === undefined &&
-          fragment.meta?.windowStartUnitIndex === undefined &&
-          fragment.meta?.windowEndUnitIndex === undefined,
-      ),
-    ).toBe(true);
+    expect(reloadedManager.getChapterTranslatedText(1)).toBe("A1\nB1\nC2\nD3");
+    expect(reloadedManager.getChapterById(1)?.fragments).toHaveLength(4);
   });
 });

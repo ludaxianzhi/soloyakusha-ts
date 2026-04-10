@@ -3,6 +3,12 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import JSZip from 'jszip';
+import { SqliteProjectStorage } from '../../project/sqlite-project-storage.ts';
+import {
+  WORKSPACE_BOOTSTRAP_SCHEMA_VERSION,
+  buildWorkspaceBootstrapDocument,
+  saveWorkspaceBootstrap,
+} from '../../project/translation-project-workspace.ts';
 import {
   exportWorkspaceArchive,
   importWorkspaceArchive,
@@ -73,23 +79,13 @@ test('importWorkspaceArchive rejects unsupported archive versions', async () => 
   zip.file(
     'workspace/Data/workspace-config.json',
     JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: WORKSPACE_BOOTSTRAP_SCHEMA_VERSION,
+      storage: 'sqlite',
       projectName: 'Broken',
-      chapters: [],
-      glossary: {},
-      translator: {},
-      slidingWindow: {},
-      customRequirements: [],
+      databasePath: 'Data/project.sqlite',
     }),
   );
-  zip.file(
-    'workspace/Data/project-state.json',
-    JSON.stringify({
-      schemaVersion: 1,
-      pipeline: { stepIds: [], finalStepId: '' },
-      lifecycle: { status: 'idle' },
-    }),
-  );
+  zip.file('workspace/Data/project.sqlite', 'not-a-real-db');
 
   const targetRoot = await mkdtemp(join(tmpdir(), 'soloyakusha-workspace-archive-bad-version-'));
   tempDirs.push(targetRoot);
@@ -121,22 +117,12 @@ test('importWorkspaceArchive rejects archives with unsupported workspace schema 
     'workspace/Data/workspace-config.json',
     JSON.stringify({
       schemaVersion: 2,
+      storage: 'sqlite',
       projectName: 'Broken',
-      chapters: [],
-      glossary: {},
-      translator: {},
-      slidingWindow: {},
-      customRequirements: [],
+      databasePath: 'Data/project.sqlite',
     }),
   );
-  zip.file(
-    'workspace/Data/project-state.json',
-    JSON.stringify({
-      schemaVersion: 1,
-      pipeline: { stepIds: [], finalStepId: '' },
-      lifecycle: { status: 'idle' },
-    }),
-  );
+  zip.file('workspace/Data/project.sqlite', 'not-a-real-db');
 
   const targetRoot = await mkdtemp(join(tmpdir(), 'soloyakusha-workspace-archive-bad-schema-'));
   tempDirs.push(targetRoot);
@@ -155,34 +141,21 @@ async function createWorkspaceFixture(projectName: string): Promise<string> {
 
   await mkdir(join(workspaceDir, 'Data'), { recursive: true });
   await mkdir(join(workspaceDir, 'chapters'), { recursive: true });
-  await writeFile(
-    join(workspaceDir, 'Data', 'workspace-config.json'),
-    JSON.stringify(
-      {
-        schemaVersion: 1,
-        projectName,
-        chapters: [{ id: 1, filePath: 'chapters/001.txt' }],
-        glossary: { path: 'Data/glossary.json', autoFilter: true },
-        translator: {},
-        slidingWindow: {},
-        customRequirements: [],
-      },
-      null,
-      2,
-    ),
-  );
-  await writeFile(
-    join(workspaceDir, 'Data', 'project-state.json'),
-    JSON.stringify(
-      {
-        schemaVersion: 1,
-        pipeline: { stepIds: [], finalStepId: '' },
-        lifecycle: { status: 'idle' },
-      },
-      null,
-      2,
-    ),
-  );
+  await new SqliteProjectStorage(join(workspaceDir, 'Data', 'project.sqlite')).saveWorkspaceConfig({
+    schemaVersion: 1,
+    projectName,
+    chapters: [{ id: 1, filePath: 'chapters/001.txt' }],
+    glossary: { path: 'Data/glossary.json', autoFilter: true },
+    translator: {},
+    slidingWindow: {},
+    customRequirements: [],
+  });
+  await new SqliteProjectStorage(join(workspaceDir, 'Data', 'project.sqlite')).saveProjectState({
+    schemaVersion: 1,
+    pipeline: { stepIds: [], finalStepId: '' },
+    lifecycle: { status: 'idle' },
+  });
+  await saveWorkspaceBootstrap(workspaceDir, buildWorkspaceBootstrapDocument(projectName));
   await writeFile(join(workspaceDir, 'chapters', '001.txt'), 'source text');
 
   return workspaceDir;

@@ -1,12 +1,19 @@
-import { mkdir, readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
 import { normalize as normalizePosix } from 'node:path/posix';
 import JSZip from 'jszip';
+import { SqliteProjectStorage } from '../../project/sqlite-project-storage.ts';
+import {
+  DEFAULT_WORKSPACE_DATABASE_FILE_PATH,
+  WORKSPACE_BOOTSTRAP_SCHEMA_VERSION,
+  type WorkspaceBootstrapDocument,
+  openWorkspaceConfig,
+  resolveWorkspaceDatabasePath,
+} from '../../project/translation-project-workspace.ts';
 
 const ARCHIVE_MANIFEST_FILE = 'soloyakusha-workspace.json';
 const ARCHIVE_WORKSPACE_ROOT = 'workspace';
-const WORKSPACE_CONFIG_RELATIVE_PATH = 'Data/workspace-config.json';
-const PROJECT_STATE_RELATIVE_PATH = 'Data/project-state.json';
+const WORKSPACE_BOOTSTRAP_RELATIVE_PATH = 'Data/workspace-config.json';
 const SUPPORTED_WORKSPACE_SCHEMA_VERSION = 1;
 const SUPPORTED_PROJECT_STATE_SCHEMA_VERSION = 1;
 
@@ -26,10 +33,11 @@ export interface WorkspaceArchiveManifest {
 export async function exportWorkspaceArchive(
   workspaceDir: string,
 ): Promise<{ archive: Uint8Array; manifest: WorkspaceArchiveManifest }> {
-  const [workspaceConfig, projectState] = await Promise.all([
-    readWorkspaceConfigDocument(workspaceDir),
-    readProjectStateDocument(workspaceDir),
-  ]);
+  const workspaceConfig = await openWorkspaceConfig(workspaceDir);
+  const bootstrap = await readWorkspaceBootstrapDocument(workspaceDir);
+  const projectState = await readProjectStateDocument(
+    resolveWorkspaceDatabasePath(workspaceDir, bootstrap.databasePath),
+  );
   validateSupportedWorkspaceVersions(
     workspaceConfig.schemaVersion,
     projectState.schemaVersion,
@@ -62,37 +70,34 @@ export async function importWorkspaceArchive(
 ): Promise<{ extractedFiles: string[]; manifest: WorkspaceArchiveManifest }> {
   const zip = await JSZip.loadAsync(zipBuffer);
   const manifest = await readArchiveManifest(zip);
-  const archiveRoot = `${manifest.workspaceRoot}/`;
+  const archiveRoot = manifest.workspaceRoot;
 
-  const [workspaceConfig, projectState] = await Promise.all([
-    readArchiveJson(zip, `${archiveRoot}${WORKSPACE_CONFIG_RELATIVE_PATH}`),
-    readArchiveJson(zip, `${archiveRoot}${PROJECT_STATE_RELATIVE_PATH}`),
-  ]);
+  validateSupportedWorkspaceVersions(manifest.workspaceSchemaVersion, manifest.projectStateSchemaVersion);
 
-  if (workspaceConfig.projectName !== manifest.projectName) {
-    throw new Error('工作区归档 manifest 与 workspace-config 中的 projectName 不一致');
-  }
-  if (workspaceConfig.schemaVersion !== manifest.workspaceSchemaVersion) {
-    throw new Error('工作区归档 manifest 与 workspace-config 中的 schemaVersion 不一致');
-  }
-  if (projectState.schemaVersion !== manifest.projectStateSchemaVersion) {
-    throw new Error('工作区归档 manifest 与 project-state 中的 schemaVersion 不一致');
-  }
-
-  validateSupportedWorkspaceVersions(
-    workspaceConfig.schemaVersion,
-    projectState.schemaVersion,
+  const bootstrap = parseWorkspaceBootstrap(
+    await readArchiveJson(zip, `${archiveRoot}/${WORKSPACE_BOOTSTRAP_RELATIVE_PATH}`),
+    `${archiveRoot}/${WORKSPACE_BOOTSTRAP_RELATIVE_PATH}`,
   );
+  if (bootstrap.projectName !== manifest.projectName) {
+    throw new Error('工作区归档 manifest 与 workspace bootstrap 中的 projectName 不一致');
+  }
+  const normalizedDatabasePath = normalizeArchiveEntryPath(
+    bootstrap.databasePath.replace(/\\/g, '/'),
+  );
+  const databaseArchivePath = `${archiveRoot}${normalizedDatabasePath ? `/${normalizedDatabasePath}` : ""}`;
+  if (!zip.file(databaseArchivePath)) {
+    throw new Error(`工作区归档缺少数据库文件: ${databaseArchivePath}`);
+  }
 
   await mkdir(targetDir, { recursive: true });
   const extractedFiles: string[] = [];
 
   for (const [rawPath, zipEntry] of Object.entries(zip.files)) {
-    if (zipEntry.dir || rawPath === ARCHIVE_MANIFEST_FILE || !rawPath.startsWith(archiveRoot)) {
+    if (zipEntry.dir || rawPath === ARCHIVE_MANIFEST_FILE || !rawPath.startsWith(`${archiveRoot}/`)) {
       continue;
     }
 
-    const relativePath = normalizeArchiveEntryPath(rawPath.slice(archiveRoot.length));
+    const relativePath = normalizeArchiveEntryPath(rawPath.slice(archiveRoot.length + 1));
     if (!relativePath) {
       continue;
     }
@@ -105,6 +110,25 @@ export async function importWorkspaceArchive(
 
   if (extractedFiles.length === 0) {
     throw new Error('工作区归档中没有可解压的文件');
+  }
+
+  try {
+    const importedConfig = await openWorkspaceConfig(targetDir);
+    const importedState = await readProjectStateDocument(
+      resolveWorkspaceDatabasePath(targetDir, bootstrap.databasePath),
+    );
+    if (importedConfig.projectName !== manifest.projectName) {
+      throw new Error('工作区归档 manifest 与导入后的工作区名称不一致');
+    }
+    if (importedConfig.schemaVersion !== manifest.workspaceSchemaVersion) {
+      throw new Error('工作区归档 manifest 与导入后的工作区配置版本不一致');
+    }
+    if (importedState.schemaVersion !== manifest.projectStateSchemaVersion) {
+      throw new Error('工作区归档 manifest 与导入后的项目状态版本不一致');
+    }
+  } catch (error) {
+    await rm(targetDir, { recursive: true, force: true });
+    throw error;
   }
 
   return { extractedFiles, manifest };
@@ -159,22 +183,24 @@ async function readArchiveJson(zip: JSZip, entryPath: string): Promise<Record<st
   return parsed;
 }
 
-async function readWorkspaceConfigDocument(workspaceDir: string): Promise<{
-  schemaVersion: number;
-  projectName: string;
-}> {
-  const parsed = await readJsonFile(join(workspaceDir, WORKSPACE_CONFIG_RELATIVE_PATH));
-  const schemaVersion = readRequiredNumber(parsed.schemaVersion, WORKSPACE_CONFIG_RELATIVE_PATH);
-  const projectName = readRequiredString(parsed.projectName, WORKSPACE_CONFIG_RELATIVE_PATH);
-  return { schemaVersion, projectName };
+async function readWorkspaceBootstrapDocument(
+  workspaceDir: string,
+): Promise<WorkspaceBootstrapDocument> {
+  return parseWorkspaceBootstrap(
+    await readJsonFile(join(workspaceDir, WORKSPACE_BOOTSTRAP_RELATIVE_PATH)),
+    WORKSPACE_BOOTSTRAP_RELATIVE_PATH,
+  );
 }
 
 async function readProjectStateDocument(workspaceDir: string): Promise<{
   schemaVersion: number;
 }> {
-  const parsed = await readJsonFile(join(workspaceDir, PROJECT_STATE_RELATIVE_PATH));
+  const parsed = await new SqliteProjectStorage(workspaceDir).loadProjectState();
+  if (!parsed) {
+    throw new Error(`工作区数据库缺少项目状态: ${workspaceDir}`);
+  }
   return {
-    schemaVersion: readRequiredNumber(parsed.schemaVersion, PROJECT_STATE_RELATIVE_PATH),
+    schemaVersion: readRequiredNumber(parsed.schemaVersion, workspaceDir),
   };
 }
 
@@ -255,6 +281,30 @@ function validateSupportedWorkspaceVersions(
   if (projectStateSchemaVersion !== SUPPORTED_PROJECT_STATE_SCHEMA_VERSION) {
     throw new Error(`不支持的工作区状态版本: ${projectStateSchemaVersion}`);
   }
+}
+
+function parseWorkspaceBootstrap(
+  value: Record<string, unknown>,
+  sourceLabel: string,
+): WorkspaceBootstrapDocument {
+  const schemaVersion = readRequiredNumber(value.schemaVersion, `${sourceLabel}.schemaVersion`);
+  if (schemaVersion !== WORKSPACE_BOOTSTRAP_SCHEMA_VERSION) {
+    throw new Error(`不支持的工作区引导版本: ${schemaVersion}`);
+  }
+
+  const storage = readRequiredString(value.storage, `${sourceLabel}.storage`);
+  if (storage !== 'sqlite') {
+    throw new Error(`不支持的工作区存储类型: ${storage}`);
+  }
+
+  return {
+    schemaVersion: WORKSPACE_BOOTSTRAP_SCHEMA_VERSION,
+    storage: 'sqlite',
+    projectName: readRequiredString(value.projectName, `${sourceLabel}.projectName`),
+    databasePath:
+      readRequiredString(value.databasePath, `${sourceLabel}.databasePath`) ||
+      DEFAULT_WORKSPACE_DATABASE_FILE_PATH,
+  };
 }
 
 function normalizeArchiveEntryPath(path: string): string {

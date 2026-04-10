@@ -95,6 +95,8 @@ export interface ManagedWorkspace {
   dir: string;
   lastOpenedAt: string;
   managed: boolean;
+  deprecated?: boolean;
+  deprecationMessage?: string;
 }
 
 export interface WorkspaceArchiveManifest {

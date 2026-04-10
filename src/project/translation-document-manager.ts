@@ -17,8 +17,6 @@
 import {
   mkdir,
   readFile,
-  unlink,
-  writeFile,
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type {
@@ -44,6 +42,12 @@ import {
   createTextFragment,
   fragmentToText,
 } from "./types.ts";
+import { SqliteProjectStorage } from "./sqlite-project-storage.ts";
+import {
+  buildWorkspaceBootstrapDocument,
+  DEFAULT_WORKSPACE_DATABASE_FILE_PATH,
+  saveWorkspaceBootstrap,
+} from "./translation-project-workspace.ts";
 
 /**
  * 默认文本切分器，按字符上限把翻译单元划分为互不重叠的片段。
@@ -105,12 +109,14 @@ export class DefaultTextSplitter implements TranslationUnitSplitter {
 export class TranslationDocumentManager {
   readonly projectDir: string;
   readonly dataDir: string;
+  readonly databasePath: string;
   readonly projectStatePath: string;
   readonly workspaceConfigPath: string;
   private readonly textSplitter: TranslationUnitSplitter;
   private readonly parseUnits: TranslationUnitParser;
   private readonly chapters = new Map<number, ChapterEntry>();
   private readonly hashIndex = new Map<string, { chapterId: number; fragmentIndex: number }>();
+  private readonly storage: SqliteProjectStorage;
 
   constructor(
     projectDir: string,
@@ -123,12 +129,14 @@ export class TranslationDocumentManager {
   ) {
     this.projectDir = resolve(projectDir);
     const dataRootDir = resolve(this.projectDir, "Data");
-    this.dataDir = resolve(options.chapterDataDir ?? join(dataRootDir, "Chapters"));
-    this.projectStatePath = resolve(join(dataRootDir, "project-state.json"));
+    this.dataDir = dataRootDir;
+    this.databasePath = resolve(join(this.projectDir, DEFAULT_WORKSPACE_DATABASE_FILE_PATH));
+    this.projectStatePath = this.databasePath;
     this.workspaceConfigPath = resolve(join(dataRootDir, "workspace-config.json"));
     this.textSplitter = options.textSplitter ?? new DefaultTextSplitter();
     this.parseUnits = options.parseUnits ?? defaultUnitParser;
     this.fileHandlerResolver = options.fileHandlerResolver;
+    this.storage = new SqliteProjectStorage(this.databasePath);
   }
 
   private readonly fileHandlerResolver?: TranslationFileHandlerResolver;
@@ -139,7 +147,7 @@ export class TranslationDocumentManager {
     await mkdir(this.dataDir, { recursive: true });
 
     for (const { chapterId, filePath } of chapterFiles) {
-      const persistedChapter = await this.loadChapterFromDisk(chapterId);
+      const persistedChapter = await this.storage.loadChapter(chapterId);
       if (persistedChapter) {
         this.chapters.set(chapterId, persistedChapter);
         this.rebuildHashIndexForChapter(persistedChapter);
@@ -151,26 +159,18 @@ export class TranslationDocumentManager {
   }
 
   async saveChapters(): Promise<void> {
-    await Promise.all(
-      this.getAllChapters().map((chapter) => this.saveChapterToDisk(chapter)),
-    );
-  }
-
-  async loadProjectState(): Promise<TranslationProjectState | undefined> {
-    try {
-      const content = await readFile(this.projectStatePath, "utf8");
-      return normalizePersistedProjectState(JSON.parse(content) as TranslationProjectState);
-    } catch (error) {
-      if (isMissingFileError(error)) {
-        return undefined;
-      }
-      throw error;
+    for (const chapter of this.getAllChapters()) {
+      await this.saveChapter(chapter);
     }
   }
 
+  async loadProjectState(): Promise<TranslationProjectState | undefined> {
+    const state = await this.storage.loadProjectState();
+    return state ? normalizePersistedProjectState(state) : undefined;
+  }
+
   async saveProjectState(state: TranslationProjectState): Promise<void> {
-    await mkdir(dirname(this.projectStatePath), { recursive: true });
-    await writeFile(this.projectStatePath, JSON.stringify(state, null, 2), "utf8");
+    await this.storage.saveProjectState(state);
   }
 
   async updateTranslation(
@@ -180,7 +180,7 @@ export class TranslationDocumentManager {
   ): Promise<void> {
     const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
     fragment.translation = normalizeFragment(translation);
-    await this.saveChapterById(chapterId);
+    await this.storage.updateFragmentTranslation(chapterId, fragmentIndex, fragment.translation);
   }
 
   async updateTranslatedLine(
@@ -197,7 +197,7 @@ export class TranslationDocumentManager {
     }
 
     fragment.translation.lines[lineIndex] = translation;
-    await this.saveChapterById(chapterId);
+    await this.storage.updateTranslatedLine(chapterId, fragmentIndex, lineIndex, translation);
   }
 
   /**
@@ -213,7 +213,13 @@ export class TranslationDocumentManager {
     const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
     fragment.pipelineStates[stepId] = state;
     fragment.translation = translation;
-    await this.saveChapterById(chapterId);
+    await this.storage.saveStepStateAndTranslation(
+      chapterId,
+      fragmentIndex,
+      stepId,
+      state,
+      translation,
+    );
   }
 
   async updatePipelineStepState(
@@ -224,7 +230,7 @@ export class TranslationDocumentManager {
   ): Promise<void> {
     const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
     fragment.pipelineStates[stepId] = state;
-    await this.saveChapterById(chapterId);
+    await this.storage.savePipelineStepState(chapterId, fragmentIndex, stepId, state);
   }
 
   async updatePipelineStepStates(
@@ -242,8 +248,15 @@ export class TranslationDocumentManager {
       affectedChapterIds.add(stepRef.chapterId);
     }
 
-    await Promise.all(
-      [...affectedChapterIds].map((chapterId) => this.saveChapterById(chapterId)),
+    await this.storage.savePipelineStepStates(
+      steps.map((stepRef) => ({
+        chapterId: stepRef.chapterId,
+        fragmentIndex: stepRef.fragmentIndex,
+        stepId: stepRef.stepId,
+        state: this.getRequiredFragment(stepRef.chapterId, stepRef.fragmentIndex).pipelineStates[
+          stepRef.stepId
+        ]!,
+      })),
     );
   }
 
@@ -381,7 +394,11 @@ export class TranslationDocumentManager {
     }
 
     fragment.translation = createTextFragment(focusLines);
-    await this.saveChapterById(window.chapterId);
+    await this.storage.updateFragmentTranslation(
+      window.chapterId,
+      window.fragmentIndex,
+      fragment.translation,
+    );
   }
 
   async exportChapter(
@@ -416,7 +433,7 @@ export class TranslationDocumentManager {
 
     this.chapters.set(chapterId, chapter);
     this.rebuildHashIndexForChapter(chapter);
-    await this.saveChapterToDisk(chapter);
+    await this.saveChapter(chapter);
     return chapter;
   }
 
@@ -431,7 +448,7 @@ export class TranslationDocumentManager {
       for (const fragment of chapter.fragments) {
         resetFragmentToUntranslated(fragment);
       }
-      await this.saveChapterToDisk(chapter);
+      await this.saveChapter(chapter);
     }
   }
 
@@ -491,7 +508,7 @@ export class TranslationDocumentManager {
         );
       }
 
-      await this.saveChapterToDisk(chapter);
+      await this.saveChapter(chapter);
     }
   }
 
@@ -506,29 +523,14 @@ export class TranslationDocumentManager {
       }
     }
     this.chapters.delete(chapterId);
-
-    try {
-      await unlink(this.getChapterDataPath(chapterId));
-    } catch (error) {
-      if (!isMissingFileError(error)) {
-        throw error;
-      }
-    }
+    await this.storage.deleteChapter(chapterId);
   }
 
   /**
    * 从磁盘加载工作区配置文件。文件不存在时返回 undefined。
    */
   async loadWorkspaceConfig(): Promise<WorkspaceConfig | undefined> {
-    try {
-      const content = await readFile(this.workspaceConfigPath, "utf8");
-      return JSON.parse(content) as WorkspaceConfig;
-    } catch (error) {
-      if (isMissingFileError(error)) {
-        return undefined;
-      }
-      throw error;
-    }
+    return this.storage.loadWorkspaceConfig();
   }
 
   /**
@@ -537,8 +539,11 @@ export class TranslationDocumentManager {
    * 配置以紧凑 JSON 存储（不考虑可读性，优先 API 交互友好性）。
    */
   async saveWorkspaceConfig(config: WorkspaceConfig): Promise<void> {
-    await mkdir(dirname(this.workspaceConfigPath), { recursive: true });
-    await writeFile(this.workspaceConfigPath, JSON.stringify(config), "utf8");
+    await this.storage.saveWorkspaceConfig(config);
+    await saveWorkspaceBootstrap(
+      this.projectDir,
+      buildWorkspaceBootstrapDocument(config.projectName),
+    );
   }
 
   private async loadAndInitializeChapter(
@@ -553,42 +558,7 @@ export class TranslationDocumentManager {
 
     this.chapters.set(chapterId, chapter);
     this.rebuildHashIndexForChapter(chapter);
-    await this.saveChapterToDisk(chapter);
-  }
-
-  private async saveChapterById(chapterId: number): Promise<void> {
-    await this.saveChapterToDisk(this.getRequiredChapter(chapterId));
-  }
-
-  private async saveChapterToDisk(chapter: ChapterEntry): Promise<void> {
-    const filePath = this.getChapterDataPath(chapter.id);
-    await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, JSON.stringify(chapter, null, 2), "utf8");
-  }
-
-  private async loadChapterFromDisk(chapterId: number): Promise<ChapterEntry | undefined> {
-    const filePath = this.getChapterDataPath(chapterId);
-    try {
-      const content = await readFile(filePath, "utf8");
-      const parsed = JSON.parse(content) as ChapterEntry;
-      const chapter = normalizePersistedChapter(parsed);
-      if (chapterNeedsLegacyWindowUpgrade(parsed)) {
-        const upgraded = createChapterEntry(
-          chapter.id,
-          chapter.filePath,
-          this.textSplitter.split(mergeLegacyChapterTranslationUnits(parsed)),
-        );
-        await this.saveChapterToDisk(upgraded);
-        return upgraded;
-      }
-
-      return chapter;
-    } catch (error) {
-      if (isMissingFileError(error)) {
-        return undefined;
-      }
-      throw error;
-    }
+    await this.saveChapter(chapter);
   }
 
   private rebuildHashIndexForChapter(chapter: ChapterEntry): void {
@@ -618,8 +588,8 @@ export class TranslationDocumentManager {
     return fragment;
   }
 
-  private getChapterDataPath(chapterId: number): string {
-    return join(this.dataDir, `${chapterId}.json`);
+  private async saveChapter(chapter: ChapterEntry): Promise<void> {
+    await this.storage.saveChapter(chapter);
   }
 }
 
