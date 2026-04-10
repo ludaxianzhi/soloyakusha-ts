@@ -52,6 +52,27 @@ import { WorkspaceCreatePage } from '../features/workspace-create/WorkspaceCreat
 
 const { Header, Sider, Content } = Layout;
 
+type SettingsSection =
+  | 'llmProfiles'
+  | 'embedding'
+  | 'translator'
+  | 'extractor'
+  | 'updater'
+  | 'plot'
+  | 'alignment';
+
+type SettingsLoadingState = Record<SettingsSection, boolean>;
+
+const INITIAL_SETTINGS_LOADING: SettingsLoadingState = {
+  llmProfiles: false,
+  embedding: false,
+  translator: false,
+  extractor: false,
+  updater: false,
+  plot: false,
+  alignment: false,
+};
+
 export function AppShell() {
   const { message } = AntdApp.useApp();
   const location = useLocation();
@@ -64,7 +85,9 @@ export function AppShell() {
   const [topology, setTopology] = useState<StoryTopologyDescriptor | null>(null);
   const [dictionaryModalOpen, setDictionaryModalOpen] = useState(false);
   const [editingTerm, setEditingTerm] = useState<GlossaryTerm | null>(null);
-  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState<SettingsLoadingState>(
+    INITIAL_SETTINGS_LOADING,
+  );
   const [importingWorkspaceArchive, setImportingWorkspaceArchive] = useState(false);
   const [exportingWorkspaceArchiveDir, setExportingWorkspaceArchiveDir] = useState<
     string | null
@@ -116,6 +139,30 @@ export function AppShell() {
       }
     },
     [message],
+  );
+
+  const runSettingsAction = useCallback(
+    async (sections: SettingsSection[], action: () => Promise<void>) => {
+      setSettingsLoading((prev) => {
+        const next = { ...prev };
+        for (const section of sections) {
+          next[section] = true;
+        }
+        return next;
+      });
+      try {
+        await action();
+      } finally {
+        setSettingsLoading((prev) => {
+          const next = { ...prev };
+          for (const section of sections) {
+            next[section] = false;
+          }
+          return next;
+        });
+      }
+    },
+    [],
   );
 
   const refreshBootData = useCallback(async () => {
@@ -256,8 +303,7 @@ export function AppShell() {
   );
 
   const refreshSettings = useCallback(async () => {
-    setSettingsLoading(true);
-    try {
+    await runSettingsAction(Object.keys(INITIAL_SETTINGS_LOADING) as SettingsSection[], async () => {
       const [
         llmRes,
         embeddingRes,
@@ -299,10 +345,8 @@ export function AppShell() {
         }
         return Object.keys(translatorsRes.translators)[0];
       });
-    } finally {
-      setSettingsLoading(false);
-    }
-  }, []);
+    });
+  }, [runSettingsAction]);
 
   const eventHandlers = useMemo(
     () => ({
@@ -384,8 +428,15 @@ export function AppShell() {
 
     if (selectedLlmName && llmProfiles[selectedLlmName]) {
       llmForm.setFieldsValue(profileToForm(llmProfiles[selectedLlmName], selectedLlmName));
-    } else {
-      llmForm.resetFields();
+      return;
+    }
+
+    llmForm.resetFields();
+  }, [llmForm, llmProfiles, selectedLlmName, location.pathname]);
+
+  useEffect(() => {
+    if (location.pathname !== '/settings') {
+      return;
     }
 
     if (selectedTranslatorName && translators[selectedTranslatorName]) {
@@ -401,43 +452,60 @@ export function AppShell() {
           {} | undefined
         >,
       );
-    } else {
-      translatorForm.resetFields();
-      translatorForm.setFieldsValue(
-        translatorToForm(
-          null,
-          undefined,
-          workflowMap.get('default') ?? translatorWorkflows[0],
-        ) as Record<string, {} | undefined>,
-      );
+      return;
     }
 
-    embeddingForm.setFieldsValue(profileToForm(embeddingConfig, 'embedding'));
-    extractorForm.setFieldsValue(auxToForm(extractorConfig));
-    updaterForm.setFieldsValue(auxToForm(updaterConfig));
-    plotForm.setFieldsValue(auxToForm(plotConfig));
-    alignmentForm.setFieldsValue(auxToForm(alignmentConfig));
+    translatorForm.resetFields();
+    translatorForm.setFieldsValue(
+      translatorToForm(
+        null,
+        undefined,
+        workflowMap.get('default') ?? translatorWorkflows[0],
+      ) as Record<string, {} | undefined>,
+    );
   }, [
-    alignmentConfig,
-    alignmentForm,
-    embeddingConfig,
-    embeddingForm,
-    extractorConfig,
-    extractorForm,
-    llmForm,
-    llmProfiles,
-    plotConfig,
-    plotForm,
-    selectedLlmName,
+    location.pathname,
     selectedTranslatorName,
     translatorForm,
     translators,
     translatorWorkflows,
-    updaterConfig,
-    updaterForm,
     workflowMap,
-    location.pathname,
   ]);
+
+  useEffect(() => {
+    if (location.pathname !== '/settings') {
+      return;
+    }
+    embeddingForm.setFieldsValue(profileToForm(embeddingConfig, 'embedding'));
+  }, [embeddingConfig, embeddingForm, location.pathname]);
+
+  useEffect(() => {
+    if (location.pathname !== '/settings') {
+      return;
+    }
+    extractorForm.setFieldsValue(auxToForm(extractorConfig));
+  }, [extractorConfig, extractorForm, location.pathname]);
+
+  useEffect(() => {
+    if (location.pathname !== '/settings') {
+      return;
+    }
+    updaterForm.setFieldsValue(auxToForm(updaterConfig));
+  }, [location.pathname, updaterConfig, updaterForm]);
+
+  useEffect(() => {
+    if (location.pathname !== '/settings') {
+      return;
+    }
+    plotForm.setFieldsValue(auxToForm(plotConfig));
+  }, [location.pathname, plotConfig, plotForm]);
+
+  useEffect(() => {
+    if (location.pathname !== '/settings') {
+      return;
+    }
+    alignmentForm.setFieldsValue(auxToForm(alignmentConfig));
+  }, [alignmentConfig, alignmentForm, location.pathname]);
 
   const translatorOptions = useMemo(
     () =>
@@ -866,12 +934,18 @@ export function AppShell() {
             values.defaultRequestConfigYaml,
           ),
         };
-        await api.saveLlmProfile(name, payload);
-        await refreshSettings();
+        await runSettingsAction(['llmProfiles'], async () => {
+          await api.saveLlmProfile(name, payload);
+          setLlmProfiles((prev) => ({
+            ...prev,
+            [name]: payload,
+          }));
+          setSelectedLlmName(name);
+        });
         message.success('LLM Profile 已保存');
       });
     },
-    [message, refreshSettings, runAction],
+    [message, runAction, runSettingsAction],
   );
 
   const handleSetDefaultLlmProfile = useCallback(async () => {
@@ -879,22 +953,39 @@ export function AppShell() {
       return;
     }
     await runAction(async () => {
-      await api.setDefaultLlmProfile(selectedLlmName);
-      await refreshSettings();
+      await runSettingsAction(['llmProfiles'], async () => {
+        await api.setDefaultLlmProfile(selectedLlmName);
+        setDefaultLlmName(selectedLlmName);
+      });
       message.success('默认 LLM 已更新');
     });
-  }, [message, refreshSettings, runAction, selectedLlmName]);
+  }, [message, runAction, runSettingsAction, selectedLlmName]);
 
   const handleDeleteLlmProfile = useCallback(async () => {
     if (!selectedLlmName) {
       return;
     }
     await runAction(async () => {
-      await api.deleteLlmProfile(selectedLlmName);
-      await refreshSettings();
+      await runSettingsAction(['llmProfiles'], async () => {
+        await api.deleteLlmProfile(selectedLlmName);
+        const nextProfiles = { ...llmProfiles };
+        delete nextProfiles[selectedLlmName];
+        setLlmProfiles(nextProfiles);
+        setDefaultLlmName((current) =>
+          current === selectedLlmName ? undefined : current,
+        );
+        setSelectedLlmName((current) => {
+          if (current !== selectedLlmName) {
+            return current;
+          }
+          return defaultLlmName === selectedLlmName
+            ? Object.keys(nextProfiles)[0]
+            : defaultLlmName;
+        });
+      });
       message.success('Profile 已删除');
     });
-  }, [message, refreshSettings, runAction, selectedLlmName]);
+  }, [defaultLlmName, llmProfiles, message, runAction, runSettingsAction, selectedLlmName]);
 
   const handleSaveEmbedding = useCallback(
     async (values: Record<string, unknown>) => {
@@ -913,12 +1004,14 @@ export function AppShell() {
             values.defaultRequestConfigYaml,
           ),
         };
-        await api.saveEmbeddingConfig(payload);
-        await refreshSettings();
+        await runSettingsAction(['embedding'], async () => {
+          await api.saveEmbeddingConfig(payload);
+          setEmbeddingConfig(payload);
+        });
         message.success('Embedding 配置已保存');
       });
     },
-    [message, refreshSettings, runAction],
+    [message, runAction, runSettingsAction],
   );
 
   const handleCreateTranslator = useCallback(() => {
@@ -949,12 +1042,18 @@ export function AppShell() {
           throw new Error('未找到可用的翻译器工作流元数据');
         }
         const payload: TranslatorEntry = buildTranslatorPayload(values, workflow);
-        await api.saveTranslator(name, payload);
-        await refreshSettings();
+        await runSettingsAction(['translator'], async () => {
+          await api.saveTranslator(name, payload);
+          setTranslators((prev) => ({
+            ...prev,
+            [name]: payload,
+          }));
+          setSelectedTranslatorName(name);
+        });
         message.success('翻译器已保存');
       });
     },
-    [message, refreshSettings, runAction, translatorWorkflows, workflowMap],
+    [message, runAction, runSettingsAction, translatorWorkflows, workflowMap],
   );
 
   const handleDeleteTranslator = useCallback(async () => {
@@ -962,11 +1061,21 @@ export function AppShell() {
       return;
     }
     await runAction(async () => {
-      await api.deleteTranslator(selectedTranslatorName);
-      await refreshSettings();
+      await runSettingsAction(['translator'], async () => {
+        await api.deleteTranslator(selectedTranslatorName);
+        const nextTranslators = { ...translators };
+        delete nextTranslators[selectedTranslatorName];
+        setTranslators(nextTranslators);
+        setSelectedTranslatorName((current) => {
+          if (current !== selectedTranslatorName) {
+            return current;
+          }
+          return Object.keys(nextTranslators)[0];
+        });
+      });
       message.success('翻译器已删除');
     });
-  }, [message, refreshSettings, runAction, selectedTranslatorName]);
+  }, [message, runAction, runSettingsAction, selectedTranslatorName, translators]);
 
   const handleSaveAuxiliaryConfig = useCallback(
     async (
@@ -975,37 +1084,52 @@ export function AppShell() {
     ) => {
       await runAction(async () => {
         if (kind === 'extractor') {
-          await api.saveGlossaryExtractor({
+          const payload: GlossaryExtractorConfig = {
             modelNames: normalizeModelChain(values.modelNames),
             maxCharsPerBatch: optionalNumber(values.maxCharsPerBatch),
             occurrenceTopK: optionalNumber(values.occurrenceTopK),
             occurrenceTopP: optionalNumber(values.occurrenceTopP),
             requestOptions: parseYamlObject(values.requestOptionsYaml),
+          };
+          await runSettingsAction(['extractor'], async () => {
+            await api.saveGlossaryExtractor(payload);
+            setExtractorConfig(payload);
           });
         } else if (kind === 'updater') {
-          await api.saveGlossaryUpdater({
+          const payload: GlossaryUpdaterConfig = {
             workflow: optionalString(values.workflow),
             modelNames: normalizeModelChain(values.modelNames),
             requestOptions: parseYamlObject(values.requestOptionsYaml),
+          };
+          await runSettingsAction(['updater'], async () => {
+            await api.saveGlossaryUpdater(payload);
+            setUpdaterConfig(payload);
           });
         } else if (kind === 'plot') {
-          await api.savePlotSummaryConfig({
+          const payload: PlotSummaryConfig = {
             modelNames: normalizeModelChain(values.modelNames),
             fragmentsPerBatch: optionalNumber(values.fragmentsPerBatch),
             maxContextSummaries: optionalNumber(values.maxContextSummaries),
             requestOptions: parseYamlObject(values.requestOptionsYaml),
+          };
+          await runSettingsAction(['plot'], async () => {
+            await api.savePlotSummaryConfig(payload);
+            setPlotConfig(payload);
           });
         } else {
-          await api.saveAlignmentRepairConfig({
+          const payload: AlignmentRepairConfig = {
             modelNames: normalizeModelChain(values.modelNames),
             requestOptions: parseYamlObject(values.requestOptionsYaml),
+          };
+          await runSettingsAction(['alignment'], async () => {
+            await api.saveAlignmentRepairConfig(payload);
+            setAlignmentConfig(payload);
           });
         }
-        await refreshSettings();
         message.success('辅助配置已保存');
       });
     },
-    [message, refreshSettings, runAction],
+    [message, runAction, runSettingsAction],
   );
 
   const navigationItems = useMemo(

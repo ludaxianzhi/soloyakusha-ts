@@ -16,7 +16,15 @@ const { TextArea } = Input;
 const { Paragraph, Text } = Typography;
 
 interface SettingsViewProps {
-  settingsLoading: boolean;
+  settingsLoading: {
+    llmProfiles: boolean;
+    embedding: boolean;
+    translator: boolean;
+    extractor: boolean;
+    updater: boolean;
+    plot: boolean;
+    alignment: boolean;
+  };
   llmProfiles: Record<string, LlmProfileConfig>;
   defaultLlmName?: string;
   selectedLlmName?: string;
@@ -103,7 +111,7 @@ export function SettingsView({
                     <Card
                       size="small"
                       title="Chat Profiles"
-                      loading={settingsLoading}
+                      loading={settingsLoading.llmProfiles}
                       extra={<Button onClick={onCreateLlmProfile}>新建</Button>}
                 >
                   <Space direction="vertical" style={{ width: '100%' }}>
@@ -125,7 +133,7 @@ export function SettingsView({
                 </Card>
               </Col>
               <Col span={17}>
-                <Card size="small" title="编辑 Profile" loading={settingsLoading}>
+                <Card size="small" title="编辑 Profile" loading={settingsLoading.llmProfiles}>
                   <Form
                     form={llmForm}
                     layout="vertical"
@@ -243,7 +251,7 @@ export function SettingsView({
                   </Form>
                 </Card>
 
-                <Card title="Embedding 配置" loading={settingsLoading} className="mt-2">
+                <Card title="Embedding 配置" loading={settingsLoading.embedding} className="mt-2">
                   <Form
                     form={embeddingForm}
                     layout="vertical"
@@ -313,7 +321,7 @@ export function SettingsView({
               <Col span={7}>
                 <Card
                   title="翻译器列表"
-                  loading={settingsLoading}
+                  loading={settingsLoading.translator}
                   extra={<Button onClick={onCreateTranslator}>新建</Button>}
                 >
                   <Space direction="vertical" style={{ width: '100%' }}>
@@ -348,7 +356,7 @@ export function SettingsView({
                 </Card>
               </Col>
               <Col span={17}>
-                <Card title="编辑翻译器" loading={settingsLoading}>
+                <Card title="编辑翻译器" loading={settingsLoading.translator}>
                   <Form
                     form={translatorForm}
                     layout="vertical"
@@ -425,7 +433,7 @@ export function SettingsView({
             <div className="section-stack">
               <Row gutter={16}>
                 <Col span={12}>
-                  <Card title="术语提取" loading={settingsLoading}>
+                  <Card title="术语提取" loading={settingsLoading.extractor}>
                     <Form
                       form={extractorForm}
                       layout="vertical"
@@ -459,7 +467,7 @@ export function SettingsView({
                   </Card>
                 </Col>
                 <Col span={12}>
-                  <Card title="术语更新" loading={settingsLoading}>
+                  <Card title="术语更新" loading={settingsLoading.updater}>
                     <Form
                       form={updaterForm}
                       layout="vertical"
@@ -502,7 +510,7 @@ export function SettingsView({
               </Row>
               <Row gutter={16}>
                 <Col span={12}>
-                  <Card title="情节总结" loading={settingsLoading}>
+                  <Card title="情节总结" loading={settingsLoading.plot}>
                     <Form
                       form={plotForm}
                       layout="vertical"
@@ -551,7 +559,7 @@ export function SettingsView({
                   </Card>
                 </Col>
                 <Col span={12}>
-                  <Card title="对齐补翻" loading={settingsLoading}>
+                  <Card title="对齐补翻" loading={settingsLoading.alignment}>
                     <Form
                       form={alignmentForm}
                       layout="vertical"
