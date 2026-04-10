@@ -13,6 +13,7 @@ import { TranslationGlobalConfig, type TranslationProcessorConfig } from '../../
 import { PromptManager } from '../../project/prompt-manager.ts';
 import { TranslationProject } from '../../project/translation-project.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
+import { NatureDialogKeepNameFileHandler } from '../../file-handlers/nature-dialog-file-handler.ts';
 import { FullTextGlossaryScanner } from '../../glossary/index.ts';
 import { GlossaryPersisterFactory } from '../../glossary/persister.ts';
 import type { GlossaryTermCategory } from '../../glossary/glossary.ts';
@@ -262,6 +263,59 @@ export class ProjectService {
     } finally {
       this.isBusy = false;
     }
+  }
+
+  getRepeatedPatternTranslationContext(input: {
+    chapterId: number;
+    unitIndex: number;
+  }): {
+    chapterId: number;
+    unitIndex: number;
+    startUnitIndex: number;
+    endUnitIndexExclusive: number;
+    entries: Array<{
+      unitIndex: number;
+      content: string;
+      isFocus: boolean;
+    }>;
+  } | null {
+    if (!this.project?.getChapterDescriptor(input.chapterId)) {
+      return null;
+    }
+
+    const preview = this.project.getChapterTranslationPreview(input.chapterId);
+    const contextRadius = 3;
+    const startUnitIndex = Math.max(0, input.unitIndex - contextRadius);
+    const endUnitIndexExclusive = Math.min(
+      preview.units.length,
+      input.unitIndex + contextRadius + 1,
+    );
+    const handler = new NatureDialogKeepNameFileHandler();
+    const entries = preview.units
+      .slice(startUnitIndex, endUnitIndexExclusive)
+      .map((unit, offset) => {
+        const unitIndex = startUnitIndex + offset;
+        return {
+          unitIndex: unitIndex + 1,
+          content: handler
+            .formatTranslationUnits([
+              {
+                source: unit.sourceText,
+                target: unit.hasTranslation ? [unit.translatedText] : [],
+              },
+            ])
+            .trimEnd(),
+          isFocus: unitIndex === input.unitIndex,
+        };
+      });
+
+    return {
+      chapterId: input.chapterId,
+      unitIndex: input.unitIndex + 1,
+      startUnitIndex: startUnitIndex + 1,
+      endUnitIndexExclusive,
+      entries,
+    };
   }
 
   getGlossaryTerms(): Array<{

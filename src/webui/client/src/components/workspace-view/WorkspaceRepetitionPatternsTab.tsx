@@ -3,15 +3,20 @@ import { BranchesOutlined } from '@ant-design/icons';
 import {
   App as AntdApp,
   Button,
-  Input,
   Empty,
+  Input,
   InputNumber,
+  Modal,
   Space,
   Table,
   Tag,
   Typography,
 } from 'antd';
-import type { RepetitionPatternAnalysisResult, RepetitionPatternLocation } from '../../app/types.ts';
+import type {
+  RepetitionPatternAnalysisResult,
+  RepetitionPatternContextResult,
+  RepetitionPatternLocation,
+} from '../../app/types.ts';
 
 const { TextArea } = Input;
 
@@ -29,17 +34,24 @@ interface WorkspaceRepetitionPatternsTabProps {
     lineIndex: number;
     translation: string;
   }) => Promise<void>;
+  onLoadRepeatedPatternContext: (input: {
+    chapterId: number;
+    unitIndex: number;
+  }) => Promise<RepetitionPatternContextResult>;
 }
 
 export function WorkspaceRepetitionPatternsTab({
   repeatedPatterns,
   onRefreshRepeatedPatterns,
   onSaveRepeatedPatternTranslation,
+  onLoadRepeatedPatternContext,
 }: WorkspaceRepetitionPatternsTabProps) {
   const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [savingLineKey, setSavingLineKey] = useState<string | null>(null);
   const [draftTranslations, setDraftTranslations] = useState<Record<string, string>>({});
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailContext, setDetailContext] = useState<RepetitionPatternContextResult | null>(null);
   const [minOccurrences, setMinOccurrences] = useState(3);
   const [minLength, setMinLength] = useState(8);
   const [maxResults, setMaxResults] = useState(20);
@@ -99,6 +111,29 @@ export function WorkspaceRepetitionPatternsTab({
     }
   };
 
+  const handleOpenDetail = async (location: RepetitionPatternLocation) => {
+    setDetailLoading(true);
+    setDetailContext({
+      chapterId: location.chapterId,
+      unitIndex: location.unitIndex + 1,
+      startUnitIndex: location.unitIndex + 1,
+      endUnitIndexExclusive: location.unitIndex + 2,
+      entries: [],
+    });
+    try {
+      const context = await onLoadRepeatedPatternContext({
+        chapterId: location.chapterId,
+        unitIndex: location.unitIndex + 1,
+      });
+      setDetailContext(context);
+    } catch (error) {
+      setDetailContext(null);
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
   return (
     <div className="section-stack">
       <Space wrap>
@@ -113,9 +148,17 @@ export function WorkspaceRepetitionPatternsTab({
           onChange={(value) => setMinOccurrences(Number(value ?? 3))}
         />
         <span>最短长度</span>
-        <InputNumber min={2} value={minLength} onChange={(value) => setMinLength(Number(value ?? 8))} />
+        <InputNumber
+          min={2}
+          value={minLength}
+          onChange={(value) => setMinLength(Number(value ?? 8))}
+        />
         <span>结果上限</span>
-        <InputNumber min={1} value={maxResults} onChange={(value) => setMaxResults(Number(value ?? 20))} />
+        <InputNumber
+          min={1}
+          value={maxResults}
+          onChange={(value) => setMaxResults(Number(value ?? 20))}
+        />
         <Button type="primary" loading={loading} onClick={() => void refresh()}>
           {repeatedPatterns ? '重新分析' : '开始分析'}
         </Button>
@@ -132,88 +175,76 @@ export function WorkspaceRepetitionPatternsTab({
             pagination={{ pageSize: 10 }}
             expandable={{
               expandedRowRender: (record) => (
-                <div className="section-stack">
-                  <div>
-                    <Typography.Text strong>译文分布</Typography.Text>
-                    <div style={{ marginTop: 8 }}>
-                      <Space wrap>
-                        {record.translations.map((variant) => (
-                          <Tag key={`${record.text}-${variant.normalizedText || '(empty)'}`}>
-                            {variant.text || '(未翻译)'} x {variant.count}
-                          </Tag>
-                        ))}
-                      </Space>
-                    </div>
-                  </div>
-                  <div>
-                    <Typography.Text strong>命中位置</Typography.Text>
-                    <Table
-                      size="small"
-                      scroll={{ x: 980 }}
-                      rowKey={(location) =>
-                        `${record.text}-${location.chapterId}-${location.unitIndex}-${location.globalStartIndex}`
-                      }
-                      pagination={false}
-                      dataSource={record.locations}
-                      columns={[
-                        {
-                          title: '位置',
-                          width: 120,
-                          render: (_, location) =>
-                            `章节 ${location.chapterId} / 句 ${location.unitIndex + 1}`,
-                        },
-                        {
-                          title: '原文整句',
-                          dataIndex: 'sourceSentence',
-                          width: 260,
-                        },
-                        {
-                          title: '译文',
-                          width: 420,
-                          render: (_, location) => {
-                            const lineKey = buildEditableLineKey(location);
-                            return (
-                              <TextArea
-                                autoSize={{ minRows: 1, maxRows: 4 }}
-                                value={readDraftTranslation(location)}
-                                placeholder="输入或修改译文"
-                                onChange={(event) =>
-                                  setDraftTranslations((prev) => ({
-                                    ...prev,
-                                    [lineKey]: event.target.value,
-                                  }))
-                                }
-                              />
-                            );
-                          },
-                        },
-                        {
-                          title: '句内区间',
-                          width: 140,
-                          render: (_, location) =>
-                            `${location.matchStartInSentence}-${location.matchEndInSentence}`,
-                        },
-                        {
-                          title: '操作',
-                          width: 100,
-                          render: (_, location) => {
-                            const lineKey = buildEditableLineKey(location);
-                            return (
-                              <Button
-                                type="link"
-                                loading={savingLineKey === lineKey}
-                                disabled={readDraftTranslation(location) === location.translatedSentence}
-                                onClick={() => void handleSave(location)}
-                              >
-                                保存
-                              </Button>
-                            );
-                          },
-                        },
-                      ]}
-                    />
-                  </div>
-                </div>
+                <Table
+                  size="small"
+                  scroll={{ x: 1080 }}
+                  rowKey={(location) =>
+                    `${record.text}-${location.chapterId}-${location.unitIndex}-${location.globalStartIndex}`
+                  }
+                  pagination={false}
+                  dataSource={record.locations}
+                  columns={[
+                    {
+                      title: '位置',
+                      width: 120,
+                      render: (_, location) =>
+                        `章节 ${location.chapterId} / 句 ${location.unitIndex + 1}`,
+                    },
+                    {
+                      title: '原文整句',
+                      dataIndex: 'sourceSentence',
+                      width: 220,
+                    },
+                    {
+                      title: '译文',
+                      width: 500,
+                      render: (_, location) => {
+                        const lineKey = buildEditableLineKey(location);
+                        return (
+                          <TextArea
+                            autoSize={{ minRows: 1, maxRows: 4 }}
+                            value={readDraftTranslation(location)}
+                            placeholder="输入或修改译文"
+                            onChange={(event) =>
+                              setDraftTranslations((prev) => ({
+                                ...prev,
+                                [lineKey]: event.target.value,
+                              }))
+                            }
+                          />
+                        );
+                      },
+                    },
+                    {
+                      title: '句内区间',
+                      width: 140,
+                      render: (_, location) =>
+                        `${location.matchStartInSentence}-${location.matchEndInSentence}`,
+                    },
+                    {
+                      title: '操作',
+                      width: 140,
+                      render: (_, location) => {
+                        const lineKey = buildEditableLineKey(location);
+                        return (
+                          <Space size={0}>
+                            <Button type="link" onClick={() => void handleOpenDetail(location)}>
+                              详细
+                            </Button>
+                            <Button
+                              type="link"
+                              loading={savingLineKey === lineKey}
+                              disabled={readDraftTranslation(location) === location.translatedSentence}
+                              onClick={() => void handleSave(location)}
+                            >
+                              保存
+                            </Button>
+                          </Space>
+                        );
+                      },
+                    },
+                  ]}
+                />
               ),
             }}
             columns={[
@@ -230,11 +261,11 @@ export function WorkspaceRepetitionPatternsTab({
                 ),
               },
               {
-              title: '译法数量',
-              width: 100,
-              render: (_, record) => record.translations.length,
-            },
-          ]}
+                title: '命中句数',
+                width: 100,
+                render: (_, record) => record.locations.length,
+              },
+            ]}
           />
         </div>
       ) : (
@@ -246,6 +277,47 @@ export function WorkspaceRepetitionPatternsTab({
           }
         />
       )}
+      <Modal
+        open={detailContext !== null}
+        title={
+          detailContext
+            ? `详细上下文：章节 ${detailContext.chapterId} / 句 ${detailContext.unitIndex}`
+            : '详细上下文'
+        }
+        footer={null}
+        onCancel={() => setDetailContext(null)}
+      >
+        {detailLoading ? (
+          <Typography.Text type="secondary">正在加载上下文…</Typography.Text>
+        ) : (
+          <div className="section-stack">
+            {detailContext?.entries.map((entry) => (
+              <div
+                key={`${detailContext.chapterId}-${entry.unitIndex}`}
+                style={{
+                  background: entry.isFocus ? 'rgba(250, 173, 20, 0.15)' : 'transparent',
+                  border: entry.isFocus ? '1px solid #faad14' : '1px solid transparent',
+                  borderRadius: 8,
+                  padding: 8,
+                }}
+              >
+                <Typography.Text type={entry.isFocus ? undefined : 'secondary'}>
+                  第 {entry.unitIndex} 句
+                </Typography.Text>
+                <pre
+                  style={{
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    margin: '8px 0 0',
+                  }}
+                >
+                  {entry.content}
+                </pre>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -17,6 +17,7 @@ import type {
   ProjectResourceVersions,
   ProjectStatus,
   RepetitionPatternAnalysisResult,
+  RepetitionPatternContextResult,
   CreateStoryBranchPayload,
   StoryTopologyDescriptor,
   TranslationProcessorWorkflowMetadata,
@@ -210,6 +211,10 @@ export const api = {
       method: 'PUT',
       body: input,
     }),
+  getRepeatedPatternContext: (input: { chapterId: number; unitIndex: number }) =>
+    request<RepetitionPatternContextResult>(
+      `/api/project/repetition-patterns/context${buildQueryString(input)}`,
+    ),
 
   getDictionary: () =>
     request<{ terms: GlossaryTerm[] }>('/api/project/dictionary'),

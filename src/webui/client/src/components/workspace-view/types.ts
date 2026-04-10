@@ -6,6 +6,7 @@ import type {
   ImportArchiveResult,
   ProjectStatus,
   RepetitionPatternAnalysisResult,
+  RepetitionPatternContextResult,
   StoryTopologyDescriptor,
   TranslationProjectSnapshot,
   UpdateStoryRoutePayload,
@@ -48,6 +49,10 @@ export interface WorkspaceViewProps {
     lineIndex: number;
     translation: string;
   }) => Promise<void>;
+  onLoadRepeatedPatternContext: (input: {
+    chapterId: number;
+    unitIndex: number;
+  }) => Promise<RepetitionPatternContextResult>;
   onRefreshChapters: () => void | Promise<void>;
   onRefreshTopology: () => void | Promise<void>;
   onRefreshWorkspaceConfig: () => void | Promise<void>;

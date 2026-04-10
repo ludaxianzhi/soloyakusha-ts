@@ -25,6 +25,7 @@ export function WorkspaceView({
   onRefreshDictionary,
   onRefreshRepeatedPatterns,
   onSaveRepeatedPatternTranslation,
+  onLoadRepeatedPatternContext,
   onRefreshChapters,
   onRefreshTopology,
   onRefreshWorkspaceConfig,
@@ -158,6 +159,7 @@ export function WorkspaceView({
                 repeatedPatterns={repeatedPatterns}
                 onRefreshRepeatedPatterns={onRefreshRepeatedPatterns}
                 onSaveRepeatedPatternTranslation={onSaveRepeatedPatternTranslation}
+                onLoadRepeatedPatternContext={onLoadRepeatedPatternContext}
               />
             ),
           },

@@ -211,6 +211,23 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     }
   });
 
+  app.get('/repetition-patterns/context', (c) => {
+    const chapterId = readOptionalPositiveIntegerQuery(c.req.query('chapterId'));
+    const unitIndex = readOptionalPositiveIntegerQuery(c.req.query('unitIndex'));
+    if (chapterId === undefined || unitIndex === undefined) {
+      return c.json({ error: 'chapterId 和 unitIndex 必须为正整数' }, 400);
+    }
+
+    const context = projectService.getRepeatedPatternTranslationContext({
+      chapterId,
+      unitIndex: unitIndex - 1,
+    });
+    if (!context) {
+      return c.json({ error: '未找到对应的一致性分析上下文' }, 404);
+    }
+    return c.json(context);
+  });
+
   app.post('/chapters', async (c) => {
     const body = await c.req.json<{
       filePath: string;

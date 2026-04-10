@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { Card, Tabs } from 'antd';
-import type { RepetitionPatternAnalysisResult } from '../../app/types.ts';
+import type {
+  RepetitionPatternAnalysisResult,
+  RepetitionPatternContextResult,
+} from '../../app/types.ts';
 import { WorkspaceRepetitionPatternsTab } from './WorkspaceRepetitionPatternsTab.tsx';
 
 interface WorkspaceConsistencyTabProps {
@@ -17,6 +20,10 @@ interface WorkspaceConsistencyTabProps {
     lineIndex: number;
     translation: string;
   }) => Promise<void>;
+  onLoadRepeatedPatternContext: (input: {
+    chapterId: number;
+    unitIndex: number;
+  }) => Promise<RepetitionPatternContextResult>;
 }
 
 export function WorkspaceConsistencyTab({
@@ -24,6 +31,7 @@ export function WorkspaceConsistencyTab({
   repeatedPatterns,
   onRefreshRepeatedPatterns,
   onSaveRepeatedPatternTranslation,
+  onLoadRepeatedPatternContext,
 }: WorkspaceConsistencyTabProps) {
   const [activeSubTabKey, setActiveSubTabKey] = useState('repetition-patterns');
 
@@ -43,6 +51,7 @@ export function WorkspaceConsistencyTab({
                 repeatedPatterns={repeatedPatterns}
                 onRefreshRepeatedPatterns={onRefreshRepeatedPatterns}
                 onSaveRepeatedPatternTranslation={onSaveRepeatedPatternTranslation}
+                onLoadRepeatedPatternContext={onLoadRepeatedPatternContext}
               />
             ),
           },

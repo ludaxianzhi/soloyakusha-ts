@@ -102,18 +102,11 @@ export class NatureDialogFileHandler extends TranslationFileHandler {
     filePath: string,
     units: TranslationUnit[],
   ): Promise<void> {
-    const lines: string[] = [];
+    await writeFile(filePath, this.formatTranslationUnits(units), "utf8");
+  }
 
-    for (const unit of units) {
-      lines.push(`○ ${unit.source}`);
-      for (const [index, targetText] of unit.target.entries()) {
-        const prefix = index === unit.target.length - 1 ? "●" : "○";
-        lines.push(`${prefix} ${targetText}`);
-      }
-      lines.push("");
-    }
-
-    await writeFile(filePath, lines.join("\n"), "utf8");
+  formatTranslationUnits(units: TranslationUnit[]): string {
+    return buildNatureDialogContent(units);
   }
 }
 
@@ -146,14 +139,17 @@ export class NatureDialogKeepNameFileHandler extends NatureDialogFileHandler {
     filePath: string,
     units: TranslationUnit[],
   ): Promise<void> {
+    await writeFile(filePath, this.formatTranslationUnits(units), "utf8");
+  }
+
+  override formatTranslationUnits(units: TranslationUnit[]): string {
     const processedUnits = units.map((unit) => ({
       ...unit,
       target: unit.target.map((target) =>
         this.processTranslationPair(unit.source, target),
       ),
     }));
-
-    await super.writeTranslationUnits(filePath, processedUnits);
+    return super.formatTranslationUnits(processedUnits);
   }
 
   private processTranslationPair(source: string, target: string): string {
@@ -211,4 +207,19 @@ export class NatureDialogKeepNameFileHandler extends NatureDialogFileHandler {
   private removeNameBlock(text: string): string {
     return text.replace(/^【.+?】/, "").trim();
   }
+}
+
+function buildNatureDialogContent(units: TranslationUnit[]): string {
+  const lines: string[] = [];
+
+  for (const unit of units) {
+    lines.push(`○ ${unit.source}`);
+    for (const [index, targetText] of unit.target.entries()) {
+      const prefix = index === unit.target.length - 1 ? "●" : "○";
+      lines.push(`${prefix} ${targetText}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }

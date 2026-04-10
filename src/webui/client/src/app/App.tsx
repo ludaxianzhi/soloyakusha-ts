@@ -252,6 +252,12 @@ export function AppShell() {
     [refreshProjectStatus],
   );
 
+  const handleLoadRepeatedPatternContext = useCallback(
+    async (input: { chapterId: number; unitIndex: number }) =>
+      api.getRepeatedPatternContext(input),
+    [],
+  );
+
   const refreshChapters = useCallback(async () => {
     let nextRevision: number | undefined;
     try {
@@ -1263,6 +1269,7 @@ export function AppShell() {
                     onRefreshDictionary={refreshDictionary}
                     onRefreshRepeatedPatterns={refreshRepeatedPatterns}
                     onSaveRepeatedPatternTranslation={handleSaveRepeatedPatternTranslation}
+                    onLoadRepeatedPatternContext={handleLoadRepeatedPatternContext}
                     onRefreshChapters={refreshChapters}
                     onRefreshTopology={refreshTopology}
                     onRefreshWorkspaceConfig={refreshWorkspaceConfig}

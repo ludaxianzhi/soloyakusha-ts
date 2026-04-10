@@ -263,6 +263,18 @@ export interface RepetitionPatternAnalysisResult {
   patterns: RepetitionPatternAnalysis[];
 }
 
+export interface RepetitionPatternContextResult {
+  chapterId: number;
+  unitIndex: number;
+  startUnitIndex: number;
+  endUnitIndexExclusive: number;
+  entries: Array<{
+    unitIndex: number;
+    content: string;
+    isFocus: boolean;
+  }>;
+}
+
 export interface GlossaryTerm {
   term: string;
   translation: string;
