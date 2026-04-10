@@ -105,10 +105,11 @@ const MULTI_STAGE_PROOFREADER_PROMPT_NAME = "multi_stage_proofreader";
 const MULTI_STAGE_PROOFREADER_PROMPT_ID = "project.multiStage.proofreader";
 const MULTI_STAGE_REVISER_PROMPT_NAME = "multi_stage_revision";
 const MULTI_STAGE_REVISER_PROMPT_ID = "project.multiStage.reviser";
+const DEFAULT_TRANSLATION_PROMPT_SET = "ja-zhCN";
 
 export class PromptManager {
   private readonly promptManagerPromise: Promise<SharedPromptManager>;
-  private readonly translationPromptSet?: string;
+  private readonly translationPromptSet: string;
 
   constructor(options: {
     promptManager?: SharedPromptManager | Promise<SharedPromptManager>;
@@ -117,7 +118,7 @@ export class PromptManager {
     this.promptManagerPromise = Promise.resolve(
       options.promptManager ?? getDefaultPromptManager(),
     );
-    this.translationPromptSet = options.translationPromptSet?.trim() || undefined;
+    this.translationPromptSet = options.translationPromptSet?.trim() || DEFAULT_TRANSLATION_PROMPT_SET;
   }
 
   async renderTranslationStepPrompt(
@@ -273,12 +274,11 @@ export class PromptManager {
   }
 
   private resolvePromptId(promptManager: SharedPromptManager, promptId: string): string {
-    if (!this.translationPromptSet) {
-      return promptId;
-    }
-
     const scopedPromptId = `${promptId}.${this.translationPromptSet}`;
-    return promptManager.getPromptIds().includes(scopedPromptId) ? scopedPromptId : promptId;
+    if (!promptManager.getPromptIds().includes(scopedPromptId)) {
+      throw new Error(`提示词不存在: ${scopedPromptId}`);
+    }
+    return scopedPromptId;
   }
 }
 

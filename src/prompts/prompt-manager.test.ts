@@ -8,17 +8,22 @@ import {
 describe("PromptManager", () => {
   test("loads default prompt catalog from yaml resource", async () => {
     const manager = await getDefaultPromptManager();
+    const promptIds = manager.getPromptIds();
 
     expect(getDefaultPromptFilePath()).toEndWith("default-prompts.yaml");
-    expect(manager.getPromptIds()).toContain("glossary.fullTextScan");
-    expect(manager.getPromptIds()).toContain("glossary.translationUpdate");
-    expect(manager.getPromptIds()).toContain("project.translationPipeline");
-    expect(manager.getPromptIds()).toContain("project.translationPipeline.ja-zhCN");
-    expect(manager.getPromptIds()).toContain("project.multiStage.analyzer");
-    expect(manager.getPromptIds()).toContain("project.multiStage.analyzer.ja-zhCN");
-    expect(manager.getPromptIds()).toContain("project.multiStage.reviser");
-    expect(manager.getPromptIds()).toContain("project.multiStage.reviser.ja-zhCN");
-    expect(manager.getPromptIds()).toContain("utils.alignmentRepair");
+    expect(promptIds).toContain("glossary.fullTextScan");
+    expect(promptIds).toContain("glossary.translationUpdate");
+    expect(promptIds).toContain("project.translationPipeline.ja-zhCN");
+    expect(promptIds).toContain("project.multiStage.analyzer.ja-zhCN");
+    expect(promptIds).toContain("project.multiStage.translator.ja-zhCN");
+    expect(promptIds).toContain("project.multiStage.polisher.ja-zhCN");
+    expect(promptIds).toContain("project.multiStage.editor.ja-zhCN");
+    expect(promptIds).toContain("project.multiStage.proofreader.ja-zhCN");
+    expect(promptIds).toContain("project.multiStage.reviser.ja-zhCN");
+    expect(promptIds).toContain("utils.alignmentRepair");
+    expect(promptIds).not.toContain("project.translationPipeline");
+    expect(promptIds).not.toContain("project.multiStage.analyzer");
+    expect(promptIds).not.toContain("project.multiStage.reviser");
   });
 
   test("renders static and interpolated prompt sections separately", () => {
@@ -125,10 +130,10 @@ prompts:
   test("renders translation pipeline and glossary update prompts from default yaml", async () => {
     const manager = await getDefaultPromptManager();
 
-    const translationPrompt = manager.renderPrompt("project.translationPipeline", {
-      sourceUnits: [{ id: "1", text: "勇者来了" }],
+    const translationPrompt = manager.renderPrompt("project.translationPipeline.ja-zhCN", {
+      sourceUnits: [{ id: "1", text: "勇者が来た。" }],
       dependencyTranslations: ["Previous translated line"],
-      translatedGlossaryTerms: [{ term: "勇者", translation: "Hero", status: "translated" }],
+      translatedGlossaryTerms: [{ term: "勇者", translation: "勇者", status: "translated" }],
       requirements: ["保持术语一致"],
       responseSchemaJson: '{"type":"object","properties":{"translations":{"type":"array"}}}',
     });
@@ -141,8 +146,9 @@ prompts:
       responseSchemaJson: '{"type":"object","properties":{"glossaryUpdates":{"type":"array"}}}',
     });
 
-    expect(translationPrompt.systemPrompt).toContain("任务：翻译用户消息中提供的全部原文单元");
+    expect(translationPrompt.systemPrompt).toContain("任务：把用户消息中提供的全部日文原文单元准确翻译成自然、流畅");
     expect(translationPrompt.systemPrompt).toContain("JSON Schema");
+    expect(translationPrompt.userPrompt).toContain("日文原文单元");
     expect(translationPrompt.userPrompt).toContain("Previous translated line");
     expect(translationPrompt.userPrompt).toContain("term: 勇者");
     expect(glossaryPrompt.systemPrompt).toContain("任务：根据用户消息中提供的原文/译文对照");
@@ -154,18 +160,18 @@ prompts:
   test("renders multi-stage prompts with conditional history summaries", async () => {
     const manager = await getDefaultPromptManager();
 
-    const analyzerPrompt = manager.renderPrompt("project.multiStage.analyzer", {
-      sourceUnits: [{ id: "1", text: "勇者推开门。" }],
-      referenceSourceTexts: ["门后是一条长廊。"],
+    const analyzerPrompt = manager.renderPrompt("project.multiStage.analyzer.ja-zhCN", {
+      sourceUnits: [{ id: "1", text: "勇者が扉を開けた。" }],
+      referenceSourceTexts: ["扉の先には長い廊下があった。"],
       referenceTranslations: ["门后是一条长廊。"],
       plotSummaries: ["上一段：勇者已经潜入城堡。"],
       translatedGlossaryTerms: [{ term: "勇者", translation: "勇者", status: "translated" }],
       requirements: ["保持文学语气"],
     });
-    const reviserPrompt = manager.renderPrompt("project.multiStage.reviser", {
-      sourceUnits: [{ id: "1", text: "勇者推开门。" }],
+    const reviserPrompt = manager.renderPrompt("project.multiStage.reviser.ja-zhCN", {
+      sourceUnits: [{ id: "1", text: "勇者が扉を開けた。" }],
       currentTranslations: [{ id: "1", text: "勇者推开了门。" }],
-      referenceSourceTexts: ["门后是一条长廊。"],
+      referenceSourceTexts: ["扉の先には長い廊下があった。"],
       referenceTranslations: ["门后是一条长廊。"],
       plotSummaries: ["上一段：勇者已经潜入城堡。"],
       translatedGlossaryTerms: [{ term: "勇者", translation: "勇者", status: "translated" }],
@@ -175,7 +181,7 @@ prompts:
       responseSchemaJson: '{"type":"object","properties":{"translations":{"type":"array"}}}',
     });
 
-    expect(analyzerPrompt.userPrompt).toContain("参考原文（前序文段）");
+    expect(analyzerPrompt.userPrompt).toContain("参考日文原文（前序文段）");
     expect(analyzerPrompt.userPrompt).toContain("历史总结");
     expect(analyzerPrompt.userPrompt).toContain("上一段：勇者已经潜入城堡。");
     expect(reviserPrompt.userPrompt).toContain("中文编辑反馈");

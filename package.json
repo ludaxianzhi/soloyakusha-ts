@@ -6,8 +6,7 @@
   "scripts": {
     "webui": "bun x vite build --config vite.webui.config.ts && bun run src/webui/index.ts",
     "webui:dev": "bun run scripts/dev-webui.ts",
-    "webui:build": "bun run scripts/build-webui.ts",
-    "dataset": "bun run src/cli/cli.ts build-dataset"
+    "webui:build": "bun run scripts/build-webui.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

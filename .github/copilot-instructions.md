@@ -13,8 +13,8 @@
 Current baseline in this checkout:
 
 - `bun run webui:build` succeeds and produces `dist\soloyakusha-webui.exe`
-- `bun test` has one existing failure in `src\cli\dataset-generator.test.ts`
-- `bun x tsc --noEmit` has existing errors in `src\cli\dataset-generator.test.ts`, `src\config\document-codec.ts`, `src\llm\provider.ts`, and `src\webui\client\src\app\ui-helpers.ts`
+- `bun test` has one existing failure in `src\glossary\glossary.test.ts`
+- `bun x tsc --noEmit` currently passes
 
 ## High-level architecture
 

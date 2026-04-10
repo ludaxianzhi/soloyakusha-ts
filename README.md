@@ -131,26 +131,6 @@ console.log(rendered.userPrompt);
 bun test
 ```
 
-## 构建训练数据集 CLI
-
-```bash
-bun run dataset -- --input ".\translated\**\*.txt" --format naturedialog --dictionary-model shared-chat --outline-model shared-chat --output .\dataset.json --max-split-length 2000
-```
-
-该命令会：
-
-- 复用现有文件处理器按 glob 模式扫描并读取输入文件
-- 使用已注册的 LLM profile 做术语提取、术语补全与情节大纲总结
-- 将输入文本按线性顺序处理，并使用左半正态分布随机切分文本块
-- 按当前 Simple 翻译 prompt 的上下文构造方式分别生成 `SystemPrompt` 与 `UserPrompt`
-- 将现有最终译文按当前翻译 JSON 结构生成 `Answer`
-
-其中 `--input` 现在接收 glob 模式，例如 `.\translated\**\*.txt` 或 `.\Cases\**\*.m3t`；`--max-split-length` 用于控制随机切分器的最大切分长度。
-
-旧参数 `--max-chars-per-fragment` 和 `--requirement` 已移除，继续传入时 CLI 会直接报错。
-
-如果传入不存在的模型名，CLI 会直接报错，并打印当前已注册模型列表。
-
 ## 示例
 
 ```ts

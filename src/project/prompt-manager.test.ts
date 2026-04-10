@@ -3,17 +3,10 @@ import { PromptManager as SharedPromptManager } from "../prompts/index.ts";
 import { PromptManager } from "./prompt-manager.ts";
 
 describe("project PromptManager", () => {
-  test("prefers scoped translation prompt ids when translationPromptSet is provided", async () => {
+  test("defaults to ja-zhCN scoped translation prompt ids", async () => {
     const shared = SharedPromptManager.fromYamlText(`
 version: 1
 prompts:
-  project.translationPipeline:
-    system:
-      type: static
-      template: generic-system
-    user:
-      type: static
-      template: generic-user
   project.translationPipeline.ja-zhCN:
     system:
       type: static
@@ -29,7 +22,6 @@ prompts:
 
     const manager = new PromptManager({
       promptManager: shared,
-      translationPromptSet: "ja-zhCN",
     });
 
     const rendered = await manager.renderTranslationStepPrompt({
@@ -43,5 +35,34 @@ prompts:
     expect(rendered.systemPrompt).toBe("scoped-system");
     expect(rendered.userPrompt).toContain("scoped-user");
     expect(rendered.userPrompt).toContain("こんにちは");
+  });
+
+  test("throws when the configured prompt set does not exist", async () => {
+    const shared = SharedPromptManager.fromYamlText(`
+version: 1
+prompts:
+  project.translationPipeline.ja-zhCN:
+    system:
+      type: static
+      template: scoped-system
+    user:
+      type: static
+      template: scoped-user
+`);
+
+    const manager = new PromptManager({
+      promptManager: shared,
+      translationPromptSet: "en-zhCN",
+    });
+
+    await expect(
+      manager.renderTranslationStepPrompt({
+        sourceUnits: [{ id: "1", text: "hello" }],
+        dependencyTranslations: [],
+        plotSummaries: [],
+        translatedGlossaryTerms: [],
+        requirements: [],
+      }),
+    ).rejects.toThrow("project.translationPipeline.en-zhCN");
   });
 });
