@@ -1,8 +1,5 @@
 import type { ApiError } from '../../app/api.ts';
-import {
-  DEFAULT_ARCHIVE_IMPORT_PATTERN,
-  DEFAULT_LANGUAGE_PAIR,
-} from '../../app/ui-helpers.ts';
+import { DEFAULT_ARCHIVE_IMPORT_PATTERN } from '../../app/ui-helpers.ts';
 
 export interface WorkspaceCreateFormValues {
   projectName?: string;
@@ -10,7 +7,6 @@ export interface WorkspaceCreateFormValues {
   importPattern?: string;
   textSplitMaxChars?: number;
   translatorName?: string;
-  languagePair?: string;
   manifestJson?: string;
 }
 
@@ -33,12 +29,12 @@ export type WorkspaceTranslationChoiceError = {
 export const WORKSPACE_CREATE_INITIAL_VALUES: WorkspaceCreateFormValues = {
   projectName: '新建项目',
   importPattern: DEFAULT_ARCHIVE_IMPORT_PATTERN,
-  languagePair: DEFAULT_LANGUAGE_PAIR,
   textSplitMaxChars: 2000,
 };
 
 export const WORKSPACE_MANIFEST_EXAMPLE = `{
   "projectName": "某轻小说项目",
+  "translatorName": "ja-zhCN-default",
   "importFormat": "naturedialog",
   "importPattern": "scenario/**/*.txt",
   "textSplitMaxChars": 1800,
@@ -52,8 +48,6 @@ const MANIFEST_OVERRIDE_KEYS = [
   'glossaryPath',
   'importFormat',
   'importPattern',
-  'srcLang',
-  'tgtLang',
   'textSplitMaxChars',
   'translationImportMode',
   'translatorName',

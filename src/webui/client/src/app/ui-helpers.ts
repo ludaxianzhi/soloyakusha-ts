@@ -20,32 +20,9 @@ export const IMPORT_FORMAT_OPTIONS = [
 ];
 
 export const DEFAULT_ARCHIVE_IMPORT_PATTERN = '**/*';
-
-const HARD_CODED_LANGUAGE_PAIRS = [
-  {
-    label: '日语 (ja) -> 简体中文 (zh-CN)',
-    value: 'ja->zh-CN',
-    source: { label: '日语 (ja)', value: 'ja' },
-    target: { label: '简体中文 (zh-CN)', value: 'zh-CN' },
-  },
-] as const;
-
-export const LANGUAGE_PAIR_OPTIONS = HARD_CODED_LANGUAGE_PAIRS.map((pair) => ({
-  label: pair.label,
-  value: pair.value,
-}));
-export const DEFAULT_LANGUAGE_PAIR = HARD_CODED_LANGUAGE_PAIRS[0]?.value ?? 'ja->zh-CN';
-
-export function resolveLanguagePair(pairValue: unknown): {
-  srcLang: string;
-  tgtLang: string;
-} {
-  const matchedPair = HARD_CODED_LANGUAGE_PAIRS.find((pair) => pair.value === pairValue);
-  return {
-    srcLang: matchedPair?.source.value ?? 'ja',
-    tgtLang: matchedPair?.target.value ?? 'zh-CN',
-  };
-}
+export const DEFAULT_TRANSLATOR_SOURCE_LANGUAGE = 'ja';
+export const DEFAULT_TRANSLATOR_TARGET_LANGUAGE = 'zh-CN';
+export const DEFAULT_TRANSLATOR_PROMPT_SET = 'ja-zhCN';
 
 const LLM_REQUEST_CONFIG_KEY_ALIASES = {
   systemPrompt: ['systemPrompt', 'system_prompt'],
@@ -302,12 +279,18 @@ export function translatorToForm(
   if (!translator) {
     return {
       translatorName,
+      sourceLanguage: DEFAULT_TRANSLATOR_SOURCE_LANGUAGE,
+      targetLanguage: DEFAULT_TRANSLATOR_TARGET_LANGUAGE,
+      promptSet: DEFAULT_TRANSLATOR_PROMPT_SET,
       type: workflow?.workflow ?? 'default',
     };
   }
 
   const values: Record<string, string | string[] | number | undefined> = {
     translatorName,
+    sourceLanguage: translator.sourceLanguage,
+    targetLanguage: translator.targetLanguage,
+    promptSet: translator.promptSet,
     type: translator.type ?? workflow?.workflow ?? 'default',
     metadataTitle: translator.metadata?.title,
     metadataDescription: translator.metadata?.description,
@@ -328,6 +311,11 @@ export function buildTranslatorPayload(
   workflow: TranslationProcessorWorkflowMetadata,
 ): TranslatorEntry {
   const payload: TranslatorEntry = {
+    sourceLanguage:
+      optionalString(values.sourceLanguage) ?? DEFAULT_TRANSLATOR_SOURCE_LANGUAGE,
+    targetLanguage:
+      optionalString(values.targetLanguage) ?? DEFAULT_TRANSLATOR_TARGET_LANGUAGE,
+    promptSet: optionalString(values.promptSet) ?? DEFAULT_TRANSLATOR_PROMPT_SET,
     type: workflow.workflow === 'default' ? undefined : workflow.workflow,
     modelNames: [],
   };
@@ -349,6 +337,16 @@ export function buildTranslatorPayload(
   }
 
   return payload;
+}
+
+export function formatTranslatorLanguagePair(
+  translator: Pick<TranslatorEntry, 'sourceLanguage' | 'targetLanguage'> | null | undefined,
+): string {
+  if (!translator) {
+    return '-';
+  }
+
+  return `${translator.sourceLanguage} -> ${translator.targetLanguage}`;
 }
 
 function serializeWorkflowFieldValue(

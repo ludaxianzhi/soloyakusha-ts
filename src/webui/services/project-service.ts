@@ -9,8 +9,8 @@ import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative } from 'node:path';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
-import { TranslationGlobalConfig } from '../../project/config.ts';
-import type { TranslationProcessorConfig } from '../../project/config.ts';
+import { TranslationGlobalConfig, type TranslationProcessorConfig } from '../../project/config.ts';
+import { PromptManager } from '../../project/prompt-manager.ts';
 import { TranslationProject } from '../../project/translation-project.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { FullTextGlossaryScanner } from '../../glossary/index.ts';
@@ -60,8 +60,6 @@ export interface InitializeProjectInput {
   projectDir: string;
   chapterPaths: string[];
   glossaryPath?: string;
-  srcLang?: string;
-  tgtLang?: string;
   importFormat?: string;
   translatorName?: string;
   textSplitMaxChars?: number;
@@ -353,14 +351,7 @@ export class ProjectService {
               ? { path: input.glossaryPath.trim(), autoFilter: true }
               : undefined,
             textSplitMaxChars: input.textSplitMaxChars,
-            customRequirements: [
-              input.srcLang?.trim()
-                ? `源语言: ${input.srcLang.trim()}`
-                : undefined,
-              input.tgtLang?.trim()
-                ? `目标语言: ${input.tgtLang.trim()}`
-                : undefined,
-            ].filter((v): v is string => Boolean(v)),
+            customRequirements: [],
           },
           {
             textSplitter:
@@ -1752,25 +1743,23 @@ async function createProcessorForProject(
   const workspaceConfig = project.getWorkspaceConfig();
   const translatorName = workspaceConfig.translator?.translatorName;
 
-  let processorConfig: TranslationProcessorConfig;
-
-  if (translatorName) {
-    const entry = await manager.getTranslator(translatorName);
-    if (!entry) {
-      throw new Error(`未找到名为 "${translatorName}" 的翻译器`);
-    }
-    processorConfig = {
-      workflow: entry.type,
-      modelNames: entry.modelNames,
-      slidingWindow: entry.slidingWindow,
-      requestOptions: entry.requestOptions,
-      models: entry.models,
-      reviewIterations: entry.reviewIterations,
-    };
-  } else {
-    const globalConfig = await manager.getTranslationGlobalConfig();
-    processorConfig = globalConfig.getTranslationProcessorConfig();
+  if (!translatorName) {
+    throw new Error('当前工作区未配置翻译器，请先在工作区配置中选择命名翻译器。');
   }
+
+  const entry = await manager.getTranslator(translatorName);
+  if (!entry) {
+    throw new Error(`未找到名为 "${translatorName}" 的翻译器`);
+  }
+
+  const processorConfig: TranslationProcessorConfig = {
+    workflow: entry.type,
+    modelNames: entry.modelNames,
+    slidingWindow: entry.slidingWindow,
+    requestOptions: entry.requestOptions,
+    models: entry.models,
+    reviewIterations: entry.reviewIterations,
+  };
 
   const globalConfig = await manager.getTranslationGlobalConfig();
   const runtimeConfig = new TranslationGlobalConfig({
@@ -1798,7 +1787,13 @@ async function createProcessorForProject(
     debug: () => {},
   };
 
-  return runtimeConfig.createTranslationProcessor({ provider, logger });
+  return runtimeConfig.createTranslationProcessor({
+    provider,
+    logger,
+    promptManager: new PromptManager({
+      translationPromptSet: entry.promptSet,
+    }),
+  });
 }
 
 async function maybePersistProgress(

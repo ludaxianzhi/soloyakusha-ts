@@ -3,10 +3,7 @@ import { App as AntdApp, Form } from 'antd';
 import type { UploadFile } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../app/api.ts';
-import {
-  resolveLanguagePair,
-  toErrorMessage,
-} from '../../app/ui-helpers.ts';
+import { toErrorMessage } from '../../app/ui-helpers.ts';
 import {
   getWorkspaceTranslationChoiceError,
   type WorkspaceCreateFormValues,
@@ -68,7 +65,6 @@ export function useWorkspaceCreateController({
 
       setSubmitting(true);
       try {
-        const { srcLang, tgtLang } = resolveLanguagePair(values.languagePair);
         const submitWorkspaceCreate = async (
           translationImportMode?: WorkspaceTranslationImportMode,
         ) => {
@@ -87,8 +83,6 @@ export function useWorkspaceCreateController({
           if (values.textSplitMaxChars !== undefined && values.textSplitMaxChars !== null) {
             formData.set('textSplitMaxChars', String(values.textSplitMaxChars));
           }
-          formData.set('srcLang', srcLang);
-          formData.set('tgtLang', tgtLang);
           if (values.manifestJson) {
             formData.set('manifestJson', String(values.manifestJson));
           }

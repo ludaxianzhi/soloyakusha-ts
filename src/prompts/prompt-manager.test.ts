@@ -13,8 +13,11 @@ describe("PromptManager", () => {
     expect(manager.getPromptIds()).toContain("glossary.fullTextScan");
     expect(manager.getPromptIds()).toContain("glossary.translationUpdate");
     expect(manager.getPromptIds()).toContain("project.translationPipeline");
+    expect(manager.getPromptIds()).toContain("project.translationPipeline.ja-zhCN");
     expect(manager.getPromptIds()).toContain("project.multiStage.analyzer");
+    expect(manager.getPromptIds()).toContain("project.multiStage.analyzer.ja-zhCN");
     expect(manager.getPromptIds()).toContain("project.multiStage.reviser");
+    expect(manager.getPromptIds()).toContain("project.multiStage.reviser.ja-zhCN");
     expect(manager.getPromptIds()).toContain("utils.alignmentRepair");
   });
 
@@ -178,5 +181,22 @@ prompts:
     expect(reviserPrompt.userPrompt).toContain("中文编辑反馈");
     expect(reviserPrompt.userPrompt).toContain("校对专家反馈");
     expect(reviserPrompt.userPrompt).toContain("JSON Schema");
+  });
+
+  test("renders ja-zhCN specialized translation prompts from default yaml", async () => {
+    const manager = await getDefaultPromptManager();
+
+    const prompt = manager.renderPrompt("project.translationPipeline.ja-zhCN", {
+      sourceUnits: [{ id: "1", text: "勇者が来た。" }],
+      dependencyTranslations: [],
+      plotSummaries: [],
+      translatedGlossaryTerms: [],
+      requirements: [],
+      responseSchemaJson: '{"type":"object"}',
+    });
+
+    expect(prompt.systemPrompt).toContain("日译简中文学翻译");
+    expect(prompt.userPrompt).toContain("日文原文单元");
+    expect(prompt.userPrompt).toContain("勇者が来た。");
   });
 });

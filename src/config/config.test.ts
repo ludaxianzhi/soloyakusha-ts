@@ -249,6 +249,9 @@ describe("GlobalConfigManager", () => {
     });
 
     expect(await manager.getTranslator("default")).toMatchObject({
+      sourceLanguage: "ja",
+      targetLanguage: "zh-CN",
+      promptSet: "ja-zhCN",
       modelNames: ["legacy-chat"],
     });
     expect(await manager.getGlossaryExtractorConfig()).toMatchObject({

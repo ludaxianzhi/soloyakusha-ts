@@ -350,6 +350,9 @@ export interface TranslatorMetadata {
 
 export interface TranslatorEntry {
   metadata?: TranslatorMetadata;
+  sourceLanguage: string;
+  targetLanguage: string;
+  promptSet: string;
   type?: string;
   modelNames: string[];
   slidingWindow?: {

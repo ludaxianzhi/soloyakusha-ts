@@ -9,7 +9,11 @@ import type {
   TranslationProcessorWorkflowMetadata,
   TranslatorEntry,
 } from '../app/types.ts';
-import { formatModelChain, translatorFieldName } from '../app/ui-helpers.ts';
+import {
+  formatModelChain,
+  formatTranslatorLanguagePair,
+  translatorFieldName,
+} from '../app/ui-helpers.ts';
 import { YamlCodeEditor } from './YamlCodeEditor.tsx';
 
 const { TextArea } = Input;
@@ -343,6 +347,7 @@ export function SettingsView({
                             {workflow ? <Tag color="purple">{workflow.title}</Tag> : null}
                           </Space>
                           <div>{name}</div>
+                          <div>{formatTranslatorLanguagePair(translator)}</div>
                           <div>{formatModelChain(translator.modelNames)}</div>
                           {translator.metadata?.description ? (
                             <Paragraph className="settings-list-description" ellipsis={{ rows: 2 }}>
@@ -384,6 +389,35 @@ export function SettingsView({
                       <Col span={8}>
                         <Form.Item name="type" label="工作流" rules={[{ required: true }]}>
                           <Select options={workflowOptions} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <Row gutter={16}>
+                      <Col span={8}>
+                        <Form.Item
+                          name="sourceLanguage"
+                          label="源语言"
+                          rules={[{ required: true, message: '请输入源语言代码' }]}
+                        >
+                          <Input placeholder="ja" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name="targetLanguage"
+                          label="目标语言"
+                          rules={[{ required: true, message: '请输入目标语言代码' }]}
+                        >
+                          <Input placeholder="zh-CN" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name="promptSet"
+                          label="Prompt 套件"
+                          rules={[{ required: true, message: '请输入 Prompt 套件标识' }]}
+                        >
+                          <Input placeholder="ja-zhCN" />
                         </Form.Item>
                       </Col>
                     </Row>

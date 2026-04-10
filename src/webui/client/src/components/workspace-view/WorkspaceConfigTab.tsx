@@ -84,8 +84,12 @@ export function WorkspaceConfigTab({
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="translatorName" label="翻译器">
-                <Select allowClear options={translatorOptions} />
+              <Form.Item
+                name="translatorName"
+                label="翻译器"
+                rules={[{ required: true, message: '请选择翻译器' }]}
+              >
+                <Select options={translatorOptions} />
               </Form.Item>
             </Col>
           </Row>

@@ -66,10 +66,20 @@ export type TranslatorMetadata = {
   description?: string;
 };
 
+export const DEFAULT_TRANSLATOR_SOURCE_LANGUAGE = "ja";
+export const DEFAULT_TRANSLATOR_TARGET_LANGUAGE = "zh-CN";
+export const DEFAULT_TRANSLATOR_PROMPT_SET = "ja-zhCN";
+
 /** 命名翻译器注册条目，对应一种翻译工作流 + 参数组合。 */
 export type TranslatorEntry = {
   /** 翻译器的人类可读元数据，用于前端自解释展示。 */
   metadata?: TranslatorMetadata;
+  /** 翻译器适用的源语言代码。 */
+  sourceLanguage: string;
+  /** 翻译器适用的目标语言代码。 */
+  targetLanguage: string;
+  /** 翻译器绑定的翻译提示词套件。 */
+  promptSet: string;
   /** 工作流类型，对应翻译处理器 workflow 参数，留空则使用 "default"。 */
   type?: string;
   /** 引用的 LLM Profile 名称链（同时作为所有步骤的默认模型及回退链）。 */

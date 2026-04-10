@@ -23,7 +23,12 @@ import type {
   TranslatorEntry,
   WorkspaceEntry,
 } from "./types.ts";
-import { GLOBAL_CONFIG_VERSION } from "./types.ts";
+import {
+  GLOBAL_CONFIG_VERSION,
+  DEFAULT_TRANSLATOR_PROMPT_SET,
+  DEFAULT_TRANSLATOR_SOURCE_LANGUAGE,
+  DEFAULT_TRANSLATOR_TARGET_LANGUAGE,
+} from "./types.ts";
 
 export function createEmptyDocument(): GlobalConfigDocument {
   return {
@@ -199,6 +204,15 @@ export function normalizeTranslatorEntry(
 
   return {
     metadata: normalizeTranslatorMetadata(value.metadata, `${sourceLabel}.metadata`),
+    sourceLanguage:
+      readOptionalString(value.sourceLanguage, `${sourceLabel}.sourceLanguage`) ??
+      DEFAULT_TRANSLATOR_SOURCE_LANGUAGE,
+    targetLanguage:
+      readOptionalString(value.targetLanguage, `${sourceLabel}.targetLanguage`) ??
+      DEFAULT_TRANSLATOR_TARGET_LANGUAGE,
+    promptSet:
+      readOptionalString(value.promptSet, `${sourceLabel}.promptSet`) ??
+      DEFAULT_TRANSLATOR_PROMPT_SET,
     type: readOptionalString(value.type, `${sourceLabel}.type`),
     modelNames: readRequiredModelNames(value, sourceLabel),
     slidingWindow:
@@ -480,6 +494,9 @@ export function cloneTranslationConfig(
 export function cloneTranslatorEntry(entry: TranslatorEntry): TranslatorEntry {
   return {
     metadata: entry.metadata ? { ...entry.metadata } : undefined,
+    sourceLanguage: entry.sourceLanguage,
+    targetLanguage: entry.targetLanguage,
+    promptSet: entry.promptSet,
     type: entry.type,
     modelNames: [...entry.modelNames],
     slidingWindow: entry.slidingWindow ? { ...entry.slidingWindow } : undefined,

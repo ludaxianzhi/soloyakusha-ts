@@ -32,8 +32,6 @@ export function createWorkspaceRoutes(
     const importPattern = (formData.get('importPattern') as string) || undefined;
     const translatorName =
       (formData.get('translatorName') as string) || undefined;
-    const srcLang = (formData.get('srcLang') as string) || undefined;
-    const tgtLang = (formData.get('tgtLang') as string) || undefined;
     const manifestJson = (formData.get('manifestJson') as string) || undefined;
     const textSplitMaxChars = readOptionalPositiveInteger(
       formData.get('textSplitMaxChars'),
@@ -51,6 +49,10 @@ export function createWorkspaceRoutes(
     let workspaceDir: string | undefined;
     try {
       const manifest = manifestJson ? parseWorkspaceManifest(manifestJson) : undefined;
+      const resolvedTranslatorName = manifest?.translatorName ?? translatorName;
+      if (!resolvedTranslatorName) {
+        return c.json({ error: '请选择翻译器，翻译器现在是语言对与提示词的唯一入口。' }, 400);
+      }
       const archiveBuffer = await file.arrayBuffer();
       const createdWorkspace =
         await workspaceManager.createFromZip(projectName, archiveBuffer, file.name);
@@ -114,9 +116,7 @@ export function createWorkspaceRoutes(
         projectDir: workspaceDir,
         chapterPaths: chapterFiles,
         importFormat: resolvedImportFormat,
-        translatorName: manifest?.translatorName ?? translatorName,
-        srcLang: manifest?.srcLang ?? srcLang,
-        tgtLang: manifest?.tgtLang ?? tgtLang,
+        translatorName: resolvedTranslatorName,
         textSplitMaxChars: resolvedTextSplitMaxChars,
         importTranslation: resolvedTranslationImportMode === 'with-translation',
         glossaryPath: manifest?.glossaryPath,
@@ -244,8 +244,6 @@ type UploadedWorkspaceManifest = {
   chapterPaths?: string[];
   importPattern?: string;
   glossaryPath?: string;
-  srcLang?: string;
-  tgtLang?: string;
   importFormat?: string;
   translatorName?: string;
   textSplitMaxChars?: number;

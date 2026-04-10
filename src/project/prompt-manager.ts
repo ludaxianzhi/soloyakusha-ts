@@ -108,11 +108,16 @@ const MULTI_STAGE_REVISER_PROMPT_ID = "project.multiStage.reviser";
 
 export class PromptManager {
   private readonly promptManagerPromise: Promise<SharedPromptManager>;
+  private readonly translationPromptSet?: string;
 
-  constructor(options: { promptManager?: SharedPromptManager | Promise<SharedPromptManager> } = {}) {
+  constructor(options: {
+    promptManager?: SharedPromptManager | Promise<SharedPromptManager>;
+    translationPromptSet?: string;
+  } = {}) {
     this.promptManagerPromise = Promise.resolve(
       options.promptManager ?? getDefaultPromptManager(),
     );
+    this.translationPromptSet = options.translationPromptSet?.trim() || undefined;
   }
 
   async renderTranslationStepPrompt(
@@ -264,7 +269,16 @@ export class PromptManager {
     variables: Record<string, unknown>,
   ): Promise<{ systemPrompt: string; userPrompt: string }> {
     const promptManager = await this.promptManagerPromise;
-    return promptManager.renderPrompt(promptId, variables);
+    return promptManager.renderPrompt(this.resolvePromptId(promptManager, promptId), variables);
+  }
+
+  private resolvePromptId(promptManager: SharedPromptManager, promptId: string): string {
+    if (!this.translationPromptSet) {
+      return promptId;
+    }
+
+    const scopedPromptId = `${promptId}.${this.translationPromptSet}`;
+    return promptManager.getPromptIds().includes(scopedPromptId) ? scopedPromptId : promptId;
   }
 }
 

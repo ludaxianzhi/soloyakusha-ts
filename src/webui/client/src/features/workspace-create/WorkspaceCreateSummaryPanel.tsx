@@ -58,8 +58,8 @@ export function WorkspaceCreateSummaryPanel({
                 <Descriptions.Item label="导入 Pattern">
                   {String(values.importPattern ?? '').trim() || '未填写'}
                 </Descriptions.Item>
-                <Descriptions.Item label="默认翻译器">
-                  {String(values.translatorName ?? '').trim() || '使用全局默认翻译器'}
+                <Descriptions.Item label="翻译器">
+                  {String(values.translatorName ?? '').trim() || '未选择'}
                 </Descriptions.Item>
                 <Descriptions.Item label="文本切分长度">
                   {values.textSplitMaxChars ?? 2000}

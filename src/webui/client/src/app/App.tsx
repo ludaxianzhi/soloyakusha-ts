@@ -11,6 +11,7 @@ import { api } from './api.ts';
 import {
   auxToForm,
   buildTranslatorPayload,
+  formatTranslatorLanguagePair,
   normalizeModelChain,
   parseLlmRequestConfigYaml,
   optionalNumber,
@@ -511,8 +512,8 @@ export function AppShell() {
     () =>
       Object.keys(translators).map((name) => ({
         label: translators[name]?.metadata?.title
-          ? `${translators[name].metadata?.title} (${name})`
-          : name,
+          ? `${translators[name].metadata?.title} (${name}, ${formatTranslatorLanguagePair(translators[name])})`
+          : `${name} (${formatTranslatorLanguagePair(translators[name])})`,
         value: name,
       })),
     [translators],
@@ -711,7 +712,7 @@ export function AppShell() {
             path: String(values.glossaryPath ?? '').trim() || undefined,
           },
           translator: {
-            translatorName: String(values.translatorName ?? '') || null,
+            translatorName: String(values.translatorName ?? '').trim(),
           },
           defaultImportFormat: String(values.defaultImportFormat ?? '') || null,
           defaultExportFormat: String(values.defaultExportFormat ?? '') || null,

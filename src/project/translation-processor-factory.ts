@@ -91,8 +91,8 @@ export class TranslationProcessorFactory {
           }),
         metadata: {
           workflow: "default",
-          title: "默认单阶段",
-          description: "使用单个模型完成译前上下文分析与翻译，配置最少，适合作为通用默认方案。",
+          title: "日译简中单阶段",
+          description: "使用 ja -> zh-CN 专用提示词完成单阶段翻译，配置最少，适合作为基础方案。",
           fields: [
             {
               key: "modelNames",
@@ -161,9 +161,9 @@ export class TranslationProcessorFactory {
         },
         metadata: {
           workflow: "multi-stage",
-          title: "多阶段评审",
+          title: "日译简中多阶段评审",
           description:
-            "先分析再翻译，并在润色、校对与修订阶段循环评审。适合追求质量和一致性的长篇项目。",
+            "使用 ja -> zh-CN 专用提示词先分析再翻译，并在润色、校对与修订阶段循环评审。",
           fields: [
             {
               key: "modelNames",

@@ -103,6 +103,9 @@ describe('WebUI LLM request config helpers', () => {
 
     const formValues = translatorToForm(
       {
+        sourceLanguage: 'ja',
+        targetLanguage: 'zh-CN',
+        promptSet: 'ja-zhCN',
         modelNames: ['primary', 'fallback-a', 'fallback-b'],
       },
       'demo',
@@ -117,6 +120,9 @@ describe('WebUI LLM request config helpers', () => {
     expect(
       buildTranslatorPayload(
         {
+          sourceLanguage: 'ja',
+          targetLanguage: 'zh-CN',
+          promptSet: 'ja-zhCN',
           [translatorFieldName('modelNames')]: [
             'primary',
             'fallback-a',
@@ -126,6 +132,9 @@ describe('WebUI LLM request config helpers', () => {
         workflow,
       ),
     ).toEqual({
+      sourceLanguage: 'ja',
+      targetLanguage: 'zh-CN',
+      promptSet: 'ja-zhCN',
       modelNames: ['primary', 'fallback-a', 'fallback-b'],
       type: undefined,
     });
