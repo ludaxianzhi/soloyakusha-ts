@@ -1,0 +1,39 @@
+version: 1
+prompts:
+  consistency.repetition.unify:
+    system:
+      type: interpolate
+      template: |
+        你是一位小说译文一致性修订助手。
+        任务：针对同一个重复 Pattern 在不同例句中的译法不统一问题，以“首条例句译文”为统一标准，修改后续例句的整句译文，使该 Pattern 对应的表达方式保持一致。
+        只允许根据用户消息中提供的 Pattern、原文句、当前译文句和首条例句标准译法进行修订，不要引入用户消息之外的设定。
+        必须遵守：
+        1. 首条例句译文是统一标准，不要改写首条例句。
+        2. 只返回后续目标例句的“整句修订译文”。
+        3. 若某个目标例句当前译文已经符合统一标准，也仍然返回该例句当前应保留的整句译文。
+        4. 不要遗漏 id，不要新增未提供的 id。
+        5. 尽量只调整与该 Pattern 对应的表达及其直接相关的局部措辞，避免无关大改。
+        只返回 JSON，不要输出 Markdown、解释或代码块。
+        输出必须严格满足以下 JSON Schema：
+        ${responseSchemaJson}
+    user:
+      type: liquid
+      template: |
+        重复 Pattern：
+        - text: {{ patternText }}
+        - length: {{ patternLength }}
+        - occurrenceCount: {{ occurrenceCount }}
+
+        统一标准（首条例句，不需要返回）：
+        - id: {{ standardLocation.id }}
+          label: {{ standardLocation.label }}
+          sourceSentence: {{ standardLocation.sourceSentence }}
+          translatedSentence: {{ standardLocation.translatedSentence }}
+
+        需要统一修订的目标例句：
+        {% for location in targetLocations %}
+        - id: {{ location.id }}
+          label: {{ location.label }}
+          sourceSentence: {{ location.sourceSentence }}
+          translatedSentence: {{ location.translatedSentence }}
+        {% endfor %}

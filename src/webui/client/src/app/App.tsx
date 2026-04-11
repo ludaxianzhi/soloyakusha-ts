@@ -171,15 +171,18 @@ export function AppShell() {
   );
 
   const refreshBootData = useCallback(async () => {
-    const [workspaceRes, activeRes, translatorsRes] = await Promise.all([
+    const [workspaceRes, activeRes, translatorsRes, llmRes] = await Promise.all([
       api.listWorkspaces(),
       api.getActiveProject(),
       api.getTranslators().catch(() => ({ translators: {} })),
+      api.getLlmProfiles().catch(() => ({ profiles: {}, defaultName: undefined })),
     ]);
     setWorkspaces(workspaceRes.workspaces);
     setProjectStatus(activeRes);
     setSnapshot(activeRes.snapshot);
     setTranslators(translatorsRes.translators);
+    setLlmProfiles(llmRes.profiles);
+    setDefaultLlmName(llmRes.defaultName);
   }, []);
 
   const refreshProjectStatus = useCallback(async () => {
@@ -255,6 +258,28 @@ export function AppShell() {
   const handleLoadRepeatedPatternContext = useCallback(
     async (input: { chapterId: number; unitIndex: number }) =>
       api.getRepeatedPatternContext(input),
+    [],
+  );
+
+  const handleStartRepeatedPatternConsistencyFix = useCallback(
+    async (input: {
+      llmProfileName: string;
+      minOccurrences?: number;
+      minLength?: number;
+      maxResults?: number;
+    }) => api.startRepeatedPatternConsistencyFix(input),
+    [],
+  );
+
+  const handleGetRepeatedPatternConsistencyFixStatus = useCallback(
+    async () => api.getRepeatedPatternConsistencyFixStatus(),
+    [],
+  );
+
+  const handleClearRepeatedPatternConsistencyFixStatus = useCallback(
+    async () => {
+      await api.clearRepeatedPatternConsistencyFixStatus();
+    },
     [],
   );
 
@@ -554,6 +579,17 @@ export function AppShell() {
         value: name,
       })),
     [translators],
+  );
+
+  const llmProfileOptions = useMemo(
+    () =>
+      Object.keys(llmProfiles)
+        .sort()
+        .map((name) => ({
+          label: name,
+          value: name,
+        })),
+    [llmProfiles],
   );
 
   const handleOpenWorkspace = useCallback(
@@ -1265,11 +1301,22 @@ export function AppShell() {
                         : undefined
                     }
                     translatorOptions={translatorOptions}
+                    llmProfileOptions={llmProfileOptions}
+                    defaultLlmProfileName={defaultLlmName}
                     onRefreshProjectStatus={refreshProjectStatus}
                     onRefreshDictionary={refreshDictionary}
                     onRefreshRepeatedPatterns={refreshRepeatedPatterns}
                     onSaveRepeatedPatternTranslation={handleSaveRepeatedPatternTranslation}
                     onLoadRepeatedPatternContext={handleLoadRepeatedPatternContext}
+                    onStartRepeatedPatternConsistencyFix={
+                      handleStartRepeatedPatternConsistencyFix
+                    }
+                    onGetRepeatedPatternConsistencyFixStatus={
+                      handleGetRepeatedPatternConsistencyFixStatus
+                    }
+                    onClearRepeatedPatternConsistencyFixStatus={
+                      handleClearRepeatedPatternConsistencyFixStatus
+                    }
                     onRefreshChapters={refreshChapters}
                     onRefreshTopology={refreshTopology}
                     onRefreshWorkspaceConfig={refreshWorkspaceConfig}

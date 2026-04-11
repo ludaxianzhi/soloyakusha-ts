@@ -277,6 +277,17 @@ export interface RepetitionPatternContextResult {
   }>;
 }
 
+export interface RepetitionPatternConsistencyFixProgress {
+  status: 'running' | 'done' | 'error';
+  llmProfileName: string;
+  totalPatterns: number;
+  completedPatterns: number;
+  failedPatterns: number;
+  runningPatterns: string[];
+  lastAppliedPatternText?: string;
+  errorMessage?: string;
+}
+
 export interface GlossaryTerm {
   term: string;
   translation: string;

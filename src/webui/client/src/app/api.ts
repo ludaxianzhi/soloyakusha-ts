@@ -17,6 +17,7 @@ import type {
   ProjectResourceVersions,
   ProjectStatus,
   RepetitionPatternAnalysisResult,
+  RepetitionPatternConsistencyFixProgress,
   RepetitionPatternContextResult,
   CreateStoryBranchPayload,
   StoryTopologyDescriptor,
@@ -215,6 +216,27 @@ export const api = {
     request<RepetitionPatternContextResult>(
       `/api/project/repetition-patterns/context${buildQueryString(input)}`,
     ),
+  startRepeatedPatternConsistencyFix: (input: {
+    llmProfileName: string;
+    minOccurrences?: number;
+    minLength?: number;
+    maxResults?: number;
+  }) =>
+    request<RepetitionPatternConsistencyFixProgress>(
+      '/api/project/repetition-patterns/consistency-fix',
+      {
+        method: 'POST',
+        body: input,
+      },
+    ),
+  getRepeatedPatternConsistencyFixStatus: () =>
+    request<RepetitionPatternConsistencyFixProgress | null>(
+      '/api/project/repetition-patterns/consistency-fix/status',
+    ),
+  clearRepeatedPatternConsistencyFixStatus: () =>
+    request('/api/project/repetition-patterns/consistency-fix/clear', {
+      method: 'POST',
+    }),
 
   getDictionary: () =>
     request<{ terms: GlossaryTerm[] }>('/api/project/dictionary'),

@@ -157,6 +157,7 @@ export class M3TFileHandler extends TranslationFileHandler {
 
       lines.push("");
     }
+    lines.push("");
 
     await writeFile(filePath, lines.join("\n"), "utf8");
   }

@@ -228,6 +228,45 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     return c.json(context);
   });
 
+  app.post('/repetition-patterns/consistency-fix', async (c) => {
+    try {
+      const body = await c.req.json<{
+        llmProfileName?: string;
+        minOccurrences?: number;
+        minLength?: number;
+        maxResults?: number;
+      }>();
+      const progress = await projectService.startRepetitionPatternConsistencyFix({
+        llmProfileName: String(body.llmProfileName ?? ''),
+        minOccurrences: readOptionalPositiveIntegerValue(body.minOccurrences),
+        minLength: readOptionalPositiveIntegerValue(body.minLength),
+        maxResults: readOptionalPositiveIntegerValue(body.maxResults),
+      });
+      return c.json(progress);
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.get('/repetition-patterns/consistency-fix/status', (c) => {
+    return c.json(projectService.getRepetitionPatternConsistencyFixProgress());
+  });
+
+  app.post('/repetition-patterns/consistency-fix/clear', (c) => {
+    try {
+      projectService.clearRepetitionPatternConsistencyFixProgress();
+      return c.json({ ok: true });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
   app.post('/chapters', async (c) => {
     const body = await c.req.json<{
       filePath: string;
@@ -440,6 +479,16 @@ function readOptionalPositiveIntegerQuery(value: string | undefined): number | u
     return undefined;
   }
   return parsed;
+}
+
+function readOptionalPositiveIntegerValue(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new ProjectServiceUserInputError('数值参数必须为正整数');
+  }
+  return value;
 }
 
 function parseBooleanField(value: FormDataEntryValue | null, fallback: boolean): boolean {

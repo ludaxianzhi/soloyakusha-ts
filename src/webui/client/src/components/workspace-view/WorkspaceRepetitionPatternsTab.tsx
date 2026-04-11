@@ -1,12 +1,16 @@
-import { useMemo, useState } from 'react';
-import { BranchesOutlined } from '@ant-design/icons';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BranchesOutlined, CloseOutlined, RobotOutlined } from '@ant-design/icons';
 import {
+  Alert,
   App as AntdApp,
   Button,
+  Card,
   Empty,
   Input,
   InputNumber,
   Modal,
+  Progress,
+  Select,
   Space,
   Table,
   Tag,
@@ -14,15 +18,19 @@ import {
 } from 'antd';
 import type {
   RepetitionPatternAnalysisResult,
+  RepetitionPatternConsistencyFixProgress,
   RepetitionPatternContextResult,
   RepetitionPatternLocation,
 } from '../../app/types.ts';
+import { usePollingTask } from '../../app/usePollingTask.ts';
 
 const { TextArea } = Input;
 
 interface WorkspaceRepetitionPatternsTabProps {
   active: boolean;
   repeatedPatterns: RepetitionPatternAnalysisResult | null;
+  llmProfileOptions: Array<{ label: string; value: string }>;
+  defaultLlmProfileName?: string;
   onRefreshRepeatedPatterns: (options?: {
     minOccurrences?: number;
     minLength?: number;
@@ -38,33 +46,62 @@ interface WorkspaceRepetitionPatternsTabProps {
     chapterId: number;
     unitIndex: number;
   }) => Promise<RepetitionPatternContextResult>;
+  onRefreshProjectStatus: () => void | Promise<void>;
+  onStartRepeatedPatternConsistencyFix: (input: {
+    llmProfileName: string;
+    minOccurrences?: number;
+    minLength?: number;
+    maxResults?: number;
+  }) => Promise<RepetitionPatternConsistencyFixProgress>;
+  onGetRepeatedPatternConsistencyFixStatus: () => Promise<RepetitionPatternConsistencyFixProgress | null>;
+  onClearRepeatedPatternConsistencyFixStatus: () => Promise<void>;
 }
 
 export function WorkspaceRepetitionPatternsTab({
+  active,
   repeatedPatterns,
+  llmProfileOptions,
+  defaultLlmProfileName,
   onRefreshRepeatedPatterns,
   onSaveRepeatedPatternTranslation,
   onLoadRepeatedPatternContext,
+  onRefreshProjectStatus,
+  onStartRepeatedPatternConsistencyFix,
+  onGetRepeatedPatternConsistencyFixStatus,
+  onClearRepeatedPatternConsistencyFixStatus,
 }: WorkspaceRepetitionPatternsTabProps) {
   const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [savingLineKey, setSavingLineKey] = useState<string | null>(null);
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [startingConsistencyFix, setStartingConsistencyFix] = useState(false);
   const [draftTranslations, setDraftTranslations] = useState<Record<string, string>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailContext, setDetailContext] = useState<RepetitionPatternContextResult | null>(null);
+  const [consistencyFixProgress, setConsistencyFixProgress] =
+    useState<RepetitionPatternConsistencyFixProgress | null>(null);
+  const [consistencyFixDismissed, setConsistencyFixDismissed] = useState(false);
+  const [selectedLlmProfileName, setSelectedLlmProfileName] = useState<string | undefined>(
+    defaultLlmProfileName,
+  );
   const [minOccurrences, setMinOccurrences] = useState(3);
   const [minLength, setMinLength] = useState(8);
   const [maxResults, setMaxResults] = useState(20);
+  const consistencyFixProgressRef = useRef<RepetitionPatternConsistencyFixProgress | null>(null);
+
+  const analysisOptions = useMemo(
+    () => ({
+      minOccurrences,
+      minLength,
+      maxResults,
+    }),
+    [maxResults, minLength, minOccurrences],
+  );
 
   const refresh = async () => {
     setLoading(true);
     try {
-      await onRefreshRepeatedPatterns({
-        minOccurrences,
-        minLength,
-        maxResults,
-      });
+      await onRefreshRepeatedPatterns(analysisOptions);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
@@ -99,6 +136,64 @@ export function WorkspaceRepetitionPatternsTab({
     }
     return [...pending.values()];
   }, [draftTranslations, repeatedPatterns, translationsByLineKey]);
+
+  const consistencyFixRunning = consistencyFixProgress?.status === 'running';
+
+  useEffect(() => {
+    consistencyFixProgressRef.current = consistencyFixProgress;
+  }, [consistencyFixProgress]);
+
+  useEffect(() => {
+    if (selectedLlmProfileName && llmProfileOptions.some((option) => option.value === selectedLlmProfileName)) {
+      return;
+    }
+    setSelectedLlmProfileName(defaultLlmProfileName ?? llmProfileOptions[0]?.value);
+  }, [defaultLlmProfileName, llmProfileOptions, selectedLlmProfileName]);
+
+  const refreshConsistencyFixStatus = useCallback(async () => {
+    const nextProgress = await onGetRepeatedPatternConsistencyFixStatus();
+    const previousProgress = consistencyFixProgressRef.current;
+    consistencyFixProgressRef.current = nextProgress;
+    setConsistencyFixProgress(nextProgress);
+
+    const previousProcessed =
+      (previousProgress?.completedPatterns ?? 0) + (previousProgress?.failedPatterns ?? 0);
+    const nextProcessed =
+      (nextProgress?.completedPatterns ?? 0) + (nextProgress?.failedPatterns ?? 0);
+    const shouldRefreshPatterns =
+      nextProcessed > previousProcessed ||
+      (previousProgress?.status === 'running' && nextProgress?.status !== 'running');
+
+    if (shouldRefreshPatterns) {
+      await onRefreshRepeatedPatterns(analysisOptions);
+    }
+    if (
+      nextProgress?.status !== 'running' &&
+      previousProgress?.status === 'running'
+    ) {
+      await onRefreshProjectStatus();
+    }
+  }, [
+    analysisOptions,
+    onGetRepeatedPatternConsistencyFixStatus,
+    onRefreshProjectStatus,
+    onRefreshRepeatedPatterns,
+  ]);
+
+  useEffect(() => {
+    if (!active || consistencyFixDismissed) {
+      return;
+    }
+    void refreshConsistencyFixStatus();
+  }, [active, consistencyFixDismissed, refreshConsistencyFixStatus]);
+
+  usePollingTask({
+    enabled: active && !consistencyFixDismissed && consistencyFixRunning,
+    intervalMs: 2_000,
+    task: async () => {
+      await refreshConsistencyFixStatus();
+    },
+  });
 
   const handleSave = async (location: RepetitionPatternLocation) => {
     const lineKey = buildEditableLineKey(location);
@@ -155,6 +250,49 @@ export function WorkspaceRepetitionPatternsTab({
     }
   };
 
+  const handleStartConsistencyFix = async () => {
+    if (!selectedLlmProfileName) {
+      message.error('请先选择一个 LLM 配置');
+      return;
+    }
+    if (pendingSaveLocations.length > 0) {
+      message.error('请先保存当前手动修改，再执行 AI 统一表达');
+      return;
+    }
+
+    setStartingConsistencyFix(true);
+    try {
+      const progress = await onStartRepeatedPatternConsistencyFix({
+        llmProfileName: selectedLlmProfileName,
+        ...analysisOptions,
+      });
+      consistencyFixProgressRef.current = progress;
+      setConsistencyFixDismissed(false);
+      setConsistencyFixProgress(progress);
+      await onRefreshProjectStatus();
+      if (progress.totalPatterns === 0) {
+        message.info('当前没有需要 AI 统一的重复 Pattern');
+      } else {
+        message.success(`已启动 AI 表达统一任务（${progress.totalPatterns} 个 Pattern）`);
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setStartingConsistencyFix(false);
+    }
+  };
+
+  const handleClearConsistencyFixProgress = async () => {
+    try {
+      await onClearRepeatedPatternConsistencyFixStatus();
+      consistencyFixProgressRef.current = null;
+      setConsistencyFixProgress(null);
+      setConsistencyFixDismissed(true);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const handleOpenDetail = async (location: RepetitionPatternLocation) => {
     setDetailLoading(true);
     setDetailContext({
@@ -203,17 +341,108 @@ export function WorkspaceRepetitionPatternsTab({
           value={maxResults}
           onChange={(value) => setMaxResults(Number(value ?? 20))}
         />
-        <Button type="primary" loading={loading} onClick={() => void refresh()}>
+        <Button
+          type="primary"
+          loading={loading}
+          disabled={consistencyFixRunning}
+          onClick={() => void refresh()}
+        >
           {repeatedPatterns ? '重新分析' : '开始分析'}
+        </Button>
+        <span>LLM 配置</span>
+        <Select
+          style={{ minWidth: 220 }}
+          placeholder="选择已注册的 LLM 配置"
+          options={llmProfileOptions}
+          value={selectedLlmProfileName}
+          onChange={setSelectedLlmProfileName}
+        />
+        <Button
+          icon={<RobotOutlined />}
+          loading={startingConsistencyFix}
+          disabled={
+            consistencyFixRunning ||
+            loading ||
+            bulkSaving ||
+            savingLineKey !== null ||
+            !repeatedPatterns?.patterns.length ||
+            !llmProfileOptions.length ||
+            pendingSaveLocations.length > 0
+          }
+          onClick={() => void handleStartConsistencyFix()}
+        >
+          AI 一键统一表达
         </Button>
         <Button
           loading={bulkSaving}
-          disabled={!pendingSaveLocations.length || loading || savingLineKey !== null}
+          disabled={
+            consistencyFixRunning ||
+            !pendingSaveLocations.length ||
+            loading ||
+            savingLineKey !== null
+          }
           onClick={() => void handleBulkSave()}
         >
           批量保存修改{pendingSaveLocations.length ? ` (${pendingSaveLocations.length})` : ''}
         </Button>
       </Space>
+      {!llmProfileOptions.length ? (
+        <Alert
+          type="info"
+          showIcon
+          message="请先在系统设置中创建至少一个 chat 类型的 LLM 配置，才能使用 AI 一键统一表达。"
+        />
+      ) : null}
+      {!consistencyFixDismissed && consistencyFixProgress ? (
+        <Card
+          size="small"
+          title="AI 表达统一进度"
+          extra={
+            consistencyFixProgress.status !== 'running' ? (
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => void handleClearConsistencyFixProgress()}
+                aria-label="关闭 AI 表达统一进度卡片"
+              />
+            ) : null
+          }
+        >
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Space wrap>
+              <Tag color={toProgressTagColor(consistencyFixProgress.status)}>
+                {toProgressLabel(consistencyFixProgress.status)}
+              </Tag>
+              <Tag>{`LLM ${consistencyFixProgress.llmProfileName}`}</Tag>
+              <Tag>{`成功 ${consistencyFixProgress.completedPatterns}`}</Tag>
+              <Tag color={consistencyFixProgress.failedPatterns > 0 ? 'error' : 'default'}>
+                {`失败 ${consistencyFixProgress.failedPatterns}`}
+              </Tag>
+            </Space>
+            <Progress
+              percent={toFixProgressPercent(consistencyFixProgress)}
+              status={toFixProgressStatus(consistencyFixProgress.status)}
+              format={() =>
+                `${consistencyFixProgress.completedPatterns + consistencyFixProgress.failedPatterns}/${consistencyFixProgress.totalPatterns} Pattern`
+              }
+            />
+            {consistencyFixProgress.runningPatterns.length ? (
+              <Typography.Text type="secondary">
+                进行中：{consistencyFixProgress.runningPatterns.join('、')}
+              </Typography.Text>
+            ) : null}
+            {consistencyFixProgress.lastAppliedPatternText ? (
+              <Typography.Text type="secondary">
+                最近已应用：{consistencyFixProgress.lastAppliedPatternText}
+              </Typography.Text>
+            ) : null}
+            {consistencyFixProgress.errorMessage ? (
+              <Alert type="error" showIcon message={consistencyFixProgress.errorMessage} />
+            ) : null}
+          </Space>
+        </Card>
+      ) : null}
       {repeatedPatterns?.patterns.length ? (
         <div className="section-stack">
           <Typography.Text type="secondary">
@@ -254,6 +483,7 @@ export function WorkspaceRepetitionPatternsTab({
                         return (
                           <TextArea
                             autoSize={{ minRows: 1, maxRows: 4 }}
+                            disabled={consistencyFixRunning}
                             value={readDraftTranslation(location)}
                             placeholder="输入或修改译文"
                             onChange={(event) =>
@@ -286,10 +516,11 @@ export function WorkspaceRepetitionPatternsTab({
                                type="link"
                                loading={savingLineKey === lineKey}
                                disabled={
-                                 bulkSaving ||
-                                 readDraftTranslation(location) === location.translatedSentence
-                               }
-                               onClick={() => void handleSave(location)}
+                                  bulkSaving ||
+                                  consistencyFixRunning ||
+                                  readDraftTranslation(location) === location.translatedSentence
+                                }
+                                onClick={() => void handleSave(location)}
                              >
                                保存
                              </Button>
@@ -378,4 +609,51 @@ export function WorkspaceRepetitionPatternsTab({
 
 function buildEditableLineKey(location: RepetitionPatternLocation): string {
   return `${location.chapterId}-${location.fragmentIndex}-${location.lineIndex}`;
+}
+
+function toFixProgressPercent(progress: RepetitionPatternConsistencyFixProgress): number {
+  if (progress.totalPatterns <= 0) {
+    return progress.status === 'done' ? 100 : 0;
+  }
+  return Number(
+    (
+      ((progress.completedPatterns + progress.failedPatterns) / progress.totalPatterns) *
+      100
+    ).toFixed(1),
+  );
+}
+
+function toFixProgressStatus(
+  status: 'running' | 'done' | 'error',
+): 'active' | 'success' | 'exception' {
+  switch (status) {
+    case 'done':
+      return 'success';
+    case 'error':
+      return 'exception';
+    default:
+      return 'active';
+  }
+}
+
+function toProgressTagColor(status: 'running' | 'done' | 'error'): string {
+  switch (status) {
+    case 'done':
+      return 'success';
+    case 'error':
+      return 'error';
+    default:
+      return 'processing';
+  }
+}
+
+function toProgressLabel(status: 'running' | 'done' | 'error'): string {
+  switch (status) {
+    case 'done':
+      return '已完成';
+    case 'error':
+      return '部分失败';
+    default:
+      return '进行中';
+  }
 }

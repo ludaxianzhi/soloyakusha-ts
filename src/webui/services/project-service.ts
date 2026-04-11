@@ -8,6 +8,12 @@
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative } from 'node:path';
 import { GlobalConfigManager } from '../../config/manager.ts';
+import {
+  RepetitionPatternFixer,
+  buildRepetitionPatternFixTasks,
+  type RepetitionPatternFixResult,
+  type RepetitionPatternFixTask,
+} from '../../consistency/repetition-pattern-fixer.ts';
 import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
 import { TranslationGlobalConfig, type TranslationProcessorConfig } from '../../project/config.ts';
 import { PromptManager } from '../../project/prompt-manager.ts';
@@ -90,6 +96,17 @@ export interface ScanDictionaryProgress {
   errorMessage?: string;
 }
 
+export interface RepetitionPatternConsistencyFixProgress {
+  status: 'running' | 'done' | 'error';
+  llmProfileName: string;
+  totalPatterns: number;
+  completedPatterns: number;
+  failedPatterns: number;
+  runningPatterns: string[];
+  lastAppliedPatternText?: string;
+  errorMessage?: string;
+}
+
 export interface ImportedArchiveChapter {
   chapterId: number;
   filePath: string;
@@ -162,6 +179,8 @@ export class ProjectService {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private plotSummaryProgress: PlotSummaryProgress | null = null;
   private scanDictionaryProgress: ScanDictionaryProgress | null = null;
+  private repetitionPatternConsistencyFixProgress: RepetitionPatternConsistencyFixProgress | null =
+    null;
   private plotSummaryReady = false;
   private resourceVersions: ProjectResourceVersions = {
     dictionaryRevision: 0,
@@ -316,6 +335,85 @@ export class ProjectService {
       endUnitIndexExclusive,
       entries,
     };
+  }
+
+  getRepetitionPatternConsistencyFixProgress(): RepetitionPatternConsistencyFixProgress | null {
+    return this.repetitionPatternConsistencyFixProgress
+      ? {
+          ...this.repetitionPatternConsistencyFixProgress,
+          runningPatterns: [...this.repetitionPatternConsistencyFixProgress.runningPatterns],
+        }
+      : null;
+  }
+
+  async startRepetitionPatternConsistencyFix(input: {
+    llmProfileName: string;
+    minOccurrences?: number;
+    minLength?: number;
+    maxResults?: number;
+  }): Promise<RepetitionPatternConsistencyFixProgress> {
+    if (this.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!this.project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+    if (this.repetitionPatternConsistencyFixProgress?.status === 'running') {
+      throw new ProjectServiceUserInputError('表达统一修复任务正在运行');
+    }
+
+    const llmProfileName = input.llmProfileName.trim();
+    if (!llmProfileName) {
+      throw new ProjectServiceUserInputError('请选择一个 LLM 配置');
+    }
+
+    const manager = new GlobalConfigManager();
+    await manager.getRequiredLlmProfile(llmProfileName);
+
+    const analysis = this.project.analyzeRepeatedPatterns({
+      minOccurrences: input.minOccurrences,
+      minLength: input.minLength,
+      maxResults: input.maxResults,
+    });
+    const tasks = buildRepetitionPatternFixTasks(analysis);
+
+    this.clearRepetitionPatternConsistencyFixProgress();
+    this.isBusy = true;
+    this.repetitionPatternConsistencyFixProgress = {
+      status: tasks.length > 0 ? 'running' : 'done',
+      llmProfileName,
+      totalPatterns: tasks.length,
+      completedPatterns: 0,
+      failedPatterns: 0,
+      runningPatterns: [],
+    };
+
+    if (tasks.length === 0) {
+      this.log('info', '当前没有需要 AI 统一的重复 Pattern');
+      this.isBusy = false;
+      return this.getRepetitionPatternConsistencyFixProgress()!;
+    }
+
+    const project = this.project;
+    this.log(
+      'info',
+      `开始执行表达统一修复，共 ${tasks.length} 个 Pattern，LLM=${llmProfileName}`,
+    );
+
+    void this.runRepetitionPatternConsistencyFix({
+      project,
+      llmProfileName,
+      tasks,
+    });
+
+    return this.getRepetitionPatternConsistencyFixProgress()!;
+  }
+
+  clearRepetitionPatternConsistencyFixProgress(): void {
+    if (this.repetitionPatternConsistencyFixProgress?.status === 'running') {
+      throw new ProjectServiceUserInputError('表达统一修复任务仍在运行，暂时不能关闭进度');
+    }
+    this.repetitionPatternConsistencyFixProgress = null;
   }
 
   getGlossaryTerms(): Array<{
@@ -1506,6 +1604,196 @@ export class ProjectService {
 
   private markWorkspaceConfigChanged(): void {
     this.resourceVersions.workspaceConfigRevision += 1;
+  }
+
+  private async runRepetitionPatternConsistencyFix(params: {
+    project: TranslationProject;
+    llmProfileName: string;
+    tasks: RepetitionPatternFixTask[];
+  }): Promise<void> {
+    let provider: ReturnType<TranslationGlobalConfig['createProvider']> | undefined;
+
+    try {
+      const manager = new GlobalConfigManager();
+      const llmProfile = await manager.getRequiredLlmProfile(params.llmProfileName);
+      provider = new TranslationGlobalConfig({
+        llm: {
+          profiles: {
+            [params.llmProfileName]: llmProfile,
+          },
+        },
+      }).createProvider();
+      const projectDir = params.project.getWorkspaceFileManifest().projectDir;
+      provider.setHistoryLogger(
+        new FileRequestHistoryLogger(join(projectDir, 'logs'), 'consistency_fix_requests'),
+      );
+
+      const fixer = new RepetitionPatternFixer(provider.getChatClient(params.llmProfileName), {
+        logger: this.createLogger(),
+      });
+      const runningPatterns = new Set<string>();
+      const taskResults = new Map<
+        number,
+        | { type: 'success'; value: RepetitionPatternFixResult }
+        | { type: 'error'; task: RepetitionPatternFixTask; errorMessage: string }
+      >();
+
+      let nextTaskIndex = 0;
+      let nextApplyIndex = 0;
+      let flushChain = Promise.resolve();
+
+      const syncProgress = (
+        patch: Partial<RepetitionPatternConsistencyFixProgress> = {},
+      ): void => {
+        if (!this.repetitionPatternConsistencyFixProgress) {
+          return;
+        }
+        this.repetitionPatternConsistencyFixProgress = {
+          ...this.repetitionPatternConsistencyFixProgress,
+          ...patch,
+          runningPatterns: [...runningPatterns],
+        };
+      };
+
+      const flushCompletedResults = async () => {
+        while (taskResults.has(nextApplyIndex)) {
+          const entry = taskResults.get(nextApplyIndex)!;
+          taskResults.delete(nextApplyIndex);
+
+          if (entry.type === 'success') {
+            const appliedCount = await this.applyRepetitionPatternFixResult(
+              params.project,
+              entry.value,
+            );
+            syncProgress({
+              completedPatterns:
+                this.repetitionPatternConsistencyFixProgress!.completedPatterns + 1,
+              lastAppliedPatternText: entry.value.task.patternText,
+            });
+            this.log(
+              'success',
+              `表达统一修复完成：${entry.value.task.patternText}（${appliedCount} 条译文更新）`,
+            );
+          } else {
+            syncProgress({
+              failedPatterns:
+                this.repetitionPatternConsistencyFixProgress!.failedPatterns + 1,
+            });
+            this.log(
+              'error',
+              `表达统一修复失败：${entry.task.patternText}：${entry.errorMessage}`,
+            );
+          }
+
+          nextApplyIndex += 1;
+        }
+      };
+
+      const scheduleFlush = async () => {
+        flushChain = flushChain.then(() => flushCompletedResults());
+        await flushChain;
+      };
+
+      const worker = async () => {
+        while (true) {
+          const taskIndex = nextTaskIndex;
+          nextTaskIndex += 1;
+          if (taskIndex >= params.tasks.length) {
+            return;
+          }
+
+          const task = params.tasks[taskIndex]!;
+          runningPatterns.add(task.patternText);
+          syncProgress();
+          this.log('info', `表达统一修复处理中：${task.patternText}`);
+
+          try {
+            const value = await fixer.executeTask(task);
+            taskResults.set(taskIndex, { type: 'success', value });
+          } catch (error) {
+            taskResults.set(taskIndex, {
+              type: 'error',
+              task,
+              errorMessage: toMsg(error),
+            });
+          } finally {
+            runningPatterns.delete(task.patternText);
+            syncProgress();
+            await scheduleFlush();
+          }
+        }
+      };
+
+      const concurrency = Math.max(
+        1,
+        Math.min(params.tasks.length, llmProfile.maxParallelRequests ?? 4),
+      );
+      await Promise.all(Array.from({ length: concurrency }, () => worker()));
+      await flushChain;
+
+      const failedPatterns = this.repetitionPatternConsistencyFixProgress?.failedPatterns ?? 0;
+      const finalStatus = failedPatterns > 0 ? 'error' : 'done';
+      syncProgress({
+        status: finalStatus,
+        errorMessage:
+          finalStatus === 'error'
+            ? `表达统一修复已完成，但有 ${failedPatterns} 个 Pattern 失败`
+            : undefined,
+      });
+      this.log(
+        finalStatus === 'done' ? 'success' : 'warning',
+        finalStatus === 'done'
+          ? `表达统一修复全部完成，共 ${params.tasks.length} 个 Pattern`
+          : `表达统一修复已结束，成功 ${params.tasks.length - failedPatterns} 个，失败 ${failedPatterns} 个`,
+      );
+    } catch (error) {
+      if (this.repetitionPatternConsistencyFixProgress) {
+        this.repetitionPatternConsistencyFixProgress = {
+          ...this.repetitionPatternConsistencyFixProgress,
+          status: 'error',
+          errorMessage: toMsg(error),
+          runningPatterns: [],
+        };
+      }
+      this.log('error', `表达统一修复执行失败：${toMsg(error)}`);
+    } finally {
+      this.isBusy = false;
+      await provider?.closeAll();
+    }
+  }
+
+  private async applyRepetitionPatternFixResult(
+    project: TranslationProject,
+    result: RepetitionPatternFixResult,
+  ): Promise<number> {
+    let appliedCount = 0;
+
+    for (const update of result.updates) {
+      const chapter = project.getDocumentManager().getChapterById(update.location.chapterId);
+      const currentTranslation =
+        chapter?.fragments[update.location.fragmentIndex]?.translation.lines[
+          update.location.lineIndex
+        ] ?? '';
+      if (currentTranslation === update.translation) {
+        continue;
+      }
+
+      await project.updateTranslatedLine(
+        update.location.chapterId,
+        update.location.fragmentIndex,
+        update.location.lineIndex,
+        update.translation,
+      );
+      appliedCount += 1;
+    }
+
+    if (appliedCount > 0) {
+      await project.saveProgress();
+      this.refreshSnapshot();
+      this.markChaptersChanged();
+    }
+
+    return appliedCount;
   }
 
   private async runAction(

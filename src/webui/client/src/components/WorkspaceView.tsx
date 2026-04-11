@@ -21,11 +21,16 @@ export function WorkspaceView({
   workspaceForm,
   defaultImportFormat,
   translatorOptions,
+  llmProfileOptions,
+  defaultLlmProfileName,
   onRefreshProjectStatus,
   onRefreshDictionary,
   onRefreshRepeatedPatterns,
   onSaveRepeatedPatternTranslation,
   onLoadRepeatedPatternContext,
+  onStartRepeatedPatternConsistencyFix,
+  onGetRepeatedPatternConsistencyFixStatus,
+  onClearRepeatedPatternConsistencyFixStatus,
   onRefreshChapters,
   onRefreshTopology,
   onRefreshWorkspaceConfig,
@@ -157,9 +162,15 @@ export function WorkspaceView({
               <WorkspaceConsistencyTab
                 active={activeTabKey === 'consistency-analysis'}
                 repeatedPatterns={repeatedPatterns}
+                llmProfileOptions={llmProfileOptions}
+                defaultLlmProfileName={defaultLlmProfileName}
                 onRefreshRepeatedPatterns={onRefreshRepeatedPatterns}
                 onSaveRepeatedPatternTranslation={onSaveRepeatedPatternTranslation}
                 onLoadRepeatedPatternContext={onLoadRepeatedPatternContext}
+                onRefreshProjectStatus={onRefreshProjectStatus}
+                onStartRepeatedPatternConsistencyFix={onStartRepeatedPatternConsistencyFix}
+                onGetRepeatedPatternConsistencyFixStatus={onGetRepeatedPatternConsistencyFixStatus}
+                onClearRepeatedPatternConsistencyFixStatus={onClearRepeatedPatternConsistencyFixStatus}
               />
             ),
           },

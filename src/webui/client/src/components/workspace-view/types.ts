@@ -6,6 +6,7 @@ import type {
   ImportArchiveResult,
   ProjectStatus,
   RepetitionPatternAnalysisResult,
+  RepetitionPatternConsistencyFixProgress,
   RepetitionPatternContextResult,
   StoryTopologyDescriptor,
   TranslationProjectSnapshot,
@@ -36,6 +37,8 @@ export interface WorkspaceViewProps {
   workspaceForm: FormInstance<Record<string, unknown>>;
   defaultImportFormat?: string;
   translatorOptions: Array<{ label: string; value: string }>;
+  llmProfileOptions: Array<{ label: string; value: string }>;
+  defaultLlmProfileName?: string;
   onRefreshProjectStatus: () => void | Promise<void>;
   onRefreshDictionary: () => void | Promise<void>;
   onRefreshRepeatedPatterns: (options?: {
@@ -53,6 +56,14 @@ export interface WorkspaceViewProps {
     chapterId: number;
     unitIndex: number;
   }) => Promise<RepetitionPatternContextResult>;
+  onStartRepeatedPatternConsistencyFix: (input: {
+    llmProfileName: string;
+    minOccurrences?: number;
+    minLength?: number;
+    maxResults?: number;
+  }) => Promise<RepetitionPatternConsistencyFixProgress>;
+  onGetRepeatedPatternConsistencyFixStatus: () => Promise<RepetitionPatternConsistencyFixProgress | null>;
+  onClearRepeatedPatternConsistencyFixStatus: () => Promise<void>;
   onRefreshChapters: () => void | Promise<void>;
   onRefreshTopology: () => void | Promise<void>;
   onRefreshWorkspaceConfig: () => void | Promise<void>;

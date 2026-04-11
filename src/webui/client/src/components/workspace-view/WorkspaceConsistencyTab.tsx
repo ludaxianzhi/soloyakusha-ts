@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card, Tabs } from 'antd';
 import type {
   RepetitionPatternAnalysisResult,
+  RepetitionPatternConsistencyFixProgress,
   RepetitionPatternContextResult,
 } from '../../app/types.ts';
 import { WorkspaceRepetitionPatternsTab } from './WorkspaceRepetitionPatternsTab.tsx';
@@ -9,6 +10,8 @@ import { WorkspaceRepetitionPatternsTab } from './WorkspaceRepetitionPatternsTab
 interface WorkspaceConsistencyTabProps {
   active: boolean;
   repeatedPatterns: RepetitionPatternAnalysisResult | null;
+  llmProfileOptions: Array<{ label: string; value: string }>;
+  defaultLlmProfileName?: string;
   onRefreshRepeatedPatterns: (options?: {
     minOccurrences?: number;
     minLength?: number;
@@ -24,14 +27,29 @@ interface WorkspaceConsistencyTabProps {
     chapterId: number;
     unitIndex: number;
   }) => Promise<RepetitionPatternContextResult>;
+  onRefreshProjectStatus: () => void | Promise<void>;
+  onStartRepeatedPatternConsistencyFix: (input: {
+    llmProfileName: string;
+    minOccurrences?: number;
+    minLength?: number;
+    maxResults?: number;
+  }) => Promise<RepetitionPatternConsistencyFixProgress>;
+  onGetRepeatedPatternConsistencyFixStatus: () => Promise<RepetitionPatternConsistencyFixProgress | null>;
+  onClearRepeatedPatternConsistencyFixStatus: () => Promise<void>;
 }
 
 export function WorkspaceConsistencyTab({
   active,
   repeatedPatterns,
+  llmProfileOptions,
+  defaultLlmProfileName,
   onRefreshRepeatedPatterns,
   onSaveRepeatedPatternTranslation,
   onLoadRepeatedPatternContext,
+  onRefreshProjectStatus,
+  onStartRepeatedPatternConsistencyFix,
+  onGetRepeatedPatternConsistencyFixStatus,
+  onClearRepeatedPatternConsistencyFixStatus,
 }: WorkspaceConsistencyTabProps) {
   const [activeSubTabKey, setActiveSubTabKey] = useState('repetition-patterns');
 
@@ -49,9 +67,15 @@ export function WorkspaceConsistencyTab({
               <WorkspaceRepetitionPatternsTab
                 active={active && activeSubTabKey === 'repetition-patterns'}
                 repeatedPatterns={repeatedPatterns}
+                llmProfileOptions={llmProfileOptions}
+                defaultLlmProfileName={defaultLlmProfileName}
                 onRefreshRepeatedPatterns={onRefreshRepeatedPatterns}
                 onSaveRepeatedPatternTranslation={onSaveRepeatedPatternTranslation}
                 onLoadRepeatedPatternContext={onLoadRepeatedPatternContext}
+                onRefreshProjectStatus={onRefreshProjectStatus}
+                onStartRepeatedPatternConsistencyFix={onStartRepeatedPatternConsistencyFix}
+                onGetRepeatedPatternConsistencyFixStatus={onGetRepeatedPatternConsistencyFixStatus}
+                onClearRepeatedPatternConsistencyFixStatus={onClearRepeatedPatternConsistencyFixStatus}
               />
             ),
           },
