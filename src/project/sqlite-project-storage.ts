@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import type { SavedRepetitionPatternAnalysisResult } from "./repetition-pattern-analysis.ts";
 import type {
   ChapterEntry,
   FragmentEntry,
@@ -53,6 +54,24 @@ export class SqliteProjectStorage {
 
   async saveProjectState(state: TranslationProjectState): Promise<void> {
     await this.writeMetadata("project_state", state);
+  }
+
+  async loadSavedRepetitionPatternAnalysis(): Promise<
+    SavedRepetitionPatternAnalysisResult | undefined
+  > {
+    return this.readMetadata<SavedRepetitionPatternAnalysisResult>(
+      "saved_repetition_pattern_analysis",
+    );
+  }
+
+  async saveSavedRepetitionPatternAnalysis(
+    result: SavedRepetitionPatternAnalysisResult,
+  ): Promise<void> {
+    await this.writeMetadata("saved_repetition_pattern_analysis", result);
+  }
+
+  async clearSavedRepetitionPatternAnalysis(): Promise<void> {
+    await this.deleteMetadata("saved_repetition_pattern_analysis");
   }
 
   async loadChapter(chapterId: number): Promise<ChapterEntry | undefined> {
@@ -213,6 +232,12 @@ export class SqliteProjectStorage {
          VALUES (?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
       ).run(key, JSON.stringify(value));
+    });
+  }
+
+  private async deleteMetadata(key: string): Promise<void> {
+    await this.enqueueWrite(async (db) => {
+      db.query(`DELETE FROM project_metadata WHERE key = ?1`).run(key);
     });
   }
 

@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { lintGutter, linter } from '@codemirror/lint';
-import { Decoration, EditorView } from '@codemirror/view';
+import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { Alert, App as AntdApp, Button, Card, Empty, Select, Space, Spin, Tag, Typography } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../app/api.ts';
 import type {
   ChapterTranslationEditorDiagnostic,
   ChapterTranslationEditorDocument,
-  ChapterTranslationEditorGlossaryMatch,
+  ChapterTranslationEditorRepetitionMatch,
   EditableTranslationFormat,
   GlossaryTerm,
   WorkspaceChapterDescriptor,
@@ -19,6 +19,18 @@ const EDITOR_FORMAT_OPTIONS: Array<{ label: string; value: EditableTranslationFo
   { label: 'Nature Dialog', value: 'naturedialog' },
   { label: 'M3T', value: 'm3t' },
 ];
+
+type EditorGlossaryDecoration = {
+  from: number;
+  to: number;
+  className: string;
+  title: string;
+};
+
+type EditorGlossaryHint = {
+  position: number;
+  text: string;
+};
 
 export function ChapterTranslationEditorPage() {
   const { message } = AntdApp.useApp();
@@ -164,27 +176,29 @@ export function ChapterTranslationEditorPage() {
     };
   }, [content, dirty, draft, format, selectedChapterId]);
 
-  const glossaryMatches = useMemo(
-    () => collectGlossaryMatches(content, dictionary),
-    [content, dictionary],
+  const glossaryRender = useMemo(
+    () => buildGlossaryRenderState(content, format, dictionary, draft?.repetitionMatches ?? []),
+    [content, dictionary, draft?.repetitionMatches, format],
   );
 
   const editorExtensions = useMemo(() => {
     const decorations = Decoration.set(
-      glossaryMatches.map((match) =>
-        Decoration.mark({
-          class:
-            match.kind === 'sourceTerm'
-              ? 'chapter-editor-match-source'
-              : 'chapter-editor-match-target',
-          attributes: {
-            title:
-              match.kind === 'sourceTerm'
-                ? `术语：${match.term}${match.translation ? ` -> ${match.translation}` : ''}`
-                : `译文命中：${match.translation ?? match.text}`,
-          },
-        }).range(match.from, match.to),
-      ),
+      [
+        ...glossaryRender.highlights.map((match) =>
+          Decoration.mark({
+            class: match.className,
+            attributes: {
+              title: match.title,
+            },
+          }).range(match.from, match.to),
+        ),
+        ...glossaryRender.hints.map((hint) =>
+          Decoration.widget({
+            widget: new InlineGlossaryHintWidget(hint.text),
+            side: 1,
+          }).range(hint.position),
+        ),
+      ],
       true,
     );
 
@@ -232,7 +246,7 @@ export function ChapterTranslationEditorPage() {
         })),
       ),
     ];
-  }, [diagnostics, glossaryMatches, isDarkMode]);
+  }, [diagnostics, glossaryRender, isDarkMode]);
 
   const chapterOptions = useMemo(
     () =>
@@ -364,7 +378,7 @@ export function ChapterTranslationEditorPage() {
               onChange={(value) => setFormat(value)}
             />
             <Tag color={dirty ? 'gold' : 'green'}>{dirty ? '未提交修改' : '与草稿一致'}</Tag>
-            <Tag>{`术语命中 ${glossaryMatches.length}`}</Tag>
+            <Tag>{`术语命中 ${glossaryRender.highlights.length}`}</Tag>
             <Tag color={errorCount > 0 ? 'red' : 'default'}>{`错误 ${errorCount}`}</Tag>
             <Tag color={warningCount > 0 ? 'gold' : 'default'}>{`警告 ${warningCount}`}</Tag>
             <Tag>{`变更行 ${changedLineCount}`}</Tag>
@@ -439,41 +453,99 @@ export function ChapterTranslationEditorPage() {
   );
 }
 
-function collectGlossaryMatches(
+function buildGlossaryRenderState(
   content: string,
+  format: EditableTranslationFormat,
   glossaryTerms: GlossaryTerm[],
-): ChapterTranslationEditorGlossaryMatch[] {
-  const matches: ChapterTranslationEditorGlossaryMatch[] = [];
-  for (const glossaryTerm of glossaryTerms) {
-    const term = glossaryTerm.term.trim();
-    if (term) {
-      matches.push(
-        ...findAllOccurrences(content, term).map(({ from, to }) => ({
-          from,
-          to,
-          text: content.slice(from, to),
-          term,
-          translation: glossaryTerm.translation,
-          kind: 'sourceTerm' as const,
-        })),
-      );
+  repetitionMatches: ChapterTranslationEditorRepetitionMatch[],
+): {
+  highlights: EditorGlossaryDecoration[];
+  hints: EditorGlossaryHint[];
+} {
+  const lines = classifyEditorLines(content, format);
+  const highlights: EditorGlossaryDecoration[] = [];
+  const hints: EditorGlossaryHint[] = [];
+  const sourceLines = lines.filter((line) => line.kind === 'source');
+
+  for (const line of lines) {
+    if (line.kind === 'source') {
+      const matchedTerms = glossaryTerms
+        .map((glossaryTerm) => ({
+          term: glossaryTerm.term.trim(),
+          translation: glossaryTerm.translation?.trim() ?? '',
+        }))
+        .filter((glossaryTerm) => glossaryTerm.term.length > 0 && line.body.includes(glossaryTerm.term));
+
+      for (const matchedTerm of matchedTerms) {
+        for (const occurrence of findAllOccurrences(line.body, matchedTerm.term)) {
+          highlights.push({
+            from: line.bodyFrom + occurrence.from,
+            to: line.bodyFrom + occurrence.to,
+            className: 'chapter-editor-match-source',
+            title: matchedTerm.translation
+              ? `术语：${matchedTerm.term} -> ${matchedTerm.translation}`
+              : `术语：${matchedTerm.term}`,
+          });
+        }
+      }
+
+      const hintText = matchedTerms
+        .filter((matchedTerm) => matchedTerm.translation.length > 0)
+        .filter(
+          (matchedTerm, index, allTerms) =>
+            allTerms.findIndex((term) => term.term === matchedTerm.term) === index,
+        )
+        .map((matchedTerm) => `${matchedTerm.term} -> ${matchedTerm.translation}`)
+        .join('  ');
+      if (hintText) {
+        hints.push({
+          position: line.to,
+          text: hintText,
+        });
+      }
+      continue;
     }
 
-    const translation = glossaryTerm.translation?.trim();
-    if (translation) {
-      matches.push(
-        ...findAllOccurrences(content, translation).map(({ from, to }) => ({
-          from,
-          to,
-          text: content.slice(from, to),
-          term,
-          translation,
-          kind: 'targetTranslation' as const,
-        })),
-      );
+    if (line.kind === 'target') {
+      for (const glossaryTerm of glossaryTerms) {
+        const translation = glossaryTerm.translation?.trim();
+        if (!translation || !line.body.includes(translation)) {
+          continue;
+        }
+        for (const occurrence of findAllOccurrences(line.body, translation)) {
+          highlights.push({
+            from: line.bodyFrom + occurrence.from,
+            to: line.bodyFrom + occurrence.to,
+            className: 'chapter-editor-match-target',
+            title: `术语译文：${glossaryTerm.term.trim()} -> ${translation}`,
+          });
+        }
+      }
     }
   }
-  return matches.sort((left, right) => left.from - right.from || right.to - left.to);
+
+  for (const match of repetitionMatches) {
+    const line = sourceLines[match.unitIndex];
+    if (!line) {
+      continue;
+    }
+    const from = line.bodyFrom + match.matchStartInSentence;
+    const to = line.bodyFrom + match.matchEndInSentence;
+    if (from < line.bodyFrom || to > line.bodyFrom + line.body.length || from >= to) {
+      continue;
+    }
+    highlights.push({
+      from,
+      to,
+      className: 'chapter-editor-match-pattern',
+      title: match.hoverText,
+    });
+  }
+
+  return {
+    highlights: highlights.sort((left, right) => left.from - right.from || right.to - left.to),
+    hints,
+  };
 }
 
 function findAllOccurrences(content: string, query: string): Array<{ from: number; to: number }> {
@@ -488,6 +560,150 @@ function findAllOccurrences(content: string, query: string): Array<{ from: numbe
     startIndex = index + Math.max(query.length, 1);
   }
   return matches;
+}
+
+function classifyEditorLines(
+  content: string,
+  format: EditableTranslationFormat,
+): Array<{
+  kind: 'source' | 'target' | 'name' | 'blank' | 'other';
+  from: number;
+  to: number;
+  bodyFrom: number;
+  body: string;
+}> {
+  const rawLines = content.split(/\r?\n/);
+  const lines: Array<{
+    kind: 'source' | 'target' | 'name' | 'blank' | 'other';
+    from: number;
+    to: number;
+    bodyFrom: number;
+    body: string;
+  }> = [];
+  let offset = 0;
+  let expectSource = true;
+  let pendingNamedSource = false;
+
+  for (const rawLine of rawLines) {
+    const lineFrom = offset;
+    const lineTo = lineFrom + rawLine.length;
+    offset = lineTo + 1;
+    const trimmed = rawLine.trim();
+
+    if (!trimmed) {
+      lines.push({
+        kind: 'blank',
+        from: lineFrom,
+        to: lineTo,
+        bodyFrom: lineTo,
+        body: '',
+      });
+      if (format === 'naturedialog') {
+        expectSource = true;
+      }
+      continue;
+    }
+
+    if (format === 'm3t') {
+      if (trimmed.startsWith('○ NAME:')) {
+        pendingNamedSource = true;
+        expectSource = true;
+        lines.push({
+          kind: 'name',
+          from: lineFrom,
+          to: lineTo,
+          bodyFrom: lineFrom + rawLine.indexOf('NAME:') + 'NAME:'.length,
+          body: trimmed.slice('○ NAME:'.length).trim(),
+        });
+        continue;
+      }
+      if (trimmed.startsWith('○')) {
+        const prefixLength = rawLine.indexOf('○') + 1 + (rawLine.slice(rawLine.indexOf('○') + 1).startsWith(' ') ? 1 : 0);
+        const kind = pendingNamedSource || expectSource ? 'source' : 'target';
+        lines.push({
+          kind,
+          from: lineFrom,
+          to: lineTo,
+          bodyFrom: lineFrom + prefixLength,
+          body: rawLine.slice(prefixLength),
+        });
+        pendingNamedSource = false;
+        expectSource = false;
+        continue;
+      }
+      if (trimmed.startsWith('●')) {
+        const prefixLength = rawLine.indexOf('●') + 1 + (rawLine.slice(rawLine.indexOf('●') + 1).startsWith(' ') ? 1 : 0);
+        lines.push({
+          kind: 'target',
+          from: lineFrom,
+          to: lineTo,
+          bodyFrom: lineFrom + prefixLength,
+          body: rawLine.slice(prefixLength),
+        });
+        expectSource = true;
+        pendingNamedSource = false;
+        continue;
+      }
+    }
+
+    if (format === 'naturedialog') {
+      if (trimmed.startsWith('○')) {
+        const prefixLength = rawLine.indexOf('○') + 1 + (rawLine.slice(rawLine.indexOf('○') + 1).startsWith(' ') ? 1 : 0);
+        lines.push({
+          kind: expectSource ? 'source' : 'target',
+          from: lineFrom,
+          to: lineTo,
+          bodyFrom: lineFrom + prefixLength,
+          body: rawLine.slice(prefixLength),
+        });
+        expectSource = false;
+        continue;
+      }
+      if (trimmed.startsWith('●')) {
+        const prefixLength = rawLine.indexOf('●') + 1 + (rawLine.slice(rawLine.indexOf('●') + 1).startsWith(' ') ? 1 : 0);
+        lines.push({
+          kind: 'target',
+          from: lineFrom,
+          to: lineTo,
+          bodyFrom: lineFrom + prefixLength,
+          body: rawLine.slice(prefixLength),
+        });
+        expectSource = true;
+        continue;
+      }
+    }
+
+    lines.push({
+      kind: 'other',
+      from: lineFrom,
+      to: lineTo,
+      bodyFrom: lineFrom,
+      body: rawLine,
+    });
+  }
+
+  return lines;
+}
+
+class InlineGlossaryHintWidget extends WidgetType {
+  constructor(private readonly text: string) {
+    super();
+  }
+
+  override eq(other: InlineGlossaryHintWidget): boolean {
+    return other.text === this.text;
+  }
+
+  override toDOM(): HTMLElement {
+    const element = document.createElement('span');
+    element.className = 'chapter-editor-inline-glossary-hint';
+    element.textContent = this.text;
+    return element;
+  }
+
+  override ignoreEvent(): boolean {
+    return true;
+  }
 }
 
 function countChangedLines(previousText: string, nextText: string): number {

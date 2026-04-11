@@ -35,6 +35,7 @@ import type {
   ProjectStatus,
   ProjectResourceVersions,
   RepetitionPatternAnalysisResult,
+  SavedRepetitionPatternAnalysisResult,
   StoryTopologyDescriptor,
   TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
@@ -89,9 +90,10 @@ export function AppShell() {
   const [projectStatus, setProjectStatus] = useState<ProjectStatus | null>(null);
   const [snapshot, setSnapshot] = useState<TranslationProjectSnapshot | null>(null);
   const [dictionary, setDictionary] = useState<GlossaryTerm[]>([]);
-  const [repeatedPatterns, setRepeatedPatterns] = useState<RepetitionPatternAnalysisResult | null>(
+  const [repeatedPatterns, setRepeatedPatterns] = useState<SavedRepetitionPatternAnalysisResult | null>(
     null,
   );
+  const repeatedPatternsRef = useRef<SavedRepetitionPatternAnalysisResult | null>(null);
   const [chapters, setChapters] = useState<WorkspaceChapterDescriptor[]>([]);
   const [topology, setTopology] = useState<StoryTopologyDescriptor | null>(null);
   const [dictionaryModalOpen, setDictionaryModalOpen] = useState(false);
@@ -124,6 +126,7 @@ export function AppShell() {
     chaptersRevision: 0,
     topologyRevision: 0,
     workspaceConfigRevision: 0,
+    repetitionPatternsRevision: 0,
   });
 
   const [workspaceForm] = Form.useForm<Record<string, unknown>>();
@@ -207,6 +210,7 @@ export function AppShell() {
       chaptersRevision: value,
       topologyRevision: value,
       workspaceConfigRevision: value,
+      repetitionPatternsRevision: value,
     };
   }, []);
 
@@ -239,17 +243,57 @@ export function AppShell() {
     };
   }, []);
 
+  useEffect(() => {
+    repeatedPatternsRef.current = repeatedPatterns;
+  }, [repeatedPatterns]);
+
   const refreshRepeatedPatterns = useCallback(
+    async (options?: { chapterIds?: number[] }) => {
+      let nextRevision: number | undefined;
+      try {
+        const versions = await api.getProjectResourceVersions();
+        nextRevision = versions.repetitionPatternsRevision;
+        if (
+          nextRevision === workspaceResourceVersionsRef.current.repetitionPatternsRevision &&
+          !options?.chapterIds?.length
+        ) {
+          return repeatedPatternsRef.current;
+        }
+      } catch {
+        // ignore version probe failures and fall back to direct fetch
+      }
+      const result = await api.getRepeatedPatterns(options);
+      setRepeatedPatterns(result);
+      workspaceResourceVersionsRef.current = {
+        ...workspaceResourceVersionsRef.current,
+        repetitionPatternsRevision:
+          nextRevision ?? workspaceResourceVersionsRef.current.repetitionPatternsRevision + 1,
+      };
+      return result;
+    },
+    [],
+  );
+
+  const scanRepeatedPatterns = useCallback(
     async (options?: {
       minOccurrences?: number;
       minLength?: number;
       maxResults?: number;
-      chapterIds?: number[];
     }) => {
-      const result = await api.getRepeatedPatterns(options);
+      const result = await api.scanRepeatedPatterns(options);
       setRepeatedPatterns(result);
+      workspaceResourceVersionsRef.current = {
+        ...workspaceResourceVersionsRef.current,
+        repetitionPatternsRevision: workspaceResourceVersionsRef.current.repetitionPatternsRevision + 1,
+      };
       return result;
     },
+    [],
+  );
+
+  const hydrateRepeatedPatterns = useCallback(
+    async (input: { chapterIds?: number[]; patternTexts?: string[] }) =>
+      api.hydrateRepeatedPatterns(input),
     [],
   );
 
@@ -275,9 +319,6 @@ export function AppShell() {
   const handleStartRepeatedPatternConsistencyFix = useCallback(
     async (input: {
       llmProfileName: string;
-      minOccurrences?: number;
-      minLength?: number;
-      maxResults?: number;
       chapterIds?: number[];
     }) => api.startRepeatedPatternConsistencyFix(input),
     [],
@@ -499,6 +540,15 @@ export function AppShell() {
   useEffect(() => {
     resetWorkspaceDataCaches();
   }, [resetWorkspaceDataCaches, snapshot?.projectName]);
+
+  useEffect(() => {
+    if (!snapshot) {
+      return;
+    }
+    void refreshRepeatedPatterns().catch(() => {
+      setRepeatedPatterns(null);
+    });
+  }, [refreshRepeatedPatterns, snapshot]);
 
   useEffect(() => {
     if (location.pathname !== '/settings') {
@@ -1400,6 +1450,8 @@ export function AppShell() {
                     onRefreshProjectStatus={refreshProjectStatus}
                     onRefreshDictionary={refreshDictionary}
                     onRefreshRepeatedPatterns={refreshRepeatedPatterns}
+                    onScanRepeatedPatterns={scanRepeatedPatterns}
+                    onHydrateRepeatedPatterns={hydrateRepeatedPatterns}
                     onSaveRepeatedPatternTranslation={handleSaveRepeatedPatternTranslation}
                     onLoadRepeatedPatternContext={handleLoadRepeatedPatternContext}
                     onStartRepeatedPatternConsistencyFix={

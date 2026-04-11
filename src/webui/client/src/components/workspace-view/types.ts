@@ -8,6 +8,7 @@ import type {
   RepetitionPatternAnalysisResult,
   RepetitionPatternConsistencyFixProgress,
   RepetitionPatternContextResult,
+  SavedRepetitionPatternAnalysisResult,
   StoryTopologyDescriptor,
   TranslationProjectSnapshot,
   UpdateStoryRoutePayload,
@@ -31,7 +32,7 @@ export interface WorkspaceViewProps {
   projectStatus: ProjectStatus | null;
   sseConnected: boolean;
   dictionary: GlossaryTerm[];
-  repeatedPatterns: RepetitionPatternAnalysisResult | null;
+  repeatedPatterns: SavedRepetitionPatternAnalysisResult | null;
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
   workspaceForm: FormInstance<Record<string, unknown>>;
@@ -41,11 +42,15 @@ export interface WorkspaceViewProps {
   defaultLlmProfileName?: string;
   onRefreshProjectStatus: () => void | Promise<void>;
   onRefreshDictionary: () => void | Promise<void>;
-  onRefreshRepeatedPatterns: (options?: {
+  onRefreshRepeatedPatterns: (options?: { chapterIds?: number[] }) => Promise<SavedRepetitionPatternAnalysisResult | null>;
+  onScanRepeatedPatterns: (options?: {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+  }) => Promise<SavedRepetitionPatternAnalysisResult | null>;
+  onHydrateRepeatedPatterns: (input: {
     chapterIds?: number[];
+    patternTexts?: string[];
   }) => Promise<RepetitionPatternAnalysisResult | null>;
   onSaveRepeatedPatternTranslation: (input: {
     chapterId: number;
@@ -59,9 +64,6 @@ export interface WorkspaceViewProps {
   }) => Promise<RepetitionPatternContextResult>;
   onStartRepeatedPatternConsistencyFix: (input: {
     llmProfileName: string;
-    minOccurrences?: number;
-    minLength?: number;
-    maxResults?: number;
     chapterIds?: number[];
   }) => Promise<RepetitionPatternConsistencyFixProgress>;
   onGetRepeatedPatternConsistencyFixStatus: () => Promise<RepetitionPatternConsistencyFixProgress | null>;

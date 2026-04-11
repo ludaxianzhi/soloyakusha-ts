@@ -27,6 +27,8 @@ export function WorkspaceView({
   onRefreshProjectStatus,
   onRefreshDictionary,
   onRefreshRepeatedPatterns,
+  onScanRepeatedPatterns,
+  onHydrateRepeatedPatterns,
   onSaveRepeatedPatternTranslation,
   onLoadRepeatedPatternContext,
   onStartRepeatedPatternConsistencyFix,
@@ -178,6 +180,8 @@ export function WorkspaceView({
                 llmProfileOptions={llmProfileOptions}
                 defaultLlmProfileName={defaultLlmProfileName}
                 onRefreshRepeatedPatterns={onRefreshRepeatedPatterns}
+                onScanRepeatedPatterns={onScanRepeatedPatterns}
+                onHydrateRepeatedPatterns={onHydrateRepeatedPatterns}
                 onSaveRepeatedPatternTranslation={onSaveRepeatedPatternTranslation}
                 onLoadRepeatedPatternContext={onLoadRepeatedPatternContext}
                 onRefreshProjectStatus={onRefreshProjectStatus}

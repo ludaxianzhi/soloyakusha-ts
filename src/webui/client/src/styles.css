@@ -313,6 +313,23 @@ body {
   border-bottom: 1px solid var(--match-target-border);
 }
 
+.chapter-editor-match-pattern {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #9254de;
+  text-decoration-thickness: 1.5px;
+}
+
+.chapter-editor-inline-glossary-hint {
+  display: inline-block;
+  margin-left: 24px;
+  color: var(--text-muted);
+  font-style: italic;
+  user-select: none;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .chapter-editor-diagnostic-list {
   display: grid;
   gap: 10px;

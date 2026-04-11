@@ -240,9 +240,6 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
   app.get('/repetition-patterns', (c) => {
     try {
       const result = projectService.getRepeatedPatterns({
-        minOccurrences: readOptionalPositiveIntegerQuery(c.req.query('minOccurrences')),
-        minLength: readOptionalPositiveIntegerQuery(c.req.query('minLength')),
-        maxResults: readOptionalPositiveIntegerQuery(c.req.query('maxResults')),
         chapterIds: readOptionalPositiveIntegerListQuery(c.req.query('chapterIds')),
       });
       if (!result) {
@@ -251,6 +248,53 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
       return c.json(result);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
+
+  app.post('/repetition-patterns/scan', async (c) => {
+    try {
+      const body = await c.req.json<{
+        minOccurrences?: number;
+        minLength?: number;
+        maxResults?: number;
+      }>();
+      const result = await projectService.scanRepeatedPatterns({
+        minOccurrences: readOptionalPositiveIntegerValue(body.minOccurrences),
+        minLength: readOptionalPositiveIntegerValue(body.minLength),
+        maxResults: readOptionalPositiveIntegerValue(body.maxResults),
+      });
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/repetition-patterns/hydrate', async (c) => {
+    try {
+      const body = await c.req.json<{
+        chapterIds?: number[];
+        patternTexts?: string[];
+      }>();
+      const result = projectService.hydrateRepeatedPatterns({
+        chapterIds: readOptionalPositiveIntegerArrayValue(body.chapterIds),
+        patternTexts: Array.isArray(body.patternTexts)
+          ? body.patternTexts
+              .map((value) => String(value).trim())
+              .filter(Boolean)
+          : undefined,
+      });
+      if (!result) {
+        return c.json({ error: '当前没有已初始化的项目或没有已保存的 Pattern' }, 404);
+      }
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
   });
 
@@ -298,16 +342,10 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     try {
       const body = await c.req.json<{
         llmProfileName?: string;
-        minOccurrences?: number;
-        minLength?: number;
-        maxResults?: number;
         chapterIds?: number[];
       }>();
       const progress = await projectService.startRepetitionPatternConsistencyFix({
         llmProfileName: String(body.llmProfileName ?? ''),
-        minOccurrences: readOptionalPositiveIntegerValue(body.minOccurrences),
-        minLength: readOptionalPositiveIntegerValue(body.minLength),
-        maxResults: readOptionalPositiveIntegerValue(body.maxResults),
         chapterIds: readOptionalPositiveIntegerArrayValue(body.chapterIds),
       });
       return c.json(progress);

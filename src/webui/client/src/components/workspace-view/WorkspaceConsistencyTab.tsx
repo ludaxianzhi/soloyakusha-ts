@@ -4,6 +4,7 @@ import type {
   RepetitionPatternAnalysisResult,
   RepetitionPatternConsistencyFixProgress,
   RepetitionPatternContextResult,
+  SavedRepetitionPatternAnalysisResult,
   StoryTopologyDescriptor,
   WorkspaceChapterDescriptor,
 } from '../../app/types.ts';
@@ -11,16 +12,20 @@ import { WorkspaceRepetitionPatternsTab } from './WorkspaceRepetitionPatternsTab
 
 interface WorkspaceConsistencyTabProps {
   active: boolean;
-  repeatedPatterns: RepetitionPatternAnalysisResult | null;
+  repeatedPatterns: SavedRepetitionPatternAnalysisResult | null;
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
   llmProfileOptions: Array<{ label: string; value: string }>;
   defaultLlmProfileName?: string;
-  onRefreshRepeatedPatterns: (options?: {
+  onRefreshRepeatedPatterns: (options?: { chapterIds?: number[] }) => Promise<SavedRepetitionPatternAnalysisResult | null>;
+  onScanRepeatedPatterns: (options?: {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+  }) => Promise<SavedRepetitionPatternAnalysisResult | null>;
+  onHydrateRepeatedPatterns: (input: {
     chapterIds?: number[];
+    patternTexts?: string[];
   }) => Promise<RepetitionPatternAnalysisResult | null>;
   onSaveRepeatedPatternTranslation: (input: {
     chapterId: number;
@@ -35,9 +40,6 @@ interface WorkspaceConsistencyTabProps {
   onRefreshProjectStatus: () => void | Promise<void>;
   onStartRepeatedPatternConsistencyFix: (input: {
     llmProfileName: string;
-    minOccurrences?: number;
-    minLength?: number;
-    maxResults?: number;
     chapterIds?: number[];
   }) => Promise<RepetitionPatternConsistencyFixProgress>;
   onGetRepeatedPatternConsistencyFixStatus: () => Promise<RepetitionPatternConsistencyFixProgress | null>;
@@ -52,6 +54,8 @@ export function WorkspaceConsistencyTab({
   llmProfileOptions,
   defaultLlmProfileName,
   onRefreshRepeatedPatterns,
+  onScanRepeatedPatterns,
+  onHydrateRepeatedPatterns,
   onSaveRepeatedPatternTranslation,
   onLoadRepeatedPatternContext,
   onRefreshProjectStatus,
@@ -80,6 +84,8 @@ export function WorkspaceConsistencyTab({
                 llmProfileOptions={llmProfileOptions}
                 defaultLlmProfileName={defaultLlmProfileName}
                 onRefreshRepeatedPatterns={onRefreshRepeatedPatterns}
+                onScanRepeatedPatterns={onScanRepeatedPatterns}
+                onHydrateRepeatedPatterns={onHydrateRepeatedPatterns}
                 onSaveRepeatedPatternTranslation={onSaveRepeatedPatternTranslation}
                 onLoadRepeatedPatternContext={onLoadRepeatedPatternContext}
                 onRefreshProjectStatus={onRefreshProjectStatus}

@@ -9,6 +9,7 @@ export type RepetitionPatternAnalysisOptions = GlobalAssociationPatternScanOptio
 export type RepetitionPatternAnalysisScope = {
   chapterIds?: number[];
 };
+export const SAVED_REPETITION_PATTERN_ANALYSIS_SCHEMA_VERSION = 1 as const;
 
 export type ScopedRepetitionPatternAnalysisOptions = RepetitionPatternAnalysisOptions &
   RepetitionPatternAnalysisScope;
@@ -67,6 +68,27 @@ export type RepetitionPatternAnalysisResult = {
   fullTextLength: number;
   totalSentenceCount: number;
   patterns: RepetitionPatternAnalysis[];
+};
+
+export type SavedRepetitionPatternLocation = Omit<
+  RepetitionPatternLocation,
+  "translatedSentence"
+>;
+
+export type SavedRepetitionPatternAnalysis = {
+  text: string;
+  length: number;
+  occurrenceCount: number;
+  locations: SavedRepetitionPatternLocation[];
+};
+
+export type SavedRepetitionPatternAnalysisResult = {
+  schemaVersion: typeof SAVED_REPETITION_PATTERN_ANALYSIS_SCHEMA_VERSION;
+  generatedAt: string;
+  scanOptions: RepetitionPatternAnalysisOptions;
+  fullTextLength: number;
+  totalSentenceCount: number;
+  patterns: SavedRepetitionPatternAnalysis[];
 };
 
 export function buildRepetitionPatternCorpus(params: {
@@ -155,6 +177,53 @@ export class RepetitionPatternAnalyzer {
       }),
     };
   }
+}
+
+export function createSavedRepetitionPatternAnalysisResult(
+  result: RepetitionPatternAnalysisResult,
+  options: RepetitionPatternAnalysisOptions = {},
+  generatedAt = new Date().toISOString(),
+): SavedRepetitionPatternAnalysisResult {
+  return {
+    schemaVersion: SAVED_REPETITION_PATTERN_ANALYSIS_SCHEMA_VERSION,
+    generatedAt,
+    scanOptions: { ...options },
+    fullTextLength: result.fullTextLength,
+    totalSentenceCount: result.totalSentenceCount,
+    patterns: result.patterns.map((pattern) => ({
+      text: pattern.text,
+      length: pattern.length,
+      occurrenceCount: pattern.occurrenceCount,
+      locations: pattern.locations.map(({ translatedSentence: _, ...location }) => ({
+        ...location,
+      })),
+    })),
+  };
+}
+
+export function hydrateSavedRepetitionPatternAnalysisResult(
+  saved: SavedRepetitionPatternAnalysisResult,
+  resolveTranslation: (location: SavedRepetitionPatternLocation) => string,
+): RepetitionPatternAnalysisResult {
+  return {
+    fullTextLength: saved.fullTextLength,
+    totalSentenceCount: saved.totalSentenceCount,
+    patterns: saved.patterns.map((pattern) => {
+      const locations = pattern.locations.map((location) => ({
+        ...location,
+        translatedSentence: resolveTranslation(location),
+      }));
+      const translations = groupPatternTranslations(locations);
+      return {
+        text: pattern.text,
+        length: pattern.length,
+        occurrenceCount: locations.length,
+        locations,
+        translations,
+        isTranslationConsistent: translations.length <= 1,
+      };
+    }),
+  };
 }
 
 function collectPatternLocations(

@@ -23,6 +23,7 @@ import type {
   RepetitionPatternAnalysisResult,
   RepetitionPatternConsistencyFixProgress,
   RepetitionPatternContextResult,
+  SavedRepetitionPatternAnalysisResult,
   CreateStoryBranchPayload,
   StoryTopologyDescriptor,
   TranslationProcessorWorkflowMetadata,
@@ -200,20 +201,29 @@ export const api = {
     request<{ stepId: string; entries: TranslationStepQueueEntryDetail[] }>(
       `/api/project/queue/${encodeURIComponent(stepId)}/entries`,
     ),
-  getRepeatedPatterns: (options?: {
+  getRepeatedPatterns: (options?: { chapterIds?: number[] }) =>
+    request<SavedRepetitionPatternAnalysisResult>(
+      `/api/project/repetition-patterns${buildQueryString({
+        chapterIds: options?.chapterIds?.join(','),
+      })}`,
+     ),
+  scanRepeatedPatterns: (input?: {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
-    chapterIds?: number[];
   }) =>
-    request<RepetitionPatternAnalysisResult>(
-      `/api/project/repetition-patterns${buildQueryString({
-        minOccurrences: options?.minOccurrences,
-        minLength: options?.minLength,
-        maxResults: options?.maxResults,
-        chapterIds: options?.chapterIds?.join(','),
-      })}`,
-    ),
+    request<SavedRepetitionPatternAnalysisResult>('/api/project/repetition-patterns/scan', {
+      method: 'POST',
+      body: input ?? {},
+    }),
+  hydrateRepeatedPatterns: (input: {
+    chapterIds?: number[];
+    patternTexts?: string[];
+  }) =>
+    request<RepetitionPatternAnalysisResult>('/api/project/repetition-patterns/hydrate', {
+      method: 'POST',
+      body: input,
+    }),
   saveRepeatedPatternTranslation: (input: {
     chapterId: number;
     fragmentIndex: number;
@@ -230,9 +240,6 @@ export const api = {
     ),
   startRepeatedPatternConsistencyFix: (input: {
     llmProfileName: string;
-    minOccurrences?: number;
-    minLength?: number;
-    maxResults?: number;
     chapterIds?: number[];
   }) =>
     request<RepetitionPatternConsistencyFixProgress>(

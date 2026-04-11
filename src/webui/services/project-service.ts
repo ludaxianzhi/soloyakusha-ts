@@ -39,11 +39,13 @@ import type {
   ChapterTranslationEditorDiagnostic,
   ChapterTranslationEditorGlossaryMatch,
   ChapterTranslationEditorLineUpdate,
+  ChapterTranslationEditorRepetitionMatch,
   EditableTranslationFormat,
 } from '../../project/chapter-translation-editor.ts';
 import type {
+  RepetitionPatternAnalysisOptions,
   RepetitionPatternAnalysisResult,
-  ScopedRepetitionPatternAnalysisOptions,
+  SavedRepetitionPatternAnalysisResult,
 } from '../../project/repetition-pattern-analysis.ts';
 import { StoryTopology } from '../../project/story-topology.ts';
 import { DefaultTextSplitter } from '../../project/translation-document-manager.ts';
@@ -184,6 +186,7 @@ export interface ChapterTranslationEditorDocument {
   }>;
   diagnostics: ChapterTranslationEditorDiagnostic[];
   glossaryMatches: ChapterTranslationEditorGlossaryMatch[];
+  repetitionMatches: ChapterTranslationEditorRepetitionMatch[];
 }
 
 export interface ChapterTranslationEditorValidationResult {
@@ -209,6 +212,7 @@ export interface ProjectResourceVersions {
   chaptersRevision: number;
   topologyRevision: number;
   workspaceConfigRevision: number;
+  repetitionPatternsRevision: number;
 }
 
 // ─── Service ────────────────────────────────────────────
@@ -231,6 +235,7 @@ export class ProjectService {
     chaptersRevision: 0,
     topologyRevision: 0,
     workspaceConfigRevision: 0,
+    repetitionPatternsRevision: 0,
   };
 
   constructor(
@@ -347,10 +352,37 @@ export class ProjectService {
     }
   }
 
-  getRepeatedPatterns(
-    options: ScopedRepetitionPatternAnalysisOptions = {},
-  ): RepetitionPatternAnalysisResult | null {
-    return this.project?.analyzeRepeatedPatterns(options) ?? null;
+  getRepeatedPatterns(options: { chapterIds?: number[] } = {}): SavedRepetitionPatternAnalysisResult | null {
+    return this.project?.getSavedRepeatedPatterns(options) ?? null;
+  }
+
+  async scanRepeatedPatterns(
+    options: RepetitionPatternAnalysisOptions = {},
+  ): Promise<SavedRepetitionPatternAnalysisResult> {
+    if (this.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!this.project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    this.isBusy = true;
+    this.log('info', '正在扫描并保存重复 Pattern...');
+    try {
+      const result = await this.project.scanAndSaveRepeatedPatterns(options);
+      this.markRepeatedPatternsChanged();
+      this.log('success', `重复 Pattern 已保存（${result.patterns.length} 个 Pattern）`);
+      return result;
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  hydrateRepeatedPatterns(input: {
+    chapterIds?: number[];
+    patternTexts?: string[];
+  }): RepetitionPatternAnalysisResult | null {
+    return this.project?.hydrateSavedRepeatedPatterns(input) ?? null;
   }
 
   async updateRepeatedPatternTranslation(input: {
@@ -450,9 +482,6 @@ export class ProjectService {
 
   async startRepetitionPatternConsistencyFix(input: {
     llmProfileName: string;
-    minOccurrences?: number;
-    minLength?: number;
-    maxResults?: number;
     chapterIds?: number[];
   }): Promise<RepetitionPatternConsistencyFixProgress> {
     if (this.isBusy) {
@@ -473,12 +502,12 @@ export class ProjectService {
     const manager = new GlobalConfigManager();
     await manager.getRequiredLlmProfile(llmProfileName);
 
-    const analysis = this.project.analyzeRepeatedPatterns({
-      minOccurrences: input.minOccurrences,
-      minLength: input.minLength,
-      maxResults: input.maxResults,
+    const analysis = this.project.hydrateSavedRepeatedPatterns({
       chapterIds: input.chapterIds,
     });
+    if (!analysis) {
+      throw new ProjectServiceUserInputError('当前还没有已保存的重复 Pattern 扫描结果');
+    }
     const tasks = buildRepetitionPatternFixTasks(analysis);
 
     this.clearRepetitionPatternConsistencyFixProgress();
@@ -1280,6 +1309,7 @@ export class ProjectService {
       this.refreshSnapshot();
       this.markChaptersChanged();
       this.markTopologyChanged();
+      this.markRepeatedPatternsChanged();
       this.log(
         'success',
         `已添加章节 ${result.chapterId}（${result.fragmentCount} 文本块）`,
@@ -1385,6 +1415,7 @@ export class ProjectService {
       this.refreshSnapshot();
       this.markChaptersChanged();
       this.markTopologyChanged();
+      this.markRepeatedPatternsChanged();
 
       if (failedFiles.length > 0) {
         this.log(
@@ -1418,6 +1449,7 @@ export class ProjectService {
       this.refreshSnapshot();
       this.markChaptersChanged();
       this.markTopologyChanged();
+      this.markRepeatedPatternsChanged();
       this.log('success', `章节 ${chapterId} 已移除`);
     });
   }
@@ -1432,6 +1464,7 @@ export class ProjectService {
       this.refreshSnapshot();
       this.markChaptersChanged();
       this.markTopologyChanged();
+      this.markRepeatedPatternsChanged();
       this.log('success', `已批量移除 ${chapterIds.length} 个章节`);
     });
   }
@@ -1442,6 +1475,7 @@ export class ProjectService {
       await this.project.reorderChapters(chapterIds);
       this.markChaptersChanged();
       this.markTopologyChanged();
+      this.markRepeatedPatternsChanged();
     });
   }
 
@@ -1464,6 +1498,7 @@ export class ProjectService {
       this.refreshSnapshot();
       this.markChaptersChanged();
       this.markTopologyChanged();
+      this.markRepeatedPatternsChanged();
       this.log('success', `已创建分支“${input.name}”`);
     });
   }
@@ -1478,6 +1513,7 @@ export class ProjectService {
       this.refreshSnapshot();
       this.markChaptersChanged();
       this.markTopologyChanged();
+      this.markRepeatedPatternsChanged();
       this.log('success', `路线 ${routeId} 已更新`);
     });
   }
@@ -1489,6 +1525,7 @@ export class ProjectService {
       this.refreshSnapshot();
       this.markChaptersChanged();
       this.markTopologyChanged();
+      this.markRepeatedPatternsChanged();
       this.log('success', `路线 ${routeId} 已删除`);
     });
   }
@@ -1500,6 +1537,7 @@ export class ProjectService {
       this.refreshSnapshot();
       this.markChaptersChanged();
       this.markTopologyChanged();
+      this.markRepeatedPatternsChanged();
     });
   }
 
@@ -1514,6 +1552,7 @@ export class ProjectService {
       this.refreshSnapshot();
       this.markChaptersChanged();
       this.markTopologyChanged();
+      this.markRepeatedPatternsChanged();
     });
   }
 
@@ -1691,6 +1730,7 @@ export class ProjectService {
       chaptersRevision: value,
       topologyRevision: value,
       workspaceConfigRevision: value,
+      repetitionPatternsRevision: value,
     };
   }
 
@@ -1708,6 +1748,10 @@ export class ProjectService {
 
   private markWorkspaceConfigChanged(): void {
     this.resourceVersions.workspaceConfigRevision += 1;
+  }
+
+  private markRepeatedPatternsChanged(): void {
+    this.resourceVersions.repetitionPatternsRevision += 1;
   }
 
   private async runRepetitionPatternConsistencyFix(params: {

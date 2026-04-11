@@ -54,6 +54,14 @@ export interface ChapterTranslationEditorGlossaryMatch {
   kind: ChapterTranslationEditorGlossaryMatchKind;
 }
 
+export interface ChapterTranslationEditorRepetitionMatch {
+  unitIndex: number;
+  text: string;
+  matchStartInSentence: number;
+  matchEndInSentence: number;
+  hoverText: string;
+}
+
 export interface ChapterTranslationEditorLineUpdate {
   unitIndex: number;
   fragmentIndex: number;
@@ -70,6 +78,7 @@ export interface ChapterTranslationEditorDocument {
   units: ChapterTranslationEditorUnit[];
   diagnostics: ChapterTranslationEditorDiagnostic[];
   glossaryMatches: ChapterTranslationEditorGlossaryMatch[];
+  repetitionMatches: ChapterTranslationEditorRepetitionMatch[];
 }
 
 export interface ChapterTranslationEditorValidationResult {
@@ -108,6 +117,7 @@ export function createChapterTranslationEditorDocument(input: {
   format: EditableTranslationFormat;
   units: ChapterTranslationEditorUnit[];
   glossaryTerms?: ReadonlyArray<{ term: string; translation?: string }>;
+  repetitionMatches?: ReadonlyArray<ChapterTranslationEditorRepetitionMatch>;
 }): ChapterTranslationEditorDocument {
   const handler = getEditableTranslationHandler(input.format);
   const content = handler.formatTranslationUnits(
@@ -129,6 +139,7 @@ export function createChapterTranslationEditorDocument(input: {
     units: input.units.map(cloneEditorUnit),
     diagnostics: [],
     glossaryMatches: collectGlossaryMatches(content, input.glossaryTerms ?? []),
+    repetitionMatches: [...(input.repetitionMatches ?? [])],
   };
 }
 

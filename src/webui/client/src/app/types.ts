@@ -88,6 +88,7 @@ export interface ProjectResourceVersions {
   chaptersRevision: number;
   topologyRevision: number;
   workspaceConfigRevision: number;
+  repetitionPatternsRevision: number;
 }
 
 export interface ManagedWorkspace {
@@ -265,6 +266,41 @@ export interface RepetitionPatternAnalysisResult {
   patterns: RepetitionPatternAnalysis[];
 }
 
+export interface SavedRepetitionPatternLocation {
+  chapterId: number;
+  chapterFilePath: string;
+  unitIndex: number;
+  fragmentIndex: number;
+  lineIndex: number;
+  sourceSentence: string;
+  globalStartIndex: number;
+  globalEndIndex: number;
+  sentenceStartIndex: number;
+  sentenceEndIndex: number;
+  matchStartInSentence: number;
+  matchEndInSentence: number;
+}
+
+export interface SavedRepetitionPatternAnalysis {
+  text: string;
+  length: number;
+  occurrenceCount: number;
+  locations: SavedRepetitionPatternLocation[];
+}
+
+export interface SavedRepetitionPatternAnalysisResult {
+  schemaVersion: 1;
+  generatedAt: string;
+  scanOptions: {
+    minOccurrences?: number;
+    minLength?: number;
+    maxResults?: number;
+  };
+  fullTextLength: number;
+  totalSentenceCount: number;
+  patterns: SavedRepetitionPatternAnalysis[];
+}
+
 export interface RepetitionPatternContextResult {
   chapterId: number;
   unitIndex: number;
@@ -432,6 +468,15 @@ export interface ChapterTranslationEditorDocument {
   }>;
   diagnostics: ChapterTranslationEditorDiagnostic[];
   glossaryMatches: ChapterTranslationEditorGlossaryMatch[];
+  repetitionMatches: ChapterTranslationEditorRepetitionMatch[];
+}
+
+export interface ChapterTranslationEditorRepetitionMatch {
+  unitIndex: number;
+  text: string;
+  matchStartInSentence: number;
+  matchEndInSentence: number;
+  hoverText: string;
 }
 
 export interface ChapterTranslationEditorValidationResult {

@@ -21,6 +21,7 @@ import {
   createChapterTranslationEditorDocument,
   validateChapterTranslationEditorContent,
   type ChapterTranslationEditorDocument,
+  type ChapterTranslationEditorRepetitionMatch,
   type ChapterTranslationEditorValidationResult,
   type EditableTranslationFormat,
 } from "./chapter-translation-editor.ts";
@@ -34,6 +35,14 @@ import {
   type ScopedRepetitionPatternAnalysisOptions,
   type RepetitionPatternAnalysisResult,
 } from "./project-repetition-analysis.ts";
+import {
+  createSavedRepetitionPatternAnalysisResult,
+  hydrateSavedRepetitionPatternAnalysisResult,
+  type SavedRepetitionPatternAnalysis,
+  type SavedRepetitionPatternAnalysisResult,
+  type SavedRepetitionPatternLocation,
+  type RepetitionPatternAnalysisOptions,
+} from "./repetition-pattern-analysis.ts";
 import {
   TranslationPipeline,
   TranslationStepWorkQueue,
@@ -112,6 +121,7 @@ export class TranslationProject
   private glossary?: Glossary;
   private storyTopology?: StoryTopology;
   private plotSummaryEntries: PlotSummaryEntry[] = [];
+  private savedRepetitionPatternAnalysis: SavedRepetitionPatternAnalysisResult | null = null;
   private projectState: TranslationProjectState;
   private workspaceConfig!: WorkspaceConfig;
   private initialized = false;
@@ -268,6 +278,7 @@ export class TranslationProject
     }
 
     await this.reloadNarrativeArtifacts();
+    await this.loadSavedRepetitionPatternAnalysis();
     this.initialized = true;
     await this.initializePipelineQueues();
     await this.lifecycleManager.recoverInterruptedRunIfNeeded();
@@ -382,6 +393,7 @@ export class TranslationProject
         term: term.term,
         translation: term.translation,
       })),
+      repetitionMatches: this.buildChapterEditorRepetitionMatches(chapterId),
     });
   }
 
@@ -451,6 +463,7 @@ export class TranslationProject
       this.storyTopology.appendChapter(MAIN_ROUTE_ID, chapterId);
       await this.saveStoryTopology(this.storyTopology);
     }
+    await this.invalidateSavedRepetitionPatternAnalysis();
     return result;
   }
 
@@ -473,6 +486,7 @@ export class TranslationProject
       this.storyTopology.removeChapter(routeId, chapterId);
       await this.saveStoryTopology(this.storyTopology);
     }
+    await this.invalidateSavedRepetitionPatternAnalysis();
   }
 
   async removeChapters(
@@ -497,6 +511,7 @@ export class TranslationProject
       for (const chapterId of normalizedChapterIds) {
         await this.workspaceManager.removeChapter(chapterId);
       }
+      await this.invalidateSavedRepetitionPatternAnalysis();
       return;
     }
 
@@ -557,11 +572,13 @@ export class TranslationProject
     }
 
     await this.saveStoryTopology(topology);
+    await this.invalidateSavedRepetitionPatternAnalysis();
   }
 
   async reorderChapters(chapterIds: number[]): Promise<void> {
     this.ensureInitialized();
     await this.workspaceManager.reorderChapters(chapterIds);
+    await this.invalidateSavedRepetitionPatternAnalysis();
   }
 
   getStoryTopologyDescriptor(): StoryTopologyDescriptor {
@@ -1127,6 +1144,51 @@ export class TranslationProject
     );
   }
 
+  getSavedRepeatedPatterns(
+    options: { chapterIds?: number[] } = {},
+  ): SavedRepetitionPatternAnalysisResult | null {
+    this.ensureInitialized();
+    if (!this.savedRepetitionPatternAnalysis) {
+      return null;
+    }
+    return this.filterSavedRepeatedPatterns(options.chapterIds);
+  }
+
+  async scanAndSaveRepeatedPatterns(
+    options: RepetitionPatternAnalysisOptions = {},
+  ): Promise<SavedRepetitionPatternAnalysisResult> {
+    this.ensureInitialized();
+    const result = analyzeProjectRepeatedPatterns(
+      {
+        documentManager: this.documentManager,
+        chapters: this.getTraversalChapters(),
+      },
+      options,
+    );
+    const saved = createSavedRepetitionPatternAnalysisResult(result, options);
+    await this.documentManager.saveSavedRepetitionPatternAnalysis(saved);
+    this.savedRepetitionPatternAnalysis = saved;
+    return saved;
+  }
+
+  hydrateSavedRepeatedPatterns(options: {
+    chapterIds?: number[];
+    patternTexts?: string[];
+  } = {}): RepetitionPatternAnalysisResult | null {
+    this.ensureInitialized();
+    if (!this.savedRepetitionPatternAnalysis) {
+      return null;
+    }
+    const filtered = this.filterSavedRepeatedPatterns(
+      options.chapterIds,
+      options.patternTexts,
+    );
+    return hydrateSavedRepetitionPatternAnalysisResult(
+      filtered,
+      (location) => this.resolveSavedPatternLocationTranslation(location),
+    );
+  }
+
   async updateTranslatedLine(
     chapterId: number,
     fragmentIndex: number,
@@ -1226,6 +1288,7 @@ export class TranslationProject
     this.ensureInitialized();
     await topology.saveToFile(this.getStoryTopologyFilePath());
     this.storyTopology = topology;
+    await this.invalidateSavedRepetitionPatternAnalysis();
   }
 
   getPlotSummaryEntries(): PlotSummaryEntry[] {
@@ -1260,6 +1323,149 @@ export class TranslationProject
     this.plotSummaryEntries = await loadPlotSummaryEntriesFromFile(
       this.getPlotSummaryFilePath(),
     );
+  }
+
+  private async loadSavedRepetitionPatternAnalysis(): Promise<void> {
+    this.savedRepetitionPatternAnalysis =
+      await this.documentManager.loadSavedRepetitionPatternAnalysis() ?? null;
+  }
+
+  private async invalidateSavedRepetitionPatternAnalysis(): Promise<void> {
+    if (!this.savedRepetitionPatternAnalysis) {
+      return;
+    }
+    this.savedRepetitionPatternAnalysis = null;
+    await this.documentManager.clearSavedRepetitionPatternAnalysis();
+  }
+
+  private filterSavedRepeatedPatterns(
+    chapterIds?: number[],
+    patternTexts?: string[],
+  ): SavedRepetitionPatternAnalysisResult {
+    const saved = this.savedRepetitionPatternAnalysis;
+    if (!saved) {
+      throw new Error("当前没有已保存的重复 Pattern 扫描结果");
+    }
+
+    const chapterIdSet =
+      chapterIds && chapterIds.length > 0 ? new Set(chapterIds) : null;
+    const patternTextSet =
+      patternTexts && patternTexts.length > 0 ? new Set(patternTexts) : null;
+    const minOccurrences = saved.scanOptions.minOccurrences ?? 2;
+
+    const patterns = saved.patterns
+      .filter((pattern) => !patternTextSet || patternTextSet.has(pattern.text))
+      .map((pattern) => {
+        const locations = chapterIdSet
+          ? pattern.locations.filter((location) => chapterIdSet.has(location.chapterId))
+          : pattern.locations;
+        return {
+          text: pattern.text,
+          length: pattern.length,
+          occurrenceCount: locations.length,
+          locations,
+        } satisfies SavedRepetitionPatternAnalysis;
+      })
+      .filter((pattern) => pattern.locations.length >= minOccurrences);
+
+    return {
+      ...saved,
+      totalSentenceCount: this.resolveSavedPatternSentenceCount(chapterIds),
+      patterns,
+    };
+  }
+
+  private resolveSavedPatternSentenceCount(chapterIds?: number[]): number {
+    const chapters = this.resolveRepetitionPatternAnalysisChapters(chapterIds);
+    let totalSentenceCount = 0;
+    for (const chapter of chapters) {
+      const chapterEntry = this.documentManager.getChapterById(chapter.id);
+      if (!chapterEntry) {
+        continue;
+      }
+      totalSentenceCount += chapterEntry.fragments.reduce(
+        (sum, fragment) => sum + fragment.source.lines.length,
+        0,
+      );
+    }
+    return totalSentenceCount;
+  }
+
+  private resolveSavedPatternLocationTranslation(
+    location: SavedRepetitionPatternLocation,
+  ): string {
+    return (
+      this.documentManager
+        .getFragmentById(location.chapterId, location.fragmentIndex)
+        ?.translation.lines[location.lineIndex] ?? ""
+    );
+  }
+
+  private buildChapterEditorRepetitionMatches(
+    chapterId: number,
+  ): ChapterTranslationEditorRepetitionMatch[] {
+    const saved = this.savedRepetitionPatternAnalysis;
+    if (!saved) {
+      return [];
+    }
+
+    const matches: ChapterTranslationEditorRepetitionMatch[] = [];
+    for (const pattern of saved.patterns) {
+      const locations = pattern.locations;
+      for (const location of locations) {
+        if (location.chapterId !== chapterId) {
+          continue;
+        }
+        matches.push({
+          unitIndex: location.unitIndex,
+          text: pattern.text,
+          matchStartInSentence: location.matchStartInSentence,
+          matchEndInSentence: location.matchEndInSentence,
+          hoverText: this.buildChapterEditorRepetitionHoverText(pattern.text, location, locations),
+        });
+      }
+    }
+    return matches.sort(
+      (left, right) =>
+        left.unitIndex - right.unitIndex ||
+        left.matchStartInSentence - right.matchStartInSentence ||
+        left.text.localeCompare(right.text),
+    );
+  }
+
+  private buildChapterEditorRepetitionHoverText(
+    patternText: string,
+    focusLocation: SavedRepetitionPatternLocation,
+    locations: SavedRepetitionPatternLocation[],
+  ): string {
+    const otherLocations = locations.filter(
+      (location) =>
+        !(
+          location.chapterId === focusLocation.chapterId &&
+          location.fragmentIndex === focusLocation.fragmentIndex &&
+          location.lineIndex === focusLocation.lineIndex &&
+          location.matchStartInSentence === focusLocation.matchStartInSentence &&
+          location.matchEndInSentence === focusLocation.matchEndInSentence
+        ),
+    );
+    if (otherLocations.length === 0) {
+      return `已记录 Pattern：${patternText}`;
+    }
+
+    const preview = otherLocations
+      .slice(0, 6)
+      .map((location) => {
+        const translation = this.resolveSavedPatternLocationTranslation(location).trim();
+        return [
+          `Ch${location.chapterId} / 句 ${location.unitIndex + 1}`,
+          `原文：${location.sourceSentence}`,
+          `译文：${translation || "(空)"}`,
+        ].join("\n");
+      })
+      .join("\n\n");
+    const suffix =
+      otherLocations.length > 6 ? `\n\n另有 ${otherLocations.length - 6} 处未展开` : "";
+    return `已记录 Pattern：${patternText}\n\n其他位置：\n${preview}${suffix}`;
   }
 
   getSourceText(chapterId: number, fragmentIndex: number): string {

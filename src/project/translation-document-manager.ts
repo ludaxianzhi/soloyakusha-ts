@@ -23,6 +23,7 @@ import type {
   TranslationFileHandler,
   TranslationFileHandlerResolver,
 } from "../file-handlers/base.ts";
+import type { SavedRepetitionPatternAnalysisResult } from "./repetition-pattern-analysis.ts";
 import type {
   ChapterEntry,
   FragmentEntry,
@@ -171,6 +172,22 @@ export class TranslationDocumentManager {
 
   async saveProjectState(state: TranslationProjectState): Promise<void> {
     await this.storage.saveProjectState(state);
+  }
+
+  async loadSavedRepetitionPatternAnalysis(): Promise<
+    SavedRepetitionPatternAnalysisResult | undefined
+  > {
+    return this.storage.loadSavedRepetitionPatternAnalysis();
+  }
+
+  async saveSavedRepetitionPatternAnalysis(
+    result: SavedRepetitionPatternAnalysisResult,
+  ): Promise<void> {
+    await this.storage.saveSavedRepetitionPatternAnalysis(result);
+  }
+
+  async clearSavedRepetitionPatternAnalysis(): Promise<void> {
+    await this.storage.clearSavedRepetitionPatternAnalysis();
   }
 
   async updateTranslation(

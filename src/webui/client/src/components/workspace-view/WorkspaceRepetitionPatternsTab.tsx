@@ -6,7 +6,6 @@ import {
   Button,
   Card,
   Empty,
-  Input,
   InputNumber,
   Modal,
   Progress,
@@ -17,11 +16,15 @@ import {
   Tag,
   Typography,
 } from 'antd';
+import { Input } from 'antd';
 import type {
+  RepetitionPatternAnalysis,
   RepetitionPatternAnalysisResult,
   RepetitionPatternConsistencyFixProgress,
   RepetitionPatternContextResult,
   RepetitionPatternLocation,
+  SavedRepetitionPatternAnalysisResult,
+  SavedRepetitionPatternLocation,
   StoryTopologyDescriptor,
   StoryTopologyRouteDescriptor,
   WorkspaceChapterDescriptor,
@@ -38,16 +41,22 @@ type RepetitionPatternScopeSelection = {
 
 interface WorkspaceRepetitionPatternsTabProps {
   active: boolean;
-  repeatedPatterns: RepetitionPatternAnalysisResult | null;
+  repeatedPatterns: SavedRepetitionPatternAnalysisResult | null;
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
   llmProfileOptions: Array<{ label: string; value: string }>;
   defaultLlmProfileName?: string;
   onRefreshRepeatedPatterns: (options?: {
+    chapterIds?: number[];
+  }) => Promise<SavedRepetitionPatternAnalysisResult | null>;
+  onScanRepeatedPatterns: (options?: {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+  }) => Promise<SavedRepetitionPatternAnalysisResult | null>;
+  onHydrateRepeatedPatterns: (input: {
     chapterIds?: number[];
+    patternTexts?: string[];
   }) => Promise<RepetitionPatternAnalysisResult | null>;
   onSaveRepeatedPatternTranslation: (input: {
     chapterId: number;
@@ -62,9 +71,6 @@ interface WorkspaceRepetitionPatternsTabProps {
   onRefreshProjectStatus: () => void | Promise<void>;
   onStartRepeatedPatternConsistencyFix: (input: {
     llmProfileName: string;
-    minOccurrences?: number;
-    minLength?: number;
-    maxResults?: number;
     chapterIds?: number[];
   }) => Promise<RepetitionPatternConsistencyFixProgress>;
   onGetRepeatedPatternConsistencyFixStatus: () => Promise<RepetitionPatternConsistencyFixProgress | null>;
@@ -79,6 +85,8 @@ export function WorkspaceRepetitionPatternsTab({
   llmProfileOptions,
   defaultLlmProfileName,
   onRefreshRepeatedPatterns,
+  onScanRepeatedPatterns,
+  onHydrateRepeatedPatterns,
   onSaveRepeatedPatternTranslation,
   onLoadRepeatedPatternContext,
   onRefreshProjectStatus,
@@ -88,6 +96,7 @@ export function WorkspaceRepetitionPatternsTab({
 }: WorkspaceRepetitionPatternsTabProps) {
   const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
+  const [hydrating, setHydrating] = useState(false);
   const [savingLineKey, setSavingLineKey] = useState<string | null>(null);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [startingConsistencyFix, setStartingConsistencyFix] = useState(false);
@@ -114,6 +123,11 @@ export function WorkspaceRepetitionPatternsTab({
     chapterIds: [],
     routeIds: [],
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const [hydratedPatternsByText, setHydratedPatternsByText] = useState<
+    Record<string, RepetitionPatternAnalysis>
+  >({});
   const consistencyFixProgressRef = useRef<RepetitionPatternConsistencyFixProgress | null>(null);
 
   const chapterOptions = useMemo(
@@ -177,16 +191,7 @@ export function WorkspaceRepetitionPatternsTab({
     [availableRoutes, chapters, scopeDraft, topology],
   );
 
-  const analysisOptions = useMemo(
-    () => ({
-      minOccurrences,
-      minLength,
-      maxResults,
-      chapterIds: scopeSelection.mode === 'all' ? undefined : scopedChapterIds,
-    }),
-    [maxResults, minLength, minOccurrences, scopeSelection.mode, scopedChapterIds],
-  );
-
+  const scopeChapterIds = scopeSelection.mode === 'all' ? undefined : scopedChapterIds;
   const scopeReady = scopeSelection.mode === 'all' || scopedChapterIds.length > 0;
   const draftScopeReady = scopeDraft.mode === 'all' || draftScopedChapterIds.length > 0;
 
@@ -200,35 +205,115 @@ export function WorkspaceRepetitionPatternsTab({
     [draftScopedChapterIds, scopeDraft],
   );
 
-  const refresh = async () => {
+  useEffect(() => {
+    if (selectedLlmProfileName && llmProfileOptions.some((option) => option.value === selectedLlmProfileName)) {
+      return;
+    }
+    setSelectedLlmProfileName(defaultLlmProfileName ?? llmProfileOptions[0]?.value);
+  }, [defaultLlmProfileName, llmProfileOptions, selectedLlmProfileName]);
+
+  useEffect(() => {
+    if (!repeatedPatterns) {
+      setHydratedPatternsByText({});
+      setDraftTranslations({});
+      setCurrentPage(1);
+      return;
+    }
+    setCurrentPage((previous) => {
+      const maxPage = Math.max(1, Math.ceil(repeatedPatterns.patterns.length / pageSize));
+      return Math.min(previous, maxPage);
+    });
+    setHydratedPatternsByText({});
+    setDraftTranslations({});
+  }, [repeatedPatterns]);
+
+  const currentPagePatterns = useMemo(() => {
+    if (!repeatedPatterns) {
+      return [];
+    }
+    const startIndex = (currentPage - 1) * pageSize;
+    return repeatedPatterns.patterns.slice(startIndex, startIndex + pageSize);
+  }, [currentPage, repeatedPatterns]);
+
+  const loadPatterns = useCallback(async () => {
     setLoading(true);
     try {
-      await onRefreshRepeatedPatterns(analysisOptions);
+      setCurrentPage(1);
+      await onRefreshRepeatedPatterns({ chapterIds: scopeChapterIds });
     } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
+      if (!isNotFoundError(error)) {
+        message.error(error instanceof Error ? error.message : String(error));
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [message, onRefreshRepeatedPatterns, scopeChapterIds]);
+
+  const hydrateVisiblePatterns = useCallback(async () => {
+    if (!active || !currentPagePatterns.length) {
+      return;
+    }
+    setHydrating(true);
+    try {
+      const hydrated = await onHydrateRepeatedPatterns({
+        chapterIds: scopeChapterIds,
+        patternTexts: currentPagePatterns.map((pattern) => pattern.text),
+      });
+      if (!hydrated) {
+        return;
+      }
+      setHydratedPatternsByText((previous) => {
+        const next = { ...previous };
+        for (const pattern of hydrated.patterns) {
+          next[pattern.text] = pattern;
+        }
+        return next;
+      });
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setHydrating(false);
+    }
+  }, [active, currentPagePatterns, message, onHydrateRepeatedPatterns, scopeChapterIds]);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    void loadPatterns();
+  }, [active, loadPatterns]);
+
+  useEffect(() => {
+    void hydrateVisiblePatterns();
+  }, [hydrateVisiblePatterns]);
+
+  useEffect(() => {
+    if (!repeatedPatterns) {
+      return;
+    }
+    setMinOccurrences(repeatedPatterns.scanOptions.minOccurrences ?? 3);
+    setMinLength(repeatedPatterns.scanOptions.minLength ?? 8);
+    setMaxResults(repeatedPatterns.scanOptions.maxResults ?? 20);
+  }, [repeatedPatterns]);
 
   const translationsByLineKey = useMemo(() => {
     const mapping: Record<string, string> = {};
-    for (const pattern of repeatedPatterns?.patterns ?? []) {
+    for (const pattern of Object.values(hydratedPatternsByText)) {
       for (const location of pattern.locations) {
         mapping[buildEditableLineKey(location)] = location.translatedSentence;
       }
     }
     return mapping;
-  }, [repeatedPatterns]);
+  }, [hydratedPatternsByText]);
 
-  const readDraftTranslation = (location: RepetitionPatternLocation) =>
+  const readDraftTranslation = (location: SavedRepetitionPatternLocation) =>
     draftTranslations[buildEditableLineKey(location)] ??
     translationsByLineKey[buildEditableLineKey(location)] ??
     '';
 
   const pendingSaveLocations = useMemo(() => {
     const pending = new Map<string, RepetitionPatternLocation>();
-    for (const pattern of repeatedPatterns?.patterns ?? []) {
+    for (const pattern of Object.values(hydratedPatternsByText)) {
       for (const location of pattern.locations) {
         const lineKey = buildEditableLineKey(location);
         if (readDraftTranslation(location) !== location.translatedSentence) {
@@ -237,20 +322,13 @@ export function WorkspaceRepetitionPatternsTab({
       }
     }
     return [...pending.values()];
-  }, [draftTranslations, repeatedPatterns, translationsByLineKey]);
+  }, [draftTranslations, hydratedPatternsByText, translationsByLineKey]);
 
   const consistencyFixRunning = consistencyFixProgress?.status === 'running';
 
   useEffect(() => {
     consistencyFixProgressRef.current = consistencyFixProgress;
   }, [consistencyFixProgress]);
-
-  useEffect(() => {
-    if (selectedLlmProfileName && llmProfileOptions.some((option) => option.value === selectedLlmProfileName)) {
-      return;
-    }
-    setSelectedLlmProfileName(defaultLlmProfileName ?? llmProfileOptions[0]?.value);
-  }, [defaultLlmProfileName, llmProfileOptions, selectedLlmProfileName]);
 
   const refreshConsistencyFixStatus = useCallback(async () => {
     const nextProgress = await onGetRepeatedPatternConsistencyFixStatus();
@@ -267,7 +345,8 @@ export function WorkspaceRepetitionPatternsTab({
       (previousProgress?.status === 'running' && nextProgress?.status !== 'running');
 
     if (shouldRefreshPatterns) {
-      await onRefreshRepeatedPatterns(analysisOptions);
+      await onRefreshRepeatedPatterns({ chapterIds: scopeChapterIds });
+      await hydrateVisiblePatterns();
     }
     if (
       nextProgress?.status !== 'running' &&
@@ -276,10 +355,11 @@ export function WorkspaceRepetitionPatternsTab({
       await onRefreshProjectStatus();
     }
   }, [
-    analysisOptions,
+    hydrateVisiblePatterns,
     onGetRepeatedPatternConsistencyFixStatus,
     onRefreshProjectStatus,
     onRefreshRepeatedPatterns,
+    scopeChapterIds,
   ]);
 
   useEffect(() => {
@@ -297,7 +377,24 @@ export function WorkspaceRepetitionPatternsTab({
     },
   });
 
-  const handleSave = async (location: RepetitionPatternLocation) => {
+  const handleScan = async () => {
+    setLoading(true);
+    try {
+      await onScanRepeatedPatterns({
+        minOccurrences,
+        minLength,
+        maxResults,
+      });
+      await onRefreshRepeatedPatterns({ chapterIds: scopeChapterIds });
+      message.success('重复 Pattern 已重新扫描并保存');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async (location: SavedRepetitionPatternLocation) => {
     const lineKey = buildEditableLineKey(location);
     const translation = readDraftTranslation(location);
     setSavingLineKey(lineKey);
@@ -308,12 +405,13 @@ export function WorkspaceRepetitionPatternsTab({
         lineIndex: location.lineIndex,
         translation,
       });
-      setDraftTranslations((prev) => {
-        const next = { ...prev };
+      setDraftTranslations((previous) => {
+        const next = { ...previous };
         delete next[lineKey];
         return next;
       });
-      await refresh();
+      await hydrateVisiblePatterns();
+      await onRefreshProjectStatus();
       message.success('译文已保存');
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
@@ -336,14 +434,15 @@ export function WorkspaceRepetitionPatternsTab({
           translation: readDraftTranslation(location),
         });
       }
-      setDraftTranslations((prev) => {
-        const next = { ...prev };
+      setDraftTranslations((previous) => {
+        const next = { ...previous };
         for (const location of pendingSaveLocations) {
           delete next[buildEditableLineKey(location)];
         }
         return next;
       });
-      await refresh();
+      await hydrateVisiblePatterns();
+      await onRefreshProjectStatus();
       message.success(`已批量保存 ${pendingSaveLocations.length} 条译文修改`);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
@@ -370,7 +469,7 @@ export function WorkspaceRepetitionPatternsTab({
     try {
       const progress = await onStartRepeatedPatternConsistencyFix({
         llmProfileName: selectedLlmProfileName,
-        ...analysisOptions,
+        chapterIds: scopeChapterIds,
       });
       consistencyFixProgressRef.current = progress;
       setConsistencyFixDismissed(false);
@@ -400,6 +499,7 @@ export function WorkspaceRepetitionPatternsTab({
     }
     setScopeSelection(scopeDraft);
     setScopeModalOpen(false);
+    setCurrentPage(1);
   };
 
   const handleClearConsistencyFixProgress = async () => {
@@ -413,7 +513,7 @@ export function WorkspaceRepetitionPatternsTab({
     }
   };
 
-  const handleOpenDetail = async (location: RepetitionPatternLocation) => {
+  const handleOpenDetail = async (location: SavedRepetitionPatternLocation) => {
     setDetailLoading(true);
     setDetailContext({
       chapterId: location.chapterId,
@@ -467,10 +567,10 @@ export function WorkspaceRepetitionPatternsTab({
         <Button
           type="primary"
           loading={loading}
-          disabled={consistencyFixRunning || !scopeReady}
-          onClick={() => void refresh()}
+          disabled={consistencyFixRunning}
+          onClick={() => void handleScan()}
         >
-          {repeatedPatterns ? '重新分析' : '开始分析'}
+          {repeatedPatterns ? '重新扫描并保存' : '开始扫描并保存'}
         </Button>
         <span>LLM 配置</span>
         <Select
@@ -486,6 +586,7 @@ export function WorkspaceRepetitionPatternsTab({
           disabled={
             consistencyFixRunning ||
             loading ||
+            hydrating ||
             bulkSaving ||
             savingLineKey !== null ||
             !repeatedPatterns?.patterns.length ||
@@ -503,6 +604,7 @@ export function WorkspaceRepetitionPatternsTab({
             consistencyFixRunning ||
             !pendingSaveLocations.length ||
             loading ||
+            hydrating ||
             savingLineKey !== null
           }
           onClick={() => void handleBulkSave()}
@@ -511,6 +613,14 @@ export function WorkspaceRepetitionPatternsTab({
         </Button>
       </Space>
       <Typography.Text type="secondary">{scopeSummary}</Typography.Text>
+      {repeatedPatterns ? (
+        <Typography.Text type="secondary">
+          已保存扫描：{new Date(repeatedPatterns.generatedAt).toLocaleString()}；阈值为出现 ≥
+          {repeatedPatterns.scanOptions.minOccurrences ?? 3}、长度 ≥
+          {repeatedPatterns.scanOptions.minLength ?? 8}、结果上限
+          {repeatedPatterns.scanOptions.maxResults ?? 20}。
+        </Typography.Text>
+      ) : null}
       <Modal
         open={scopeModalOpen}
         title="选择查找区域"
@@ -538,7 +648,7 @@ export function WorkspaceRepetitionPatternsTab({
           {scopeDraft.mode === 'custom' ? (
             <>
               <Typography.Text type="secondary">
-                可同时选择多条路线与离散章节，最终按去重后的章节集合进行查找和 AI 统一表达。
+                工作区只保存一份基线扫描结果，这里选择的是当前查看 / AI 统一表达的作用域。
               </Typography.Text>
               <div className="section-stack">
                 <Typography.Text strong>路线</Typography.Text>
@@ -583,7 +693,7 @@ export function WorkspaceRepetitionPatternsTab({
               />
             </>
           ) : (
-            <Alert type="info" showIcon message="将扫描当前工作区的全部章节。" />
+            <Alert type="info" showIcon message="将查看当前工作区已保存扫描中的全部章节结果。" />
           )}
         </Space>
       </Modal>
@@ -647,13 +757,19 @@ export function WorkspaceRepetitionPatternsTab({
       {repeatedPatterns?.patterns.length ? (
         <div className="section-stack">
           <Typography.Text type="secondary">
-            共扫描 {repeatedPatterns.totalSentenceCount} 句，发现 {repeatedPatterns.patterns.length} 个重复
-            Pattern。
+            当前作用域共 {repeatedPatterns.totalSentenceCount} 句，命中 {repeatedPatterns.patterns.length} 个已保存
+            Pattern。{hydrating ? ' 正在按当前页动态加载译文…' : ''}
           </Typography.Text>
           <Table
             rowKey="text"
             dataSource={repeatedPatterns.patterns}
-            pagination={{ pageSize: 10 }}
+            pagination={{
+              current: currentPage,
+              pageSize,
+              onChange: (page) => {
+                setCurrentPage(page);
+              },
+            }}
             expandable={{
               expandedRowRender: (record) => (
                 <Table
@@ -681,12 +797,16 @@ export function WorkspaceRepetitionPatternsTab({
                       width: 500,
                       render: (_, location) => {
                         const lineKey = buildEditableLineKey(location);
+                        const hydratedPattern = hydratedPatternsByText[record.text];
+                        const hydratedLineReady = hydratedPattern?.locations.some(
+                          (entry) => buildEditableLineKey(entry) === lineKey,
+                        );
                         return (
                           <TextArea
                             autoSize={{ minRows: 1, maxRows: 4 }}
-                            disabled={consistencyFixRunning}
+                            disabled={consistencyFixRunning || (!hydratedLineReady && !draftTranslations[lineKey])}
                             value={readDraftTranslation(location)}
-                            placeholder="输入或修改译文"
+                            placeholder={hydratedLineReady ? '输入或修改译文' : '该页译文正在动态加载'}
                             onChange={(event) =>
                               setDraftTranslations((prev) => ({
                                 ...prev,
@@ -708,23 +828,29 @@ export function WorkspaceRepetitionPatternsTab({
                       width: 140,
                       render: (_, location) => {
                         const lineKey = buildEditableLineKey(location);
+                        const hydratedPattern = hydratedPatternsByText[record.text];
+                        const hydratedLine = hydratedPattern?.locations.find(
+                          (entry) => buildEditableLineKey(entry) === lineKey,
+                        );
                         return (
                           <Space size={0}>
                             <Button type="link" onClick={() => void handleOpenDetail(location)}>
                               详细
                             </Button>
-                             <Button
-                               type="link"
-                               loading={savingLineKey === lineKey}
-                               disabled={
-                                  bulkSaving ||
-                                  consistencyFixRunning ||
-                                  readDraftTranslation(location) === location.translatedSentence
-                                }
-                                onClick={() => void handleSave(location)}
-                             >
-                               保存
-                             </Button>
+                            <Button
+                              type="link"
+                              loading={savingLineKey === lineKey}
+                              disabled={
+                                bulkSaving ||
+                                hydrating ||
+                                consistencyFixRunning ||
+                                !hydratedLine ||
+                                readDraftTranslation(location) === hydratedLine.translatedSentence
+                              }
+                              onClick={() => void handleSave(location)}
+                            >
+                              保存
+                            </Button>
                           </Space>
                         );
                       },
@@ -740,11 +866,17 @@ export function WorkspaceRepetitionPatternsTab({
               {
                 title: '译文状态',
                 width: 120,
-                render: (_, record) => (
-                  <Tag color={record.isTranslationConsistent ? 'green' : 'gold'}>
-                    {record.isTranslationConsistent ? '统一' : '不统一'}
-                  </Tag>
-                ),
+                render: (_, record) => {
+                  const hydrated = hydratedPatternsByText[record.text];
+                  if (!hydrated) {
+                    return <Tag>待加载</Tag>;
+                  }
+                  return (
+                    <Tag color={hydrated.isTranslationConsistent ? 'green' : 'gold'}>
+                      {hydrated.isTranslationConsistent ? '统一' : '不统一'}
+                    </Tag>
+                  );
+                },
               },
               {
                 title: '命中句数',
@@ -758,8 +890,8 @@ export function WorkspaceRepetitionPatternsTab({
         <Empty
           description={
             repeatedPatterns
-              ? '当前阈值下没有发现可用的重复 Pattern'
-              : '点击“开始分析”后查看重复 Pattern、命中位置和译文一致性'
+              ? '当前作用域下没有命中已保存的重复 Pattern'
+              : '点击“开始扫描并保存”后，可在这里查看已持久化的重复 Pattern'
           }
         />
       )}
@@ -808,7 +940,19 @@ export function WorkspaceRepetitionPatternsTab({
   );
 }
 
-function buildEditableLineKey(location: RepetitionPatternLocation): string {
+function isNotFoundError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    typeof error.status === 'number' &&
+    error.status === 404
+  );
+}
+
+function buildEditableLineKey(
+  location: Pick<RepetitionPatternLocation, 'chapterId' | 'fragmentIndex' | 'lineIndex'>,
+): string {
   return `${location.chapterId}-${location.fragmentIndex}-${location.lineIndex}`;
 }
 
@@ -878,7 +1022,15 @@ function resolveScopeChapterIds(
   for (const routeId of selection.routeIds) {
     const routeChapterIds =
       topology?.routes.length || routes.length
-        ? buildRouteChapterSequence(topology ?? { routes, schemaVersion: 1, hasPersistedTopology: false, hasBranches: false }, routeId)
+        ? buildRouteChapterSequence(
+            topology ?? {
+              routes,
+              schemaVersion: 1,
+              hasPersistedTopology: false,
+              hasBranches: false,
+            },
+            routeId,
+          )
         : [];
     for (const chapterId of routeChapterIds) {
       selectedChapterIds.add(chapterId);

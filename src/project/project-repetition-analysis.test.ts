@@ -136,4 +136,146 @@ describe("TranslationProject repetition analysis", () => {
       occurrenceCount: 2,
     });
   });
+
+  test("persists saved pattern locations and hydrates live translations after reopen", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-repetition-persist-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(
+      join(sourceDir, "chapter-1.txt"),
+      [
+        "学院门口正在排队",
+        "学院门口已经关闭",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const project = new TranslationProject(
+      {
+        projectName: "repetition-persist-demo",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.updateTranslatedLine(1, 0, 0, "Academy gate queue");
+    await project.updateTranslatedLine(1, 1, 0, "Academy entrance closed");
+
+    const saved = await project.scanAndSaveRepeatedPatterns({
+      minOccurrences: 2,
+      minLength: 4,
+      maxResults: 5,
+    });
+    expect(saved.patterns[0]?.text).toBe("学院门口");
+    expect("translatedSentence" in (saved.patterns[0]?.locations[0] ?? {})).toBe(false);
+
+    await project.updateTranslatedLine(1, 1, 0, "Academy gate queue");
+
+    const reopened = await TranslationProject.openWorkspace(workspaceDir, {
+      textSplitter: {
+        split(units) {
+          return units.map((unit) => [unit]);
+        },
+      },
+    });
+
+    const reopenedSaved = reopened.getSavedRepeatedPatterns();
+    expect(reopenedSaved?.patterns.map((pattern) => pattern.text)).toContain("学院门口");
+
+    const hydrated = reopened.hydrateSavedRepeatedPatterns();
+    expect(hydrated?.patterns[0]?.isTranslationConsistent).toBe(true);
+    expect(hydrated?.patterns[0]?.translations).toHaveLength(1);
+  });
+
+  test("invalidates saved pattern scan after chapter structure changes", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-repetition-invalidate-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "学院门口正在排队\n学院门口已经关闭\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-2.txt"), "操场正在训练\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "repetition-invalidate-demo",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.scanAndSaveRepeatedPatterns({
+      minOccurrences: 2,
+      minLength: 4,
+      maxResults: 5,
+    });
+
+    expect(project.getSavedRepeatedPatterns()).not.toBeNull();
+
+    await project.addChapter(2, "sources\\chapter-2.txt");
+    expect(project.getSavedRepeatedPatterns()).toBeNull();
+  });
+
+  test("builds chapter editor pattern hover data from the current chapter translations", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-repetition-editor-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(
+      join(sourceDir, "chapter-1.txt"),
+      [
+        "学院门口正在排队",
+        "学院门口已经关闭",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const project = new TranslationProject(
+      {
+        projectName: "repetition-editor-demo",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.updateTranslatedLine(1, 0, 0, "Academy gate queue");
+    await project.updateTranslatedLine(1, 1, 0, "Academy gate closed");
+    await project.scanAndSaveRepeatedPatterns({
+      minOccurrences: 2,
+      minLength: 4,
+      maxResults: 5,
+    });
+
+    const document = project.getChapterTranslationEditorDocument(1, "naturedialog");
+    expect(document.repetitionMatches).not.toHaveLength(0);
+    expect(document.repetitionMatches[0]).toMatchObject({
+      text: "学院门口",
+      unitIndex: 0,
+    });
+    expect(document.repetitionMatches[0]?.hoverText).toContain("Academy gate closed");
+  });
 });
