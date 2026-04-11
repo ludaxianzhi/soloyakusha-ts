@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { App as AntdApp, Form, Layout, Menu, Space, Tag, Typography } from 'antd';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { App as AntdApp, Form, Layout, Menu, Space, Spin, Tag, Typography } from 'antd';
 import {
   ClockCircleOutlined,
   FolderOpenOutlined,
@@ -47,15 +47,51 @@ import type {
 } from './types.ts';
 import { useEventStream } from './useEventStream.ts';
 import { DictionaryEditorModal } from '../components/DictionaryEditorModal.tsx';
-import { RecentWorkspacesView } from '../components/RecentWorkspacesView.tsx';
-import { SettingsView } from '../components/SettingsView.tsx';
-import {
-  WorkspaceView,
-  type ProjectCommand,
-  type TaskActivityKind,
-} from '../components/WorkspaceView.tsx';
-import { ChapterTranslationEditorPage } from '../features/chapter-editor/ChapterTranslationEditorPage.tsx';
-import { WorkspaceCreatePage } from '../features/workspace-create/WorkspaceCreatePage.tsx';
+import type { ProjectCommand, TaskActivityKind } from '../components/WorkspaceView.tsx';
+
+const LazyChapterTranslationEditorPage = lazy(async () => {
+  const { ChapterTranslationEditorPage } = await import(
+    '../features/chapter-editor/ChapterTranslationEditorPage.tsx'
+  );
+  return { default: ChapterTranslationEditorPage };
+});
+
+const LazyWorkspaceCreatePage = lazy(async () => {
+  const { WorkspaceCreatePage } = await import(
+    '../features/workspace-create/WorkspaceCreatePage.tsx'
+  );
+  return { default: WorkspaceCreatePage };
+});
+
+const LazyRecentWorkspacesView = lazy(async () => {
+  const { RecentWorkspacesView } = await import('../components/RecentWorkspacesView.tsx');
+  return { default: RecentWorkspacesView };
+});
+
+const LazySettingsView = lazy(async () => {
+  const { SettingsView } = await import('../components/SettingsView.tsx');
+  return { default: SettingsView };
+});
+
+const LazyWorkspaceView = lazy(async () => {
+  const { WorkspaceView } = await import('../components/WorkspaceView.tsx');
+  return { default: WorkspaceView };
+});
+
+function RouteLoadingFallback() {
+  return (
+    <div
+      style={{
+        minHeight: 240,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Spin size="large" tip="正在加载页面..." />
+    </div>
+  );
+}
 
 const { Header, Sider, Content } = Layout;
 
@@ -94,6 +130,8 @@ export function AppShell() {
     null,
   );
   const repeatedPatternsRef = useRef<SavedRepetitionPatternAnalysisResult | null>(null);
+  const chaptersRefreshPromiseRef = useRef<Promise<void> | null>(null);
+  const topologyRefreshPromiseRef = useRef<Promise<void> | null>(null);
   const [chapters, setChapters] = useState<WorkspaceChapterDescriptor[]>([]);
   const [topology, setTopology] = useState<StoryTopologyDescriptor | null>(null);
   const [dictionaryModalOpen, setDictionaryModalOpen] = useState(false);
@@ -336,44 +374,72 @@ export function AppShell() {
     [],
   );
 
-  const refreshChapters = useCallback(async () => {
-    let nextRevision: number | undefined;
-    try {
-      const versions = await api.getProjectResourceVersions();
-      nextRevision = versions.chaptersRevision;
-      if (nextRevision === workspaceResourceVersionsRef.current.chaptersRevision) {
-        return;
-      }
-    } catch {
-      // ignore version probe failures and fall back to direct fetch
+  const refreshChapters = useCallback(() => {
+    if (chaptersRefreshPromiseRef.current) {
+      return chaptersRefreshPromiseRef.current;
     }
-    const chaptersRes = await api.getChapters().catch(() => ({ chapters: [] }));
-    setChapters(chaptersRes.chapters);
-    workspaceResourceVersionsRef.current = {
-      ...workspaceResourceVersionsRef.current,
-      chaptersRevision:
-        nextRevision ?? workspaceResourceVersionsRef.current.chaptersRevision + 1,
-    };
+
+    const refreshPromise = (async () => {
+      let nextRevision: number | undefined;
+      try {
+        const versions = await api.getProjectResourceVersions();
+        nextRevision = versions.chaptersRevision;
+        if (nextRevision === workspaceResourceVersionsRef.current.chaptersRevision) {
+          return;
+        }
+      } catch {
+        // ignore version probe failures and fall back to direct fetch
+      }
+      const chaptersRes = await api.getChapters().catch(() => ({ chapters: [] }));
+      setChapters(chaptersRes.chapters);
+      workspaceResourceVersionsRef.current = {
+        ...workspaceResourceVersionsRef.current,
+        chaptersRevision:
+          nextRevision ?? workspaceResourceVersionsRef.current.chaptersRevision + 1,
+      };
+    })();
+
+    chaptersRefreshPromiseRef.current = refreshPromise;
+    refreshPromise.finally(() => {
+      if (chaptersRefreshPromiseRef.current === refreshPromise) {
+        chaptersRefreshPromiseRef.current = null;
+      }
+    });
+    return refreshPromise;
   }, []);
 
-  const refreshTopology = useCallback(async () => {
-    let nextRevision: number | undefined;
-    try {
-      const versions = await api.getProjectResourceVersions();
-      nextRevision = versions.topologyRevision;
-      if (nextRevision === workspaceResourceVersionsRef.current.topologyRevision) {
-        return;
-      }
-    } catch {
-      // ignore version probe failures and fall back to direct fetch
+  const refreshTopology = useCallback(() => {
+    if (topologyRefreshPromiseRef.current) {
+      return topologyRefreshPromiseRef.current;
     }
-    const topologyRes = await api.getTopology().catch(() => ({ topology: null }));
-    setTopology(topologyRes.topology);
-    workspaceResourceVersionsRef.current = {
-      ...workspaceResourceVersionsRef.current,
-      topologyRevision:
-        nextRevision ?? workspaceResourceVersionsRef.current.topologyRevision + 1,
-    };
+
+    const refreshPromise = (async () => {
+      let nextRevision: number | undefined;
+      try {
+        const versions = await api.getProjectResourceVersions();
+        nextRevision = versions.topologyRevision;
+        if (nextRevision === workspaceResourceVersionsRef.current.topologyRevision) {
+          return;
+        }
+      } catch {
+        // ignore version probe failures and fall back to direct fetch
+      }
+      const topologyRes = await api.getTopology().catch(() => ({ topology: null }));
+      setTopology(topologyRes.topology);
+      workspaceResourceVersionsRef.current = {
+        ...workspaceResourceVersionsRef.current,
+        topologyRevision:
+          nextRevision ?? workspaceResourceVersionsRef.current.topologyRevision + 1,
+      };
+    })();
+
+    topologyRefreshPromiseRef.current = refreshPromise;
+    refreshPromise.finally(() => {
+      if (topologyRefreshPromiseRef.current === refreshPromise) {
+        topologyRefreshPromiseRef.current = null;
+      }
+    });
+    return refreshPromise;
   }, []);
 
   const refreshWorkspaceConfig = useCallback(async () => {
@@ -1424,135 +1490,140 @@ export function AppShell() {
             </Space>
           </Header>
           <Content style={{ padding: 16 }}>
-            <Routes>
-              <Route path="/" element={<Navigate replace to="/workspace/current" />} />
-              <Route
-                path="/workspace/current"
-                element={
-                  <WorkspaceView
-                    key={snapshot?.projectName ?? 'no-workspace'}
-                    snapshot={snapshot}
-                    projectStatus={projectStatus}
-                    sseConnected={connected}
-                    dictionary={dictionary}
-                    repeatedPatterns={repeatedPatterns}
-                    chapters={chapters}
-                    topology={topology}
-                    workspaceForm={workspaceForm}
-                    defaultImportFormat={
-                      typeof defaultImportFormat === 'string'
-                        ? defaultImportFormat
-                        : undefined
-                    }
-                    translatorOptions={translatorOptions}
-                    llmProfileOptions={llmProfileOptions}
-                    defaultLlmProfileName={defaultLlmName}
-                    onRefreshProjectStatus={refreshProjectStatus}
-                    onRefreshDictionary={refreshDictionary}
-                    onRefreshRepeatedPatterns={refreshRepeatedPatterns}
-                    onScanRepeatedPatterns={scanRepeatedPatterns}
-                    onHydrateRepeatedPatterns={hydrateRepeatedPatterns}
-                    onSaveRepeatedPatternTranslation={handleSaveRepeatedPatternTranslation}
-                    onLoadRepeatedPatternContext={handleLoadRepeatedPatternContext}
-                    onStartRepeatedPatternConsistencyFix={
-                      handleStartRepeatedPatternConsistencyFix
-                    }
-                    onGetRepeatedPatternConsistencyFixStatus={
-                      handleGetRepeatedPatternConsistencyFixStatus
-                    }
-                    onClearRepeatedPatternConsistencyFixStatus={
-                      handleClearRepeatedPatternConsistencyFixStatus
-                    }
-                    onRefreshChapters={refreshChapters}
-                    onRefreshTopology={refreshTopology}
-                    onRefreshWorkspaceConfig={refreshWorkspaceConfig}
-                    onProjectCommand={handleProjectCommand}
-                    onOpenDictionaryEditor={openDictionaryEditor}
-                    onDeleteDictionary={handleDeleteDictionary}
-                    onImportDictionaryFromContent={handleImportDictionaryFromContent}
-                    onWorkspaceConfigSave={handleWorkspaceConfigSave}
-                    onClearChapterTranslations={handleClearChapterTranslations}
-                    onRemoveChapters={handleRemoveChapters}
-                    onCreateStoryBranch={handleCreateStoryBranch}
-                    onUpdateStoryRoute={handleUpdateStoryRoute}
-                    onReorderStoryRouteChapters={handleReorderStoryRouteChapters}
-                    onMoveChapterToRoute={handleMoveChapterToRoute}
-                    onRemoveStoryRoute={handleRemoveStoryRoute}
-                    onImportChapterArchive={handleImportChapterArchive}
-                    onDownloadExport={handleDownloadExport}
-                    onResetProject={handleResetProject}
-                    onClearLogs={handleClearLogs}
-                    onDismissTaskActivity={handleDismissTaskActivity}
-                  />
-                }
-              />
-              <Route path="/workspace/editor/:chapterId?" element={<ChapterTranslationEditorPage />} />
-              <Route
-                path="/workspace/create"
-                element={
-                  <WorkspaceCreatePage
-                    hasActiveWorkspace={Boolean(snapshot)}
-                    translatorOptions={translatorOptions}
-                    onRefreshBootData={refreshBootData}
-                    onRefreshProjectData={async () => undefined}
-                  />
-                }
-              />
-              <Route
-                path="/workspaces/recent"
-                element={
-                  <RecentWorkspacesView
-                    workspaces={workspaces}
-                    onRefreshBootData={() => void refreshBootData()}
-                    onOpenWorkspace={handleOpenWorkspace}
-                    onDeleteWorkspace={handleDeleteWorkspace}
-                    onImportWorkspaceArchive={handleImportWorkspaceArchive}
-                    onExportWorkspaceArchive={handleExportWorkspaceArchive}
-                    importingArchive={importingWorkspaceArchive}
-                    exportingArchiveDir={exportingWorkspaceArchiveDir ?? undefined}
-                  />
-                }
-              />
-              <Route
-                path="/settings"
-                element={
-                  <SettingsView
-                    settingsLoading={settingsLoading}
-                    llmProfiles={llmProfiles}
-                    defaultLlmName={defaultLlmName}
-                    selectedLlmName={selectedLlmName}
-                    vectorConfig={vectorConfig}
-                    vectorConnectionStatus={vectorConnectionStatus}
-                    selectedTranslatorName={selectedTranslatorName}
-                    translators={translators}
-                    translatorWorkflows={translatorWorkflows}
-                    llmForm={llmForm}
-                    embeddingForm={embeddingForm}
-                    vectorForm={vectorForm}
-                    translatorForm={translatorForm}
-                    extractorForm={extractorForm}
-                    updaterForm={updaterForm}
-                    plotForm={plotForm}
-                    alignmentForm={alignmentForm}
-                    onCreateLlmProfile={handleCreateLlmProfile}
-                    onSelectLlmProfile={selectLlmProfile}
-                    onSaveLlmProfile={handleSaveLlmProfile}
-                    onSetDefaultLlmProfile={handleSetDefaultLlmProfile}
-                    onDeleteLlmProfile={handleDeleteLlmProfile}
-                    onSaveEmbedding={handleSaveEmbedding}
-                    onSaveVectorStore={handleSaveVectorStore}
-                    onConnectVectorStore={handleConnectVectorStore}
-                    onDeleteVectorStore={handleDeleteVectorStore}
-                    onCreateTranslator={handleCreateTranslator}
-                    onSelectTranslator={selectTranslator}
-                    onSaveTranslator={handleSaveTranslator}
-                    onDeleteTranslator={handleDeleteTranslator}
-                    onSaveAuxiliaryConfig={handleSaveAuxiliaryConfig}
-                  />
-                }
-              />
-              <Route path="*" element={<Navigate replace to="/workspace/current" />} />
-            </Routes>
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <Routes>
+                <Route path="/" element={<Navigate replace to="/workspace/current" />} />
+                <Route
+                  path="/workspace/current"
+                  element={
+                    <LazyWorkspaceView
+                      key={snapshot?.projectName ?? 'no-workspace'}
+                      snapshot={snapshot}
+                      projectStatus={projectStatus}
+                      sseConnected={connected}
+                      dictionary={dictionary}
+                      repeatedPatterns={repeatedPatterns}
+                      chapters={chapters}
+                      topology={topology}
+                      workspaceForm={workspaceForm}
+                      defaultImportFormat={
+                        typeof defaultImportFormat === 'string'
+                          ? defaultImportFormat
+                          : undefined
+                      }
+                      translatorOptions={translatorOptions}
+                      llmProfileOptions={llmProfileOptions}
+                      defaultLlmProfileName={defaultLlmName}
+                      onRefreshProjectStatus={refreshProjectStatus}
+                      onRefreshDictionary={refreshDictionary}
+                      onRefreshRepeatedPatterns={refreshRepeatedPatterns}
+                      onScanRepeatedPatterns={scanRepeatedPatterns}
+                      onHydrateRepeatedPatterns={hydrateRepeatedPatterns}
+                      onSaveRepeatedPatternTranslation={handleSaveRepeatedPatternTranslation}
+                      onLoadRepeatedPatternContext={handleLoadRepeatedPatternContext}
+                      onStartRepeatedPatternConsistencyFix={
+                        handleStartRepeatedPatternConsistencyFix
+                      }
+                      onGetRepeatedPatternConsistencyFixStatus={
+                        handleGetRepeatedPatternConsistencyFixStatus
+                      }
+                      onClearRepeatedPatternConsistencyFixStatus={
+                        handleClearRepeatedPatternConsistencyFixStatus
+                      }
+                      onRefreshChapters={refreshChapters}
+                      onRefreshTopology={refreshTopology}
+                      onRefreshWorkspaceConfig={refreshWorkspaceConfig}
+                      onProjectCommand={handleProjectCommand}
+                      onOpenDictionaryEditor={openDictionaryEditor}
+                      onDeleteDictionary={handleDeleteDictionary}
+                      onImportDictionaryFromContent={handleImportDictionaryFromContent}
+                      onWorkspaceConfigSave={handleWorkspaceConfigSave}
+                      onClearChapterTranslations={handleClearChapterTranslations}
+                      onRemoveChapters={handleRemoveChapters}
+                      onCreateStoryBranch={handleCreateStoryBranch}
+                      onUpdateStoryRoute={handleUpdateStoryRoute}
+                      onReorderStoryRouteChapters={handleReorderStoryRouteChapters}
+                      onMoveChapterToRoute={handleMoveChapterToRoute}
+                      onRemoveStoryRoute={handleRemoveStoryRoute}
+                      onImportChapterArchive={handleImportChapterArchive}
+                      onDownloadExport={handleDownloadExport}
+                      onResetProject={handleResetProject}
+                      onClearLogs={handleClearLogs}
+                      onDismissTaskActivity={handleDismissTaskActivity}
+                    />
+                  }
+                />
+                <Route
+                  path="/workspace/editor/:chapterId?"
+                  element={<LazyChapterTranslationEditorPage />}
+                />
+                <Route
+                  path="/workspace/create"
+                  element={
+                    <LazyWorkspaceCreatePage
+                      hasActiveWorkspace={Boolean(snapshot)}
+                      translatorOptions={translatorOptions}
+                      onRefreshBootData={refreshBootData}
+                      onRefreshProjectData={async () => undefined}
+                    />
+                  }
+                />
+                <Route
+                  path="/workspaces/recent"
+                  element={
+                    <LazyRecentWorkspacesView
+                      workspaces={workspaces}
+                      onRefreshBootData={() => void refreshBootData()}
+                      onOpenWorkspace={handleOpenWorkspace}
+                      onDeleteWorkspace={handleDeleteWorkspace}
+                      onImportWorkspaceArchive={handleImportWorkspaceArchive}
+                      onExportWorkspaceArchive={handleExportWorkspaceArchive}
+                      importingArchive={importingWorkspaceArchive}
+                      exportingArchiveDir={exportingWorkspaceArchiveDir ?? undefined}
+                    />
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <LazySettingsView
+                      settingsLoading={settingsLoading}
+                      llmProfiles={llmProfiles}
+                      defaultLlmName={defaultLlmName}
+                      selectedLlmName={selectedLlmName}
+                      vectorConfig={vectorConfig}
+                      vectorConnectionStatus={vectorConnectionStatus}
+                      selectedTranslatorName={selectedTranslatorName}
+                      translators={translators}
+                      translatorWorkflows={translatorWorkflows}
+                      llmForm={llmForm}
+                      embeddingForm={embeddingForm}
+                      vectorForm={vectorForm}
+                      translatorForm={translatorForm}
+                      extractorForm={extractorForm}
+                      updaterForm={updaterForm}
+                      plotForm={plotForm}
+                      alignmentForm={alignmentForm}
+                      onCreateLlmProfile={handleCreateLlmProfile}
+                      onSelectLlmProfile={selectLlmProfile}
+                      onSaveLlmProfile={handleSaveLlmProfile}
+                      onSetDefaultLlmProfile={handleSetDefaultLlmProfile}
+                      onDeleteLlmProfile={handleDeleteLlmProfile}
+                      onSaveEmbedding={handleSaveEmbedding}
+                      onSaveVectorStore={handleSaveVectorStore}
+                      onConnectVectorStore={handleConnectVectorStore}
+                      onDeleteVectorStore={handleDeleteVectorStore}
+                      onCreateTranslator={handleCreateTranslator}
+                      onSelectTranslator={selectTranslator}
+                      onSaveTranslator={handleSaveTranslator}
+                      onDeleteTranslator={handleDeleteTranslator}
+                      onSaveAuxiliaryConfig={handleSaveAuxiliaryConfig}
+                    />
+                  }
+                />
+                <Route path="*" element={<Navigate replace to="/workspace/current" />} />
+              </Routes>
+            </Suspense>
           </Content>
         </Layout>
       </Layout>

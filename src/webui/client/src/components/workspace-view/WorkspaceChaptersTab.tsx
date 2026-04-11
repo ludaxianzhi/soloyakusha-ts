@@ -44,7 +44,6 @@ interface WorkspaceChaptersTabProps {
   topology: StoryTopologyDescriptor | null;
   defaultImportFormat?: string;
   onRefreshChapters: () => void | Promise<void>;
-  onRefreshTopology: () => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
@@ -97,7 +96,6 @@ export function WorkspaceChaptersTab({
   topology,
   defaultImportFormat,
   onRefreshChapters,
-  onRefreshTopology,
   onClearChapterTranslations,
   onRemoveChapters,
   onCreateStoryBranch,
@@ -109,24 +107,10 @@ export function WorkspaceChaptersTab({
 }: WorkspaceChaptersTabProps) {
   const [activeTabKey, setActiveTabKey] = useState('arrange');
 
-  useEffect(() => {
-    if (!active) {
-      return;
-    }
-
-    void onRefreshChapters();
-  }, [active, onRefreshChapters]);
-
-  useEffect(() => {
-    if (!active) {
-      return;
-    }
-    void onRefreshTopology();
-  }, [active, onRefreshTopology]);
-
   usePollingTask({
     enabled: active,
     intervalMs: 5_000,
+    runImmediately: false,
     task: async () => {
       await onRefreshChapters();
     },

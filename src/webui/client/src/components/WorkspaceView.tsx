@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Tabs } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { WorkspaceChaptersTab } from './workspace-view/WorkspaceChaptersTab.tsx';
@@ -57,6 +57,7 @@ export function WorkspaceView({
 }: WorkspaceViewProps) {
   const location = useLocation();
   const [activeTabKey, setActiveTabKey] = useState('dashboard');
+  const prefetchedWorkspaceKeyRef = useRef<string | null>(null);
   const availableTabKeys = useMemo(
     () => ['dashboard', 'dictionary', 'chapters', 'workspace-config', 'history', 'consistency-analysis'],
     [],
@@ -68,6 +69,20 @@ export function WorkspaceView({
       setActiveTabKey(tab);
     }
   }, [availableTabKeys, location.search]);
+
+  useEffect(() => {
+    if (!snapshot) {
+      prefetchedWorkspaceKeyRef.current = null;
+      return;
+    }
+
+    if (prefetchedWorkspaceKeyRef.current === snapshot.projectName) {
+      return;
+    }
+
+    prefetchedWorkspaceKeyRef.current = snapshot.projectName;
+    void Promise.all([onRefreshChapters(), onRefreshTopology()]);
+  }, [onRefreshChapters, onRefreshTopology, snapshot?.projectName]);
 
   if (!snapshot) {
     return (
@@ -130,7 +145,6 @@ export function WorkspaceView({
                 topology={topology}
                 defaultImportFormat={defaultImportFormat}
                 onRefreshChapters={onRefreshChapters}
-                onRefreshTopology={onRefreshTopology}
                 onClearChapterTranslations={onClearChapterTranslations}
                 onRemoveChapters={onRemoveChapters}
                 onCreateStoryBranch={onCreateStoryBranch}

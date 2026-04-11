@@ -4,12 +4,14 @@ interface UsePollingTaskOptions {
   enabled: boolean;
   intervalMs: number;
   task: () => Promise<void>;
+  runImmediately?: boolean;
 }
 
 export function usePollingTask({
   enabled,
   intervalMs,
   task,
+  runImmediately = true,
 }: UsePollingTaskOptions) {
   const taskRef = useRef(task);
   const runningRef = useRef(false);
@@ -40,7 +42,9 @@ export function usePollingTask({
       }
     };
 
-    void run();
+    if (runImmediately) {
+      void run();
+    }
     const intervalId = window.setInterval(() => {
       void run();
     }, intervalMs);
@@ -56,5 +60,5 @@ export function usePollingTask({
       window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [enabled, intervalMs]);
+  }, [enabled, intervalMs, runImmediately]);
 }
