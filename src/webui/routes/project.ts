@@ -178,6 +178,7 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
         minOccurrences: readOptionalPositiveIntegerQuery(c.req.query('minOccurrences')),
         minLength: readOptionalPositiveIntegerQuery(c.req.query('minLength')),
         maxResults: readOptionalPositiveIntegerQuery(c.req.query('maxResults')),
+        chapterIds: readOptionalPositiveIntegerListQuery(c.req.query('chapterIds')),
       });
       if (!result) {
         return c.json({ error: '当前没有已初始化的项目' }, 404);
@@ -235,12 +236,14 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
         minOccurrences?: number;
         minLength?: number;
         maxResults?: number;
+        chapterIds?: number[];
       }>();
       const progress = await projectService.startRepetitionPatternConsistencyFix({
         llmProfileName: String(body.llmProfileName ?? ''),
         minOccurrences: readOptionalPositiveIntegerValue(body.minOccurrences),
         minLength: readOptionalPositiveIntegerValue(body.minLength),
         maxResults: readOptionalPositiveIntegerValue(body.maxResults),
+        chapterIds: readOptionalPositiveIntegerArrayValue(body.chapterIds),
       });
       return c.json(progress);
     } catch (error) {
@@ -481,6 +484,24 @@ function readOptionalPositiveIntegerQuery(value: string | undefined): number | u
   return parsed;
 }
 
+function readOptionalPositiveIntegerListQuery(value: string | undefined): number[] | undefined {
+  if (!value?.trim()) {
+    return undefined;
+  }
+  return value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const parsed = Number.parseInt(part, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new ProjectServiceUserInputError('章节范围参数必须为正整数列表');
+      }
+      return parsed;
+    })
+    .filter((chapterId, index, chapterIds) => chapterIds.indexOf(chapterId) === index);
+}
+
 function readOptionalPositiveIntegerValue(value: unknown): number | undefined {
   if (value === undefined || value === null || value === '') {
     return undefined;
@@ -489,6 +510,23 @@ function readOptionalPositiveIntegerValue(value: unknown): number | undefined {
     throw new ProjectServiceUserInputError('数值参数必须为正整数');
   }
   return value;
+}
+
+function readOptionalPositiveIntegerArrayValue(value: unknown): number[] | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new ProjectServiceUserInputError('章节范围参数必须为正整数数组');
+  }
+  return value
+    .map((item) => {
+      if (typeof item !== 'number' || !Number.isInteger(item) || item <= 0) {
+        throw new ProjectServiceUserInputError('章节范围参数必须为正整数数组');
+      }
+      return item;
+    })
+    .filter((chapterId, index, chapterIds) => chapterIds.indexOf(chapterId) === index);
 }
 
 function parseBooleanField(value: FormDataEntryValue | null, fallback: boolean): boolean {

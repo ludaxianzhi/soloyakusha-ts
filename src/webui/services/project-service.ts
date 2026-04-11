@@ -36,8 +36,8 @@ import {
 import type { LlmRequestHistoryEntry } from '../../llm/types.ts';
 import { PlotSummarizer } from '../../project/plot-summarizer.ts';
 import type {
-  RepetitionPatternAnalysisOptions,
   RepetitionPatternAnalysisResult,
+  ScopedRepetitionPatternAnalysisOptions,
 } from '../../project/repetition-pattern-analysis.ts';
 import { StoryTopology } from '../../project/story-topology.ts';
 import { DefaultTextSplitter } from '../../project/translation-document-manager.ts';
@@ -246,7 +246,7 @@ export class ProjectService {
   }
 
   getRepeatedPatterns(
-    options: RepetitionPatternAnalysisOptions = {},
+    options: ScopedRepetitionPatternAnalysisOptions = {},
   ): RepetitionPatternAnalysisResult | null {
     return this.project?.analyzeRepeatedPatterns(options) ?? null;
   }
@@ -351,6 +351,7 @@ export class ProjectService {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+    chapterIds?: number[];
   }): Promise<RepetitionPatternConsistencyFixProgress> {
     if (this.isBusy) {
       throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
@@ -374,6 +375,7 @@ export class ProjectService {
       minOccurrences: input.minOccurrences,
       minLength: input.minLength,
       maxResults: input.maxResults,
+      chapterIds: input.chapterIds,
     });
     const tasks = buildRepetitionPatternFixTasks(analysis);
 

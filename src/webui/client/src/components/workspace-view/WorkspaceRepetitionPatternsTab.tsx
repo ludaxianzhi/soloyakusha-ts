@@ -10,6 +10,7 @@ import {
   InputNumber,
   Modal,
   Progress,
+  Segmented,
   Select,
   Space,
   Table,
@@ -21,20 +22,32 @@ import type {
   RepetitionPatternConsistencyFixProgress,
   RepetitionPatternContextResult,
   RepetitionPatternLocation,
+  StoryTopologyDescriptor,
+  StoryTopologyRouteDescriptor,
+  WorkspaceChapterDescriptor,
 } from '../../app/types.ts';
 import { usePollingTask } from '../../app/usePollingTask.ts';
 
 const { TextArea } = Input;
 
+type RepetitionPatternScopeSelection = {
+  mode: 'all' | 'custom';
+  chapterIds: number[];
+  routeIds: string[];
+};
+
 interface WorkspaceRepetitionPatternsTabProps {
   active: boolean;
   repeatedPatterns: RepetitionPatternAnalysisResult | null;
+  chapters: WorkspaceChapterDescriptor[];
+  topology: StoryTopologyDescriptor | null;
   llmProfileOptions: Array<{ label: string; value: string }>;
   defaultLlmProfileName?: string;
   onRefreshRepeatedPatterns: (options?: {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+    chapterIds?: number[];
   }) => Promise<RepetitionPatternAnalysisResult | null>;
   onSaveRepeatedPatternTranslation: (input: {
     chapterId: number;
@@ -52,6 +65,7 @@ interface WorkspaceRepetitionPatternsTabProps {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+    chapterIds?: number[];
   }) => Promise<RepetitionPatternConsistencyFixProgress>;
   onGetRepeatedPatternConsistencyFixStatus: () => Promise<RepetitionPatternConsistencyFixProgress | null>;
   onClearRepeatedPatternConsistencyFixStatus: () => Promise<void>;
@@ -60,6 +74,8 @@ interface WorkspaceRepetitionPatternsTabProps {
 export function WorkspaceRepetitionPatternsTab({
   active,
   repeatedPatterns,
+  chapters,
+  topology,
   llmProfileOptions,
   defaultLlmProfileName,
   onRefreshRepeatedPatterns,
@@ -87,15 +103,101 @@ export function WorkspaceRepetitionPatternsTab({
   const [minOccurrences, setMinOccurrences] = useState(3);
   const [minLength, setMinLength] = useState(8);
   const [maxResults, setMaxResults] = useState(20);
+  const [scopeSelection, setScopeSelection] = useState<RepetitionPatternScopeSelection>({
+    mode: 'all',
+    chapterIds: [],
+    routeIds: [],
+  });
+  const [scopeModalOpen, setScopeModalOpen] = useState(false);
+  const [scopeDraft, setScopeDraft] = useState<RepetitionPatternScopeSelection>({
+    mode: 'all',
+    chapterIds: [],
+    routeIds: [],
+  });
   const consistencyFixProgressRef = useRef<RepetitionPatternConsistencyFixProgress | null>(null);
+
+  const chapterOptions = useMemo(
+    () =>
+      chapters.map((chapter) => ({
+        label: `章节 ${chapter.id} · ${chapter.filePath}`,
+        value: chapter.id,
+      })),
+    [chapters],
+  );
+
+  const availableRoutes = useMemo(
+    () =>
+      topology?.routes.length
+        ? topology.routes
+        : chapters.length
+          ? [
+              {
+                id: 'main',
+                name: '主线',
+                parentRouteId: null,
+                forkAfterChapterId: null,
+                chapters: chapters.map((chapter) => chapter.id),
+                childRouteIds: [],
+                depth: 0,
+                isMain: true,
+              } satisfies StoryTopologyRouteDescriptor,
+            ]
+          : [],
+    [chapters, topology],
+  );
+
+  const routeOptions = useMemo(
+    () =>
+      availableRoutes.map((route) => ({
+        label: `${route.name} (${route.id})`,
+        value: route.id,
+      })),
+    [availableRoutes],
+  );
+
+  useEffect(() => {
+    const nextSelection = normalizeScopeSelection(scopeSelection, chapters, routeOptions);
+    if (!areScopeSelectionsEqual(nextSelection, scopeSelection)) {
+      setScopeSelection(nextSelection);
+    }
+
+    const nextDraft = normalizeScopeSelection(scopeDraft, chapters, routeOptions);
+    if (!areScopeSelectionsEqual(nextDraft, scopeDraft)) {
+      setScopeDraft(nextDraft);
+    }
+  }, [chapters, routeOptions, scopeDraft, scopeSelection]);
+
+  const scopedChapterIds = useMemo(
+    () => resolveScopeChapterIds(scopeSelection, chapters, availableRoutes, topology),
+    [availableRoutes, chapters, scopeSelection, topology],
+  );
+
+  const draftScopedChapterIds = useMemo(
+    () => resolveScopeChapterIds(scopeDraft, chapters, availableRoutes, topology),
+    [availableRoutes, chapters, scopeDraft, topology],
+  );
 
   const analysisOptions = useMemo(
     () => ({
       minOccurrences,
       minLength,
       maxResults,
+      chapterIds: scopeSelection.mode === 'all' ? undefined : scopedChapterIds,
     }),
-    [maxResults, minLength, minOccurrences],
+    [maxResults, minLength, minOccurrences, scopeSelection.mode, scopedChapterIds],
+  );
+
+  const scopeReady = scopeSelection.mode === 'all' || scopedChapterIds.length > 0;
+  const draftScopeReady = scopeDraft.mode === 'all' || draftScopedChapterIds.length > 0;
+
+  const scopeSummary = useMemo(
+    () => buildScopeSummary(scopeSelection, scopedChapterIds),
+    [scopeSelection, scopedChapterIds],
+  );
+
+  const draftScopeSummary = useMemo(
+    () => buildScopeSummary(scopeDraft, draftScopedChapterIds),
+    [draftScopedChapterIds, scopeDraft],
   );
 
   const refresh = async () => {
@@ -255,6 +357,10 @@ export function WorkspaceRepetitionPatternsTab({
       message.error('请先选择一个 LLM 配置');
       return;
     }
+    if (!scopeReady) {
+      message.error('请先选择有效的查找区域');
+      return;
+    }
     if (pendingSaveLocations.length > 0) {
       message.error('请先保存当前手动修改，再执行 AI 统一表达');
       return;
@@ -280,6 +386,20 @@ export function WorkspaceRepetitionPatternsTab({
     } finally {
       setStartingConsistencyFix(false);
     }
+  };
+
+  const handleOpenScopeModal = () => {
+    setScopeDraft(scopeSelection);
+    setScopeModalOpen(true);
+  };
+
+  const handleApplyScope = () => {
+    if (!draftScopeReady) {
+      message.error('请至少选择一个章节或一条路线');
+      return;
+    }
+    setScopeSelection(scopeDraft);
+    setScopeModalOpen(false);
   };
 
   const handleClearConsistencyFixProgress = async () => {
@@ -323,6 +443,9 @@ export function WorkspaceRepetitionPatternsTab({
           <BranchesOutlined />
           <Typography.Text strong>重复 Pattern 发现</Typography.Text>
         </Space>
+        <Button disabled={consistencyFixRunning} onClick={handleOpenScopeModal}>
+          查找区域
+        </Button>
         <span>最少出现</span>
         <InputNumber
           min={2}
@@ -344,7 +467,7 @@ export function WorkspaceRepetitionPatternsTab({
         <Button
           type="primary"
           loading={loading}
-          disabled={consistencyFixRunning}
+          disabled={consistencyFixRunning || !scopeReady}
           onClick={() => void refresh()}
         >
           {repeatedPatterns ? '重新分析' : '开始分析'}
@@ -367,7 +490,8 @@ export function WorkspaceRepetitionPatternsTab({
             savingLineKey !== null ||
             !repeatedPatterns?.patterns.length ||
             !llmProfileOptions.length ||
-            pendingSaveLocations.length > 0
+            pendingSaveLocations.length > 0 ||
+            !scopeReady
           }
           onClick={() => void handleStartConsistencyFix()}
         >
@@ -386,6 +510,83 @@ export function WorkspaceRepetitionPatternsTab({
           批量保存修改{pendingSaveLocations.length ? ` (${pendingSaveLocations.length})` : ''}
         </Button>
       </Space>
+      <Typography.Text type="secondary">{scopeSummary}</Typography.Text>
+      <Modal
+        open={scopeModalOpen}
+        title="选择查找区域"
+        okText="应用"
+        cancelText="取消"
+        okButtonProps={{ disabled: !draftScopeReady }}
+        onOk={handleApplyScope}
+        onCancel={() => setScopeModalOpen(false)}
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Segmented<'all' | 'custom'>
+            block
+            options={[
+              { label: '全部章节', value: 'all' },
+              { label: '自定义章节 / 路线', value: 'custom' },
+            ]}
+            value={scopeDraft.mode}
+            onChange={(value) =>
+              setScopeDraft((current) => ({
+                ...current,
+                mode: value,
+              }))
+            }
+          />
+          {scopeDraft.mode === 'custom' ? (
+            <>
+              <Typography.Text type="secondary">
+                可同时选择多条路线与离散章节，最终按去重后的章节集合进行查找和 AI 统一表达。
+              </Typography.Text>
+              <div className="section-stack">
+                <Typography.Text strong>路线</Typography.Text>
+                <Select
+                  mode="multiple"
+                  allowClear
+                  showSearch
+                  style={{ width: '100%' }}
+                  placeholder="可选择多条路线"
+                  options={routeOptions}
+                  value={scopeDraft.routeIds}
+                  onChange={(value) =>
+                    setScopeDraft((current) => ({
+                      ...current,
+                      routeIds: value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="section-stack">
+                <Typography.Text strong>章节</Typography.Text>
+                <Select
+                  mode="multiple"
+                  allowClear
+                  showSearch
+                  style={{ width: '100%' }}
+                  placeholder="可选择不连续章节"
+                  options={chapterOptions}
+                  value={scopeDraft.chapterIds}
+                  onChange={(value) =>
+                    setScopeDraft((current) => ({
+                      ...current,
+                      chapterIds: value,
+                    }))
+                  }
+                />
+              </div>
+              <Alert
+                type={draftScopeReady ? 'info' : 'warning'}
+                showIcon
+                message={draftScopeSummary}
+              />
+            </>
+          ) : (
+            <Alert type="info" showIcon message="将扫描当前工作区的全部章节。" />
+          )}
+        </Space>
+      </Modal>
       {!llmProfileOptions.length ? (
         <Alert
           type="info"
@@ -609,6 +810,107 @@ export function WorkspaceRepetitionPatternsTab({
 
 function buildEditableLineKey(location: RepetitionPatternLocation): string {
   return `${location.chapterId}-${location.fragmentIndex}-${location.lineIndex}`;
+}
+
+function normalizeScopeSelection(
+  selection: RepetitionPatternScopeSelection,
+  chapters: WorkspaceChapterDescriptor[],
+  routeOptions: Array<{ label: string; value: string }>,
+): RepetitionPatternScopeSelection {
+  const validChapterIds = new Set(chapters.map((chapter) => chapter.id));
+  const validRouteIds = new Set(routeOptions.map((route) => route.value));
+  const normalized: RepetitionPatternScopeSelection = {
+    mode: selection.mode,
+    chapterIds: selection.chapterIds.filter(
+      (chapterId, index, chapterIds) =>
+        validChapterIds.has(chapterId) && chapterIds.indexOf(chapterId) === index,
+    ),
+    routeIds: selection.routeIds.filter(
+      (routeId, index, routeIds) => validRouteIds.has(routeId) && routeIds.indexOf(routeId) === index,
+    ),
+  };
+  return normalized;
+}
+
+function areScopeSelectionsEqual(
+  left: RepetitionPatternScopeSelection,
+  right: RepetitionPatternScopeSelection,
+): boolean {
+  return (
+    left.mode === right.mode &&
+    left.chapterIds.length === right.chapterIds.length &&
+    left.routeIds.length === right.routeIds.length &&
+    left.chapterIds.every((chapterId, index) => chapterId === right.chapterIds[index]) &&
+    left.routeIds.every((routeId, index) => routeId === right.routeIds[index])
+  );
+}
+
+function buildRouteChapterSequence(
+  topology: StoryTopologyDescriptor,
+  routeId: string,
+): number[] {
+  const routeById = new Map(topology.routes.map((route) => [route.id, route] as const));
+  const ancestorChain: StoryTopologyRouteDescriptor[] = [];
+  let currentRoute: StoryTopologyRouteDescriptor | undefined = routeById.get(routeId);
+  while (currentRoute) {
+    ancestorChain.unshift(currentRoute);
+    currentRoute = currentRoute.parentRouteId
+      ? routeById.get(currentRoute.parentRouteId)
+      : undefined;
+  }
+
+  return ancestorChain
+    .flatMap((route) => route.chapters)
+    .filter((chapterId, index, chapterIds) => chapterIds.indexOf(chapterId) === index);
+}
+
+function resolveScopeChapterIds(
+  selection: RepetitionPatternScopeSelection,
+  chapters: WorkspaceChapterDescriptor[],
+  routes: StoryTopologyRouteDescriptor[],
+  topology: StoryTopologyDescriptor | null,
+): number[] {
+  if (selection.mode === 'all') {
+    return chapters.map((chapter) => chapter.id);
+  }
+
+  const selectedChapterIds = new Set<number>(selection.chapterIds);
+  for (const routeId of selection.routeIds) {
+    const routeChapterIds =
+      topology?.routes.length || routes.length
+        ? buildRouteChapterSequence(topology ?? { routes, schemaVersion: 1, hasPersistedTopology: false, hasBranches: false }, routeId)
+        : [];
+    for (const chapterId of routeChapterIds) {
+      selectedChapterIds.add(chapterId);
+    }
+  }
+
+  return chapters
+    .map((chapter) => chapter.id)
+    .filter((chapterId) => selectedChapterIds.has(chapterId));
+}
+
+function buildScopeSummary(
+  selection: RepetitionPatternScopeSelection,
+  resolvedChapterIds: number[],
+): string {
+  if (selection.mode === 'all') {
+    return '查找区域：全部章节';
+  }
+  if (resolvedChapterIds.length === 0) {
+    return '查找区域：未选择章节或路线';
+  }
+
+  const segments = [`共 ${resolvedChapterIds.length} 章`];
+  if (selection.routeIds.length > 0) {
+    segments.push(`${selection.routeIds.length} 条路线`);
+  }
+  if (selection.chapterIds.length > 0) {
+    segments.push(`${selection.chapterIds.length} 个离散章节`);
+  }
+  const preview = resolvedChapterIds.slice(0, 8).map((chapterId) => `#${chapterId}`).join('、');
+  const suffix = resolvedChapterIds.length > 8 ? ' …' : '';
+  return `查找区域：自定义（${segments.join(' / ')}）${preview ? `：${preview}${suffix}` : ''}`;
 }
 
 function toFixProgressPercent(progress: RepetitionPatternConsistencyFixProgress): number {

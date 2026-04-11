@@ -23,7 +23,7 @@ import type {
 import { GlobalAssociationPatternScanner } from "./global-pattern-scanner.ts";
 import {
   analyzeProjectRepeatedPatterns,
-  type RepetitionPatternAnalysisOptions,
+  type ScopedRepetitionPatternAnalysisOptions,
   type RepetitionPatternAnalysisResult,
 } from "./project-repetition-analysis.ts";
 import {
@@ -1037,13 +1037,14 @@ export class TranslationProject
   }
 
   analyzeRepeatedPatterns(
-    options: RepetitionPatternAnalysisOptions = {},
+    options: ScopedRepetitionPatternAnalysisOptions = {},
   ): RepetitionPatternAnalysisResult {
     this.ensureInitialized();
+    const chapters = this.resolveRepetitionPatternAnalysisChapters(options.chapterIds);
     return analyzeProjectRepeatedPatterns(
       {
         documentManager: this.documentManager,
-        chapters: this.getTraversalChapters(),
+        chapters,
       },
       options,
     );
@@ -1607,6 +1608,25 @@ export class TranslationProject
     }
 
     return metadata;
+  }
+
+  private resolveRepetitionPatternAnalysisChapters(chapterIds?: readonly number[]): Chapter[] {
+    const traversalChapters = this.getTraversalChapters();
+    if (!chapterIds) {
+      return traversalChapters;
+    }
+    if (chapterIds.length === 0) {
+      return [];
+    }
+
+    const chapterById = new Map(traversalChapters.map((chapter) => [chapter.id, chapter] as const));
+    const uniqueChapterIds = [...new Set(chapterIds)];
+    const missingChapterIds = uniqueChapterIds.filter((chapterId) => !chapterById.has(chapterId));
+    if (missingChapterIds.length > 0) {
+      throw new Error(`章节不存在: ${missingChapterIds.join(", ")}`);
+    }
+
+    return uniqueChapterIds.map((chapterId) => chapterById.get(chapterId)!);
   }
 
   private replaceRouteChapters(

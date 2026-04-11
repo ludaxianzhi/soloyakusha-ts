@@ -77,4 +77,63 @@ describe("TranslationProject repetition analysis", () => {
     expect(refreshed.patterns[0]?.isTranslationConsistent).toBe(true);
     expect(refreshed.patterns[0]?.translations).toHaveLength(1);
   });
+
+  test("supports limiting repeated-pattern analysis to a chapter subset", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-repetition-scope-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "学院门口正在排队\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-2.txt"), "操场正在训练\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-3.txt"), "学院门口已经关闭\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "repetition-scope-demo",
+        projectDir: workspaceDir,
+        chapters: [
+          { id: 1, filePath: "sources\\chapter-1.txt" },
+          { id: 2, filePath: "sources\\chapter-2.txt" },
+          { id: 3, filePath: "sources\\chapter-3.txt" },
+        ],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    const fullResult = project.analyzeRepeatedPatterns({
+      minOccurrences: 2,
+      minLength: 4,
+      maxResults: 5,
+    });
+    expect(fullResult.patterns.map((pattern) => pattern.text)).toContain("学院门口");
+
+    const scopedResult = project.analyzeRepeatedPatterns({
+      minOccurrences: 2,
+      minLength: 4,
+      maxResults: 5,
+      chapterIds: [1, 2],
+    });
+    expect(scopedResult.totalSentenceCount).toBe(2);
+    expect(scopedResult.patterns).toEqual([]);
+
+    const crossChapterScopedResult = project.analyzeRepeatedPatterns({
+      minOccurrences: 2,
+      minLength: 4,
+      maxResults: 5,
+      chapterIds: [1, 3],
+    });
+    expect(crossChapterScopedResult.totalSentenceCount).toBe(2);
+    expect(crossChapterScopedResult.patterns[0]).toMatchObject({
+      text: "学院门口",
+      occurrenceCount: 2,
+    });
+  });
 });

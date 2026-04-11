@@ -3,12 +3,14 @@ import type { TranslationDocumentManager } from "./translation-document-manager.
 import {
   buildRepetitionPatternCorpus,
   RepetitionPatternAnalyzer,
-  type RepetitionPatternAnalysisOptions,
+  type ScopedRepetitionPatternAnalysisOptions,
   type RepetitionPatternAnalysisResult,
 } from "./repetition-pattern-analysis.ts";
 
 export type {
   RepetitionPatternAnalysisOptions,
+  RepetitionPatternAnalysisScope,
+  ScopedRepetitionPatternAnalysisOptions,
   RepetitionPatternAnalysisResult,
 } from "./repetition-pattern-analysis.ts";
 
@@ -17,7 +19,7 @@ export function analyzeProjectRepeatedPatterns(
     documentManager: TranslationDocumentManager;
     chapters: Chapter[];
   },
-  options: RepetitionPatternAnalysisOptions = {},
+  options: ScopedRepetitionPatternAnalysisOptions = {},
 ): RepetitionPatternAnalysisResult {
   const corpus = buildRepetitionPatternCorpus(params);
   return new RepetitionPatternAnalyzer().analyze(corpus, options);

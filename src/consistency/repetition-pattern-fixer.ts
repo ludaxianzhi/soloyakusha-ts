@@ -296,18 +296,15 @@ function buildTaskRequestMeta(task: RepetitionPatternFixTask): LlmRequestMetadat
 function dedupeLocationsByLine(
   locations: ReadonlyArray<RepetitionPatternLocation>,
 ): RepetitionPatternLocation[] {
+  const sortedLocations = sortLocationsByOccurrenceOrder(locations);
   const unique = new Map<string, RepetitionPatternLocation>();
-  for (const location of locations) {
+  for (const location of sortedLocations) {
     const key = buildEditableLineKey(location);
     if (!unique.has(key)) {
       unique.set(key, location);
     }
   }
-  return [...unique.values()].sort(
-    (left, right) =>
-      left.globalStartIndex - right.globalStartIndex ||
-      left.lineIndex - right.lineIndex,
-  );
+  return [...unique.values()];
 }
 
 function toTaskLocation(location: RepetitionPatternLocation): RepetitionPatternTaskLocation {
@@ -322,6 +319,18 @@ function toTaskLocation(location: RepetitionPatternLocation): RepetitionPatternT
 
 function buildEditableLineKey(location: RepetitionPatternLocation): string {
   return `${location.chapterId}-${location.fragmentIndex}-${location.lineIndex}`;
+}
+
+function sortLocationsByOccurrenceOrder(
+  locations: ReadonlyArray<RepetitionPatternLocation>,
+): RepetitionPatternLocation[] {
+  return [...locations].sort(
+    (left, right) =>
+      left.globalStartIndex - right.globalStartIndex ||
+      left.chapterId - right.chapterId ||
+      left.fragmentIndex - right.fragmentIndex ||
+      left.lineIndex - right.lineIndex,
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

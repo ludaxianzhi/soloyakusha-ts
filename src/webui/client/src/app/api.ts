@@ -200,9 +200,15 @@ export const api = {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+    chapterIds?: number[];
   }) =>
     request<RepetitionPatternAnalysisResult>(
-      `/api/project/repetition-patterns${buildQueryString(options)}`,
+      `/api/project/repetition-patterns${buildQueryString({
+        minOccurrences: options?.minOccurrences,
+        minLength: options?.minLength,
+        maxResults: options?.maxResults,
+        chapterIds: options?.chapterIds?.join(','),
+      })}`,
     ),
   saveRepeatedPatternTranslation: (input: {
     chapterId: number;
@@ -223,6 +229,7 @@ export const api = {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+    chapterIds?: number[];
   }) =>
     request<RepetitionPatternConsistencyFixProgress>(
       '/api/project/repetition-patterns/consistency-fix',

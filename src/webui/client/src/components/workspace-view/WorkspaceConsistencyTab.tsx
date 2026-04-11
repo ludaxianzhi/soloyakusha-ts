@@ -4,18 +4,23 @@ import type {
   RepetitionPatternAnalysisResult,
   RepetitionPatternConsistencyFixProgress,
   RepetitionPatternContextResult,
+  StoryTopologyDescriptor,
+  WorkspaceChapterDescriptor,
 } from '../../app/types.ts';
 import { WorkspaceRepetitionPatternsTab } from './WorkspaceRepetitionPatternsTab.tsx';
 
 interface WorkspaceConsistencyTabProps {
   active: boolean;
   repeatedPatterns: RepetitionPatternAnalysisResult | null;
+  chapters: WorkspaceChapterDescriptor[];
+  topology: StoryTopologyDescriptor | null;
   llmProfileOptions: Array<{ label: string; value: string }>;
   defaultLlmProfileName?: string;
   onRefreshRepeatedPatterns: (options?: {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+    chapterIds?: number[];
   }) => Promise<RepetitionPatternAnalysisResult | null>;
   onSaveRepeatedPatternTranslation: (input: {
     chapterId: number;
@@ -33,6 +38,7 @@ interface WorkspaceConsistencyTabProps {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+    chapterIds?: number[];
   }) => Promise<RepetitionPatternConsistencyFixProgress>;
   onGetRepeatedPatternConsistencyFixStatus: () => Promise<RepetitionPatternConsistencyFixProgress | null>;
   onClearRepeatedPatternConsistencyFixStatus: () => Promise<void>;
@@ -41,6 +47,8 @@ interface WorkspaceConsistencyTabProps {
 export function WorkspaceConsistencyTab({
   active,
   repeatedPatterns,
+  chapters,
+  topology,
   llmProfileOptions,
   defaultLlmProfileName,
   onRefreshRepeatedPatterns,
@@ -67,6 +75,8 @@ export function WorkspaceConsistencyTab({
               <WorkspaceRepetitionPatternsTab
                 active={active && activeSubTabKey === 'repetition-patterns'}
                 repeatedPatterns={repeatedPatterns}
+                chapters={chapters}
+                topology={topology}
                 llmProfileOptions={llmProfileOptions}
                 defaultLlmProfileName={defaultLlmProfileName}
                 onRefreshRepeatedPatterns={onRefreshRepeatedPatterns}

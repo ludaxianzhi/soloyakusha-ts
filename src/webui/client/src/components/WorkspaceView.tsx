@@ -162,6 +162,8 @@ export function WorkspaceView({
               <WorkspaceConsistencyTab
                 active={activeTabKey === 'consistency-analysis'}
                 repeatedPatterns={repeatedPatterns}
+                chapters={chapters}
+                topology={topology}
                 llmProfileOptions={llmProfileOptions}
                 defaultLlmProfileName={defaultLlmProfileName}
                 onRefreshRepeatedPatterns={onRefreshRepeatedPatterns}

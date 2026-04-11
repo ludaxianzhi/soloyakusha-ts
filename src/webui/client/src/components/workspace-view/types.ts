@@ -45,6 +45,7 @@ export interface WorkspaceViewProps {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+    chapterIds?: number[];
   }) => Promise<RepetitionPatternAnalysisResult | null>;
   onSaveRepeatedPatternTranslation: (input: {
     chapterId: number;
@@ -61,6 +62,7 @@ export interface WorkspaceViewProps {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
+    chapterIds?: number[];
   }) => Promise<RepetitionPatternConsistencyFixProgress>;
   onGetRepeatedPatternConsistencyFixStatus: () => Promise<RepetitionPatternConsistencyFixProgress | null>;
   onClearRepeatedPatternConsistencyFixStatus: () => Promise<void>;

@@ -6,6 +6,12 @@ import type { Chapter } from "./types.ts";
 import type { TranslationDocumentManager } from "./translation-document-manager.ts";
 
 export type RepetitionPatternAnalysisOptions = GlobalAssociationPatternScanOptions;
+export type RepetitionPatternAnalysisScope = {
+  chapterIds?: number[];
+};
+
+export type ScopedRepetitionPatternAnalysisOptions = RepetitionPatternAnalysisOptions &
+  RepetitionPatternAnalysisScope;
 
 export type RepetitionPatternCorpusEntry = {
   chapterId: number;

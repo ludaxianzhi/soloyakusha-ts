@@ -56,6 +56,26 @@ describe("repetition pattern fixer", () => {
     });
   });
 
+  test("uses the earliest occurrence as the standard translation instead of lexical order", () => {
+    const [task] = buildRepetitionPatternFixTasks({
+      fullTextLength: 0,
+      totalSentenceCount: 3,
+      patterns: [
+        buildPattern("学院门口", 4, false, [
+          asLocation(2, 0, 0, "学院门口正在排队", "泽塔译法", 10, 14),
+          asLocation(3, 0, 0, "学院门口已经关闭", "阿尔法译法", 20, 24),
+          asLocation(1, 0, 0, "学院门口灯火通明", "标准译法", 0, 4),
+        ]),
+      ],
+    });
+
+    expect(task?.standardLocation.translatedSentence).toBe("标准译法");
+    expect(task?.targetLocations.map((location) => location.translatedSentence)).toEqual([
+      "泽塔译法",
+      "阿尔法译法",
+    ]);
+  });
+
   test("executes consistency prompt with json-schema constrained output", async () => {
     const chatClient = new FakeChatClient(
       JSON.stringify({

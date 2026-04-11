@@ -243,6 +243,7 @@ export function AppShell() {
       minOccurrences?: number;
       minLength?: number;
       maxResults?: number;
+      chapterIds?: number[];
     }) => {
       const result = await api.getRepeatedPatterns(options);
       setRepeatedPatterns(result);
@@ -276,6 +277,7 @@ export function AppShell() {
       minOccurrences?: number;
       minLength?: number;
       maxResults?: number;
+      chapterIds?: number[];
     }) => api.startRepeatedPatternConsistencyFix(input),
     [],
   );
