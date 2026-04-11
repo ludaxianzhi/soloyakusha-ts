@@ -49,6 +49,7 @@ export function WorkspaceRepetitionPatternsTab({
   const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [savingLineKey, setSavingLineKey] = useState<string | null>(null);
+  const [bulkSaving, setBulkSaving] = useState(false);
   const [draftTranslations, setDraftTranslations] = useState<Record<string, string>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailContext, setDetailContext] = useState<RepetitionPatternContextResult | null>(null);
@@ -86,6 +87,19 @@ export function WorkspaceRepetitionPatternsTab({
     translationsByLineKey[buildEditableLineKey(location)] ??
     '';
 
+  const pendingSaveLocations = useMemo(() => {
+    const pending = new Map<string, RepetitionPatternLocation>();
+    for (const pattern of repeatedPatterns?.patterns ?? []) {
+      for (const location of pattern.locations) {
+        const lineKey = buildEditableLineKey(location);
+        if (readDraftTranslation(location) !== location.translatedSentence) {
+          pending.set(lineKey, location);
+        }
+      }
+    }
+    return [...pending.values()];
+  }, [draftTranslations, repeatedPatterns, translationsByLineKey]);
+
   const handleSave = async (location: RepetitionPatternLocation) => {
     const lineKey = buildEditableLineKey(location);
     const translation = readDraftTranslation(location);
@@ -108,6 +122,36 @@ export function WorkspaceRepetitionPatternsTab({
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setSavingLineKey(null);
+    }
+  };
+
+  const handleBulkSave = async () => {
+    if (!pendingSaveLocations.length) {
+      return;
+    }
+    setBulkSaving(true);
+    try {
+      for (const location of pendingSaveLocations) {
+        await onSaveRepeatedPatternTranslation({
+          chapterId: location.chapterId,
+          fragmentIndex: location.fragmentIndex,
+          lineIndex: location.lineIndex,
+          translation: readDraftTranslation(location),
+        });
+      }
+      setDraftTranslations((prev) => {
+        const next = { ...prev };
+        for (const location of pendingSaveLocations) {
+          delete next[buildEditableLineKey(location)];
+        }
+        return next;
+      });
+      await refresh();
+      message.success(`已批量保存 ${pendingSaveLocations.length} 条译文修改`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBulkSaving(false);
     }
   };
 
@@ -161,6 +205,13 @@ export function WorkspaceRepetitionPatternsTab({
         />
         <Button type="primary" loading={loading} onClick={() => void refresh()}>
           {repeatedPatterns ? '重新分析' : '开始分析'}
+        </Button>
+        <Button
+          loading={bulkSaving}
+          disabled={!pendingSaveLocations.length || loading || savingLineKey !== null}
+          onClick={() => void handleBulkSave()}
+        >
+          批量保存修改{pendingSaveLocations.length ? ` (${pendingSaveLocations.length})` : ''}
         </Button>
       </Space>
       {repeatedPatterns?.patterns.length ? (
@@ -231,14 +282,17 @@ export function WorkspaceRepetitionPatternsTab({
                             <Button type="link" onClick={() => void handleOpenDetail(location)}>
                               详细
                             </Button>
-                            <Button
-                              type="link"
-                              loading={savingLineKey === lineKey}
-                              disabled={readDraftTranslation(location) === location.translatedSentence}
-                              onClick={() => void handleSave(location)}
-                            >
-                              保存
-                            </Button>
+                             <Button
+                               type="link"
+                               loading={savingLineKey === lineKey}
+                               disabled={
+                                 bulkSaving ||
+                                 readDraftTranslation(location) === location.translatedSentence
+                               }
+                               onClick={() => void handleSave(location)}
+                             >
+                               保存
+                             </Button>
                           </Space>
                         );
                       },
