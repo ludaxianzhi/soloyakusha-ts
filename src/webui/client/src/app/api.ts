@@ -25,6 +25,8 @@ import type {
   TranslationProjectSnapshot,
   TranslationStepQueueEntryDetail,
   TranslatorEntry,
+  VectorStoreConfig,
+  VectorStoreConnectionStatus,
   TranslationPreviewChapter,
   UpdateStoryRoutePayload,
   WorkspaceArchiveManifest,
@@ -385,6 +387,31 @@ export const api = {
     request<LlmProfileConfig | null>('/api/config/embedding'),
   saveEmbeddingConfig: (config: LlmProfileConfig) =>
     request('/api/config/embedding', { method: 'PUT', body: config }),
+  getVectorStores: () =>
+    request<{
+      config: VectorStoreConfig | null;
+      status: VectorStoreConnectionStatus;
+    }>('/api/config/vector'),
+  saveVectorStore: (config: VectorStoreConfig) =>
+    request<{ ok: boolean; connection: VectorStoreConnectionStatus }>(
+      '/api/config/vector',
+      {
+        method: 'PUT',
+        body: config,
+      },
+    ),
+  deleteVectorStore: () =>
+    request('/api/config/vector', {
+      method: 'DELETE',
+    }),
+  connectVectorStore: (input: { config?: VectorStoreConfig }) =>
+    request<{ ok: boolean; connection: VectorStoreConnectionStatus }>(
+      '/api/config/vector/connect',
+      {
+        method: 'POST',
+        body: input,
+      },
+    ),
 
   getTranslators: () =>
     request<{ translators: Record<string, TranslatorEntry> }>(

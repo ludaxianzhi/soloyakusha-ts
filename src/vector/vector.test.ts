@@ -107,6 +107,33 @@ describe("VectorRetriever", () => {
 });
 
 describe("QdrantVectorStoreClient", () => {
+  test("probes connectivity via collection listing", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      return Response.json({ result: { collections: [] } });
+    }) as typeof fetch;
+
+    try {
+      const client = new QdrantVectorStoreClient(
+        createVectorStoreConfig({
+          provider: "qdrant",
+          endpoint: "http://localhost:6333",
+          apiKey: "secret",
+        }),
+      );
+
+      await client.probeConnection();
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.url).toBe("http://localhost:6333/collections");
+      expect(requests[0]?.init?.method).toBe("GET");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("maps collection, upsert, query, and delete requests", async () => {
     const originalFetch = globalThis.fetch;
     const requests: Array<{ url: string; init?: RequestInit }> = [];
@@ -226,6 +253,33 @@ describe("QdrantVectorStoreClient", () => {
 });
 
 describe("ChromaVectorStoreClient", () => {
+  test("probes connectivity via collection listing", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      return Response.json({ collections: [] });
+    }) as typeof fetch;
+
+    try {
+      const client = new ChromaVectorStoreClient(
+        createVectorStoreConfig({
+          provider: "chroma",
+          endpoint: "http://localhost:8000",
+          apiKey: "secret",
+        }),
+      );
+
+      await client.probeConnection();
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.url).toBe("http://localhost:8000/api/v1/collections");
+      expect(requests[0]?.init?.method).toBe("GET");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("maps collection, upsert, query, and delete requests", async () => {
     const originalFetch = globalThis.fetch;
     const requests: Array<{ url: string; init?: RequestInit }> = [];
@@ -358,6 +412,8 @@ class FakeVectorStoreClient extends VectorStoreClient {
       }),
     );
   }
+
+  override async probeConnection(): Promise<void> {}
 
   override async ensureCollection(collection: VectorCollectionConfig): Promise<void> {
     this.lastCollection = collection;

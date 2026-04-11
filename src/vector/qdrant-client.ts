@@ -25,6 +25,18 @@ export class QdrantVectorStoreClient extends VectorStoreClient {
     super(config);
   }
 
+  override async probeConnection(): Promise<void> {
+    await requestJson<void>({
+      endpoint: this.config.endpoint,
+      path: "collections",
+      method: "GET",
+      timeoutMs: this.config.timeoutMs,
+      retries: this.config.retries,
+      errorPrefix: "Qdrant 连接检查失败",
+      headers: this.buildHeaders(),
+    });
+  }
+
   override async ensureCollection(collection: VectorCollectionConfig): Promise<void> {
     await requestJson<void>({
       endpoint: this.config.endpoint,

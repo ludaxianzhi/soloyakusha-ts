@@ -21,6 +21,7 @@ import {
   splitLines,
   translatorToForm,
   toErrorMessage,
+  vectorStoreToForm,
 } from './ui-helpers.ts';
 import type {
   AlignmentRepairConfig,
@@ -39,6 +40,8 @@ import type {
   TranslationProjectSnapshot,
   TranslatorEntry,
   UpdateStoryRoutePayload,
+  VectorStoreConfig,
+  VectorStoreConnectionStatus,
   WorkspaceChapterDescriptor,
 } from './types.ts';
 import { useEventStream } from './useEventStream.ts';
@@ -57,6 +60,7 @@ const { Header, Sider, Content } = Layout;
 type SettingsSection =
   | 'llmProfiles'
   | 'embedding'
+  | 'vector'
   | 'translator'
   | 'extractor'
   | 'updater'
@@ -68,6 +72,7 @@ type SettingsLoadingState = Record<SettingsSection, boolean>;
 const INITIAL_SETTINGS_LOADING: SettingsLoadingState = {
   llmProfiles: false,
   embedding: false,
+  vector: false,
   translator: false,
   extractor: false,
   updater: false,
@@ -104,6 +109,9 @@ export function AppShell() {
     TranslationProcessorWorkflowMetadata[]
   >([]);
   const [embeddingConfig, setEmbeddingConfig] = useState<LlmProfileConfig | null>(null);
+  const [vectorConfig, setVectorConfig] = useState<VectorStoreConfig | null>(null);
+  const [vectorConnectionStatus, setVectorConnectionStatus] =
+    useState<VectorStoreConnectionStatus>({ state: 'idle' });
   const [extractorConfig, setExtractorConfig] = useState<GlossaryExtractorConfig | null>(null);
   const [updaterConfig, setUpdaterConfig] = useState<GlossaryUpdaterConfig | null>(null);
   const [plotConfig, setPlotConfig] = useState<PlotSummaryConfig | null>(null);
@@ -121,6 +129,7 @@ export function AppShell() {
   const [dictionaryForm] = Form.useForm<Record<string, unknown>>();
   const [llmForm] = Form.useForm<Record<string, unknown>>();
   const [embeddingForm] = Form.useForm<Record<string, unknown>>();
+  const [vectorForm] = Form.useForm<Record<string, unknown>>();
   const [translatorForm] = Form.useForm<Record<string, unknown>>();
   const [extractorForm] = Form.useForm<Record<string, unknown>>();
   const [updaterForm] = Form.useForm<Record<string, unknown>>();
@@ -370,6 +379,7 @@ export function AppShell() {
       const [
         llmRes,
         embeddingRes,
+        vectorRes,
         translatorsRes,
         workflowRes,
         extractorRes,
@@ -379,6 +389,7 @@ export function AppShell() {
       ] = await Promise.all([
         api.getLlmProfiles(),
         api.getEmbeddingConfig(),
+        api.getVectorStores(),
         api.getTranslators(),
         api.getTranslatorWorkflows(),
         api.getGlossaryExtractor(),
@@ -390,6 +401,8 @@ export function AppShell() {
       setLlmProfiles(llmRes.profiles);
       setDefaultLlmName(llmRes.defaultName);
       setEmbeddingConfig(embeddingRes);
+      setVectorConfig(vectorRes.config);
+      setVectorConnectionStatus(vectorRes.status);
       setTranslators(translatorsRes.translators);
       setTranslatorWorkflows(workflowRes.workflows);
       setExtractorConfig(extractorRes as GlossaryExtractorConfig | null);
@@ -541,6 +554,13 @@ export function AppShell() {
     }
     embeddingForm.setFieldsValue(profileToForm(embeddingConfig, 'embedding'));
   }, [embeddingConfig, embeddingForm, location.pathname]);
+
+  useEffect(() => {
+    if (location.pathname !== '/settings') {
+      return;
+    }
+    vectorForm.setFieldsValue(vectorStoreToForm(vectorConfig));
+  }, [location.pathname, vectorConfig, vectorForm]);
 
   useEffect(() => {
     if (location.pathname !== '/settings') {
@@ -1088,6 +1108,72 @@ export function AppShell() {
     [message, runAction, runSettingsAction],
   );
 
+  const buildVectorStorePayload = useCallback((values: Record<string, unknown>) => {
+    return {
+      provider: (values.provider as VectorStoreConfig['provider']) ?? 'qdrant',
+      endpoint: String(values.endpoint ?? ''),
+      apiKey: optionalString(values.apiKey),
+      apiKeyEnv: optionalString(values.apiKeyEnv),
+      defaultCollection: optionalString(values.defaultCollection),
+      distance: (values.distance as VectorStoreConfig['distance']) ?? 'cosine',
+      timeoutMs: optionalNumber(values.timeoutMs) ?? 60_000,
+      retries: optionalNumber(values.retries) ?? 3,
+    } satisfies VectorStoreConfig;
+  }, []);
+
+  const handleSaveVectorStore = useCallback(
+    async (values: Record<string, unknown>) => {
+      await runAction(async () => {
+        const payload = buildVectorStorePayload(values);
+        let connection: VectorStoreConnectionStatus | undefined;
+        await runSettingsAction(['vector'], async () => {
+          const result = await api.saveVectorStore(payload);
+          connection = result.connection;
+          setVectorConfig(payload);
+          setVectorConnectionStatus(result.connection);
+        });
+        if (connection?.state === 'connected') {
+          message.success('向量数据库配置已保存，并已成功连接');
+        } else {
+          message.warning(
+            `向量数据库配置已保存，但连接失败：${connection?.error ?? '未知错误'}`,
+          );
+        }
+      });
+    },
+    [buildVectorStorePayload, message, runAction, runSettingsAction],
+  );
+
+  const handleConnectVectorStore = useCallback(async () => {
+    await runAction(async () => {
+      const values = await vectorForm.validateFields();
+      const payload = buildVectorStorePayload(values);
+      await runSettingsAction(['vector'], async () => {
+        const result = await api.connectVectorStore({ config: payload });
+        setVectorConnectionStatus(result.connection);
+        if (result.connection.state === 'connected') {
+          message.success('向量数据库连接成功');
+        } else {
+          message.warning(`连接失败：${result.connection.error ?? '未知错误'}`);
+        }
+      });
+    });
+  }, [buildVectorStorePayload, message, runAction, runSettingsAction, vectorForm]);
+
+  const handleDeleteVectorStore = useCallback(async () => {
+    if (!vectorConfig) {
+      return;
+    }
+    await runAction(async () => {
+      await runSettingsAction(['vector'], async () => {
+        await api.deleteVectorStore();
+        setVectorConfig(null);
+        setVectorConnectionStatus({ state: 'idle' });
+      });
+      message.success('向量数据库配置已删除');
+    });
+  }, [message, runAction, runSettingsAction, vectorConfig]);
+
   const handleCreateTranslator = useCallback(() => {
     setSelectedTranslatorName(undefined);
     translatorForm.resetFields();
@@ -1374,11 +1460,14 @@ export function AppShell() {
                     llmProfiles={llmProfiles}
                     defaultLlmName={defaultLlmName}
                     selectedLlmName={selectedLlmName}
+                    vectorConfig={vectorConfig}
+                    vectorConnectionStatus={vectorConnectionStatus}
                     selectedTranslatorName={selectedTranslatorName}
                     translators={translators}
                     translatorWorkflows={translatorWorkflows}
                     llmForm={llmForm}
                     embeddingForm={embeddingForm}
+                    vectorForm={vectorForm}
                     translatorForm={translatorForm}
                     extractorForm={extractorForm}
                     updaterForm={updaterForm}
@@ -1390,6 +1479,9 @@ export function AppShell() {
                     onSetDefaultLlmProfile={handleSetDefaultLlmProfile}
                     onDeleteLlmProfile={handleDeleteLlmProfile}
                     onSaveEmbedding={handleSaveEmbedding}
+                    onSaveVectorStore={handleSaveVectorStore}
+                    onConnectVectorStore={handleConnectVectorStore}
+                    onDeleteVectorStore={handleDeleteVectorStore}
                     onCreateTranslator={handleCreateTranslator}
                     onSelectTranslator={selectTranslator}
                     onSaveTranslator={handleSaveTranslator}

@@ -406,6 +406,26 @@ export interface LlmProfileConfig {
   defaultRequestConfig?: Record<string, unknown>;
 }
 
+export interface VectorStoreConfig {
+  provider: 'qdrant' | 'chroma';
+  endpoint: string;
+  apiKey?: string;
+  apiKeyEnv?: string;
+  defaultCollection?: string;
+  distance: 'cosine' | 'dot' | 'euclid' | 'manhattan';
+  timeoutMs: number;
+  retries: number;
+  extraHeaders?: Record<string, string>;
+  options?: Record<string, unknown>;
+}
+
+export interface VectorStoreConnectionStatus {
+  state: 'idle' | 'checking' | 'connected' | 'error';
+  checkedAt?: string;
+  error?: string;
+  trigger?: 'startup' | 'save' | 'manual' | 'set-default';
+}
+
 export interface TranslatorMetadata {
   title?: string;
   description?: string;

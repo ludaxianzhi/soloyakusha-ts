@@ -8,6 +8,7 @@ import type {
   TranslationProcessorWorkflowFieldMetadata,
   TranslationProcessorWorkflowMetadata,
   TranslatorEntry,
+  VectorStoreConfig,
 } from './types.ts';
 
 export const IMPORT_FORMAT_OPTIONS = [
@@ -80,6 +81,26 @@ export function auxToForm(
     ...config,
     modelNames: [...config.modelNames],
     requestOptionsYaml: stringifyYaml(config.requestOptions),
+  };
+}
+
+export function vectorStoreToForm(
+  config: VectorStoreConfig | null,
+): Record<string, {} | undefined> {
+  if (!config) {
+    return {
+      provider: 'qdrant',
+      distance: 'cosine',
+    };
+  }
+
+  return {
+    provider: config.provider,
+    endpoint: config.endpoint,
+    apiKey: config.apiKey,
+    apiKeyEnv: config.apiKeyEnv,
+    defaultCollection: config.defaultCollection,
+    distance: config.distance,
   };
 }
 

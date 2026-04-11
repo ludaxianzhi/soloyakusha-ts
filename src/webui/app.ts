@@ -29,6 +29,12 @@ export function createApp(options: CreateAppOptions = {}) {
   const workspaceManager = new WorkspaceManager();
   const projectService = new ProjectService(eventBus, workspaceManager);
   const configService = new ConfigService();
+  void configService.initializeVectorStoreConnections().catch((error) => {
+    console.error(
+      '初始化向量数据库连接状态失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+  });
 
   const app = new Hono();
 

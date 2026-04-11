@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Button, Card, Col, Form, Input, Popconfirm, Row, Select, Space, Tabs, Tag, Typography } from 'antd';
 import type { FormInstance } from 'antd';
 import type {
@@ -8,6 +9,8 @@ import type {
   PlotSummaryConfig,
   TranslationProcessorWorkflowMetadata,
   TranslatorEntry,
+  VectorStoreConfig,
+  VectorStoreConnectionStatus,
 } from '../app/types.ts';
 import {
   formatModelChain,
@@ -23,6 +26,7 @@ interface SettingsViewProps {
   settingsLoading: {
     llmProfiles: boolean;
     embedding: boolean;
+    vector: boolean;
     translator: boolean;
     extractor: boolean;
     updater: boolean;
@@ -32,11 +36,14 @@ interface SettingsViewProps {
   llmProfiles: Record<string, LlmProfileConfig>;
   defaultLlmName?: string;
   selectedLlmName?: string;
+  vectorConfig: VectorStoreConfig | null;
+  vectorConnectionStatus: VectorStoreConnectionStatus;
   selectedTranslatorName?: string;
   translators: Record<string, TranslatorEntry>;
   translatorWorkflows: TranslationProcessorWorkflowMetadata[];
   llmForm: FormInstance<Record<string, unknown>>;
   embeddingForm: FormInstance<Record<string, unknown>>;
+  vectorForm: FormInstance<Record<string, unknown>>;
   translatorForm: FormInstance<Record<string, unknown>>;
   extractorForm: FormInstance<Record<string, unknown>>;
   updaterForm: FormInstance<Record<string, unknown>>;
@@ -48,6 +55,9 @@ interface SettingsViewProps {
   onSetDefaultLlmProfile: () => void | Promise<void>;
   onDeleteLlmProfile: () => void | Promise<void>;
   onSaveEmbedding: (values: Record<string, unknown>) => void | Promise<void>;
+  onSaveVectorStore: (values: Record<string, unknown>) => void | Promise<void>;
+  onConnectVectorStore: () => void | Promise<void>;
+  onDeleteVectorStore: () => void | Promise<void>;
   onCreateTranslator: () => void;
   onSelectTranslator: (name: string) => void;
   onSaveTranslator: (values: Record<string, unknown>) => void | Promise<void>;
@@ -63,11 +73,14 @@ export function SettingsView({
   llmProfiles,
   defaultLlmName,
   selectedLlmName,
+  vectorConfig,
+  vectorConnectionStatus,
   selectedTranslatorName,
   translators,
   translatorWorkflows,
   llmForm,
   embeddingForm,
+  vectorForm,
   translatorForm,
   extractorForm,
   updaterForm,
@@ -79,6 +92,9 @@ export function SettingsView({
   onSetDefaultLlmProfile,
   onDeleteLlmProfile,
   onSaveEmbedding,
+  onSaveVectorStore,
+  onConnectVectorStore,
+  onDeleteVectorStore,
   onCreateTranslator,
   onSelectTranslator,
   onSaveTranslator,
@@ -88,6 +104,12 @@ export function SettingsView({
   const llmNames = Object.keys(llmProfiles);
   const translatorNames = Object.keys(translators);
   const selectedWorkflowKey = (Form.useWatch('type', translatorForm) as string | undefined) ?? 'default';
+  const selectedVectorProvider =
+    (Form.useWatch('provider', vectorForm) as VectorStoreConfig['provider'] | undefined) ??
+    'qdrant';
+  const selectedVectorDistance =
+    (Form.useWatch('distance', vectorForm) as VectorStoreConfig['distance'] | undefined) ??
+    'cosine';
   const workflowMap = new Map(
     translatorWorkflows.map((workflow) => [workflow.workflow, workflow] as const),
   );
@@ -100,6 +122,13 @@ export function SettingsView({
     label: `${workflow.title} (${workflow.workflow})`,
     value: workflow.workflow,
   }));
+  const vectorDistanceOptions = getVectorDistanceOptions(selectedVectorProvider);
+
+  useEffect(() => {
+    if (!vectorDistanceOptions.some((option) => option.value === selectedVectorDistance)) {
+      vectorForm.setFieldValue('distance', vectorDistanceOptions[0]?.value ?? 'cosine');
+    }
+  }, [selectedVectorDistance, selectedVectorProvider, vectorDistanceOptions, vectorForm]);
 
   return (
     <Tabs
@@ -315,6 +344,116 @@ export function SettingsView({
                 </Card>
               </Col>
             </Row>
+          ),
+        },
+        {
+          key: 'vector',
+          label: '向量数据库',
+          children: (
+            <Card size="small" title="全局向量数据库配置" loading={settingsLoading.vector}>
+              <Form
+                form={vectorForm}
+                layout="vertical"
+                className="compact-form"
+                onFinish={(values) => void onSaveVectorStore(values)}
+              >
+                <Row gutter={16}>
+                  <Col span={8}>
+                    <Form.Item
+                      name="provider"
+                      label="Provider"
+                      rules={[{ required: true }]}
+                    >
+                      <Select
+                        options={[
+                          { label: 'Qdrant', value: 'qdrant' },
+                          { label: 'Chroma', value: 'chroma' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item
+                      name="distance"
+                      label="距离度量"
+                      rules={[{ required: true }]}
+                      extra={
+                        selectedVectorProvider === 'chroma'
+                          ? 'Chroma 当前仅支持 cosine / dot / euclid。'
+                          : undefined
+                      }
+                    >
+                      <Select options={vectorDistanceOptions} />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item name="defaultCollection" label="默认 Collection">
+                      <Input placeholder="chapters" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Row gutter={16}>
+                  <Col span={24}>
+                    <Form.Item
+                      name="endpoint"
+                      label="Endpoint"
+                      rules={[{ required: true }]}
+                    >
+                      <Input
+                        placeholder={
+                          selectedVectorProvider === 'qdrant'
+                            ? 'http://localhost:6333'
+                            : 'http://localhost:8000'
+                        }
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Item name="apiKey" label="API Key">
+                      <Input.Password />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item name="apiKeyEnv" label="API Key 环境变量">
+                      <Input
+                        placeholder={
+                          selectedVectorProvider === 'qdrant'
+                            ? '例如 QDRANT_API_KEY'
+                            : '例如 CHROMA_API_KEY'
+                        }
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Card size="small" className="settings-meta-card">
+                  <Space direction="vertical" size={4}>
+                    <Space wrap>
+                      <Text strong>连接状态</Text>
+                      <VectorConnectionTag status={vectorConnectionStatus} />
+                    </Space>
+                    <VectorConnectionDescription status={vectorConnectionStatus} />
+                  </Space>
+                </Card>
+                <Space>
+                  <Button type="primary" htmlType="submit">
+                    保存配置
+                  </Button>
+                  <Button onClick={() => void onConnectVectorStore()}>
+                    连接
+                  </Button>
+                  {vectorConfig ? (
+                    <Popconfirm
+                      title="确认清除当前向量数据库配置？"
+                      onConfirm={() => void onDeleteVectorStore()}
+                    >
+                      <Button danger>清除配置</Button>
+                    </Popconfirm>
+                  ) : null}
+                </Space>
+              </Form>
+            </Card>
           ),
         },
         {
@@ -754,6 +893,68 @@ function AuxiliaryCommonFields({
         <YamlCodeEditor height={180} placeholder="temperature: 0.2" />
       </Form.Item>
     </>
+  );
+}
+
+function getVectorDistanceOptions(provider: VectorStoreConfig['provider']) {
+  if (provider === 'chroma') {
+    return [
+      { label: 'cosine', value: 'cosine' },
+      { label: 'dot', value: 'dot' },
+      { label: 'euclid', value: 'euclid' },
+    ];
+  }
+
+  return [
+    { label: 'cosine', value: 'cosine' },
+    { label: 'dot', value: 'dot' },
+    { label: 'euclid', value: 'euclid' },
+    { label: 'manhattan', value: 'manhattan' },
+  ];
+}
+
+function VectorConnectionTag({
+  status,
+}: {
+  status?: VectorStoreConnectionStatus;
+}) {
+  if (!status || status.state === 'idle') {
+    return <Tag>未检查</Tag>;
+  }
+  if (status.state === 'checking') {
+    return <Tag color="processing">连接中</Tag>;
+  }
+  if (status.state === 'connected') {
+    return <Tag color="success">已连接</Tag>;
+  }
+  return <Tag color="error">连接失败</Tag>;
+}
+
+function VectorConnectionDescription({
+  status,
+}: {
+  status?: VectorStoreConnectionStatus;
+}) {
+  if (!status || status.state === 'idle') {
+    return <Text type="secondary">应用启动、保存配置或手动点击连接时会尝试建立连接。</Text>;
+  }
+  if (status.state === 'checking') {
+    return <Text type="secondary">正在检查向量数据库连接。</Text>;
+  }
+  if (status.state === 'connected') {
+    return (
+      <Text type="secondary">
+        最近一次连接成功
+        {status.checkedAt ? `：${status.checkedAt}` : ''}。
+      </Text>
+    );
+  }
+  return (
+    <Text type="danger">
+      最近一次连接失败
+      {status.checkedAt ? `：${status.checkedAt}` : ''}。
+      {status.error ? ` ${status.error}` : ''}
+    </Text>
   );
 }
 

@@ -55,6 +55,34 @@ export function createConfigRoutes(configService: ConfigService): Hono {
     return c.json({ ok: true });
   });
 
+  // ─── Vector Stores ───────────────────────────────
+
+  app.get('/vector', async (c) => {
+    const result = await configService.getVectorStoreConfig();
+    return c.json(result);
+  });
+
+  app.put('/vector', async (c) => {
+    const body = await c.req.json();
+    const result = await configService.saveVectorStoreConfig(body);
+    return c.json({ ok: true, connection: result.connection });
+  });
+
+  app.delete('/vector', async (c) => {
+    const removed = await configService.clearVectorStoreConfig();
+    return c.json({ ok: removed });
+  });
+
+  app.post('/vector/connect', async (c) => {
+    const body = await c.req.json<{
+      config?: unknown;
+    }>();
+    const connection = await configService.connectVectorStoreConfig({
+      config: body.config as Parameters<ConfigService['saveVectorStoreConfig']>[0],
+    });
+    return c.json({ ok: true, connection });
+  });
+
   // ─── Translators ────────────────────────────────
 
   app.get('/translators', async (c) => {

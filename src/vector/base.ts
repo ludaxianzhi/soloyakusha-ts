@@ -14,6 +14,7 @@ export abstract class ManagedVectorStoreClient {
 }
 
 export abstract class VectorStoreClient extends ManagedVectorStoreClient {
+  abstract probeConnection(): Promise<void>;
   abstract ensureCollection(collection: VectorCollectionConfig): Promise<void>;
   abstract upsert(params: VectorStoreUpsertParams): Promise<void>;
   abstract query(params: VectorStoreQueryParams): Promise<VectorSearchResult[]>;
