@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { GlobalConfigManager } from '../../config/manager.ts';
@@ -137,3 +137,55 @@ test('WorkspaceManager can import and export complete workspace archives', async
     'hello archive',
   );
 });
+
+test('WorkspaceManager removes imported source files for external workspaces without deleting unrelated files', async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'soloyakusha-workspace-manager-'));
+  tempDirs.push(tempRoot);
+
+  const baseDir = join(tempRoot, 'managed-workspaces');
+  const configPath = join(tempRoot, 'config.json');
+  const registry = new WorkspaceRegistry(
+    new GlobalConfigManager({ filePath: configPath }),
+  );
+  const manager = new WorkspaceManager(baseDir, registry);
+
+  const workspaceDir = join(tempRoot, 'external-workspace');
+  const sourcePath = join(workspaceDir, 'sources', 'chapter-1.txt');
+  const glossaryPath = join(workspaceDir, 'Data', 'glossary.json');
+  const unrelatedFilePath = join(workspaceDir, 'keep-me.txt');
+  await mkdir(join(workspaceDir, 'Data'), { recursive: true });
+  await mkdir(join(workspaceDir, 'logs'), { recursive: true });
+  await mkdir(join(workspaceDir, 'sources'), { recursive: true });
+  await writeFile(sourcePath, 'chapter one');
+  await writeFile(glossaryPath, '{}');
+  await writeFile(unrelatedFilePath, 'preserve');
+  await new SqliteProjectStorage(join(workspaceDir, 'Data', 'project.sqlite')).saveWorkspaceConfig({
+    schemaVersion: 1,
+    projectName: 'External Workspace',
+    chapters: [{ id: 1, filePath: 'sources/chapter-1.txt' }],
+    glossary: { path: 'Data/glossary.json', autoFilter: true },
+    translator: {},
+    slidingWindow: {},
+    customRequirements: [],
+  });
+  await saveWorkspaceBootstrap(
+    workspaceDir,
+    buildWorkspaceBootstrapDocument('External Workspace'),
+  );
+
+  await manager.removeWorkspace(workspaceDir);
+
+  expect(await pathExists(join(workspaceDir, 'Data'))).toBe(false);
+  expect(await pathExists(join(workspaceDir, 'logs'))).toBe(false);
+  expect(await pathExists(sourcePath)).toBe(false);
+  expect(await readFile(unrelatedFilePath, 'utf8')).toBe('preserve');
+});
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}

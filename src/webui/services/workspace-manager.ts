@@ -3,11 +3,12 @@
  */
 
 import { access, mkdir, readdir, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
 import type { WorkspaceEntry } from '../../config/types.ts';
 import {
+  DEFAULT_GLOSSARY_FILE_PATH,
   inspectWorkspaceBootstrap,
   openWorkspaceConfig,
 } from '../../project/translation-project-workspace.ts';
@@ -107,7 +108,7 @@ export class WorkspaceManager {
     for (const ws of recent) {
       merged.set(ws.dir, {
         ...ws,
-        managed: ws.dir.startsWith(this.baseDir),
+        managed: this.isManaged(ws.dir),
       });
     }
 
@@ -124,21 +125,17 @@ export class WorkspaceManager {
   async removeWorkspace(dir: string): Promise<void> {
     await this.registry.removeWorkspace(dir);
 
-    if (dir.startsWith(this.baseDir)) {
+    if (this.isManaged(dir)) {
       await rm(dir, { recursive: true, force: true });
     } else {
-      for (const subDir of ['Data', 'logs']) {
-        try {
-          await rm(join(dir, subDir), { recursive: true, force: true });
-        } catch {
-          // ignore
-        }
+      for (const targetPath of await this.getExternalWorkspaceOwnedPaths(dir)) {
+        await rm(targetPath, { recursive: true, force: true });
       }
     }
   }
 
   isManaged(dir: string): boolean {
-    return dir.startsWith(this.baseDir);
+    return isPathInsideOrEqual(dir, this.baseDir);
   }
 
   private async discoverManagedWorkspaces(): Promise<ManagedWorkspace[]> {
@@ -189,4 +186,42 @@ export class WorkspaceManager {
       return [];
     }
   }
+
+  private async getExternalWorkspaceOwnedPaths(dir: string): Promise<string[]> {
+    const ownedPaths = new Set<string>([join(dir, 'Data'), join(dir, 'logs')]);
+    const inspection = await inspectWorkspaceBootstrap(dir);
+    if (inspection.kind !== 'current') {
+      return [...ownedPaths];
+    }
+
+    const config = await openWorkspaceConfig(dir);
+    for (const chapter of config.chapters) {
+      const chapterPath = resolveWorkspaceOwnedPath(dir, chapter.filePath);
+      if (chapterPath) {
+        ownedPaths.add(chapterPath);
+      }
+    }
+
+    const glossaryPath = resolveWorkspaceOwnedPath(
+      dir,
+      config.glossary.path?.trim() || DEFAULT_GLOSSARY_FILE_PATH,
+    );
+    if (glossaryPath) {
+      ownedPaths.add(glossaryPath);
+    }
+
+    return [...ownedPaths];
+  }
+}
+
+function resolveWorkspaceOwnedPath(workspaceDir: string, targetPath: string): string | undefined {
+  const resolvedPath = resolve(workspaceDir, targetPath);
+  return isPathInsideOrEqual(resolvedPath, workspaceDir) ? resolvedPath : undefined;
+}
+
+function isPathInsideOrEqual(candidatePath: string, baseDir: string): boolean {
+  const resolvedCandidate = resolve(candidatePath);
+  const resolvedBase = resolve(baseDir);
+  const rel = relative(resolvedBase, resolvedCandidate);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
