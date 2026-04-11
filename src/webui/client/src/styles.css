@@ -19,6 +19,43 @@
 :root {
   --font-family: 'Cascadia Mono', 'Noto Sans CJK SC', sans-serif;
   --ant-font-family: var(--font-family);
+  --app-body-bg: #f5f7fb;
+  --surface-soft: rgba(15, 23, 42, 0.03);
+  --surface-muted: rgba(15, 23, 42, 0.02);
+  --border-soft: rgba(15, 23, 42, 0.12);
+  --text-primary: #1f2329;
+  --text-secondary: rgba(31, 35, 41, 0.65);
+  --text-muted: rgba(31, 35, 41, 0.55);
+  --editor-bg: #ffffff;
+  --editor-text: #1f2329;
+  --editor-caret: #6c8cff;
+  --editor-gutter-bg: #f7f8fa;
+  --editor-gutter-text: rgba(31, 35, 41, 0.65);
+  --editor-gutter-border: rgba(15, 23, 42, 0.12);
+  --match-source-bg: rgba(108, 140, 255, 0.2);
+  --match-source-border: rgba(108, 140, 255, 0.75);
+  --match-target-bg: rgba(82, 196, 26, 0.18);
+  --match-target-border: rgba(82, 196, 26, 0.8);
+}
+
+html[data-color-scheme='dark'] {
+  --app-body-bg: #0f1115;
+  --surface-soft: rgba(255, 255, 255, 0.03);
+  --surface-muted: rgba(255, 255, 255, 0.02);
+  --border-soft: rgba(255, 255, 255, 0.08);
+  --text-primary: #f2f6ff;
+  --text-secondary: rgba(255, 255, 255, 0.65);
+  --text-muted: rgba(255, 255, 255, 0.45);
+  --editor-bg: #111317;
+  --editor-text: #f2f6ff;
+  --editor-caret: #8ba2ff;
+  --editor-gutter-bg: #111317;
+  --editor-gutter-text: rgba(255, 255, 255, 0.55);
+  --editor-gutter-border: rgba(255, 255, 255, 0.08);
+  --match-source-bg: rgba(108, 140, 255, 0.22);
+  --match-source-border: rgba(138, 162, 255, 0.8);
+  --match-target-bg: rgba(87, 212, 140, 0.2);
+  --match-target-border: rgba(87, 212, 140, 0.85);
 }
 
 html,
@@ -30,8 +67,9 @@ body,
 
 body {
   margin: 0;
-  background: #0f1115;
+  background: var(--app-body-bg);
   font-family: var(--font-family);
+  color: var(--text-primary);
 }
 
 .app-shell {
@@ -76,8 +114,8 @@ body {
   font-family: var(--font-family);
   white-space: pre-wrap;
   word-break: break-word;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
   border-radius: 8px;
   padding: 12px;
   max-height: 320px;
@@ -92,8 +130,8 @@ body {
 .step-card {
   border-radius: 8px;
   padding: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
 }
 
 .log-list {
@@ -104,7 +142,7 @@ body {
 .upload-hint {
   display: block;
   margin-top: 8px;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--text-muted);
 }
 
 .compact-form .ant-form-item {
@@ -115,8 +153,8 @@ body {
   width: 100%;
   text-align: left;
   color: inherit;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-soft);
   border-radius: 8px;
   padding: 10px;
   cursor: pointer;
@@ -133,29 +171,29 @@ body {
 
 .settings-meta-card {
   margin-bottom: 16px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-muted);
 }
 
 .yaml-editor-shell {
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-soft);
   border-radius: 8px;
   overflow: hidden;
-  background: #111317;
+  background: var(--editor-bg);
 }
 
 .yaml-editor-hint {
   padding: 8px 12px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.45);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-soft);
+  background: var(--surface-muted);
 }
 
 .recent-workspace-card {
   padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-soft);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-muted);
 }
 
 .recent-workspace-card-header {
@@ -185,10 +223,10 @@ body {
 }
 
 .translation-preview-safe-textarea {
-  background: rgba(255, 255, 255, 0.03) !important;
-  border-color: rgba(255, 255, 255, 0.15) !important;
-  color: #f2f6ff !important;
-  -webkit-text-fill-color: #f2f6ff !important;
+  background: var(--surface-soft) !important;
+  border-color: var(--border-soft) !important;
+  color: var(--text-primary) !important;
+  -webkit-text-fill-color: var(--text-primary) !important;
   font-family: var(--font-family) !important;
   font-size: 14px !important;
   line-height: 1.6 !important;
@@ -197,14 +235,14 @@ body {
 .translation-preview-card-list {
   max-height: 62vh;
   overflow-y: auto;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border-soft);
   border-radius: 8px;
   padding: 8px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-muted);
 }
 
 .translation-preview-card-item {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--border-soft);
   padding: 8px 6px;
 }
 
@@ -232,8 +270,8 @@ body {
 }
 
 .translation-preview-card-text {
-  color: #f2f6ff;
-  -webkit-text-fill-color: #f2f6ff;
+  color: var(--text-primary);
+  -webkit-text-fill-color: var(--text-primary);
   font-size: 14px;
   line-height: 22px;
   white-space: pre-wrap;
@@ -241,8 +279,60 @@ body {
 }
 
 .translation-preview-card-text-empty {
-  color: rgba(255, 255, 255, 0.45);
-  -webkit-text-fill-color: rgba(255, 255, 255, 0.45);
+  color: var(--text-muted);
+  -webkit-text-fill-color: var(--text-muted);
+}
+
+.chapter-editor-toolbar {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.chapter-editor-shell {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--editor-bg);
+}
+
+.chapter-editor-shell .cm-editor {
+  min-height: 62vh;
+}
+
+.chapter-editor-shell .cm-scroller {
+  font-family: var(--font-family);
+}
+
+.chapter-editor-match-source {
+  background: var(--match-source-bg);
+  border-bottom: 1px solid var(--match-source-border);
+}
+
+.chapter-editor-match-target {
+  background: var(--match-target-bg);
+  border-bottom: 1px solid var(--match-target-border);
+}
+
+.chapter-editor-diagnostic-list {
+  display: grid;
+  gap: 10px;
+}
+
+.chapter-editor-diagnostic-item {
+  border-radius: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface-soft);
+}
+
+.chapter-editor-diagnostic-item-error {
+  border-color: rgba(255, 77, 79, 0.45);
+  background: rgba(255, 77, 79, 0.1);
+}
+
+.chapter-editor-diagnostic-item-warning {
+  border-color: rgba(250, 173, 20, 0.45);
+  background: rgba(250, 173, 20, 0.08);
 }
 
 /* ─── Kanban Board ──────────────────────────────── */

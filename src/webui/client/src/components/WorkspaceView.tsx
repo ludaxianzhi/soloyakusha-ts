@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Tabs } from 'antd';
+import { useLocation } from 'react-router-dom';
 import { WorkspaceChaptersTab } from './workspace-view/WorkspaceChaptersTab.tsx';
 import { WorkspaceConfigTab } from './workspace-view/WorkspaceConfigTab.tsx';
 import { WorkspaceConsistencyTab } from './workspace-view/WorkspaceConsistencyTab.tsx';
@@ -52,7 +53,19 @@ export function WorkspaceView({
   onClearLogs,
   onDismissTaskActivity,
 }: WorkspaceViewProps) {
+  const location = useLocation();
   const [activeTabKey, setActiveTabKey] = useState('dashboard');
+  const availableTabKeys = useMemo(
+    () => ['dashboard', 'dictionary', 'chapters', 'workspace-config', 'history', 'consistency-analysis'],
+    [],
+  );
+
+  useEffect(() => {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab && availableTabKeys.includes(tab)) {
+      setActiveTabKey(tab);
+    }
+  }, [availableTabKeys, location.search]);
 
   if (!snapshot) {
     return (
@@ -135,9 +148,7 @@ export function WorkspaceView({
                 active={activeTabKey === 'workspace-config'}
                 workspaceForm={workspaceForm}
                 translatorOptions={translatorOptions}
-                chapters={chapters}
                 onRefreshWorkspaceConfig={onRefreshWorkspaceConfig}
-                onRefreshPreviewChapters={onRefreshChapters}
                 onWorkspaceConfigSave={onWorkspaceConfigSave}
                 onDownloadExport={onDownloadExport}
                 onResetProject={onResetProject}

@@ -379,6 +379,79 @@ export interface TranslationPreviewChapter {
   units: TranslationPreviewUnit[];
 }
 
+export type EditableTranslationFormat = 'naturedialog' | 'm3t';
+
+export interface ChapterTranslationEditorRange {
+  from: number;
+  to: number;
+  startLineNumber: number;
+  endLineNumber: number;
+}
+
+export interface ChapterTranslationEditorDiagnostic extends ChapterTranslationEditorRange {
+  severity: 'error' | 'warning';
+  code: string;
+  message: string;
+  unitIndex?: number;
+}
+
+export interface ChapterTranslationEditorGlossaryMatch {
+  from: number;
+  to: number;
+  text: string;
+  term: string;
+  translation?: string;
+  kind: 'sourceTerm' | 'targetTranslation';
+}
+
+export interface ChapterTranslationEditorLineUpdate {
+  unitIndex: number;
+  fragmentIndex: number;
+  lineIndex: number;
+  sourceText: string;
+  previousText: string;
+  nextText: string;
+  changed: boolean;
+}
+
+export interface ChapterTranslationEditorDocument {
+  baseline: {
+    chapterId: number;
+    format: EditableTranslationFormat;
+    unitCount: number;
+    rawLineCount: number;
+  };
+  content: string;
+  units: Array<{
+    unitIndex: number;
+    fragmentIndex: number;
+    lineIndex: number;
+    sourceText: string;
+    translatedText: string;
+    targetCandidates: string[];
+  }>;
+  diagnostics: ChapterTranslationEditorDiagnostic[];
+  glossaryMatches: ChapterTranslationEditorGlossaryMatch[];
+}
+
+export interface ChapterTranslationEditorValidationResult {
+  baseline: ChapterTranslationEditorDocument['baseline'];
+  content: string;
+  normalizedContent: string;
+  parsedUnitCount: number;
+  rawLineCount: number;
+  hasLineCountChange: boolean;
+  lineCountDelta: number;
+  diagnostics: ChapterTranslationEditorDiagnostic[];
+  updates: ChapterTranslationEditorLineUpdate[];
+  canApply: boolean;
+}
+
+export interface ApplyChapterTranslationEditorResult {
+  validation: ChapterTranslationEditorValidationResult;
+  appliedUpdateCount: number;
+}
+
 export interface WorkspaceConfig {
   projectName: string;
   glossary: {

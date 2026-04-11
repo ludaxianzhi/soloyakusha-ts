@@ -8,6 +8,7 @@ export * from "./src/glossary/index.ts";
 export * from "./src/llm/index.ts";
 export * from "./src/prompts/index.ts";
 export * from "./src/project/context-view.ts";
+export * from "./src/project/chapter-translation-editor.ts";
 export * from "./src/project/config.ts";
 export * from "./src/project/default-translation-processor.ts";
 export * from "./src/project/multi-stage-translation-processor.ts";

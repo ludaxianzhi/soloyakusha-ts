@@ -6,11 +6,30 @@ import 'antd/dist/reset.css';
 import './styles.css';
 import { AppShell } from './app/App.tsx';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
+function ThemedRoot() {
+  const [isDarkMode, setIsDarkMode] = React.useState(() =>
+    window.matchMedia('(prefers-color-scheme: dark)').matches,
+  );
+
+  React.useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (event: MediaQueryListEvent) => {
+      setIsDarkMode(event.matches);
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    document.documentElement.dataset.colorScheme = isDarkMode ? 'dark' : 'light';
+  }, [isDarkMode]);
+
+  return (
     <ConfigProvider
       theme={{
-        algorithm: theme.darkAlgorithm,
+        algorithm: isDarkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: {
           colorPrimary: '#6c8cff',
           borderRadius: 8,
@@ -32,5 +51,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         </BrowserRouter>
       </AntdApp>
     </ConfigProvider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <ThemedRoot />
   </React.StrictMode>,
 );

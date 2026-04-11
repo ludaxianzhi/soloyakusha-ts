@@ -23,6 +23,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
 import {
+  type ParsedTranslationDocument,
+  type ParsedTranslationUnitBlock,
   TranslationFileHandler,
   extractBracketNameAndText,
   stripBom,
@@ -42,60 +44,13 @@ export class NatureDialogFileHandler extends TranslationFileHandler {
   readonly formatName: string = "naturedialog";
   readonly supportsComparable = true;
 
+  override parseTranslationDocument(content: string): ParsedTranslationDocument {
+    return parseNatureDialogDocument(stripBom(content));
+  }
+
   override async readTranslationUnits(filePath: string): Promise<TranslationUnit[]> {
-    const content = stripBom(await readFile(filePath, "utf8"));
-    const lines = content.trim().split(/\r?\n/);
-    const units: TranslationUnit[] = [];
-
-    let currentSource: string | undefined;
-    let currentTargets: string[] = [];
-
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) {
-        if (currentSource !== undefined && currentTargets.length > 0) {
-          units.push({
-            source: currentSource,
-            target: currentTargets,
-          });
-          currentSource = undefined;
-          currentTargets = [];
-        }
-        continue;
-      }
-
-      if (line.startsWith("○")) {
-        const text = line.slice(1).trim();
-        if (currentSource === undefined) {
-          currentSource = text;
-        } else {
-          currentTargets.push(text);
-        }
-        continue;
-      }
-
-      if (line.startsWith("●")) {
-        const text = line.slice(1).trim();
-        currentTargets.push(text);
-        if (currentSource !== undefined) {
-          units.push({
-            source: currentSource,
-            target: currentTargets,
-          });
-          currentSource = undefined;
-          currentTargets = [];
-        }
-      }
-    }
-
-    if (currentSource !== undefined && currentTargets.length > 0) {
-      units.push({
-        source: currentSource,
-        target: currentTargets,
-      });
-    }
-
-    return units;
+    const content = await readFile(filePath, "utf8");
+    return this.parseTranslationDocument(content).units;
   }
 
   override async writeTranslationUnits(
@@ -105,7 +60,7 @@ export class NatureDialogFileHandler extends TranslationFileHandler {
     await writeFile(filePath, this.formatTranslationUnits(units), "utf8");
   }
 
-  formatTranslationUnits(units: TranslationUnit[]): string {
+  override formatTranslationUnits(units: TranslationUnit[]): string {
     return buildNatureDialogContent(units);
   }
 }
@@ -222,4 +177,82 @@ function buildNatureDialogContent(units: TranslationUnit[]): string {
   }
 
   return lines.join("\n");
+}
+
+function parseNatureDialogDocument(content: string): ParsedTranslationDocument {
+  const lines = content.split(/\r?\n/);
+  const units: TranslationUnit[] = [];
+  const blocks: ParsedTranslationUnitBlock[] = [];
+
+  let currentSource: string | undefined;
+  let currentTargets: string[] = [];
+  let currentStartLineNumber: number | undefined;
+  let currentSourceLineNumber: number | undefined;
+  let currentTargetLineNumbers: number[] = [];
+
+  const flushCurrentUnit = (endLineNumber: number) => {
+    if (currentSource === undefined || currentTargets.length === 0) {
+      currentSource = undefined;
+      currentTargets = [];
+      currentStartLineNumber = undefined;
+      currentSourceLineNumber = undefined;
+      currentTargetLineNumbers = [];
+      return;
+    }
+
+    const unit: TranslationUnit = {
+      source: currentSource,
+      target: [...currentTargets],
+    };
+    units.push(unit);
+    blocks.push({
+      unit,
+      startLineNumber: currentStartLineNumber ?? currentSourceLineNumber ?? endLineNumber,
+      endLineNumber,
+      sourceLineNumber: currentSourceLineNumber ?? endLineNumber,
+      targetLineNumbers: [...currentTargetLineNumbers],
+    });
+    currentSource = undefined;
+    currentTargets = [];
+    currentStartLineNumber = undefined;
+    currentSourceLineNumber = undefined;
+    currentTargetLineNumbers = [];
+  };
+
+  lines.forEach((rawLine, index) => {
+    const lineNumber = index + 1;
+    const line = rawLine.trim();
+    if (!line) {
+      flushCurrentUnit(lineNumber);
+      return;
+    }
+
+    if (line.startsWith("○")) {
+      const text = line.slice(1).trim();
+      if (currentSource === undefined) {
+        currentSource = text;
+        currentStartLineNumber = lineNumber;
+        currentSourceLineNumber = lineNumber;
+      } else {
+        currentTargets.push(text);
+        currentTargetLineNumbers.push(lineNumber);
+      }
+      return;
+    }
+
+    if (line.startsWith("●")) {
+      const text = line.slice(1).trim();
+      currentTargets.push(text);
+      currentTargetLineNumbers.push(lineNumber);
+      flushCurrentUnit(lineNumber);
+    }
+  });
+
+  flushCurrentUnit(lines.length);
+
+  return {
+    units,
+    blocks,
+    rawLineCount: lines.length,
+  };
 }

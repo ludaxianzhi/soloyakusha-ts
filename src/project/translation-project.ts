@@ -16,6 +16,14 @@ import {
   type PlotSummaryEntry,
 } from "./plot-summarizer.ts";
 import { MAIN_ROUTE_ID, StoryTopology } from "./story-topology.ts";
+import {
+  buildChapterTranslationEditorUnits,
+  createChapterTranslationEditorDocument,
+  validateChapterTranslationEditorContent,
+  type ChapterTranslationEditorDocument,
+  type ChapterTranslationEditorValidationResult,
+  type EditableTranslationFormat,
+} from "./chapter-translation-editor.ts";
 import type {
   GlobalAssociationPatternScanOptions,
   GlobalAssociationPatternScanResult,
@@ -354,6 +362,75 @@ export class TranslationProject
         .getChapterTranslationUnits(chapterId)
         .map((unit, index) => buildPreviewUnit(index, unit)),
     };
+  }
+
+  getChapterTranslationEditorDocument(
+    chapterId: number,
+    format: EditableTranslationFormat,
+  ): ChapterTranslationEditorDocument {
+    this.ensureInitialized();
+    const chapter = this.documentManager.getChapterById(chapterId);
+    if (!chapter) {
+      throw new Error(`章节 ${chapterId} 不存在`);
+    }
+
+    return createChapterTranslationEditorDocument({
+      chapterId,
+      format,
+      units: buildChapterTranslationEditorUnits(chapter),
+      glossaryTerms: this.glossary?.getAllTerms().map((term) => ({
+        term: term.term,
+        translation: term.translation,
+      })),
+    });
+  }
+
+  validateChapterTranslationEditorContent(
+    chapterId: number,
+    format: EditableTranslationFormat,
+    content: string,
+  ): ChapterTranslationEditorValidationResult {
+    this.ensureInitialized();
+    const chapter = this.documentManager.getChapterById(chapterId);
+    if (!chapter) {
+      throw new Error(`章节 ${chapterId} 不存在`);
+    }
+
+    const draft = createChapterTranslationEditorDocument({
+      chapterId,
+      format,
+      units: buildChapterTranslationEditorUnits(chapter),
+    });
+    return validateChapterTranslationEditorContent({
+      baseline: draft.baseline,
+      units: draft.units,
+      content,
+    });
+  }
+
+  async applyChapterTranslationEditorContent(
+    chapterId: number,
+    format: EditableTranslationFormat,
+    content: string,
+  ): Promise<ChapterTranslationEditorValidationResult> {
+    const validation = this.validateChapterTranslationEditorContent(chapterId, format, content);
+    if (!validation.canApply) {
+      return validation;
+    }
+
+    for (const update of validation.updates) {
+      if (!update.changed) {
+        continue;
+      }
+      await this.documentManager.updateTranslatedLine(
+        chapterId,
+        update.fragmentIndex,
+        update.lineIndex,
+        update.nextText,
+      );
+    }
+
+    return validation;
   }
 
   async addChapter(

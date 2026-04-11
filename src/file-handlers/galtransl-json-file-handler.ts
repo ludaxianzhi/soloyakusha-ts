@@ -19,6 +19,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
 import {
+  type ParsedTranslationDocument,
+  type ParsedTranslationUnitBlock,
   TranslationFileHandler,
   extractBracketNameAndText,
 } from "./base.ts";
@@ -38,11 +40,9 @@ export class GaltranslJsonFileHandler extends TranslationFileHandler {
   readonly formatName = "galtransl_json";
   readonly supportsComparable = false;
 
-  override async readTranslationUnits(filePath: string): Promise<TranslationUnit[]> {
-    const content = await readFile(filePath, "utf8");
+  override parseTranslationDocument(content: string): ParsedTranslationDocument {
     const data = JSON.parse(content) as Array<Record<string, unknown>>;
-
-    return data.map<TranslationUnit>((item) => {
+    const units = data.map<TranslationUnit>((item) => {
       const message = typeof item.message === "string" ? item.message : "";
       const name = typeof item.name === "string" ? item.name : undefined;
       return {
@@ -50,12 +50,21 @@ export class GaltranslJsonFileHandler extends TranslationFileHandler {
         target: [],
       };
     });
+    const blocks = units.map<ParsedTranslationUnitBlock>((unit, index) => ({
+      unit,
+      startLineNumber: index + 1,
+      endLineNumber: index + 1,
+      sourceLineNumber: index + 1,
+      targetLineNumbers: [],
+    }));
+    return {
+      units,
+      blocks,
+      rawLineCount: data.length,
+    };
   }
 
-  override async writeTranslationUnits(
-    filePath: string,
-    units: TranslationUnit[],
-  ): Promise<void> {
+  override formatTranslationUnits(units: TranslationUnit[]): string {
     const data = units.map((unit) => {
       const textToWrite = unit.target.at(-1) ?? unit.source;
       const parsed = extractBracketNameAndText(textToWrite);
@@ -70,7 +79,18 @@ export class GaltranslJsonFileHandler extends TranslationFileHandler {
         message: parsed.body,
       };
     });
+    return JSON.stringify(data, null, 4);
+  }
 
-    await writeFile(filePath, JSON.stringify(data, null, 4), "utf8");
+  override async readTranslationUnits(filePath: string): Promise<TranslationUnit[]> {
+    const content = await readFile(filePath, "utf8");
+    return this.parseTranslationDocument(content).units;
+  }
+
+  override async writeTranslationUnits(
+    filePath: string,
+    units: TranslationUnit[],
+  ): Promise<void> {
+    await writeFile(filePath, this.formatTranslationUnits(units), "utf8");
   }
 }

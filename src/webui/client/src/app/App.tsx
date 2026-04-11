@@ -53,6 +53,7 @@ import {
   type ProjectCommand,
   type TaskActivityKind,
 } from '../components/WorkspaceView.tsx';
+import { ChapterTranslationEditorPage } from '../features/chapter-editor/ChapterTranslationEditorPage.tsx';
 import { WorkspaceCreatePage } from '../features/workspace-create/WorkspaceCreatePage.tsx';
 
 const { Header, Sider, Content } = Layout;
@@ -1324,10 +1325,15 @@ export function AppShell() {
   );
 
   const currentSectionTitle = useMemo(
-    () =>
-      navigationItems.find((item) => item.key === currentNavigationKey)?.label ??
-      '当前工作区',
-    [currentNavigationKey, navigationItems],
+    () => {
+      if (location.pathname.startsWith('/workspace/editor')) {
+        return '章节文本编辑器';
+      }
+      return (
+        navigationItems.find((item) => item.key === currentNavigationKey)?.label ?? '当前工作区'
+      );
+    },
+    [currentNavigationKey, location.pathname, navigationItems],
   );
 
   return (
@@ -1428,6 +1434,7 @@ export function AppShell() {
                   />
                 }
               />
+              <Route path="/workspace/editor/:chapterId?" element={<ChapterTranslationEditorPage />} />
               <Route
                 path="/workspace/create"
                 element={

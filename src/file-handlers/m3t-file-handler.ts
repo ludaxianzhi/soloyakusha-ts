@@ -21,6 +21,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
 import {
+  type ParsedTranslationDocument,
+  type ParsedTranslationUnitBlock,
   TranslationFileHandler,
   extractBracketNameAndText,
   stripBom,
@@ -42,68 +44,98 @@ export class M3TFileHandler extends TranslationFileHandler {
   readonly formatName = "m3t";
   readonly supportsComparable = true;
 
+  override parseTranslationDocument(content: string): ParsedTranslationDocument {
+    return parseM3TDocument(stripBom(content));
+  }
+
   override async readTranslationUnits(filePath: string): Promise<TranslationUnit[]> {
-    const content = stripBom(await readFile(filePath, "utf8"));
-    const lines = content.trim().split(/\r?\n/);
-    const units: TranslationUnit[] = [];
+    const content = await readFile(filePath, "utf8");
+    return this.parseTranslationDocument(content).units;
+  }
 
-    let index = 0;
-    while (index < lines.length) {
-      const line = lines[index]!.trim();
-      if (!line) {
-        index += 1;
-        continue;
+  override async writeTranslationUnits(
+    filePath: string,
+    units: TranslationUnit[],
+  ): Promise<void> {
+    await writeFile(filePath, this.formatTranslationUnits(units), "utf8");
+  }
+
+  override formatTranslationUnits(units: TranslationUnit[]): string {
+    return formatM3TTranslationUnits(units);
+  }
+}
+
+function formatM3TTranslationUnits(units: TranslationUnit[]): string {
+  const lines: string[] = [];
+
+  for (const unit of units) {
+    const parsed = extractBracketNameAndText(unit.source);
+    if (parsed.name) {
+      lines.push(`○ NAME: ${parsed.name}`);
+      lines.push("");
+      lines.push(`○ ${parsed.body}`);
+
+      for (const [index, targetText] of unit.target.entries()) {
+        const targetParsed = extractBracketNameAndText(targetText);
+        const prefix = index === unit.target.length - 1 ? "●" : "○";
+        lines.push(`${prefix} ${targetParsed.body}`);
       }
-
-      if (!line.startsWith("○")) {
-        index += 1;
-        continue;
+    } else {
+      lines.push(`○ ${unit.source}`);
+      for (const [index, targetText] of unit.target.entries()) {
+        const prefix = index === unit.target.length - 1 ? "●" : "○";
+        lines.push(`${prefix} ${targetText}`);
       }
+    }
 
-      const text = line.slice(1).trim();
-      if (text.startsWith("NAME:")) {
-        const name = text.slice(5).trim();
-        index += 1;
-        while (index < lines.length && !lines[index]!.trim()) {
-          index += 1;
-        }
+    lines.push("");
+  }
+  lines.push("");
 
-        const dialogLine = lines[index]?.trim();
-        if (!dialogLine?.startsWith("○")) {
-          index += 1;
-          continue;
-        }
+  return lines.join("\n");
+}
 
-        const sourceDialog = dialogLine.slice(1).trim();
-        const source = `【${name}】${sourceDialog}`;
-        index += 1;
-        const targets: string[] = [];
+function parseM3TDocument(content: string): ParsedTranslationDocument {
+  const lines = content.split(/\r?\n/);
+  const units: TranslationUnit[] = [];
+  const blocks: ParsedTranslationUnitBlock[] = [];
 
-        while (index < lines.length) {
-          const targetLine = lines[index]!.trim();
-          if (!targetLine) {
-            break;
-          }
-          if (targetLine.startsWith("○") || targetLine.startsWith("●")) {
-            targets.push(`【${name}】${targetLine.slice(1).trim()}`);
-            index += 1;
-            if (targetLine.startsWith("●")) {
-              units.push({
-                source,
-                target: targets,
-              });
-              break;
-            }
-            continue;
-          }
-          break;
-        }
-        continue;
-      }
-
-      const source = text;
-      const targets: string[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const startLineNumber = index + 1;
+    const line = lines[index]!.trim();
+    if (!line) {
       index += 1;
+      continue;
+    }
+
+    if (!line.startsWith("○")) {
+      index += 1;
+      continue;
+    }
+
+    const text = line.slice(1).trim();
+    if (text.startsWith("NAME:")) {
+      const name = text.slice(5).trim();
+      const nameLineNumber = index + 1;
+      index += 1;
+      while (index < lines.length && !lines[index]!.trim()) {
+        index += 1;
+      }
+
+      const dialogLine = lines[index]?.trim();
+      if (!dialogLine?.startsWith("○")) {
+        index += 1;
+        continue;
+      }
+
+      const sourceLineNumber = index + 1;
+      const sourceDialog = dialogLine.slice(1).trim();
+      const source = `【${name}】${sourceDialog}`;
+      index += 1;
+      const targets: string[] = [];
+      const targetLineNumbers: number[] = [];
+      let endLineNumber = sourceLineNumber;
 
       while (index < lines.length) {
         const targetLine = lines[index]!.trim();
@@ -111,12 +143,25 @@ export class M3TFileHandler extends TranslationFileHandler {
           break;
         }
         if (targetLine.startsWith("○") || targetLine.startsWith("●")) {
-          targets.push(targetLine.slice(1).trim());
+          targets.push(`【${name}】${targetLine.slice(1).trim()}`);
+          targetLineNumbers.push(index + 1);
+          endLineNumber = index + 1;
           index += 1;
           if (targetLine.startsWith("●")) {
-            units.push({
+            const unit: TranslationUnit = {
               source,
               target: targets,
+            };
+            units.push(unit);
+            blocks.push({
+              unit,
+              startLineNumber,
+              endLineNumber,
+              sourceLineNumber,
+              targetLineNumbers,
+              metadata: {
+                nameLineNumber,
+              },
             });
             break;
           }
@@ -124,41 +169,50 @@ export class M3TFileHandler extends TranslationFileHandler {
         }
         break;
       }
+      continue;
     }
 
-    return units;
-  }
+    const sourceLineNumber = index + 1;
+    const source = text;
+    const targets: string[] = [];
+    const targetLineNumbers: number[] = [];
+    let endLineNumber = sourceLineNumber;
+    index += 1;
 
-  override async writeTranslationUnits(
-    filePath: string,
-    units: TranslationUnit[],
-  ): Promise<void> {
-    const lines: string[] = [];
-
-    for (const unit of units) {
-      const parsed = extractBracketNameAndText(unit.source);
-      if (parsed.name) {
-        lines.push(`○ NAME: ${parsed.name}`);
-        lines.push("");
-        lines.push(`○ ${parsed.body}`);
-
-        for (const [index, targetText] of unit.target.entries()) {
-          const targetParsed = extractBracketNameAndText(targetText);
-          const prefix = index === unit.target.length - 1 ? "●" : "○";
-          lines.push(`${prefix} ${targetParsed.body}`);
-        }
-      } else {
-        lines.push(`○ ${unit.source}`);
-        for (const [index, targetText] of unit.target.entries()) {
-          const prefix = index === unit.target.length - 1 ? "●" : "○";
-          lines.push(`${prefix} ${targetText}`);
-        }
+    while (index < lines.length) {
+      const targetLine = lines[index]!.trim();
+      if (!targetLine) {
+        break;
       }
-
-      lines.push("");
+      if (targetLine.startsWith("○") || targetLine.startsWith("●")) {
+        targets.push(targetLine.slice(1).trim());
+        targetLineNumbers.push(index + 1);
+        endLineNumber = index + 1;
+        index += 1;
+        if (targetLine.startsWith("●")) {
+          const unit: TranslationUnit = {
+            source,
+            target: targets,
+          };
+          units.push(unit);
+          blocks.push({
+            unit,
+            startLineNumber,
+            endLineNumber,
+            sourceLineNumber,
+            targetLineNumbers,
+          });
+          break;
+        }
+        continue;
+      }
+      break;
     }
-    lines.push("");
-
-    await writeFile(filePath, lines.join("\n"), "utf8");
   }
+
+  return {
+    units,
+    blocks,
+    rawLineCount: lines.length,
+  };
 }

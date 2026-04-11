@@ -1,6 +1,10 @@
 import type {
   AlignmentRepairConfig,
+  ApplyChapterTranslationEditorResult,
+  ChapterTranslationEditorDocument,
+  ChapterTranslationEditorValidationResult,
   DictionaryImportResult,
+  EditableTranslationFormat,
   GlossaryExtractorConfig,
   GlossaryTerm,
   LlmRequestHistoryDetail,
@@ -278,6 +282,28 @@ export const api = {
     request<{ topology: StoryTopologyDescriptor | null }>('/api/project/topology'),
   getChapterPreview: (chapterId: number) =>
     request<TranslationPreviewChapter>(`/api/project/preview/chapters/${chapterId}`),
+  getChapterEditorDocument: (chapterId: number, format: EditableTranslationFormat) =>
+    request<ChapterTranslationEditorDocument>(
+      `/api/project/editor/chapters/${chapterId}${buildQueryString({ format })}`,
+    ),
+  validateChapterEditor: (payload: {
+    chapterId: number;
+    format: EditableTranslationFormat;
+    content: string;
+  }) =>
+    request<ChapterTranslationEditorValidationResult>('/api/project/editor/validate', {
+      method: 'POST',
+      body: payload,
+    }),
+  applyChapterEditor: (payload: {
+    chapterId: number;
+    format: EditableTranslationFormat;
+    content: string;
+  }) =>
+    request<ApplyChapterTranslationEditorResult>('/api/project/editor/apply', {
+      method: 'POST',
+      body: payload,
+    }),
   importChapterArchive: (formData: FormData) =>
     request<ImportArchiveResult>('/api/project/chapters/import-archive', {
       method: 'POST',

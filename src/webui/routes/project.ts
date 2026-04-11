@@ -172,6 +172,71 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     return c.json(preview);
   });
 
+  app.get('/editor/chapters/:id', (c) => {
+    const id = Number(c.req.param('id'));
+    const format = normalizeEditorFormat(c.req.query('format'));
+    if (!format) {
+      return c.json({ error: 'format 必须是 naturedialog 或 m3t' }, 400);
+    }
+    const draft = projectService.getChapterTranslationEditorDocument(id, format);
+    if (!draft) {
+      return c.json({ error: '当前没有可编辑的工作区章节' }, 404);
+    }
+    return c.json(draft);
+  });
+
+  app.post('/editor/validate', async (c) => {
+    try {
+      const body = await c.req.json<{
+        chapterId: number;
+        format: string;
+        content: string;
+      }>();
+      const format = normalizeEditorFormat(body.format);
+      if (!format) {
+        return c.json({ error: 'format 必须是 naturedialog 或 m3t' }, 400);
+      }
+      return c.json(
+        projectService.validateChapterTranslationEditorContent({
+          chapterId: Number(body.chapterId),
+          format,
+          content: String(body.content ?? ''),
+        }),
+      );
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/editor/apply', async (c) => {
+    try {
+      const body = await c.req.json<{
+        chapterId: number;
+        format: string;
+        content: string;
+      }>();
+      const format = normalizeEditorFormat(body.format);
+      if (!format) {
+        return c.json({ error: 'format 必须是 naturedialog 或 m3t' }, 400);
+      }
+      return c.json(
+        await projectService.applyChapterTranslationEditorContent({
+          chapterId: Number(body.chapterId),
+          format,
+          content: String(body.content ?? ''),
+        }),
+      );
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
   app.get('/repetition-patterns', (c) => {
     try {
       const result = projectService.getRepeatedPatterns({
@@ -462,6 +527,13 @@ function normalizeOptionalString(value: FormDataEntryValue | null): string | und
   }
   const normalized = value.trim();
   return normalized ? normalized : undefined;
+}
+
+function normalizeEditorFormat(format: string | undefined): 'naturedialog' | 'm3t' | undefined {
+  if (format === 'naturedialog' || format === 'm3t') {
+    return format;
+  }
+  return undefined;
 }
 
 function readPositiveIntegerQuery(

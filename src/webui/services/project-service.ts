@@ -36,6 +36,12 @@ import {
 import type { LlmRequestHistoryEntry } from '../../llm/types.ts';
 import { PlotSummarizer } from '../../project/plot-summarizer.ts';
 import type {
+  ChapterTranslationEditorDiagnostic,
+  ChapterTranslationEditorGlossaryMatch,
+  ChapterTranslationEditorLineUpdate,
+  EditableTranslationFormat,
+} from '../../project/chapter-translation-editor.ts';
+import type {
   RepetitionPatternAnalysisResult,
   ScopedRepetitionPatternAnalysisOptions,
 } from '../../project/repetition-pattern-analysis.ts';
@@ -160,6 +166,44 @@ export interface TranslationPreviewChapter {
   units: TranslationPreviewUnit[];
 }
 
+export interface ChapterTranslationEditorDocument {
+  baseline: {
+    chapterId: number;
+    format: EditableTranslationFormat;
+    unitCount: number;
+    rawLineCount: number;
+  };
+  content: string;
+  units: Array<{
+    unitIndex: number;
+    fragmentIndex: number;
+    lineIndex: number;
+    sourceText: string;
+    translatedText: string;
+    targetCandidates: string[];
+  }>;
+  diagnostics: ChapterTranslationEditorDiagnostic[];
+  glossaryMatches: ChapterTranslationEditorGlossaryMatch[];
+}
+
+export interface ChapterTranslationEditorValidationResult {
+  baseline: ChapterTranslationEditorDocument['baseline'];
+  content: string;
+  normalizedContent: string;
+  parsedUnitCount: number;
+  rawLineCount: number;
+  hasLineCountChange: boolean;
+  lineCountDelta: number;
+  diagnostics: ChapterTranslationEditorDiagnostic[];
+  updates: ChapterTranslationEditorLineUpdate[];
+  canApply: boolean;
+}
+
+export interface ApplyChapterTranslationEditorResult {
+  validation: ChapterTranslationEditorValidationResult;
+  appliedUpdateCount: number;
+}
+
 export interface ProjectResourceVersions {
   dictionaryRevision: number;
   chaptersRevision: number;
@@ -243,6 +287,64 @@ export class ProjectService {
       return null;
     }
     return this.project.getChapterTranslationPreview(chapterId);
+  }
+
+  getChapterTranslationEditorDocument(
+    chapterId: number,
+    format: EditableTranslationFormat,
+  ): ChapterTranslationEditorDocument | null {
+    if (!this.project?.getChapterDescriptor(chapterId)) {
+      return null;
+    }
+    return this.project.getChapterTranslationEditorDocument(chapterId, format);
+  }
+
+  validateChapterTranslationEditorContent(input: {
+    chapterId: number;
+    format: EditableTranslationFormat;
+    content: string;
+  }): ChapterTranslationEditorValidationResult {
+    if (!this.project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+    return this.project.validateChapterTranslationEditorContent(
+      input.chapterId,
+      input.format,
+      input.content,
+    );
+  }
+
+  async applyChapterTranslationEditorContent(input: {
+    chapterId: number;
+    format: EditableTranslationFormat;
+    content: string;
+  }): Promise<ApplyChapterTranslationEditorResult> {
+    if (this.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!this.project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    this.isBusy = true;
+    try {
+      const validation = await this.project.applyChapterTranslationEditorContent(
+        input.chapterId,
+        input.format,
+        input.content,
+      );
+      const appliedUpdateCount = validation.updates.filter((update) => update.changed).length;
+      if (validation.canApply) {
+        this.refreshSnapshot();
+        this.markChaptersChanged();
+      }
+      return {
+        validation,
+        appliedUpdateCount: validation.canApply ? appliedUpdateCount : 0,
+      };
+    } finally {
+      this.isBusy = false;
+    }
   }
 
   getRepeatedPatterns(

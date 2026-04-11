@@ -18,6 +18,7 @@ import {
   Upload,
 } from 'antd';
 import type { UploadFile } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import type {
   CreateStoryBranchPayload,
   ImportArchiveResult,
@@ -161,6 +162,8 @@ export function WorkspaceChaptersTab({
                 onReorderRouteChapters={onReorderStoryRouteChapters}
                 onMoveChapterToRoute={onMoveChapterToRoute}
                 onCreateBranch={onCreateStoryBranch}
+                onClearChapterTranslations={onClearChapterTranslations}
+                onRemoveChapters={onRemoveChapters}
                 onRemoveRoute={onRemoveStoryRoute}
                 onUpdateRoute={onUpdateStoryRoute}
               />
@@ -283,6 +286,7 @@ function ChapterInfoTable({
   }) => Promise<ImportArchiveResult>;
 }) {
   const { message } = AntdApp.useApp();
+  const navigate = useNavigate();
   const [selectedChapterIds, setSelectedChapterIds] = useState<number[]>([]);
   const [attachGroup, setAttachGroup] = useState<ChapterImportGroupDescriptor | null>(null);
   const [attachForm] = Form.useForm<AttachGroupBranchFormValues>();
@@ -582,7 +586,7 @@ function ChapterInfoTable({
         }}
         columns={[
           { title: 'ID', dataIndex: 'id', width: 60 },
-          { title: '文件路径', dataIndex: 'filePath', ellipsis: true },
+          { title: '文件路径', dataIndex: 'filePath', width: 260, ellipsis: true },
           {
             title: '路线',
             width: 100,
@@ -634,9 +638,17 @@ function ChapterInfoTable({
           },
           {
             title: '操作',
-            width: 180,
+            width: 260,
             render: (_, record: WorkspaceChapterDescriptor) => (
-              <Space>
+              <Space wrap size={[8, 8]}>
+                <Button
+                  size="small"
+                  type="primary"
+                  ghost
+                  onClick={() => navigate(`/workspace/editor/${record.id}`)}
+                >
+                  在线编辑
+                </Button>
                 <Popconfirm
                   title="确认清空该章节的译文？"
                   onConfirm={() => void onClearChapterTranslations([record.id])}

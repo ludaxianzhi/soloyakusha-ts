@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { DeleteOutlined, DownloadOutlined, ExportOutlined, EyeOutlined } from '@ant-design/icons';
+import { useEffect } from 'react';
+import { DeleteOutlined, DownloadOutlined, ExportOutlined } from '@ant-design/icons';
 import {
   Button,
   Card,
@@ -11,10 +11,8 @@ import {
   Space,
 } from 'antd';
 import type { FormInstance } from 'antd';
-import type { WorkspaceChapterDescriptor } from '../../app/types.ts';
 import { IMPORT_FORMAT_OPTIONS } from '../../app/ui-helpers.ts';
 import { usePollingTask } from '../../app/usePollingTask.ts';
-import { TranslationPreviewModal } from '../TranslationPreviewModal.tsx';
 
 const { TextArea } = Input;
 
@@ -22,9 +20,7 @@ interface WorkspaceConfigTabProps {
   active: boolean;
   workspaceForm: FormInstance<Record<string, unknown>>;
   translatorOptions: Array<{ label: string; value: string }>;
-  chapters: WorkspaceChapterDescriptor[];
   onRefreshWorkspaceConfig: () => void | Promise<void>;
-  onRefreshPreviewChapters: () => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
   onDownloadExport: (format: string) => void | Promise<void>;
   onResetProject: (
@@ -37,15 +33,11 @@ export function WorkspaceConfigTab({
   active,
   workspaceForm,
   translatorOptions,
-  chapters,
   onRefreshWorkspaceConfig,
-  onRefreshPreviewChapters,
   onWorkspaceConfigSave,
   onDownloadExport,
   onResetProject,
 }: WorkspaceConfigTabProps) {
-  const [previewOpen, setPreviewOpen] = useState(false);
-
   useEffect(() => {
     if (!active) {
       return;
@@ -60,13 +52,6 @@ export function WorkspaceConfigTab({
       await onRefreshWorkspaceConfig();
     },
   });
-
-  useEffect(() => {
-    if (!previewOpen) {
-      return;
-    }
-    void onRefreshPreviewChapters();
-  }, [onRefreshPreviewChapters, previewOpen]);
 
   return (
     <div className="section-stack">
@@ -130,13 +115,6 @@ export function WorkspaceConfigTab({
               >
                 下载纯文本导出 ZIP
               </Button>
-              <Button
-                icon={<EyeOutlined />}
-                disabled={chapters.length === 0}
-                onClick={() => setPreviewOpen(true)}
-              >
-                网页内预览译文
-              </Button>
               <Button onClick={() => void onDownloadExport('naturedialog')}>
                 下载 Nature Dialog 导出 ZIP
               </Button>
@@ -189,12 +167,6 @@ export function WorkspaceConfigTab({
           </Card>
         </Col>
       </Row>
-
-      <TranslationPreviewModal
-        open={previewOpen}
-        chapters={chapters}
-        onCancel={() => setPreviewOpen(false)}
-      />
     </div>
   );
 }

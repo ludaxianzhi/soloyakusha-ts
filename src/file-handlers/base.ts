@@ -12,6 +12,23 @@
 
 import type { TranslationUnit } from "../project/types.ts";
 
+export interface ParsedTranslationUnitBlock {
+  unit: TranslationUnit;
+  startLineNumber: number;
+  endLineNumber: number;
+  sourceLineNumber: number;
+  targetLineNumbers: number[];
+  metadata?: {
+    nameLineNumber?: number;
+  };
+}
+
+export interface ParsedTranslationDocument {
+  units: TranslationUnit[];
+  blocks: ParsedTranslationUnitBlock[];
+  rawLineCount: number;
+}
+
 /**
  * 翻译文件处理器的抽象基类，约定具体格式实现必须提供的读写能力。
  *
@@ -20,11 +37,15 @@ import type { TranslationUnit } from "../project/types.ts";
  * - supportsComparable: 是否支持显示对照（原文译文并行显示）
  * - readTranslationUnits: 从文件读取翻译单元列表
  * - writeTranslationUnits: 将翻译单元列表写入文件
+ * - parseTranslationDocument: 从字符串解析翻译单元及行级块信息
+ * - formatTranslationUnits: 将翻译单元列表格式化为字符串
  */
 export abstract class TranslationFileHandler {
   abstract readonly formatName: string;
   abstract readonly supportsComparable: boolean;
 
+  abstract parseTranslationDocument(content: string): ParsedTranslationDocument;
+  abstract formatTranslationUnits(units: TranslationUnit[]): string;
   abstract readTranslationUnits(filePath: string): Promise<TranslationUnit[]>;
   abstract writeTranslationUnits(
     filePath: string,

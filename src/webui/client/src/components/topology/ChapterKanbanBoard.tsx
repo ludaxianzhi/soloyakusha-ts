@@ -25,9 +25,11 @@ import {
   EditOutlined,
   HolderOutlined,
   LockOutlined,
+  MoreOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { Button, Empty, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd';
+import { Button, Dropdown, Empty, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import type {
   CreateStoryBranchPayload,
   StoryTopologyDescriptor,
@@ -48,6 +50,11 @@ interface ChapterKanbanBoardProps {
     targetIndex: number,
   ) => void | Promise<void>;
   onCreateBranch: (payload: CreateStoryBranchPayload) => void | Promise<void>;
+  onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onRemoveChapters: (
+    chapterIds: number[],
+    options?: { cascadeBranches?: boolean },
+  ) => void | Promise<void>;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
   onUpdateRoute: (routeId: string, payload: UpdateStoryRoutePayload) => void | Promise<void>;
 }
@@ -62,6 +69,8 @@ export function ChapterKanbanBoard({
   onReorderRouteChapters,
   onMoveChapterToRoute,
   onCreateBranch,
+  onClearChapterTranslations,
+  onRemoveChapters,
   onRemoveRoute,
   onUpdateRoute,
 }: ChapterKanbanBoardProps) {
@@ -351,6 +360,8 @@ export function ChapterKanbanBoard({
               forkPointBranchCount={forkPointBranchCount}
               activeId={activeId}
               onCreateBranch={handleCreateBranch}
+              onClearChapterTranslations={onClearChapterTranslations}
+              onRemoveChapters={onRemoveChapters}
               onEditRoute={handleEditRoute}
               onRemoveRoute={onRemoveRoute}
             />
@@ -428,6 +439,11 @@ interface KanbanColumnProps {
   forkPointBranchCount: Map<number, number>;
   activeId: number | null;
   onCreateBranch: (parentRouteId: string, forkAfterChapterId: number) => void;
+  onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onRemoveChapters: (
+    chapterIds: number[],
+    options?: { cascadeBranches?: boolean },
+  ) => void | Promise<void>;
   onEditRoute: (route: StoryTopologyRouteDescriptor) => void;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
 }
@@ -440,6 +456,8 @@ function KanbanColumn({
   forkPointBranchCount,
   activeId,
   onCreateBranch,
+  onClearChapterTranslations,
+  onRemoveChapters,
   onEditRoute,
   onRemoveRoute,
 }: KanbanColumnProps) {
@@ -531,6 +549,8 @@ function KanbanColumn({
                   isDragging={activeId === chapterId}
                   routeId={route.id}
                   onCreateBranch={onCreateBranch}
+                  onClearChapterTranslations={onClearChapterTranslations}
+                  onRemoveChapters={onRemoveChapters}
                 />
               );
             })
@@ -551,6 +571,11 @@ interface KanbanCardProps {
   isDragging: boolean;
   routeId: string;
   onCreateBranch: (parentRouteId: string, forkAfterChapterId: number) => void;
+  onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onRemoveChapters: (
+    chapterIds: number[],
+    options?: { cascadeBranches?: boolean },
+  ) => void | Promise<void>;
 }
 
 function KanbanCard({
@@ -561,7 +586,10 @@ function KanbanCard({
   isDragging,
   routeId,
   onCreateBranch,
+  onClearChapterTranslations,
+  onRemoveChapters,
 }: KanbanCardProps) {
+  const navigate = useNavigate();
   const {
     attributes,
     listeners,
@@ -577,6 +605,38 @@ function KanbanCard({
     transform: CSS.Transform.toString(transform),
     transition,
   };
+  const menuItems = [
+    {
+      key: 'edit',
+      label: '在线编辑',
+      onClick: () => navigate(`/workspace/editor/${chapterId}`),
+    },
+    {
+      key: 'clear',
+      label: '清空译文',
+      onClick: () => {
+        Modal.confirm({
+          title: '确认清空该章节的译文？',
+          okText: '清空',
+          cancelText: '取消',
+          onOk: () => onClearChapterTranslations([chapterId]),
+        });
+      },
+    },
+    {
+      key: 'remove',
+      label: <span style={{ color: '#ff7875' }}>移除</span>,
+      onClick: () => {
+        Modal.confirm({
+          title: '确认移除该章节？',
+          okText: '移除',
+          cancelText: '取消',
+          okButtonProps: { danger: true },
+          onOk: () => onRemoveChapters([chapterId], { cascadeBranches: false }),
+        });
+      },
+    },
+  ];
 
   return (
     <div
@@ -631,6 +691,12 @@ function KanbanCard({
             分支
           </Button>
         </Tooltip>
+        <Dropdown
+          trigger={['click']}
+          menu={{ items: menuItems }}
+        >
+          <Button type="text" size="small" icon={<MoreOutlined />} />
+        </Dropdown>
       </div>
     </div>
   );
