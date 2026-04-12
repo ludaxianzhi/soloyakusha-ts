@@ -6,7 +6,11 @@ import { readdir } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 import { Hono } from 'hono';
 import JSZip from 'jszip';
-import { ProjectServiceUserInputError, type ProjectService } from '../services/project-service.ts';
+import {
+  ProjectServiceUserInputError,
+  type ChapterTranslationAssistantRequest,
+  type ProjectService,
+} from '../services/project-service.ts';
 
 export function createProjectRoutes(projectService: ProjectService): Hono {
   const app = new Hono();
@@ -229,6 +233,18 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
           content: String(body.content ?? ''),
         }),
       );
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/editor/assistant', async (c) => {
+    try {
+      const body = await c.req.json<ChapterTranslationAssistantRequest>();
+      return c.json(await projectService.runChapterTranslationAssistant(body));
     } catch (error) {
       if (error instanceof ProjectServiceUserInputError) {
         return c.json({ error: error.message }, 400);

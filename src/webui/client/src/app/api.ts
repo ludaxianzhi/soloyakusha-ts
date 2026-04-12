@@ -3,6 +3,8 @@ import type {
   ApplyChapterTranslationEditorResult,
   ChapterTranslationEditorDocument,
   ChapterTranslationEditorValidationResult,
+  ChapterTranslationAssistantRequest,
+  ChapterTranslationAssistantResponse,
   DictionaryImportResult,
   EditableTranslationFormat,
   GlossaryExtractorConfig,
@@ -308,6 +310,11 @@ export const api = {
     content: string;
   }) =>
     request<ApplyChapterTranslationEditorResult>('/api/project/editor/apply', {
+      method: 'POST',
+      body: payload,
+    }),
+  runChapterTranslationAssistant: (payload: ChapterTranslationAssistantRequest) =>
+    request<ChapterTranslationAssistantResponse>('/api/project/editor/assistant', {
       method: 'POST',
       body: payload,
     }),

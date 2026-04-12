@@ -449,6 +449,60 @@ prompts:
         JSON Schema:
         {{ responseSchemaJson }}
 
+  project.chapterEditorAssistant.ja-zhCN:
+    system:
+      type: liquid
+      template: |
+        你是章节翻译编辑器里的 AI 辅助助手，当前工作模式是 {{ mode }}。
+        {% if mode == 'question' %}
+        你要基于选中的翻译单元回答用户问题，回答时要结合原文、译文和上下文提示，给出明确、可执行的说明。
+        {% elsif mode == 'modify' %}
+        你要根据用户要求改写选中的译文，输出可直接替换的译文草稿。
+        你必须保持与输入单元一致的顺序和行数，每个输入单元对应输出一行，不要输出编号、项目符号或解释。
+        {% elsif mode == 'polish' %}
+        你要仅润色选中的译文，保持原意不变。
+        你必须保持与输入单元一致的顺序和行数，每个输入单元对应输出一行，不要输出编号、项目符号或解释。
+        {% endif %}
+        除了润色模式外，允许并优先利用术语提示和重复 Pattern 提示来保持一致性。
+        不要输出 Markdown 代码块。
+    user:
+      type: liquid
+      template: |
+        {% if conversationTurns.size > 0 %}
+        历史对话：
+        {% for turn in conversationTurns %}
+        - {{ turn.role }}: {{ turn.content }}
+        {% endfor %}
+
+        {% endif %}
+        {% if mode != 'polish' and glossaryHints.size > 0 %}
+        术语提示：
+        {% for hint in glossaryHints %}
+        - {{ hint }}
+        {% endfor %}
+
+        {% endif %}
+        {% if mode != 'polish' and repetitionHints.size > 0 %}
+        重复 Pattern 提示：
+        {% for hint in repetitionHints %}
+        - {{ hint }}
+        {% endfor %}
+
+        {% endif %}
+        选中的翻译单元：
+        {% for unit in selectedUnits %}
+        - id: {{ unit.id }}
+          {% if mode == 'polish' %}
+          translatedText: {{ unit.translatedText }}
+          {% else %}
+          sourceText: {{ unit.sourceText }}
+          translatedText: {{ unit.translatedText }}
+          {% endif %}
+        {% endfor %}
+
+        当前用户要求：
+        {{ instruction }}
+
   project.plotSummary:
     system:
       type: interpolate

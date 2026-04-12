@@ -78,6 +78,28 @@ export type MultiStageReviserPromptInput = {
   requirements: string[];
 };
 
+export type ChapterTranslationAssistantMode = "question" | "modify" | "polish";
+
+export type ChapterTranslationAssistantConversationTurn = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ChapterTranslationAssistantSelectedUnit = {
+  id: string;
+  sourceText: string;
+  translatedText: string;
+};
+
+export type ChapterTranslationAssistantPromptInput = {
+  mode: ChapterTranslationAssistantMode;
+  selectedUnits: ChapterTranslationAssistantSelectedUnit[];
+  conversationTurns: ChapterTranslationAssistantConversationTurn[];
+  instruction: string;
+  glossaryHints: string[];
+  repetitionHints: string[];
+};
+
 export type RenderedTextPrompt = {
   name: string;
   systemPrompt: string;
@@ -105,6 +127,8 @@ const MULTI_STAGE_PROOFREADER_PROMPT_NAME = "multi_stage_proofreader";
 const MULTI_STAGE_PROOFREADER_PROMPT_ID = "project.multiStage.proofreader";
 const MULTI_STAGE_REVISER_PROMPT_NAME = "multi_stage_revision";
 const MULTI_STAGE_REVISER_PROMPT_ID = "project.multiStage.reviser";
+const CHAPTER_EDITOR_ASSISTANT_PROMPT_NAME = "chapter_editor_assistant";
+const CHAPTER_EDITOR_ASSISTANT_PROMPT_ID = "project.chapterEditorAssistant";
 const DEFAULT_TRANSLATION_PROMPT_SET = "ja-zhCN";
 
 export class PromptManager {
@@ -262,6 +286,25 @@ export class PromptManager {
       systemPrompt: renderedPrompt.systemPrompt,
       userPrompt: renderedPrompt.userPrompt,
       responseSchema,
+    };
+  }
+
+  async renderChapterTranslationAssistantPrompt(
+    input: ChapterTranslationAssistantPromptInput,
+  ): Promise<RenderedTextPrompt> {
+    const renderedPrompt = await this.renderPrompt(CHAPTER_EDITOR_ASSISTANT_PROMPT_ID, {
+      mode: input.mode,
+      selectedUnits: input.selectedUnits,
+      conversationTurns: input.conversationTurns,
+      instruction: input.instruction,
+      glossaryHints: input.glossaryHints,
+      repetitionHints: input.repetitionHints,
+    });
+
+    return {
+      name: CHAPTER_EDITOR_ASSISTANT_PROMPT_NAME,
+      systemPrompt: renderedPrompt.systemPrompt,
+      userPrompt: renderedPrompt.userPrompt,
     };
   }
 

@@ -289,6 +289,7 @@ body {
 }
 
 .chapter-editor-shell {
+  position: relative;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   overflow: hidden;
@@ -328,6 +329,46 @@ body {
   user-select: none;
   pointer-events: none;
   white-space: nowrap;
+}
+
+.chapter-editor-assistant-trigger {
+  position: absolute;
+  z-index: 5;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.2);
+}
+
+.chapter-editor-assistant-selection,
+.chapter-editor-assistant-thread {
+  display: grid;
+  gap: 8px;
+}
+
+.chapter-editor-assistant-selection-list,
+.chapter-editor-assistant-thread {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  padding: 8px;
+}
+
+.chapter-editor-assistant-selection-item,
+.chapter-editor-assistant-message {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
+}
+
+.chapter-editor-assistant-message-user {
+  border-color: rgba(108, 140, 255, 0.35);
+}
+
+.chapter-editor-assistant-message-assistant {
+  border-color: rgba(82, 196, 26, 0.28);
 }
 
 .chapter-editor-diagnostic-list {

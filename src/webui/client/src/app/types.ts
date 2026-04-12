@@ -497,6 +497,35 @@ export interface ApplyChapterTranslationEditorResult {
   appliedUpdateCount: number;
 }
 
+export type ChapterTranslationAssistantMode = 'question' | 'modify' | 'polish';
+
+export interface ChapterTranslationAssistantConversationTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChapterTranslationAssistantUnit {
+  id: string;
+  sourceText: string;
+  translatedText: string;
+}
+
+export interface ChapterTranslationAssistantRequest {
+  chapterId: number;
+  format: EditableTranslationFormat;
+  llmProfileName: string;
+  mode: ChapterTranslationAssistantMode;
+  selectedUnits: ChapterTranslationAssistantUnit[];
+  conversationTurns: ChapterTranslationAssistantConversationTurn[];
+  instruction: string;
+  glossaryHints: string[];
+  repetitionHints: string[];
+}
+
+export interface ChapterTranslationAssistantResponse {
+  assistantText: string;
+}
+
 export interface WorkspaceConfig {
   projectName: string;
   glossary: {

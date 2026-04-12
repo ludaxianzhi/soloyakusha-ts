@@ -16,7 +16,13 @@ import {
 } from '../../consistency/repetition-pattern-fixer.ts';
 import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
 import { TranslationGlobalConfig, type TranslationProcessorConfig } from '../../project/config.ts';
-import { PromptManager } from '../../project/prompt-manager.ts';
+import {
+  PromptManager,
+  type ChapterTranslationAssistantConversationTurn,
+  type ChapterTranslationAssistantMode,
+  type ChapterTranslationAssistantPromptInput,
+  type ChapterTranslationAssistantSelectedUnit,
+} from '../../project/prompt-manager.ts';
 import { TranslationProject } from '../../project/translation-project.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { NatureDialogKeepNameFileHandler } from '../../file-handlers/nature-dialog-file-handler.ts';
@@ -187,6 +193,22 @@ export interface ChapterTranslationEditorDocument {
   diagnostics: ChapterTranslationEditorDiagnostic[];
   glossaryMatches: ChapterTranslationEditorGlossaryMatch[];
   repetitionMatches: ChapterTranslationEditorRepetitionMatch[];
+}
+
+export interface ChapterTranslationAssistantRequest {
+  chapterId: number;
+  format: EditableTranslationFormat;
+  llmProfileName: string;
+  mode: ChapterTranslationAssistantMode;
+  selectedUnits: ChapterTranslationAssistantSelectedUnit[];
+  conversationTurns: ChapterTranslationAssistantConversationTurn[];
+  instruction: string;
+  glossaryHints: string[];
+  repetitionHints: string[];
+}
+
+export interface ChapterTranslationAssistantResponse {
+  assistantText: string;
 }
 
 export interface ChapterTranslationEditorValidationResult {
@@ -469,6 +491,94 @@ export class ProjectService {
       endUnitIndexExclusive,
       entries,
     };
+  }
+
+  async runChapterTranslationAssistant(
+    input: ChapterTranslationAssistantRequest,
+  ): Promise<ChapterTranslationAssistantResponse> {
+    if (!this.project?.getChapterDescriptor(input.chapterId)) {
+      throw new ProjectServiceUserInputError('当前没有可用的章节');
+    }
+
+    const mode = input.mode;
+    if (!['question', 'modify', 'polish'].includes(mode)) {
+      throw new ProjectServiceUserInputError('不支持的 AI 辅助模式');
+    }
+
+    const instruction = input.instruction.trim();
+    if (!instruction) {
+      throw new ProjectServiceUserInputError('请输入要发送给 AI 的内容');
+    }
+
+    if (input.selectedUnits.length === 0) {
+      throw new ProjectServiceUserInputError('请先选中至少一个翻译单元');
+    }
+
+    const manager = new GlobalConfigManager();
+    const llmProfileName = input.llmProfileName.trim();
+    if (!llmProfileName) {
+      throw new ProjectServiceUserInputError('请选择一个可用的 LLM 配置');
+    }
+
+    const llmProfile = await manager.getRequiredLlmProfile(llmProfileName);
+    if (llmProfile.modelType !== 'chat') {
+      throw new ProjectServiceUserInputError('所选 LLM 配置不是 chat 类型');
+    }
+
+    const runtimeConfig = new TranslationGlobalConfig({
+      llm: {
+        profiles: {
+          assistant: llmProfile,
+        },
+      },
+    });
+    const provider = runtimeConfig.createProvider();
+    const projectDir = this.project.getWorkspaceFileManifest().projectDir;
+    provider.setHistoryLogger(
+      new FileRequestHistoryLogger(join(projectDir, 'logs'), 'chapter_editor_assistant_requests'),
+    );
+
+    const promptManager = new PromptManager();
+    const renderedPrompt = await promptManager.renderChapterTranslationAssistantPrompt({
+      mode,
+      selectedUnits: input.selectedUnits.map((unit) => ({
+        id: unit.id,
+        sourceText: unit.sourceText,
+        translatedText: unit.translatedText,
+      })),
+      conversationTurns: input.conversationTurns.map((turn) => ({
+        role: turn.role,
+        content: turn.content,
+      })),
+      instruction,
+      glossaryHints: input.glossaryHints,
+      repetitionHints: input.repetitionHints,
+    });
+
+    const chatClient = provider.getChatClient('assistant');
+    const assistantText = await chatClient.singleTurnRequest(renderedPrompt.userPrompt, {
+      requestConfig: {
+        systemPrompt: renderedPrompt.systemPrompt,
+        temperature: mode === 'question' ? 0.4 : 0.2,
+        maxTokens: mode === 'question' ? 1200 : 1800,
+      },
+      meta: {
+        label: '章节 AI 辅助',
+        feature: 'chapter-editor',
+        operation: mode,
+          component: 'webui',
+          workflow: 'assistant',
+          stage: mode,
+          context: {
+            chapterId: input.chapterId,
+            format: input.format,
+            selectedUnitCount: input.selectedUnits.length,
+            llmProfileName,
+          },
+        },
+      });
+
+    return { assistantText: assistantText.trim() };
   }
 
   getRepetitionPatternConsistencyFixProgress(): RepetitionPatternConsistencyFixProgress | null {

@@ -1,19 +1,45 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { lintGutter, linter } from '@codemirror/lint';
 import { Decoration, EditorView, WidgetType } from '@codemirror/view';
-import { Alert, App as AntdApp, Button, Card, Empty, Select, Space, Spin, Tag, Typography } from 'antd';
+import { RobotOutlined } from '@ant-design/icons';
+import {
+  Alert,
+  App as AntdApp,
+  Button,
+  Card,
+  Empty,
+  Input,
+  Modal,
+  Select,
+  Space,
+  Spin,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../app/api.ts';
 import type {
+  ChapterTranslationAssistantConversationTurn,
+  ChapterTranslationAssistantMode,
   ChapterTranslationEditorDiagnostic,
   ChapterTranslationEditorDocument,
   ChapterTranslationEditorRepetitionMatch,
   EditableTranslationFormat,
   GlossaryTerm,
+  LlmProfileConfig,
   WorkspaceChapterDescriptor,
 } from '../../app/types.ts';
 import { toErrorMessage } from '../../app/ui-helpers.ts';
+import {
+  applyAssistantDraftToSelection,
+  buildAssistantGlossaryHints,
+  buildAssistantRepetitionHints,
+  buildChapterTranslationEditorSelectionSignature,
+  collectChapterTranslationEditorSelection,
+  type ChapterTranslationEditorSelection,
+} from './chapter-editor-assistant.ts';
 
 const EDITOR_FORMAT_OPTIONS: Array<{ label: string; value: EditableTranslationFormat }> = [
   { label: 'Nature Dialog', value: 'naturedialog' },
@@ -51,6 +77,25 @@ export function ChapterTranslationEditorPage() {
   const [applying, setApplying] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>();
   const [dirty, setDirty] = useState(false);
+  const [llmProfiles, setLlmProfiles] = useState<Record<string, LlmProfileConfig>>({});
+  const [defaultLlmProfileName, setDefaultLlmProfileName] = useState<string>();
+  const [selectedLlmProfileName, setSelectedLlmProfileName] = useState<string>();
+  const [assistantSelection, setAssistantSelection] = useState<ChapterTranslationEditorSelection | null>(
+    null,
+  );
+  const [assistantModalOpen, setAssistantModalOpen] = useState(false);
+  const [assistantMode, setAssistantMode] = useState<ChapterTranslationAssistantMode>('question');
+  const [assistantConversation, setAssistantConversation] = useState<
+    ChapterTranslationAssistantConversationTurn[]
+  >([]);
+  const [assistantInput, setAssistantInput] = useState('');
+  const [assistantDraft, setAssistantDraft] = useState('');
+  const [assistantSending, setAssistantSending] = useState(false);
+  const [assistantAnchor, setAssistantAnchor] = useState<{ top: number; left: number } | null>(null);
+  const editorShellRef = useRef<HTMLDivElement | null>(null);
+  const editorViewRef = useRef<EditorView | null>(null);
+  const pendingEditorScrollRef = useRef<{ top: number; left: number } | null>(null);
+  const assistantSelectionSignatureRef = useRef('');
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -77,13 +122,31 @@ export function ChapterTranslationEditorPage() {
     void Promise.all([
       api.getChapters().catch(() => ({ chapters: [] })),
       api.getDictionary().catch(() => ({ terms: [] })),
+      api.getLlmProfiles().catch(
+        () =>
+          ({
+            profiles: {} as Record<string, LlmProfileConfig>,
+            defaultName: undefined,
+          }) satisfies {
+            profiles: Record<string, LlmProfileConfig>;
+            defaultName?: string;
+          },
+      ),
     ])
-      .then(([chapterResponse, dictionaryResponse]) => {
+      .then(([chapterResponse, dictionaryResponse, llmResponse]) => {
         if (cancelled) {
           return;
         }
         setChapters(chapterResponse.chapters);
         setDictionary(dictionaryResponse.terms);
+        setLlmProfiles(llmResponse.profiles);
+        setDefaultLlmProfileName(llmResponse.defaultName);
+        setSelectedLlmProfileName((current) => {
+          if (current && llmResponse.profiles[current]) {
+            return current;
+          }
+          return llmResponse.defaultName ?? Object.keys(llmResponse.profiles)[0];
+        });
         if (selectedChapterId && chapterResponse.chapters.some((chapter) => chapter.id === selectedChapterId)) {
           return;
         }
@@ -124,6 +187,13 @@ export function ChapterTranslationEditorPage() {
       setContent(nextDraft.content);
       setDiagnostics(nextDraft.diagnostics);
       setDirty(false);
+      setAssistantSelection(null);
+      setAssistantModalOpen(false);
+      setAssistantConversation([]);
+      setAssistantInput('');
+      setAssistantDraft('');
+      setAssistantAnchor(null);
+      assistantSelectionSignatureRef.current = '';
       navigate(`/workspace/editor/${selectedChapterId}`, { replace: true });
     } catch (error) {
       setDraft(null);
@@ -257,6 +327,24 @@ export function ChapterTranslationEditorPage() {
     [chapters],
   );
 
+  const llmProfileOptions = useMemo(
+    () =>
+      Object.keys(llmProfiles)
+        .sort()
+        .map((name) => ({
+          label: name,
+          value: name,
+        })),
+    [llmProfiles],
+  );
+
+  useEffect(() => {
+    if (selectedLlmProfileName && llmProfiles[selectedLlmProfileName]) {
+      return;
+    }
+    setSelectedLlmProfileName(defaultLlmProfileName ?? llmProfileOptions[0]?.value);
+  }, [defaultLlmProfileName, llmProfileOptions, llmProfiles, selectedLlmProfileName]);
+
   const changedLineCount = useMemo(
     () => (draft ? countChangedLines(draft.content, content) : 0),
     [content, draft],
@@ -264,6 +352,179 @@ export function ChapterTranslationEditorPage() {
 
   const errorCount = diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length;
   const warningCount = diagnostics.filter((diagnostic) => diagnostic.severity === 'warning').length;
+
+  const resetAssistantSession = useCallback(() => {
+    assistantSelectionSignatureRef.current = '';
+    setAssistantMode('question');
+    setAssistantConversation([]);
+    setAssistantInput('');
+    setAssistantDraft('');
+    setAssistantModalOpen(false);
+    setAssistantAnchor(null);
+  }, []);
+
+  const syncAssistantSelectionFromView = useCallback(
+    (view: EditorView) => {
+      if (!draft) {
+        setAssistantSelection(null);
+        setAssistantAnchor(null);
+        resetAssistantSession();
+        return;
+      }
+
+      const selection = view.state.selection.main;
+      const nextSelection = collectChapterTranslationEditorSelection({
+        content,
+        draft,
+        from: selection.from,
+        to: selection.to,
+      });
+      const nextSignature = buildChapterTranslationEditorSelectionSignature(nextSelection);
+      const previousSignature = assistantSelectionSignatureRef.current;
+      assistantSelectionSignatureRef.current = nextSignature;
+      setAssistantSelection(nextSelection);
+
+      if (!nextSelection) {
+        setAssistantAnchor(null);
+        if (previousSignature) {
+          resetAssistantSession();
+        }
+        return;
+      }
+
+      const shellRect = editorShellRef.current?.getBoundingClientRect();
+      const headCoords = view.coordsAtPos(selection.to) ?? view.coordsAtPos(selection.from);
+      if (!shellRect || !headCoords) {
+        setAssistantAnchor(null);
+      } else {
+        setAssistantAnchor({
+          top: Math.max(0, headCoords.top - shellRect.top - 40),
+          left: Math.max(12, headCoords.right - shellRect.left + 8),
+        });
+      }
+
+      if (nextSignature !== previousSignature) {
+        setAssistantMode('question');
+        setAssistantModalOpen(false);
+        setAssistantConversation([]);
+        setAssistantInput('');
+        setAssistantDraft('');
+      }
+    },
+    [content, draft, resetAssistantSession],
+  );
+
+  const handleOpenAssistant = useCallback(() => {
+    if (!assistantSelection || assistantSelection.units.length === 0) {
+      message.warning('请先选中至少一个翻译单元');
+      return;
+    }
+    if (!selectedLlmProfileName) {
+      message.warning('请先选择一个可用的 LLM 配置');
+      return;
+    }
+    setAssistantModalOpen(true);
+  }, [assistantSelection, message, selectedLlmProfileName]);
+
+  const handleAssistantModeChange = useCallback(
+    (mode: ChapterTranslationAssistantMode) => {
+      setAssistantMode(mode);
+      setAssistantConversation([]);
+      setAssistantDraft('');
+      setAssistantInput('');
+    },
+    [],
+  );
+
+  const handleApplyAssistantDraft = useCallback(() => {
+    if (!draft || !assistantSelection || assistantMode === 'question' || !assistantDraft.trim()) {
+      return;
+    }
+    const nextContent = applyAssistantDraftToSelection({
+      content,
+      draft,
+      selection: assistantSelection,
+      draftText: assistantDraft,
+    });
+    if (!nextContent) {
+      message.warning('AI 草稿与选区行数不一致，暂时无法直接合并');
+      return;
+    }
+    setContent(nextContent);
+    setDirty(nextContent !== draft?.content);
+    setAssistantModalOpen(false);
+    setAssistantDraft('');
+    setAssistantConversation([]);
+    setAssistantInput('');
+    setAssistantSelection(null);
+    setAssistantAnchor(null);
+    assistantSelectionSignatureRef.current = '';
+  }, [assistantDraft, assistantMode, assistantSelection, content, draft, message]);
+
+  const handleSendAssistantMessage = useCallback(async () => {
+    if (!assistantSelection || assistantSelection.units.length === 0) {
+      message.warning('请先选中至少一个翻译单元');
+      return;
+    }
+    if (!selectedLlmProfileName) {
+      message.warning('请先选择一个可用的 LLM 配置');
+      return;
+    }
+    const instruction = assistantInput.trim();
+    if (!instruction) {
+      message.warning('请输入要发送给 AI 的内容');
+      return;
+    }
+
+    setAssistantDraft('');
+    setAssistantSending(true);
+    try {
+      const glossaryHints =
+        assistantMode === 'polish' ? [] : buildAssistantGlossaryHints(assistantSelection, dictionary);
+      const repetitionHints =
+        assistantMode === 'polish'
+          ? []
+          : buildAssistantRepetitionHints(assistantSelection, draft?.repetitionMatches ?? []);
+      const result = await api.runChapterTranslationAssistant({
+        chapterId: selectedChapterId ?? draft?.baseline.chapterId ?? 0,
+        format,
+        llmProfileName: selectedLlmProfileName,
+        mode: assistantMode,
+        selectedUnits: assistantSelection.units.map((unit) => ({
+          id: String(unit.unitIndex + 1),
+          sourceText: unit.sourceText,
+          translatedText: unit.currentTranslation,
+        })),
+        conversationTurns: assistantConversation,
+        instruction,
+        glossaryHints,
+        repetitionHints,
+      });
+
+      setAssistantConversation((previous) => [
+        ...previous,
+        { role: 'user', content: instruction },
+        { role: 'assistant', content: result.assistantText },
+      ]);
+      setAssistantDraft(result.assistantText);
+      setAssistantInput('');
+    } catch (error) {
+      message.error(toErrorMessage(error));
+    } finally {
+      setAssistantSending(false);
+    }
+  }, [
+    assistantConversation,
+    assistantInput,
+    assistantMode,
+    assistantSelection,
+    dictionary,
+    draft?.repetitionMatches,
+    format,
+    message,
+    selectedChapterId,
+    selectedLlmProfileName,
+  ]);
 
   const handleValidate = useCallback(async () => {
     if (!selectedChapterId) {
@@ -305,15 +566,48 @@ export function ChapterTranslationEditorPage() {
         message.error('提交失败，请先修复格式问题');
         return;
       }
-      setContent(result.validation.normalizedContent);
+      const nextContent = result.validation.normalizedContent;
+      if (nextContent !== content) {
+        const view = editorViewRef.current;
+        if (view) {
+          pendingEditorScrollRef.current = {
+            top: view.scrollDOM.scrollTop,
+            left: view.scrollDOM.scrollLeft,
+          };
+        }
+      }
+      setContent(nextContent);
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              content: nextContent,
+              diagnostics: result.validation.diagnostics,
+            }
+          : current,
+      );
       message.success(`已回写 ${result.appliedUpdateCount} 行译文`);
-      await loadDraft();
     } catch (error) {
       message.error(toErrorMessage(error));
     } finally {
       setApplying(false);
     }
-  }, [content, format, loadDraft, message, selectedChapterId]);
+  }, [content, format, message, selectedChapterId]);
+
+  useLayoutEffect(() => {
+    const scrollPosition = pendingEditorScrollRef.current;
+    if (!scrollPosition) {
+      return;
+    }
+    const view = editorViewRef.current;
+    if (!view) {
+      return;
+    }
+
+    view.scrollDOM.scrollTop = scrollPosition.top;
+    view.scrollDOM.scrollLeft = scrollPosition.left;
+    pendingEditorScrollRef.current = null;
+  }, [content]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -377,8 +671,19 @@ export function ChapterTranslationEditorPage() {
               options={EDITOR_FORMAT_OPTIONS}
               onChange={(value) => setFormat(value)}
             />
+            <Select
+              style={{ minWidth: 220 }}
+              placeholder="选择 AI 模型"
+              value={selectedLlmProfileName}
+              options={llmProfileOptions}
+              onChange={(value) => setSelectedLlmProfileName(value)}
+              disabled={llmProfileOptions.length === 0}
+            />
             <Tag color={dirty ? 'gold' : 'green'}>{dirty ? '未提交修改' : '与草稿一致'}</Tag>
             <Tag>{`术语命中 ${glossaryRender.highlights.length}`}</Tag>
+            <Tag color={assistantSelection ? 'blue' : 'default'}>
+              {assistantSelection ? `AI 选区 ${assistantSelection.units.length}` : 'AI 选区为空'}
+            </Tag>
             <Tag color={errorCount > 0 ? 'red' : 'default'}>{`错误 ${errorCount}`}</Tag>
             <Tag color={warningCount > 0 ? 'gold' : 'default'}>{`警告 ${warningCount}`}</Tag>
             <Tag>{`变更行 ${changedLineCount}`}</Tag>
@@ -400,7 +705,20 @@ export function ChapterTranslationEditorPage() {
                 <Tag>{`当前格式 ${draft.baseline.format}`}</Tag>
               </Space>
 
-              <div className="chapter-editor-shell">
+              <div className="chapter-editor-shell" ref={editorShellRef}>
+                {assistantAnchor && assistantSelection ? (
+                  <Tooltip title="AI 辅助">
+                    <Button
+                      className="chapter-editor-assistant-trigger"
+                      type="primary"
+                      shape="circle"
+                      icon={<RobotOutlined />}
+                      size="small"
+                      style={{ top: assistantAnchor.top, left: assistantAnchor.left }}
+                      onClick={() => handleOpenAssistant()}
+                    />
+                  </Tooltip>
+                ) : null}
                 <CodeMirror
                   value={content}
                   height="100%"
@@ -409,6 +727,21 @@ export function ChapterTranslationEditorPage() {
                     highlightActiveLineGutter: true,
                   }}
                   extensions={editorExtensions}
+                  onCreateEditor={(view) => {
+                    editorViewRef.current = view;
+                    syncAssistantSelectionFromView(view);
+                  }}
+                  onUpdate={(viewUpdate) => {
+                    editorViewRef.current = viewUpdate.view;
+                    if (
+                      viewUpdate.selectionSet ||
+                      viewUpdate.docChanged ||
+                      viewUpdate.geometryChanged ||
+                      viewUpdate.viewportChanged
+                    ) {
+                      syncAssistantSelectionFromView(viewUpdate.view);
+                    }
+                  }}
                   onChange={(value) => {
                     setContent(value);
                     setDirty(value !== draft.content);
@@ -447,6 +780,101 @@ export function ChapterTranslationEditorPage() {
               </Card>
             </>
           ) : null}
+
+          <Modal
+            open={assistantModalOpen}
+            title="AI 辅助"
+            width={920}
+            onCancel={() => setAssistantModalOpen(false)}
+            footer={null}
+            destroyOnClose
+          >
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Space wrap>
+                <Select
+                  style={{ minWidth: 180 }}
+                  value={assistantMode}
+                  options={[
+                    { label: '提问', value: 'question' },
+                    { label: '修改', value: 'modify' },
+                    { label: '润色', value: 'polish' },
+                  ]}
+                  onChange={(value) => handleAssistantModeChange(value as ChapterTranslationAssistantMode)}
+                />
+                <Tag>{`选中 ${assistantSelection?.units.length ?? 0} 个单元`}</Tag>
+                <Tag>{assistantMode === 'question' ? '多轮会话会保留当前选区上下文' : '草稿可直接合并回编辑器'}</Tag>
+              </Space>
+
+              <div className="chapter-editor-assistant-selection">
+                <Typography.Text strong>当前选区</Typography.Text>
+                <div className="chapter-editor-assistant-selection-list">
+                  {assistantSelection?.units.map((unit) => (
+                    <div key={unit.unitIndex} className="chapter-editor-assistant-selection-item">
+                      <Typography.Text code>{`#${unit.unitIndex + 1}`}</Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0 }}>
+                        <strong>原文：</strong>
+                        {unit.sourceText}
+                        <br />
+                        <strong>译文：</strong>
+                        {unit.currentTranslation}
+                      </Typography.Paragraph>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {assistantConversation.length > 0 ? (
+                <div className="chapter-editor-assistant-thread">
+                  {assistantConversation.map((turn, index) => (
+                    <div key={`${turn.role}-${index}`} className={`chapter-editor-assistant-message chapter-editor-assistant-message-${turn.role}`}>
+                      <Typography.Text type="secondary">
+                        {turn.role === 'user' ? '你' : 'AI'}
+                      </Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
+                        {turn.content}
+                      </Typography.Paragraph>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {assistantMode !== 'question' && assistantDraft ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="修改草稿"
+                  description={
+                    <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
+                      {assistantDraft}
+                    </Typography.Paragraph>
+                  }
+                />
+              ) : null}
+
+              <Input.TextArea
+                value={assistantInput}
+                onChange={(event) => setAssistantInput(event.target.value)}
+                autoSize={{ minRows: 3, maxRows: 8 }}
+                placeholder={
+                  assistantMode === 'question'
+                    ? '输入你的问题或要求...'
+                    : assistantMode === 'modify'
+                      ? '输入修改要求，例如：更自然、更口语化、保留专有名词...'
+                      : '输入润色要求，例如：更自然、去掉翻译腔...'
+                }
+              />
+
+              <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
+                <Button onClick={() => setAssistantModalOpen(false)}>关闭</Button>
+                {assistantMode !== 'question' && assistantDraft ? (
+                  <Button onClick={handleApplyAssistantDraft}>接受并合并</Button>
+                ) : null}
+                <Button type="primary" loading={assistantSending} onClick={() => void handleSendAssistantMessage()}>
+                  发送
+                </Button>
+              </Space>
+            </Space>
+          </Modal>
         </Space>
       </Card>
     </div>
