@@ -1,5 +1,5 @@
 /**
- * 提供同时约束 QPS 与并发数的速率限制器，实现对外部模型接口的节流。
+ * 基于 Bottleneck 的速率限制器，实现对外部模型接口的节流。
  *
  * 本模块实现 {@link RateLimiter} 类，用于：
  * - 保护外部 API 不被超量调用
@@ -7,112 +7,50 @@
  * - 控制并发请求数量
  *
  * 支持两种限制模式：
- * - QPS 限制：每秒最大请求数，通过令牌间隔控制
- * - 并发限制：同时进行的请求数，通过信号量控制
- *
- * 两种限制可同时启用，acquire 方法返回释放函数。
+ * - QPS 限制：每秒最大请求数，通过 `minTime` 控制
+ * - 并发限制：同时进行的请求数，通过 `maxConcurrent` 控制
  *
  * @module llm/rate-limiter
  */
 
-import { sleep } from "./utils.ts";
+import Bottleneck from "bottleneck";
 
 /**
  * 组合 QPS 与并发约束的速率限制器，用于保护外部模型接口。
  *
  * 使用方式：
  * 1. 创建限制器，配置 qps 和 maxParallel
- * 2. 调用 acquire() 获取令牌，等待限制就绪
- * 3. 执行请求
- * 4. 调用返回的释放函数释放并发槽
- *
- * QPS 限制通过队列串行化保证间隔；并发限制通过计数器实现。
+ * 2. 调用 run() 包裹需要节流的异步任务
+ * 3. 限速器负责排队、并发与启动间隔
  */
 export class RateLimiter {
-  private readonly qps?: number;
-  private readonly maxParallel?: number;
-  private activeCount = 0;
-  private readonly parallelWaiters: Array<() => void> = [];
-  private qpsLock: Promise<void> = Promise.resolve();
-  private nextAvailableAt = 0;
+  private readonly limiter?: Bottleneck;
 
   constructor(options: { qps?: number; maxParallel?: number } = {}) {
-    this.qps = options.qps;
-    this.maxParallel = options.maxParallel;
-  }
+    const minTime =
+      typeof options.qps === "number" && options.qps > 0
+        ? Math.ceil(1000 / options.qps)
+        : undefined;
+    const maxConcurrent =
+      typeof options.maxParallel === "number" && options.maxParallel > 0
+        ? options.maxParallel
+        : undefined;
 
-  async acquire(): Promise<() => void> {
-    await this.acquireParallelSlot();
-
-    try {
-      await this.acquireQpsSlot();
-    } catch (error) {
-      this.releaseParallelSlot();
-      throw error;
-    }
-
-    let released = false;
-    return () => {
-      if (released) {
-        return;
-      }
-
-      released = true;
-      this.releaseParallelSlot();
-    };
-  }
-
-  private async acquireParallelSlot(): Promise<void> {
-    if (!this.maxParallel || this.maxParallel <= 0) {
+    if (minTime === undefined && maxConcurrent === undefined) {
       return;
     }
 
-    if (this.activeCount < this.maxParallel) {
-      this.activeCount += 1;
-      return;
-    }
-
-    await new Promise<void>((resolve) => {
-      this.parallelWaiters.push(() => {
-        this.activeCount += 1;
-        resolve();
-      });
+    this.limiter = new Bottleneck({
+      ...(maxConcurrent !== undefined ? { maxConcurrent } : {}),
+      ...(minTime !== undefined ? { minTime } : {}),
     });
   }
 
-  private releaseParallelSlot(): void {
-    if (!this.maxParallel || this.maxParallel <= 0) {
-      return;
+  async run<T>(task: () => T | PromiseLike<T>): Promise<T> {
+    if (!this.limiter) {
+      return task();
     }
 
-    this.activeCount = Math.max(0, this.activeCount - 1);
-    const next = this.parallelWaiters.shift();
-    next?.();
-  }
-
-  private async acquireQpsSlot(): Promise<void> {
-    if (!this.qps || this.qps <= 0) {
-      return;
-    }
-
-    const previousLock = this.qpsLock;
-    let releaseLock!: () => void;
-    this.qpsLock = new Promise<void>((resolve) => {
-      releaseLock = resolve;
-    });
-
-    await previousLock;
-
-    try {
-      const now = Date.now();
-      const waitMs = Math.max(0, this.nextAvailableAt - now);
-      if (waitMs > 0) {
-        await sleep(waitMs);
-      }
-
-      this.nextAvailableAt = Date.now() + Math.ceil(1000 / this.qps);
-    } finally {
-      releaseLock();
-    }
+    return this.limiter.schedule(() => Promise.resolve(task()));
   }
 }

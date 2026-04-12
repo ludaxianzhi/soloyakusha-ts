@@ -34,6 +34,7 @@
     "@uiw/react-codemirror": "^4.25.9",
     "@xyflow/react": "^12.10.2",
     "antd": "^6.3.5",
+    "bottleneck": "^2.19.5",
     "hono": "^4.12.10",
     "jszip": "^3.10.1",
     "liquidjs": "^10.25.1",

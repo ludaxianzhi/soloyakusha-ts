@@ -154,8 +154,7 @@ export class OpenAIEmbeddingClient extends EmbeddingClient {
   private async requestEmbeddings(texts: string[]): Promise<number[][]> {
     return retryAsync(
       async () => {
-        const release = await this.rateLimiter.acquire();
-        try {
+        return this.rateLimiter.run(async () => {
           let response: Response;
           try {
             response = await fetch(joinUrl(this.config.endpoint, "/embeddings"), {
@@ -198,9 +197,7 @@ export class OpenAIEmbeddingClient extends EmbeddingClient {
               return value;
             });
           });
-        } finally {
-          release();
-        }
+        });
       },
       {
         retries: this.config.retries,

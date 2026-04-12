@@ -86,9 +86,8 @@ export class AnthropicChatClient extends ChatClient {
     try {
       const result = await retryAsync(
         async () => {
-          const release = await this.rateLimiter.acquire();
-          const thinkingLoopDetector = new ThinkingLoopDetector();
-          try {
+          return this.rateLimiter.run(async () => {
+            const thinkingLoopDetector = new ThinkingLoopDetector();
             const requestBody: Record<string, unknown> = {
               model: this.config.modelName,
               messages: [{ role: "user", content: prompt }],
@@ -201,9 +200,7 @@ export class AnthropicChatClient extends ChatClient {
               statistics,
               reasoning,
             };
-          } finally {
-            release();
-          }
+          });
         },
         {
           retries: this.config.retries,

@@ -88,10 +88,8 @@ export class OpenAIChatClient extends ChatClient {
     try {
       const result = await retryAsync(
         async () => {
-          const release = await this.rateLimiter.acquire();
-          const thinkingLoopDetector = new ThinkingLoopDetector();
-
-          try {
+          return this.rateLimiter.run(async () => {
+            const thinkingLoopDetector = new ThinkingLoopDetector();
             const messages: Array<{ role: "system" | "user"; content: string }> = [
               { role: "user", content: prompt },
             ];
@@ -230,9 +228,7 @@ export class OpenAIChatClient extends ChatClient {
               thinkingTokensEstimate,
               reasoning,
             };
-          } finally {
-            release();
-          }
+          });
         },
         {
           retries: this.config.retries,

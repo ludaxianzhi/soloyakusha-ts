@@ -5,6 +5,7 @@ import { isRetryableOutputValidationError, runOutputValidator } from "./chat-req
 import { FallbackChatClient } from "./fallback-chat-client.ts";
 import { OpenAIChatClient } from "./openai-chat-client.ts";
 import { LlmClientProvider } from "./provider.ts";
+import { RateLimiter } from "./rate-limiter.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "./types.ts";
 import { createLlmClientConfig, resolveRequestConfig, ThinkingLoopError } from "./types.ts";
 import { retryAsync } from "./utils.ts";
@@ -94,6 +95,46 @@ describe("createLlmClientConfig", () => {
       topP: 1,
     });
     expect(config.defaultRequestConfig && "maxTokens" in config.defaultRequestConfig).toBe(false);
+  });
+});
+
+describe("RateLimiter", () => {
+  test("runs tasks without limiting when no constraints are configured", async () => {
+    const limiter = new RateLimiter();
+
+    await expect(limiter.run(async () => 42)).resolves.toBe(42);
+  });
+
+  test("limits concurrent tasks with maxParallel", async () => {
+    const limiter = new RateLimiter({ maxParallel: 1 });
+    let secondStarted = false;
+    let firstStartedResolve!: () => void;
+    let releaseFirst!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      firstStartedResolve = resolve;
+    });
+
+    const first = limiter.run(
+      async () =>
+        new Promise<void>((resolve) => {
+          firstStartedResolve();
+          releaseFirst = resolve;
+        }),
+    );
+
+    await firstStarted;
+
+    const second = limiter.run(async () => {
+      secondStarted = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(secondStarted).toBe(false);
+
+    releaseFirst();
+    await first;
+    await second;
+    expect(secondStarted).toBe(true);
   });
 });
 
