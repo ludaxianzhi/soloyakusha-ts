@@ -297,21 +297,22 @@ export function translatorToForm(
   translatorName: string | undefined,
   workflow: TranslationProcessorWorkflowMetadata | undefined,
 ): Record<string, string | string[] | number | undefined> {
+  const workflowDefaults = resolveWorkflowTranslatorDefaults(workflow);
   if (!translator) {
     return {
       translatorName,
-      sourceLanguage: DEFAULT_TRANSLATOR_SOURCE_LANGUAGE,
-      targetLanguage: DEFAULT_TRANSLATOR_TARGET_LANGUAGE,
-      promptSet: DEFAULT_TRANSLATOR_PROMPT_SET,
+      sourceLanguage: workflowDefaults.sourceLanguage,
+      targetLanguage: workflowDefaults.targetLanguage,
+      promptSet: workflowDefaults.promptSet,
       type: workflow?.workflow ?? 'default',
     };
   }
 
   const values: Record<string, string | string[] | number | undefined> = {
     translatorName,
-    sourceLanguage: translator.sourceLanguage,
-    targetLanguage: translator.targetLanguage,
-    promptSet: translator.promptSet,
+    sourceLanguage: workflowDefaults.sourceLanguage,
+    targetLanguage: workflowDefaults.targetLanguage,
+    promptSet: workflowDefaults.promptSet,
     type: translator.type ?? workflow?.workflow ?? 'default',
     metadataTitle: translator.metadata?.title,
     metadataDescription: translator.metadata?.description,
@@ -331,14 +332,13 @@ export function buildTranslatorPayload(
   values: Record<string, unknown>,
   workflow: TranslationProcessorWorkflowMetadata,
 ): TranslatorEntry {
+  const workflowDefaults = resolveWorkflowTranslatorDefaults(workflow);
   const payload: TranslatorEntry = {
-    sourceLanguage:
-      optionalString(values.sourceLanguage) ?? DEFAULT_TRANSLATOR_SOURCE_LANGUAGE,
-    targetLanguage:
-      optionalString(values.targetLanguage) ?? DEFAULT_TRANSLATOR_TARGET_LANGUAGE,
-    promptSet: optionalString(values.promptSet) ?? DEFAULT_TRANSLATOR_PROMPT_SET,
+    sourceLanguage: workflowDefaults.sourceLanguage,
+    targetLanguage: workflowDefaults.targetLanguage,
+    promptSet: workflowDefaults.promptSet,
     type: workflow.workflow === 'default' ? undefined : workflow.workflow,
-    modelNames: [],
+    modelNames: resolveWorkflowModelNames(values, workflow),
   };
 
   const metadataTitle = optionalString(values.metadataTitle);
@@ -370,6 +370,36 @@ export function formatTranslatorLanguagePair(
   return `${translator.sourceLanguage} -> ${translator.targetLanguage}`;
 }
 
+export function formatTranslatorModelSummary(
+  translator: Pick<TranslatorEntry, 'modelNames' | 'steps'> | null | undefined,
+  workflow: TranslationProcessorWorkflowMetadata | undefined,
+): string {
+  if (!translator) {
+    return '-';
+  }
+
+  const llmProfileFields = workflow?.fields.filter((field) => field.input === 'llm-profile') ?? [];
+  const shouldShowPerStepSummary =
+    workflow?.workflow === 'multi-stage' || llmProfileFields.length > 1;
+  const stepSummary = shouldShowPerStepSummary
+    ? llmProfileFields
+        .map((field) => {
+          const modelNames = normalizeModelChain(getNestedValue(translator, field.key));
+          if (modelNames.length === 0) {
+            return undefined;
+          }
+          return `${field.label}: ${formatModelChain(modelNames)}`;
+        })
+        .filter((value): value is string => Boolean(value))
+    : [];
+
+  if (stepSummary.length > 0) {
+    return stepSummary.join(' | ');
+  }
+
+  return formatModelChain(translator.modelNames);
+}
+
 function serializeWorkflowFieldValue(
   field: TranslationProcessorWorkflowFieldMetadata,
   value: unknown,
@@ -398,6 +428,35 @@ function parseWorkflowFieldValue(
     default:
       return optionalString(value);
   }
+}
+
+function resolveWorkflowModelNames(
+  values: Record<string, unknown>,
+  workflow: TranslationProcessorWorkflowMetadata,
+): string[] {
+  const representativeField = workflow.fields.find((field) => field.input === 'llm-profile');
+  if (representativeField) {
+    const modelNames = normalizeModelChain(values[translatorFieldName(representativeField.key)]);
+    if (modelNames.length > 0) {
+      return modelNames;
+    }
+  }
+
+  return normalizeModelChain(values.modelNames);
+}
+
+function resolveWorkflowTranslatorDefaults(
+  workflow: TranslationProcessorWorkflowMetadata | undefined,
+): {
+  sourceLanguage: string;
+  targetLanguage: string;
+  promptSet: string;
+} {
+  return {
+    sourceLanguage: optionalString(workflow?.sourceLanguage) ?? DEFAULT_TRANSLATOR_SOURCE_LANGUAGE,
+    targetLanguage: optionalString(workflow?.targetLanguage) ?? DEFAULT_TRANSLATOR_TARGET_LANGUAGE,
+    promptSet: optionalString(workflow?.promptSet) ?? DEFAULT_TRANSLATOR_PROMPT_SET,
+  };
 }
 
 function getNestedValue(source: object, path: string): unknown {

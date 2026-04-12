@@ -23,6 +23,7 @@ import {
   type ChapterTranslationAssistantPromptInput,
   type ChapterTranslationAssistantSelectedUnit,
 } from '../../project/prompt-manager.ts';
+import { TranslationProcessorFactory } from '../../project/translation-processor-factory.ts';
 import { TranslationProject } from '../../project/translation-project.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { NatureDialogKeepNameFileHandler } from '../../file-handlers/nature-dialog-file-handler.ts';
@@ -2394,12 +2395,14 @@ async function createProcessorForProject(
   if (!entry) {
     throw new Error(`未找到名为 "${translatorName}" 的翻译器`);
   }
+  const workflow = TranslationProcessorFactory.getWorkflowMetadata(entry.type ?? 'default');
 
   const processorConfig: TranslationProcessorConfig = {
     workflow: entry.type,
     modelNames: entry.modelNames,
     slidingWindow: entry.slidingWindow,
     requestOptions: entry.requestOptions,
+    steps: entry.steps,
     models: entry.models,
     reviewIterations: entry.reviewIterations,
   };
@@ -2434,7 +2437,7 @@ async function createProcessorForProject(
     provider,
     logger,
     promptManager: new PromptManager({
-      translationPromptSet: entry.promptSet,
+      translationPromptSet: workflow?.promptSet ?? entry.promptSet,
     }),
   });
 }

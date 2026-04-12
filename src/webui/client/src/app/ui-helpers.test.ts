@@ -3,11 +3,16 @@ import {
   buildTranslatorPayload,
   formatLlmRequestConfigYaml,
   formatModelChain,
+  formatTranslatorModelSummary,
   parseLlmRequestConfigYaml,
   parseYamlObject,
   translatorFieldName,
   translatorToForm,
 } from './ui-helpers.ts';
+import type {
+  TranslatorEntry,
+  TranslationProcessorWorkflowMetadata,
+} from './types.ts';
 
 describe('WebUI LLM request config helpers', () => {
   test('maps unknown top-level YAML keys into extraBody when saving', () => {
@@ -140,6 +145,130 @@ describe('WebUI LLM request config helpers', () => {
     });
     expect(formatModelChain(['primary', 'fallback-a', 'fallback-b'])).toBe(
       'primary -> fallback-a -> fallback-b',
+    );
+  });
+
+  test('binds translator language and prompt defaults to workflow metadata', () => {
+    const workflow = {
+      workflow: 'default',
+      title: 'Custom',
+      sourceLanguage: 'en',
+      targetLanguage: 'fr',
+      promptSet: 'en-fr',
+      fields: [
+        {
+          key: 'modelNames',
+          label: '默认模型链',
+          input: 'llm-profile' as const,
+          required: true,
+        },
+      ],
+    } satisfies TranslationProcessorWorkflowMetadata;
+
+    const formValues = translatorToForm(null, 'demo', workflow);
+    expect(formValues.sourceLanguage).toBe('en');
+    expect(formValues.targetLanguage).toBe('fr');
+    expect(formValues.promptSet).toBe('en-fr');
+
+    const payload = buildTranslatorPayload(
+      {
+        sourceLanguage: 'ignored',
+        targetLanguage: 'ignored',
+        promptSet: 'ignored',
+        modelNames: ['primary'],
+      },
+      workflow,
+    );
+
+    expect(payload.sourceLanguage).toBe('en');
+    expect(payload.targetLanguage).toBe('fr');
+    expect(payload.promptSet).toBe('en-fr');
+  });
+
+  test('serializes multi-stage step model chains and request options', () => {
+    const workflow = {
+      workflow: 'multi-stage',
+      title: 'Multi-stage',
+      fields: [
+        {
+          key: 'steps.analyzer.modelNames',
+          label: '分析器模型链',
+          input: 'llm-profile' as const,
+          required: true,
+        },
+        {
+          key: 'steps.analyzer.requestOptions',
+          label: '分析器请求选项',
+          input: 'yaml' as const,
+          yamlShape: 'object' as const,
+        },
+        {
+          key: 'steps.translator.modelNames',
+          label: '翻译器模型链',
+          input: 'llm-profile' as const,
+          required: true,
+        },
+        {
+          key: 'steps.translator.requestOptions',
+          label: '翻译器请求选项',
+          input: 'yaml' as const,
+          yamlShape: 'object' as const,
+        },
+      ],
+    } satisfies TranslationProcessorWorkflowMetadata;
+    const translator = {
+      sourceLanguage: 'ja',
+      targetLanguage: 'zh-CN',
+      promptSet: 'ja-zhCN',
+      type: 'multi-stage',
+      modelNames: ['analyzer-primary'],
+      steps: {
+        analyzer: {
+          modelNames: ['analyzer-primary', 'analyzer-fallback'],
+          requestOptions: {
+            requestConfig: {
+              temperature: 0.2,
+            },
+          },
+        },
+        translator: {
+          modelNames: ['translator-primary'],
+          requestOptions: {
+            requestConfig: {
+              maxTokens: 2048,
+            },
+          },
+        },
+      },
+    } satisfies TranslatorEntry;
+
+    const formValues = translatorToForm(translator, 'demo', workflow);
+    expect(formValues[translatorFieldName('steps.analyzer.modelNames')]).toEqual([
+      'analyzer-primary',
+      'analyzer-fallback',
+    ]);
+    expect(formValues[translatorFieldName('steps.translator.modelNames')]).toEqual([
+      'translator-primary',
+    ]);
+
+    const payload = buildTranslatorPayload(formValues as Record<string, unknown>, workflow);
+    expect(payload.modelNames).toEqual(['analyzer-primary', 'analyzer-fallback']);
+    expect(payload.steps?.analyzer?.modelNames).toEqual([
+      'analyzer-primary',
+      'analyzer-fallback',
+    ]);
+    expect(payload.steps?.analyzer?.requestOptions).toEqual({
+      requestConfig: {
+        temperature: 0.2,
+      },
+    });
+    expect(payload.steps?.translator?.requestOptions).toEqual({
+      requestConfig: {
+        maxTokens: 2048,
+      },
+    });
+    expect(formatTranslatorModelSummary(payload, workflow)).toContain(
+      '分析器模型链: analyzer-primary -> analyzer-fallback',
     );
   });
 });

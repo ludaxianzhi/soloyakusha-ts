@@ -589,8 +589,14 @@ export interface TranslatorEntry {
     overlapChars?: number;
   };
   requestOptions?: Record<string, unknown>;
+  steps?: Record<string, TranslatorStepConfig>;
   models?: Record<string, string>;
   reviewIterations?: number;
+}
+
+export interface TranslatorStepConfig {
+  modelNames: string[];
+  requestOptions?: Record<string, unknown>;
 }
 
 export interface TranslationProcessorWorkflowFieldMetadata {
@@ -609,6 +615,9 @@ export interface TranslationProcessorWorkflowMetadata {
   workflow: string;
   title: string;
   description?: string;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  promptSet?: string;
   fields: TranslationProcessorWorkflowFieldMetadata[];
 }
 

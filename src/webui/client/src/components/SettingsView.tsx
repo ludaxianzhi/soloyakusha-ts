@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Button, Card, Col, Form, Input, Popconfirm, Row, Select, Space, Tabs, Tag, Typography } from 'antd';
+import { Button, Card, Collapse, Col, Form, Input, Popconfirm, Row, Select, Space, Tabs, Tag, Typography } from 'antd';
 import type { FormInstance } from 'antd';
 import type {
   AlignmentRepairConfig,
@@ -13,11 +13,12 @@ import type {
   VectorStoreConnectionStatus,
 } from '../app/types.ts';
 import {
-  formatModelChain,
+  formatTranslatorModelSummary,
   formatTranslatorLanguagePair,
   translatorFieldName,
 } from '../app/ui-helpers.ts';
 import { YamlCodeEditor } from './YamlCodeEditor.tsx';
+type YamlCodeEditorProps = Parameters<typeof YamlCodeEditor>[0];
 
 const { TextArea } = Input;
 const { Paragraph, Text } = Typography;
@@ -485,12 +486,12 @@ export function SettingsView({
                             <strong>{translator.metadata?.title ?? name}</strong>
                             {workflow ? <Tag color="purple">{workflow.title}</Tag> : null}
                           </Space>
-                          <div>{name}</div>
-                          <div>{formatTranslatorLanguagePair(translator)}</div>
-                          <div>{formatModelChain(translator.modelNames)}</div>
-                          {translator.metadata?.description ? (
-                            <Paragraph className="settings-list-description" ellipsis={{ rows: 2 }}>
-                              {translator.metadata.description}
+                      <div>{name}</div>
+                      <div>{formatTranslatorLanguagePair(translator)}</div>
+                      <div>{formatTranslatorModelSummary(translator, workflow)}</div>
+                      {translator.metadata?.description ? (
+                        <Paragraph className="settings-list-description" ellipsis={{ rows: 2 }}>
+                          {translator.metadata.description}
                             </Paragraph>
                           ) : null}
                         </button>
@@ -531,35 +532,6 @@ export function SettingsView({
                         </Form.Item>
                       </Col>
                     </Row>
-                    <Row gutter={16}>
-                      <Col span={8}>
-                        <Form.Item
-                          name="sourceLanguage"
-                          label="源语言"
-                          rules={[{ required: true, message: '请输入源语言代码' }]}
-                        >
-                          <Input placeholder="ja" />
-                        </Form.Item>
-                      </Col>
-                      <Col span={8}>
-                        <Form.Item
-                          name="targetLanguage"
-                          label="目标语言"
-                          rules={[{ required: true, message: '请输入目标语言代码' }]}
-                        >
-                          <Input placeholder="zh-CN" />
-                        </Form.Item>
-                      </Col>
-                      <Col span={8}>
-                        <Form.Item
-                          name="promptSet"
-                          label="Prompt 套件"
-                          rules={[{ required: true, message: '请输入 Prompt 套件标识' }]}
-                        >
-                          <Input placeholder="ja-zhCN" />
-                        </Form.Item>
-                      </Col>
-                    </Row>
                     <Form.Item name="metadataDescription" label="说明">
                       <TextArea rows={3} placeholder="帮助后续使用者理解这个翻译器适用于什么场景。" />
                     </Form.Item>
@@ -570,6 +542,11 @@ export function SettingsView({
                             <strong>{selectedWorkflow.title}</strong>
                             <Tag>{selectedWorkflow.workflow}</Tag>
                           </Space>
+                          <Text type="secondary">
+                            语言对：
+                            {selectedWorkflow.sourceLanguage ?? 'ja'} → {selectedWorkflow.targetLanguage ?? 'zh-CN'}
+                            {' · '}Prompt 套件：{selectedWorkflow.promptSet ?? 'ja-zhCN'}
+                          </Text>
                           {selectedWorkflow.description ? (
                             <Text type="secondary">{selectedWorkflow.description}</Text>
                           ) : null}
@@ -866,7 +843,38 @@ function renderTranslatorField(
     return <Input type="number" min={field.min} placeholder={field.description} />;
   }
 
+  if (field.key.endsWith('requestOptions')) {
+    return <CollapsibleRequestOptionsEditor placeholder={field.placeholder} />;
+  }
+
   return <YamlCodeEditor height={200} placeholder={field.placeholder} />;
+}
+
+function CollapsibleRequestOptionsEditor({
+  value,
+  onChange,
+  placeholder,
+}: YamlCodeEditorProps) {
+  return (
+    <Collapse
+      size="small"
+      ghost
+      items={[
+        {
+          key: 'requestOptions',
+          label: '请求配置',
+          children: (
+            <YamlCodeEditor
+              height={180}
+              value={value}
+              onChange={onChange}
+              placeholder={placeholder}
+            />
+          ),
+        },
+      ]}
+    />
+  );
 }
 
 function AuxiliaryCommonFields({

@@ -197,6 +197,52 @@ describe("GlobalConfigManager", () => {
     });
   });
 
+  test("accepts multi-stage step configs with per-step request options", () => {
+    const normalized = normalizeTranslationProcessorConfig(
+      {
+        modelNames: ["fallback-chat"],
+        steps: {
+          analyzer: {
+            modelNames: ["analysis-chat", "analysis-fallback"],
+            requestOptions: {
+              requestConfig: {
+                temperature: 0.15,
+              },
+            },
+          },
+          translator: {
+            modelName: "translator-chat",
+            requestOptions: {
+              requestConfig: {
+                top_p: 0.75,
+              },
+            },
+          },
+        },
+      },
+      "translation.translationProcessor",
+    );
+
+    expect(normalized.steps).toMatchObject({
+      analyzer: {
+        modelNames: ["analysis-chat", "analysis-fallback"],
+        requestOptions: {
+          requestConfig: {
+            temperature: 0.15,
+          },
+        },
+      },
+      translator: {
+        modelNames: ["translator-chat"],
+        requestOptions: {
+          requestConfig: {
+            topP: 0.75,
+          },
+        },
+      },
+    });
+  });
+
   test("accepts legacy single modelName fields when reading existing translation config", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-legacy-"));
     cleanupTargets.push(rootDir);
@@ -265,6 +311,73 @@ describe("GlobalConfigManager", () => {
     });
     expect(await manager.getAlignmentRepairConfig()).toMatchObject({
       modelNames: ["legacy-chat"],
+    });
+  });
+
+  test("synthesizes multi-stage steps from legacy overrides", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-legacy-"));
+    cleanupTargets.push(rootDir);
+
+    const filePath = join(rootDir, "settings.json");
+    await Bun.write(
+      filePath,
+      JSON.stringify(
+        {
+          version: 1,
+          llm: {
+            profiles: {},
+          },
+          translation: {
+            translators: {
+              multi: {
+                type: "multi-stage",
+                modelNames: ["shared-chat"],
+                models: {
+                  analyzer: "analysis-chat",
+                  translator: "translate-chat",
+                },
+                requestOptions: {
+                  requestConfig: {
+                    temperature: 0.3,
+                  },
+                },
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const manager = new GlobalConfigManager({ filePath });
+    const translator = await manager.getTranslator("multi");
+
+    expect(translator?.steps).toMatchObject({
+      analyzer: {
+        modelNames: ["analysis-chat"],
+        requestOptions: {
+          requestConfig: {
+            temperature: 0.3,
+          },
+        },
+      },
+      translator: {
+        modelNames: ["translate-chat"],
+        requestOptions: {
+          requestConfig: {
+            temperature: 0.3,
+          },
+        },
+      },
+      proofreader: {
+        modelNames: ["shared-chat"],
+        requestOptions: {
+          requestConfig: {
+            temperature: 0.3,
+          },
+        },
+      },
     });
   });
 
@@ -509,5 +622,59 @@ describe("GlobalConfigManager", () => {
     expect(saved.translation?.glossaryExtractor?.occurrenceTopP).toBe(0.25);
     expect(saved.translation?.glossaryUpdater?.modelNames).toEqual(["glossary"]);
     expect(saved.translation?.plotSummary?.modelNames).toEqual(["summary", "translator"]);
+  });
+
+  test("persists translator step configs in global file", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-"));
+    cleanupTargets.push(rootDir);
+
+    const filePath = join(rootDir, "settings.json");
+    const manager = new GlobalConfigManager({ filePath });
+
+    await manager.setTranslator("multi-stage", {
+      sourceLanguage: "ja",
+      targetLanguage: "zh-CN",
+      promptSet: "ja-zhCN",
+      type: "multi-stage",
+      modelNames: ["analysis-chat"],
+      steps: {
+        analyzer: {
+          modelNames: ["analysis-chat", "analysis-fallback"],
+          requestOptions: {
+            requestConfig: {
+              temperature: 0.2,
+            },
+          },
+        },
+        translator: {
+          modelNames: ["translator-chat"],
+          requestOptions: {
+            requestConfig: {
+              topP: 0.8,
+            },
+          },
+        },
+      },
+    });
+
+    const loaded = await manager.getTranslator("multi-stage");
+    expect(loaded?.steps).toMatchObject({
+      analyzer: {
+        modelNames: ["analysis-chat", "analysis-fallback"],
+        requestOptions: {
+          requestConfig: {
+            temperature: 0.2,
+          },
+        },
+      },
+      translator: {
+        modelNames: ["translator-chat"],
+        requestOptions: {
+          requestConfig: {
+            topP: 0.8,
+          },
+        },
+      },
+    });
   });
 });

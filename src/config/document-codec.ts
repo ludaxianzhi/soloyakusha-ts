@@ -10,8 +10,13 @@ import type {
   GlossaryExtractorConfig,
   GlossaryUpdaterConfig,
   PlotSummaryConfig,
+  TranslationProcessorStepConfig,
   TranslationProcessorConfig,
 } from "../project/config.ts";
+import {
+  MULTI_STAGE_STEP_NAMES,
+  type MultiStageStepName,
+} from "../project/multi-stage-translation-processor.ts";
 import type { SlidingWindowOptions } from "../project/types.ts";
 import type {
   GlobalConfigDocument,
@@ -177,7 +182,7 @@ export function normalizeTranslationProcessorConfig(
     throw new Error(`翻译器配置必须是对象: ${sourceLabel}`);
   }
 
-  return {
+  const result: TranslationProcessorConfig = {
     workflow: readOptionalString(value.workflow, `${sourceLabel}.workflow`),
     modelNames: readRequiredModelNames(value, sourceLabel),
     slidingWindow:
@@ -194,6 +199,13 @@ export function normalizeTranslationProcessorConfig(
       `${sourceLabel}.reviewIterations`,
     ),
   };
+
+  const steps = normalizeTranslationProcessorStepConfigs(value.steps, `${sourceLabel}.steps`);
+  if (steps) {
+    result.steps = steps;
+  }
+
+  return result;
 }
 
 export function normalizeTranslatorEntry(
@@ -204,13 +216,25 @@ export function normalizeTranslatorEntry(
     throw new Error(`翻译器条目必须是对象: ${sourceLabel}`);
   }
 
+  const steps = normalizeTranslationProcessorStepConfigs(value.steps, `${sourceLabel}.steps`);
   const models = normalizeTranslatorModelOverrides(value.models, `${sourceLabel}.models`);
+  const requestOptions =
+    value.requestOptions === undefined
+      ? undefined
+      : normalizePersistedChatRequestOptions(value.requestOptions, `${sourceLabel}.requestOptions`);
   const reviewIterations = readOptionalNonNegativeInteger(
     value.reviewIterations,
     `${sourceLabel}.reviewIterations`,
   );
+  const baseModelNames = readRequiredModelNames(value, sourceLabel);
+  const workflowType = readOptionalString(value.type, `${sourceLabel}.type`);
+  const effectiveSteps =
+    steps ??
+    (workflowType === "multi-stage" || models !== undefined
+      ? buildLegacyTranslatorStepConfigs(baseModelNames, models, requestOptions)
+      : undefined);
 
-  return {
+  const result: TranslatorEntry = {
     metadata: normalizeTranslatorMetadata(value.metadata, `${sourceLabel}.metadata`),
     sourceLanguage:
       readOptionalString(value.sourceLanguage, `${sourceLabel}.sourceLanguage`) ??
@@ -221,19 +245,22 @@ export function normalizeTranslatorEntry(
     promptSet:
       readOptionalString(value.promptSet, `${sourceLabel}.promptSet`) ??
       DEFAULT_TRANSLATOR_PROMPT_SET,
-    type: readOptionalString(value.type, `${sourceLabel}.type`),
-    modelNames: readRequiredModelNames(value, sourceLabel),
+    type: workflowType,
+    modelNames: baseModelNames,
     slidingWindow:
       value.slidingWindow === undefined
         ? undefined
         : normalizeSlidingWindowOptions(value.slidingWindow, `${sourceLabel}.slidingWindow`),
-    requestOptions:
-      value.requestOptions === undefined
-        ? undefined
-        : normalizePersistedChatRequestOptions(value.requestOptions, `${sourceLabel}.requestOptions`),
+    requestOptions,
     models,
     reviewIterations,
   };
+
+  if (effectiveSteps) {
+    result.steps = effectiveSteps;
+  }
+
+  return result;
 }
 
 function normalizeTranslatorModelOverrides(
@@ -254,6 +281,82 @@ function normalizeTranslatorModelOverrides(
       throw new Error(`${sourceLabel}.${key} 必须是非空字符串`);
     }
     result[key] = entry;
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function normalizeTranslationProcessorStepConfigs(
+  value: unknown,
+  sourceLabel: string,
+): Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`步骤配置必须是对象: ${sourceLabel}`);
+  }
+
+  const result: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> = {};
+  for (const [stepName, stepValue] of Object.entries(value)) {
+    if (!MULTI_STAGE_STEP_NAMES.includes(stepName as MultiStageStepName)) {
+      throw new Error(`${sourceLabel}.${stepName} 不是受支持的步骤`);
+    }
+    if (!isRecord(stepValue)) {
+      throw new Error(`${sourceLabel}.${stepName} 必须是对象`);
+    }
+
+    result[stepName as MultiStageStepName] = {
+      modelNames: readRequiredModelNames(stepValue, `${sourceLabel}.${stepName}`),
+      requestOptions:
+        stepValue.requestOptions === undefined
+          ? undefined
+          : normalizePersistedChatRequestOptions(
+              stepValue.requestOptions,
+              `${sourceLabel}.${stepName}.requestOptions`,
+            ),
+    };
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function buildLegacyTranslatorStepConfigs(
+  baseModelNames: string[],
+  models: Record<string, string> | undefined,
+  requestOptions: ChatRequestOptions | undefined,
+): Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> | undefined {
+  const result: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> = {};
+  for (const stepName of MULTI_STAGE_STEP_NAMES) {
+    result[stepName] = {
+      modelNames: models?.[stepName] ? [models[stepName]] : [...baseModelNames],
+      requestOptions: requestOptions ? clonePersistedChatRequestOptions(requestOptions) : undefined,
+    };
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function cloneTranslationProcessorStepConfigs(
+  steps: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> | undefined,
+): Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> | undefined {
+  if (!steps) {
+    return undefined;
+  }
+
+  const result: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> = {};
+  for (const [stepName, stepConfig] of Object.entries(steps)) {
+    if (!stepConfig) {
+      continue;
+    }
+
+    result[stepName as MultiStageStepName] = {
+      modelNames: [...stepConfig.modelNames],
+      requestOptions: stepConfig.requestOptions
+        ? clonePersistedChatRequestOptions(stepConfig.requestOptions)
+        : undefined,
+    };
   }
 
   return Object.keys(result).length > 0 ? result : undefined;
@@ -603,7 +706,7 @@ export function cloneTranslationConfig(
 }
 
 export function cloneTranslatorEntry(entry: TranslatorEntry): TranslatorEntry {
-  return {
+  const result: TranslatorEntry = {
     metadata: entry.metadata ? { ...entry.metadata } : undefined,
     sourceLanguage: entry.sourceLanguage,
     targetLanguage: entry.targetLanguage,
@@ -617,6 +720,13 @@ export function cloneTranslatorEntry(entry: TranslatorEntry): TranslatorEntry {
     models: entry.models ? { ...entry.models } : undefined,
     reviewIterations: entry.reviewIterations,
   };
+
+  const steps = cloneTranslationProcessorStepConfigs(entry.steps);
+  if (steps) {
+    result.steps = steps;
+  }
+
+  return result;
 }
 
 export function cloneTranslators(
@@ -641,7 +751,7 @@ export function cloneTranslationProcessorConfig(
     return undefined;
   }
 
-  return {
+  const result: TranslationProcessorConfig = {
     workflow: config.workflow,
     modelNames: [...config.modelNames],
     slidingWindow: config.slidingWindow ? { ...config.slidingWindow } : undefined,
@@ -651,6 +761,13 @@ export function cloneTranslationProcessorConfig(
     models: config.models ? { ...config.models } : undefined,
     reviewIterations: config.reviewIterations,
   };
+
+  const steps = cloneTranslationProcessorStepConfigs(config.steps);
+  if (steps) {
+    result.steps = steps;
+  }
+
+  return result;
 }
 
 export function cloneGlossaryExtractorConfig(

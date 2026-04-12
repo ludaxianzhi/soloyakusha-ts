@@ -72,6 +72,7 @@ export type MultiStageTranslationProcessorOptions = {
   processorName?: string;
   glossaryUpdater?: GlossaryUpdater;
   outputRepairer?: TranslationOutputRepairer;
+  stepRequestOptions?: Partial<Record<MultiStageStepName, ChatRequestOptions>>;
   /** 评审迭代次数（大步骤二的重复次数）。默认值为 2。 */
   reviewIterations?: number;
 };
@@ -83,6 +84,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
   private readonly processorName?: string;
   private readonly glossaryUpdater: GlossaryUpdater;
   private readonly promptManager: PromptManager;
+  private readonly stepRequestOptions?: Partial<Record<MultiStageStepName, ChatRequestOptions>>;
   private readonly reviewIterations: number;
   private readonly outputRepairer?: TranslationOutputRepairer;
 
@@ -102,6 +104,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     this.defaultSlidingWindow = options.defaultSlidingWindow;
     this.logger = options.logger ?? NOOP_LOGGER;
     this.processorName = options.processorName;
+    this.stepRequestOptions = options.stepRequestOptions;
     this.reviewIterations = options.reviewIterations ?? 2;
     this.outputRepairer = options.outputRepairer;
     this.glossaryUpdater =
@@ -160,10 +163,6 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     const { referenceSourceTexts, referenceTranslations, plotSummaries } = referenceContext;
     const translatedGlossaryTerms = resolveTranslatedGlossaryTerms(request);
     const untranslatedGlossaryTerms = resolveUntranslatedGlossaryTerms(request);
-    const mergedOptions = mergeChatRequestOptions(
-      this.defaultRequestOptions,
-      request.requestOptions,
-    );
 
     // ── 大步骤一 ──────────────────────────────────────────────────────────
 
@@ -180,7 +179,10 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     const analysisText = await this.resolveClient("analyzer").singleTurnRequest(
       analyzerPrompt.userPrompt,
       withRequestMeta(
-        withSystemPrompt(mergedOptions, analyzerPrompt.systemPrompt),
+        withSystemPrompt(
+          this.buildStepRequestOptions("analyzer", request.requestOptions),
+          analyzerPrompt.systemPrompt,
+        ),
         this.buildStepRequestMeta("analyzer", request),
       ),
     );
@@ -198,11 +200,14 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       translatorPrompt.userPrompt,
       withRequestMeta(
         withOutputValidator(
-          buildJsonSchemaChatRequestOptions(mergedOptions, {
-            name: translatorPrompt.name,
-            systemPrompt: translatorPrompt.systemPrompt,
-            responseSchema: translatorPrompt.responseSchema,
-          }),
+          buildJsonSchemaChatRequestOptions(
+            this.buildStepRequestOptions("translator", request.requestOptions),
+            {
+              name: translatorPrompt.name,
+              systemPrompt: translatorPrompt.systemPrompt,
+              responseSchema: translatorPrompt.responseSchema,
+            },
+          ),
           (candidateResponseText) => {
             parseTranslationResponse(
               candidateResponseText,
@@ -231,11 +236,14 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       polisherPrompt.userPrompt,
       withRequestMeta(
         withOutputValidator(
-          buildJsonSchemaChatRequestOptions(mergedOptions, {
-            name: polisherPrompt.name,
-            systemPrompt: polisherPrompt.systemPrompt,
-            responseSchema: polisherPrompt.responseSchema,
-          }),
+          buildJsonSchemaChatRequestOptions(
+            this.buildStepRequestOptions("polisher", request.requestOptions),
+            {
+              name: polisherPrompt.name,
+              systemPrompt: polisherPrompt.systemPrompt,
+              responseSchema: polisherPrompt.responseSchema,
+            },
+          ),
           (candidateResponseText) => {
             parseTranslationResponse(
               candidateResponseText,
@@ -305,14 +313,20 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
         this.resolveClient("editor").singleTurnRequest(
           editorPrompt.userPrompt,
           withRequestMeta(
-            withSystemPrompt(mergedOptions, editorPrompt.systemPrompt),
+            withSystemPrompt(
+              this.buildStepRequestOptions("editor", request.requestOptions),
+              editorPrompt.systemPrompt,
+            ),
             this.buildStepRequestMeta("editor", request, round),
           ),
         ),
         this.resolveClient("proofreader").singleTurnRequest(
           proofreaderPrompt.userPrompt,
           withRequestMeta(
-            withSystemPrompt(mergedOptions, proofreaderPrompt.systemPrompt),
+            withSystemPrompt(
+              this.buildStepRequestOptions("proofreader", request.requestOptions),
+              proofreaderPrompt.systemPrompt,
+            ),
             this.buildStepRequestMeta("proofreader", request, round),
           ),
         ),
@@ -343,11 +357,14 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
         reviserPrompt.userPrompt,
         withRequestMeta(
           withOutputValidator(
-            buildJsonSchemaChatRequestOptions(mergedOptions, {
-              name: reviserPrompt.name,
-              systemPrompt: reviserPrompt.systemPrompt,
-              responseSchema: reviserPrompt.responseSchema,
-            }),
+            buildJsonSchemaChatRequestOptions(
+              this.buildStepRequestOptions("reviser", request.requestOptions),
+              {
+                name: reviserPrompt.name,
+                systemPrompt: reviserPrompt.systemPrompt,
+                responseSchema: reviserPrompt.responseSchema,
+              },
+            ),
             (candidateResponseText) => {
               parseTranslationResponse(
                 candidateResponseText,
@@ -449,6 +466,16 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
         glossaryTermCount,
       },
     };
+  }
+
+  private buildStepRequestOptions(
+    step: MultiStageStepName,
+    requestOptions: ChatRequestOptions | undefined,
+  ): ChatRequestOptions | undefined {
+    return mergeChatRequestOptions(
+      mergeChatRequestOptions(this.defaultRequestOptions, this.stepRequestOptions?.[step]),
+      requestOptions,
+    );
   }
 }
 

@@ -18,8 +18,10 @@ import type {
   GlossaryUpdaterConfig,
   GlossaryExtractorConfig,
   PlotSummaryConfig,
+  TranslationProcessorStepConfig,
   TranslationProcessorConfig,
 } from "../project/config.ts";
+import type { MultiStageStepName } from "../project/multi-stage-translation-processor.ts";
 import type { SlidingWindowOptions } from "../project/types.ts";
 import type {
   VectorDistanceMetric,
@@ -76,11 +78,7 @@ export type GlobalVectorConfig = {
   stores: Record<string, PersistedVectorStoreConfig>;
 };
 
-/**
- * 多步骤工作流的各步骤 LLM Profile 名称覆盖。
- * key 为步骤标识（如 "analyzer"、"translator" 等），value 为 LLM Profile 名称。
- * 未指定的步骤使用 TranslatorEntry.modelNames 作为默认值。
- */
+/** 旧版多步骤工作流的步骤模型覆盖（兼容字段）。 */
 export type TranslatorModelOverrides = Record<string, string>;
 
 export type TranslatorMetadata = {
@@ -96,22 +94,23 @@ export const DEFAULT_TRANSLATOR_PROMPT_SET = "ja-zhCN";
 export type TranslatorEntry = {
   /** 翻译器的人类可读元数据，用于前端自解释展示。 */
   metadata?: TranslatorMetadata;
-  /** 翻译器适用的源语言代码。 */
+  /** 由工作流绑定的源语言代码。 */
   sourceLanguage: string;
-  /** 翻译器适用的目标语言代码。 */
+  /** 由工作流绑定的目标语言代码。 */
   targetLanguage: string;
-  /** 翻译器绑定的翻译提示词套件。 */
+  /** 由工作流绑定的翻译提示词套件。 */
   promptSet: string;
   /** 工作流类型，对应翻译处理器 workflow 参数，留空则使用 "default"。 */
   type?: string;
-  /** 引用的 LLM Profile 名称链（同时作为所有步骤的默认模型及回退链）。 */
+  /** 引用的 LLM Profile 名称链（默认工作流使用；多步骤工作流可作为兼容回退值）。 */
   modelNames: string[];
   slidingWindow?: SlidingWindowOptions;
   requestOptions?: ChatRequestOptions;
   /**
-   * 各步骤的 LLM Profile 名称覆盖，供多步骤工作流使用。
-   * 例如 multi-stage 工作流支持 analyzer/translator/polisher/editor/proofreader/reviser。
+   * 各步骤的独立配置，供多步骤工作流使用。
    */
+  steps?: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>>;
+  /** 旧版步骤模型覆盖，兼容已有配置。 */
   models?: TranslatorModelOverrides;
   /**
    * 评审迭代次数（仅 multi-stage 工作流使用）。

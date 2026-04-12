@@ -12,9 +12,13 @@ import { createProviderFromConfigs, LlmClientProvider } from "../llm/provider.ts
 import type { ChatRequestOptions, ClientHooks, LlmClientConfigInput } from "../llm/types.ts";
 import { AlignmentRepairTool, DefaultTextAligner } from "../utils/index.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
+import type { MultiStageStepName } from "./multi-stage-translation-processor.ts";
 import { PromptManager } from "./prompt-manager.ts";
 import { TranslationProcessorFactory } from "./translation-processor-factory.ts";
-import type { TranslationProcessor } from "./translation-processor.ts";
+import type {
+  TranslationProcessor,
+  TranslationProcessorClientResolver,
+} from "./translation-processor.ts";
 import type { TranslationOutputRepairer } from "./translation-output-repair.ts";
 import type { SlidingWindowOptions } from "./types.ts";
 
@@ -26,12 +30,22 @@ export type TranslationProcessorConfig = {
   slidingWindow?: SlidingWindowOptions;
   requestOptions?: ChatRequestOptions;
   /**
-   * 各步骤的 LLM Profile 名称覆盖（供 multi-stage 等多步骤工作流使用）。
-   * key 为步骤标识，value 为 LLM Profile 名称；未指定的步骤使用 modelNames 作为默认值。
+   * 各步骤的模型链与请求选项（供 multi-stage 等多步骤工作流使用）。
+   * key 为步骤标识，value 为该步骤的独立配置。
+   */
+  steps?: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>>;
+  /**
+   * 旧版步骤模型覆盖，兼容已有配置。
+   * 新配置请使用 steps。
    */
   models?: Record<string, string>;
   /** 评审迭代次数（仅 multi-stage 工作流使用，默认值为 2）。 */
   reviewIterations?: number;
+};
+
+export type TranslationProcessorStepConfig = {
+  modelNames: string[];
+  requestOptions?: ChatRequestOptions;
 };
 
 export type GlossaryExtractorConfig = {
@@ -201,12 +215,16 @@ export class TranslationGlobalConfig {
       Boolean(this.llm.embedding),
     );
 
-    const additionalClientResolvers = buildAdditionalClientResolvers(config.models, provider);
+    const additionalClientResolvers = {
+      ...(buildAdditionalClientResolvers(config.models, provider) ?? {}),
+      ...(buildStepClientResolvers(config.steps, provider) ?? {}),
+    };
 
     return TranslationProcessorFactory.createProcessor({
       workflow: config.workflow,
       clientResolver: provider.getChatClientWithFallback(config.modelNames),
       additionalClientResolvers,
+      stepRequestOptions: buildStepRequestOptions(config.steps),
       workflowOptions: config.reviewIterations !== undefined
         ? { reviewIterations: config.reviewIterations }
         : undefined,
@@ -399,4 +417,47 @@ function buildAdditionalClientResolvers(
   }
 
   return result;
+}
+
+function buildStepClientResolvers(
+  steps: Partial<
+    Record<MultiStageStepName, TranslationProcessorStepConfig>
+  > | undefined,
+  provider: LlmClientProvider,
+): Record<string, TranslationProcessorClientResolver> | undefined {
+  if (!steps) {
+    return undefined;
+  }
+
+  const result: Record<string, TranslationProcessorClientResolver> = {};
+  for (const [step, config] of Object.entries(steps)) {
+    if (!config) {
+      continue;
+    }
+
+    result[step] = provider.getChatClientWithFallback(config.modelNames);
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function buildStepRequestOptions(
+  steps: Partial<
+    Record<MultiStageStepName, TranslationProcessorStepConfig>
+  > | undefined,
+): Partial<Record<MultiStageStepName, ChatRequestOptions>> | undefined {
+  if (!steps) {
+    return undefined;
+  }
+
+  const result: Partial<Record<MultiStageStepName, ChatRequestOptions>> = {};
+  for (const [step, config] of Object.entries(steps)) {
+    if (!config?.requestOptions) {
+      continue;
+    }
+
+    result[step as MultiStageStepName] = config.requestOptions;
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
 }
