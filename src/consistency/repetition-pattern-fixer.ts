@@ -122,6 +122,7 @@ export class RepetitionPatternFixer {
               systemPrompt: renderedPrompt.systemPrompt,
               responseSchema,
             },
+            this.chatClient.supportsStructuredOutput,
           ),
           (candidateResponseText) => {
             parseRepetitionPatternFixResponse(candidateResponseText, task.targetLocations);

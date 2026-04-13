@@ -139,13 +139,15 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
     });
 
     const renderedPrompt = await this.renderPrompt(request);
-    const responseText = await this.resolveChatClient().singleTurnRequest(
+    const chatClient = this.resolveChatClient();
+    const responseText = await chatClient.singleTurnRequest(
       renderedPrompt.userPrompt,
       withRequestMeta(
         withOutputValidator(
           buildJsonSchemaChatRequestOptions(
             mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
             renderedPrompt,
+            chatClient.supportsStructuredOutput,
           ),
           (candidateResponseText) => {
             parseGlossaryUpdateResponse(

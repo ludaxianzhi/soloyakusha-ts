@@ -44,6 +44,7 @@ describe("GlobalConfigManager", () => {
       endpoint: "https://example.com/v1",
       apiKey: "secret",
       retries: 5,
+      supportsStructuredOutput: true,
       defaultRequestConfig: {
         temperature: 0.2,
         extraBody: {
@@ -68,6 +69,7 @@ describe("GlobalConfigManager", () => {
       qps: undefined,
       maxParallelRequests: undefined,
       apiKeyEnv: undefined,
+      supportsStructuredOutput: true,
       defaultRequestConfig: {
         systemPrompt: undefined,
         temperature: 0.2,
@@ -101,6 +103,7 @@ describe("GlobalConfigManager", () => {
       endpoint: "https://example.com/v1",
       apiKey: "secret",
       retries: 3,
+      supportsStructuredOutput: false,
     });
     await manager.setDefaultLlmProfileName("writer");
 
@@ -137,6 +140,7 @@ describe("GlobalConfigManager", () => {
         endpoint: "https://example.com/v1",
         apiKey: "secret",
         retries: 3,
+        supportsStructuredOutput: true,
         defaultRequestConfig: {
           system_prompt: "system",
           top_p: 0.8,
@@ -162,6 +166,7 @@ describe("GlobalConfigManager", () => {
         },
       },
     });
+    expect(normalized.supportsStructuredOutput).toBe(true);
   });
 
   test("accepts snake_case aliases in sparse request config", () => {
@@ -522,6 +527,7 @@ describe("GlobalConfigManager", () => {
       maxParallelRequests: undefined,
       apiKeyEnv: undefined,
       defaultRequestConfig: undefined,
+      supportsStructuredOutput: false,
     });
     expect(await reloaded.getVectorStore("memory")).toEqual({
       provider: "qdrant",

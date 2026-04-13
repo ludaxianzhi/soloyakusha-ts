@@ -688,6 +688,7 @@ function createFakeChatConfig(): LlmClientConfig {
     endpoint: "https://example.com",
     modelType: "chat",
     retries: 0,
+    supportsStructuredOutput: true,
   };
 }
 

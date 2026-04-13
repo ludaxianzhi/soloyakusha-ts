@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Button, Card, Collapse, Col, Form, Input, Popconfirm, Row, Select, Space, Tabs, Tag, Typography } from 'antd';
+import { Button, Card, Checkbox, Collapse, Col, Form, Input, Popconfirm, Row, Select, Space, Tabs, Tag, Typography } from 'antd';
 import type { FormInstance } from 'antd';
 import type {
   AlignmentRepairConfig,
@@ -250,9 +250,16 @@ export function SettingsView({
                       <Col span={8}>
                         <Form.Item name="retries" label="重试次数">
                           <Input type="number" />
-                        </Form.Item>
+                          </Form.Item>
                       </Col>
                     </Row>
+                    <Form.Item
+                      name="supportsStructuredOutput"
+                      valuePropName="checked"
+                      extra="关闭时只会在提示词中约束 JSON 输出，不发送 response_format=json_schema。"
+                    >
+                      <Checkbox>是否支持 Structured Output</Checkbox>
+                    </Form.Item>
                     <Form.Item
                       name="defaultRequestConfigYaml"
                       label="默认请求配置（YAML）"

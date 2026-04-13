@@ -144,13 +144,15 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
       requirements: request.requirements,
       promptManager: this.promptManager,
     });
-    const responseText = await this.resolveChatClient().singleTurnRequest(
+    const chatClient = this.resolveChatClient();
+    const responseText = await chatClient.singleTurnRequest(
       renderedPrompt.userPrompt,
       withRequestMeta(
         withOutputValidator(
           buildJsonSchemaChatRequestOptions(
             mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
             renderedPrompt,
+            chatClient.supportsStructuredOutput,
           ),
           (candidateResponseText) => {
             parseTranslationResponse(

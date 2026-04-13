@@ -19,6 +19,20 @@ const buildWorkspaceDir = resolve(distDir, '.webui-build');
 const clientBuildDir = resolve(buildWorkspaceDir, 'client');
 const embeddedAssetsModulePath = resolve(buildWorkspaceDir, 'embedded-assets.ts');
 const standaloneEntryModulePath = resolve(buildWorkspaceDir, 'standalone-entry.ts');
+const defaultPromptCatalogPath = resolve(
+  projectRoot,
+  'src',
+  'prompts',
+  'resources',
+  'default-prompts.yaml',
+);
+const consistencyPromptCatalogPath = resolve(
+  projectRoot,
+  'src',
+  'prompts',
+  'resources',
+  'consistency-prompts.yaml',
+);
 const executableFileName =
   process.platform === 'win32' ? 'soloyakusha-webui.exe' : 'soloyakusha-webui';
 const executableOutputPath = resolve(distDir, executableFileName);
@@ -42,6 +56,11 @@ async function main() {
     throw new Error('WebUI client build produced no files.');
   }
 
+  const [defaultPromptCatalogText, consistencyPromptCatalogText] = await Promise.all([
+    readFile(defaultPromptCatalogPath, 'utf8'),
+    readFile(consistencyPromptCatalogPath, 'utf8'),
+  ]);
+
   await writeFile(
     embeddedAssetsModulePath,
     buildEmbeddedAssetsModule(embeddedAssetsModulePath, assets),
@@ -49,7 +68,12 @@ async function main() {
   );
   await writeFile(
     standaloneEntryModulePath,
-    buildStandaloneEntryModule(standaloneEntryModulePath, embeddedAssetsModulePath),
+    buildStandaloneEntryModule(
+      standaloneEntryModulePath,
+      embeddedAssetsModulePath,
+      defaultPromptCatalogText,
+      consistencyPromptCatalogText,
+    ),
     'utf8',
   );
 
@@ -161,15 +185,36 @@ export const embeddedStaticAssets: StaticAssetMap = new Map(
 function buildStandaloneEntryModule(
   modulePath: string,
   assetsModulePath: string,
+  defaultPromptCatalogText: string,
+  consistencyPromptCatalogText: string,
 ): string {
   const serverImport = toImportSpecifier(
     modulePath,
     resolve(projectRoot, 'src', 'webui', 'server.ts'),
   );
   const assetsImport = toImportSpecifier(modulePath, assetsModulePath);
+  const promptManagerImport = toImportSpecifier(
+    modulePath,
+    resolve(projectRoot, 'src', 'prompts', 'manager.ts'),
+  );
+  const consistencyPromptManagerImport = toImportSpecifier(
+    modulePath,
+    resolve(projectRoot, 'src', 'consistency', 'prompt-manager.ts'),
+  );
 
   return `import { createWebUiServer, logWebUiServerStart } from ${JSON.stringify(serverImport)};
 import { embeddedStaticAssets } from ${JSON.stringify(assetsImport)};
+import { getDefaultPromptFilePath, registerEmbeddedPromptCatalog } from ${JSON.stringify(promptManagerImport)};
+import { getConsistencyPromptFilePath } from ${JSON.stringify(consistencyPromptManagerImport)};
+
+registerEmbeddedPromptCatalog(
+  getDefaultPromptFilePath(),
+  ${JSON.stringify(defaultPromptCatalogText)},
+);
+registerEmbeddedPromptCatalog(
+  getConsistencyPromptFilePath(),
+  ${JSON.stringify(consistencyPromptCatalogText)},
+);
 
 const server = createWebUiServer({
   staticAssets: embeddedStaticAssets,

@@ -52,6 +52,7 @@ export type LlmClientConfig = {
   modelType: LlmModelType;
   retries: number;
   defaultRequestConfig?: LlmRequestConfig;
+  supportsStructuredOutput?: boolean;
 };
 
 export type LlmClientConfigInput = {
@@ -65,6 +66,7 @@ export type LlmClientConfigInput = {
   modelType?: LlmModelType;
   retries?: number;
   defaultRequestConfig?: LlmRequestConfigInput;
+  supportsStructuredOutput?: boolean;
 };
 
 export type CompletionResponseStatistics = {
@@ -258,6 +260,7 @@ export function createLlmClientConfig(
     defaultRequestConfig: input.defaultRequestConfig
       ? resolveRequestConfig(input.defaultRequestConfig)
       : undefined,
+    supportsStructuredOutput: input.supportsStructuredOutput === true,
   };
 }
 

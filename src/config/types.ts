@@ -52,6 +52,7 @@ export type PersistedLlmClientConfig = {
   modelType: LlmModelType;
   retries: number;
   defaultRequestConfig?: PersistedLlmRequestConfig;
+  supportsStructuredOutput?: boolean;
 };
 
 export type GlobalLlmConfig = {

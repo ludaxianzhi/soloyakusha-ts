@@ -131,6 +131,7 @@ class FakeChatClient extends ChatClient {
       endpoint: "https://example.invalid",
       modelType: "chat",
       retries: 0,
+      supportsStructuredOutput: true,
     } satisfies LlmClientConfig);
   }
 

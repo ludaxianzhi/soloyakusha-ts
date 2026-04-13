@@ -176,7 +176,8 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       requirements,
     });
     this.logger.info?.("LLM1 分析阶段", { processorName: this.processorName });
-    const analysisText = await this.resolveClient("analyzer").singleTurnRequest(
+    const analyzerClient = this.resolveClient("analyzer");
+    const analysisText = await analyzerClient.singleTurnRequest(
       analyzerPrompt.userPrompt,
       withRequestMeta(
         withSystemPrompt(
@@ -196,7 +197,8 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       requirements,
     });
     this.logger.info?.("LLM2 翻译阶段", { processorName: this.processorName });
-    const initialResponseText = await this.resolveClient("translator").singleTurnRequest(
+    const translatorClient = this.resolveClient("translator");
+    const initialResponseText = await translatorClient.singleTurnRequest(
       translatorPrompt.userPrompt,
       withRequestMeta(
         withOutputValidator(
@@ -207,6 +209,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
               systemPrompt: translatorPrompt.systemPrompt,
               responseSchema: translatorPrompt.responseSchema,
             },
+            translatorClient.supportsStructuredOutput,
           ),
           (candidateResponseText) => {
             parseTranslationResponse(
@@ -232,7 +235,8 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       requirements,
     });
     this.logger.info?.("LLM3 润色阶段", { processorName: this.processorName });
-    const polishedResponseText = await this.resolveClient("polisher").singleTurnRequest(
+    const polisherClient = this.resolveClient("polisher");
+    const polishedResponseText = await polisherClient.singleTurnRequest(
       polisherPrompt.userPrompt,
       withRequestMeta(
         withOutputValidator(
@@ -243,6 +247,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
               systemPrompt: polisherPrompt.systemPrompt,
               responseSchema: polisherPrompt.responseSchema,
             },
+            polisherClient.supportsStructuredOutput,
           ),
           (candidateResponseText) => {
             parseTranslationResponse(
@@ -353,7 +358,8 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       lastReviserSystemPrompt = reviserPrompt.systemPrompt;
       lastReviserUserPrompt = reviserPrompt.userPrompt;
 
-      const reviserResponseText = await this.resolveClient("reviser").singleTurnRequest(
+      const reviserClient = this.resolveClient("reviser");
+      const reviserResponseText = await reviserClient.singleTurnRequest(
         reviserPrompt.userPrompt,
         withRequestMeta(
           withOutputValidator(
@@ -364,6 +370,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
                 systemPrompt: reviserPrompt.systemPrompt,
                 responseSchema: reviserPrompt.responseSchema,
               },
+              reviserClient.supportsStructuredOutput,
             ),
             (candidateResponseText) => {
               parseTranslationResponse(

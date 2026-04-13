@@ -326,6 +326,7 @@ export class PlotSummarizer {
               systemPrompt: renderedPrompt.systemPrompt,
               responseSchema,
             },
+            chatClient.supportsStructuredOutput,
           ),
           (candidateResponseText) => {
             parsePlotSummaryResponse(candidateResponseText);

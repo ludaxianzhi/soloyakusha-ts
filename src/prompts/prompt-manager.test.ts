@@ -3,6 +3,7 @@ import {
   PromptManager,
   getDefaultPromptFilePath,
   getDefaultPromptManager,
+  registerEmbeddedPromptCatalog,
 } from "./index.ts";
 
 describe("PromptManager", () => {
@@ -46,6 +47,31 @@ prompts:
 
     expect(rendered.systemPrompt).toBe("固定系统提示");
     expect(rendered.userPrompt).toBe("你好，测试用户，编号 7");
+  });
+
+  test("loads embedded yaml catalog when the filesystem resource is unavailable", async () => {
+    const virtualPath = "X:\\virtual\\embedded-prompts.yaml";
+    registerEmbeddedPromptCatalog(
+      virtualPath,
+      `
+version: 1
+prompts:
+  demo.embedded:
+    system:
+      type: static
+      template: embedded system
+    user:
+      type: interpolate
+      template: embedded user \${name}
+`,
+    );
+
+    const manager = await PromptManager.fromYamlFile(virtualPath);
+    const rendered = manager.renderPrompt("demo.embedded", { name: "prompt" });
+
+    expect(manager.getPromptIds()).toEqual(["demo.embedded"]);
+    expect(rendered.systemPrompt).toBe("embedded system");
+    expect(rendered.userPrompt).toBe("embedded user prompt");
   });
 
   test("renders liquid prompt with conditionals and loops", () => {

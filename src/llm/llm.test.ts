@@ -447,5 +447,6 @@ function createStubConfig(modelName: string): LlmClientConfig {
     apiKey: "secret",
     modelType: "chat",
     retries: 0,
+    supportsStructuredOutput: true,
   };
 }

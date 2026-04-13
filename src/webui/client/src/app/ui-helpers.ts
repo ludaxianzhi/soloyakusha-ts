@@ -40,7 +40,7 @@ const RESERVED_LLM_REQUEST_CONFIG_KEYS = Object.keys(
 export function profileToForm(
   profile: LlmProfileConfig | null,
   name?: string,
-): Record<string, {} | undefined> {
+): Record<string, unknown> {
   if (!profile) {
     return {
       profileName: name,
@@ -63,6 +63,7 @@ export function profileToForm(
     defaultRequestConfigYaml: formatLlmRequestConfigYaml(
       profile.defaultRequestConfig,
     ),
+    supportsStructuredOutput: profile.supportsStructuredOutput ?? false,
   };
 }
 

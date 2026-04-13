@@ -151,6 +151,9 @@ export function normalizePersistedLlmClientConfig(
     value.defaultRequestConfig === undefined
       ? undefined
       : normalizeRequestConfig(value.defaultRequestConfig, `${sourceLabel}.defaultRequestConfig`);
+  const supportsStructuredOutput =
+    readOptionalBoolean(value.supportsStructuredOutput, `${sourceLabel}.supportsStructuredOutput`) ??
+    false;
 
   if (apiKey && apiKeyEnv) {
     throw new Error(`${sourceLabel} 中 apiKey 和 apiKeyEnv 只能配置其中一个`);
@@ -171,6 +174,7 @@ export function normalizePersistedLlmClientConfig(
     modelType,
     retries,
     defaultRequestConfig,
+    supportsStructuredOutput,
   };
 }
 
@@ -863,6 +867,7 @@ export function clonePersistedLlmClientConfig(
     defaultRequestConfig: config.defaultRequestConfig
       ? cloneRequestConfig(config.defaultRequestConfig)
       : undefined,
+    supportsStructuredOutput: config.supportsStructuredOutput === true,
   };
 }
 
@@ -1306,6 +1311,18 @@ function readOptionalStringAllowEmpty(
 
   if (typeof value !== "string") {
     throw new Error(`字段必须是字符串: ${sourceLabel}`);
+  }
+
+  return value;
+}
+
+function readOptionalBoolean(value: unknown, sourceLabel: string): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "boolean") {
+    throw new Error(`字段必须是布尔值: ${sourceLabel}`);
   }
 
   return value;

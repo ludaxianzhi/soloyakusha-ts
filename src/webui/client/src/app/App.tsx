@@ -625,7 +625,12 @@ export function AppShell() {
     }
 
     if (selectedLlmName && llmProfiles[selectedLlmName]) {
-      llmForm.setFieldsValue(profileToForm(llmProfiles[selectedLlmName], selectedLlmName));
+      llmForm.setFieldsValue(
+        profileToForm(llmProfiles[selectedLlmName], selectedLlmName) as Record<
+          string,
+          {} | undefined
+        >,
+      );
       return;
     }
 
@@ -674,7 +679,9 @@ export function AppShell() {
     if (location.pathname !== '/settings') {
       return;
     }
-    embeddingForm.setFieldsValue(profileToForm(embeddingConfig, 'embedding'));
+    embeddingForm.setFieldsValue(
+      profileToForm(embeddingConfig, 'embedding') as Record<string, {} | undefined>,
+    );
   }, [embeddingConfig, embeddingForm, location.pathname]);
 
   useEffect(() => {
@@ -1119,6 +1126,7 @@ export function AppShell() {
       modelType: 'chat',
       provider: 'openai',
       retries: 2,
+      supportsStructuredOutput: false,
     });
   }, [llmForm]);
 
@@ -1142,6 +1150,7 @@ export function AppShell() {
           defaultRequestConfig: parseLlmRequestConfigYaml(
             values.defaultRequestConfigYaml,
           ),
+          supportsStructuredOutput: values.supportsStructuredOutput === true,
         };
         await runSettingsAction(['llmProfiles'], async () => {
           await api.saveLlmProfile(name, payload);

@@ -582,6 +582,7 @@ export interface LlmProfileConfig {
   modelType: 'chat' | 'embedding';
   retries: number;
   defaultRequestConfig?: Record<string, unknown>;
+  supportsStructuredOutput?: boolean;
 }
 
 export interface VectorStoreConfig {

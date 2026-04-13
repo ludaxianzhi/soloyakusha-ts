@@ -17,18 +17,15 @@ export type JsonSchemaChatPrompt = {
 export function buildJsonSchemaChatRequestOptions(
   requestOptions: ChatRequestOptions | undefined,
   prompt: JsonSchemaChatPrompt,
+  supportsStructuredOutput = true,
 ): ChatRequestOptions {
   const requestConfig = requestOptions?.requestConfig;
   const extraSystemPrompt = requestConfig?.systemPrompt?.trim();
-
-  return {
-    ...requestOptions,
-    requestConfig: {
-      ...requestConfig,
-      systemPrompt: extraSystemPrompt
-        ? `${prompt.systemPrompt}\n${extraSystemPrompt}`
-        : prompt.systemPrompt,
-      extraBody: {
+  const systemPrompt = extraSystemPrompt
+    ? `${prompt.systemPrompt}\n${extraSystemPrompt}`
+    : prompt.systemPrompt;
+  const extraBody = supportsStructuredOutput
+    ? {
         ...(requestConfig?.extraBody ?? {}),
         response_format: {
           type: "json_schema",
@@ -38,7 +35,17 @@ export function buildJsonSchemaChatRequestOptions(
             schema: prompt.responseSchema,
           },
         },
-      },
+      }
+    : stripResponseFormat(requestConfig?.extraBody);
+
+  return {
+    ...requestOptions,
+    requestConfig: {
+      ...requestConfig,
+      systemPrompt: supportsStructuredOutput
+        ? systemPrompt
+        : `${systemPrompt}\n\n请只输出 JSON 对象，不要输出 Markdown、解释或代码块。`,
+      extraBody: Object.keys(extraBody).length > 0 ? extraBody : undefined,
     },
   };
 }
@@ -109,6 +116,16 @@ export function withRequestMeta(
     ...(requestOptions ?? {}),
     meta: mergeLlmRequestMetadata(requestOptions?.meta, meta),
   };
+}
+
+function stripResponseFormat(extraBody: JsonObject | undefined): JsonObject {
+  if (!extraBody) {
+    return {};
+  }
+
+  const cleaned: JsonObject = { ...extraBody };
+  delete (cleaned as Record<string, unknown>).response_format;
+  return cleaned;
 }
 
 function normalizeOutputValidationError(

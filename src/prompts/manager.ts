@@ -7,6 +7,7 @@
  * @module prompts/manager
  */
 import { readFile } from "node:fs/promises";
+import { normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { createPromptTemplate } from "./templates.ts";
@@ -23,6 +24,8 @@ type CompiledPromptDefinition = {
   user: ReturnType<typeof createPromptTemplate>;
 };
 
+const embeddedPromptCatalogs = new Map<string, string>();
+
 /**
  * 提示词管理器，负责从文档加载 prompt 定义并按需渲染 system/user 内容。
  *
@@ -37,7 +40,7 @@ export class PromptManager {
   private constructor(private readonly sourceLabel: string) {}
 
   static async fromYamlFile(filePath: string): Promise<PromptManager> {
-    const yamlText = await readFile(filePath, "utf8");
+    const yamlText = await readPromptCatalogText(filePath);
     return PromptManager.fromYamlText(yamlText, filePath);
   }
 
@@ -104,6 +107,10 @@ export function getDefaultPromptFilePath(): string {
 export function getDefaultPromptManager(): Promise<PromptManager> {
   defaultPromptManagerPromise ??= PromptManager.fromYamlFile(DEFAULT_PROMPT_FILE_PATH);
   return defaultPromptManagerPromise;
+}
+
+export function registerEmbeddedPromptCatalog(filePath: string, yamlText: string): void {
+  embeddedPromptCatalogs.set(toPromptCatalogKey(filePath), yamlText);
 }
 
 function validatePromptCatalogDocument(
@@ -187,4 +194,20 @@ function validatePromptMessageTemplateDefinition(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+async function readPromptCatalogText(filePath: string): Promise<string> {
+  const embeddedYamlText = embeddedPromptCatalogs.get(toPromptCatalogKey(filePath));
+  if (embeddedYamlText !== undefined) {
+    return embeddedYamlText;
+  }
+
+  return readFile(filePath, "utf8");
+}
+
+function toPromptCatalogKey(filePath: string): string {
+  const normalizedPath = normalize(filePath);
+  return process.platform === "win32"
+    ? normalizedPath.toLowerCase()
+    : normalizedPath;
 }

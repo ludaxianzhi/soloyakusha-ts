@@ -83,6 +83,10 @@ export class FallbackChatClient extends ChatClient {
     await Promise.all(Array.from(uniqueClients, (client) => client.close()));
   }
 
+  override get supportsStructuredOutput(): boolean {
+    return this.clients.every((client) => client.supportsStructuredOutput);
+  }
+
   private syncHooksToClients(): void {
     for (const client of this.clients) {
       client.setHistoryLogger(this.historyLogger);

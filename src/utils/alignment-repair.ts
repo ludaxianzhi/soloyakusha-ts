@@ -152,6 +152,7 @@ export class AlignmentRepairTool {
             options.requestOptions,
             renderedPrompt.systemPrompt,
             responseSchema,
+            this.chatClient.supportsStructuredOutput,
           ),
           (candidateResponseText) => {
             parseAlignmentRepairResponse(
@@ -233,17 +234,16 @@ function buildAlignmentRepairRequestOptions(
   requestOptions: ChatRequestOptions | undefined,
   systemPrompt: string,
   responseSchema: JsonObject,
+  supportsStructuredOutput: boolean,
 ): ChatRequestOptions {
-  return {
-    ...requestOptions,
-    requestConfig: {
-      ...(requestOptions?.requestConfig ?? {}),
-      systemPrompt: composeSystemPrompt(
-        systemPrompt,
-        requestOptions?.requestConfig?.systemPrompt,
-      ),
-      extraBody: {
-        ...(requestOptions?.requestConfig?.extraBody ?? {}),
+  const requestConfig = requestOptions?.requestConfig;
+  const extraSystemPrompt = requestConfig?.systemPrompt?.trim();
+  const mergedSystemPrompt = extraSystemPrompt
+    ? `${systemPrompt}\n${extraSystemPrompt}`
+    : systemPrompt;
+  const extraBody = supportsStructuredOutput
+    ? {
+        ...(requestConfig?.extraBody ?? {}),
         response_format: {
           type: "json_schema",
           json_schema: {
@@ -252,18 +252,19 @@ function buildAlignmentRepairRequestOptions(
             schema: responseSchema,
           },
         },
-      },
+      }
+    : stripResponseFormat(requestConfig?.extraBody);
+
+  return {
+    ...requestOptions,
+    requestConfig: {
+      ...requestConfig,
+      systemPrompt: supportsStructuredOutput
+        ? mergedSystemPrompt
+        : `${mergedSystemPrompt}\n\n请只输出 JSON 对象，不要输出 Markdown、解释或代码块。`,
+      extraBody: Object.keys(extraBody).length > 0 ? extraBody : undefined,
     },
   };
-}
-
-function composeSystemPrompt(basePrompt: string, overridePrompt: string | undefined): string {
-  const normalizedOverride = overridePrompt?.trim();
-  if (!normalizedOverride) {
-    return basePrompt;
-  }
-
-  return `${basePrompt}\n\n${normalizedOverride}`;
 }
 
 function buildRepairResponseSchema(missingIds: ReadonlyArray<string>): JsonObject {
@@ -292,6 +293,16 @@ function buildRepairResponseSchema(missingIds: ReadonlyArray<string>): JsonObjec
     },
     required: ["repairs"],
   };
+}
+
+function stripResponseFormat(extraBody: JsonObject | undefined): JsonObject {
+  if (!extraBody) {
+    return {};
+  }
+
+  const cleaned: JsonObject = { ...extraBody };
+  delete (cleaned as Record<string, unknown>).response_format;
+  return cleaned;
 }
 
 function parseAlignmentRepairResponse(

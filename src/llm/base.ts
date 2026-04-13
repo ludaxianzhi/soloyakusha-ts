@@ -48,6 +48,10 @@ export abstract class ManagedLlmClient {
     return this.config.modelName;
   }
 
+  get supportsStructuredOutput(): boolean {
+    return this.config.supportsStructuredOutput === true;
+  }
+
   setHistoryLogger(historyLogger?: ClientHooks["historyLogger"]): void {
     this.historyLogger = historyLogger;
   }

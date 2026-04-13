@@ -10,8 +10,11 @@ import { TEXT_ALIGN_PLACEHOLDER, TextAligner } from "./text-align.ts";
 class FakeChatClient extends ChatClient {
   readonly requests: Array<{ prompt: string; options?: ChatRequestOptions }> = [];
 
-  constructor(private readonly responses: string[]) {
-    super(createFakeChatConfig());
+  constructor(
+    private readonly responses: string[],
+    supportsStructuredOutput = true,
+  ) {
+    super(createFakeChatConfig(supportsStructuredOutput));
   }
 
   override async singleTurnRequest(
@@ -117,9 +120,26 @@ describe("AlignmentRepairTool", () => {
       },
     });
   });
+
+  test("falls back to prompt-only JSON instructions when structured output is unsupported", async () => {
+    const aligner = new FakeTextAligner([
+      "译文一",
+      TEXT_ALIGN_PLACEHOLDER,
+    ]);
+    const chatClient = new FakeChatClient(
+      ['{"repairs":[{"id":"u0002","translation":"补翻第二句"}]}'],
+      false,
+    );
+    const tool = new AlignmentRepairTool(aligner, chatClient);
+
+    await tool.repairMissingTranslations(["原文一", "原文二"], ["译文一"]);
+
+    expect(chatClient.requests[0]?.options?.requestConfig?.systemPrompt).toContain("JSON 对象");
+    expect(chatClient.requests[0]?.options?.requestConfig?.extraBody).toBeUndefined();
+  });
 });
 
-function createFakeChatConfig(): LlmClientConfig {
+function createFakeChatConfig(supportsStructuredOutput: boolean): LlmClientConfig {
   return {
     provider: "openai",
     modelName: "fake-model",
@@ -127,5 +147,6 @@ function createFakeChatConfig(): LlmClientConfig {
     endpoint: "https://example.com",
     modelType: "chat",
     retries: 0,
+    supportsStructuredOutput,
   };
 }
