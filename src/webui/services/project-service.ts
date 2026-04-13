@@ -31,11 +31,7 @@ import { FullTextGlossaryScanner } from '../../glossary/index.ts';
 import { GlossaryPersisterFactory } from '../../glossary/persister.ts';
 import type { GlossaryTermCategory } from '../../glossary/glossary.ts';
 import {
-  FileRequestHistoryLogger,
-  readHistoryDetailFromLogDir,
-  readHistoryDigestFromLogDir,
   readHistoryEntriesFromLogDir,
-  readHistoryPageFromLogDir,
   type LlmRequestHistoryDetail,
   type LlmRequestHistoryDigest,
   type LlmRequestHistoryPage,
@@ -70,6 +66,7 @@ import type {
 } from '../../project/types.ts';
 import type { EventBus } from './event-bus.ts';
 import { extractArchiveToDirectory } from './archive-extractor.ts';
+import type { RequestHistoryService } from './request-history-service.ts';
 import type { WorkspaceManager } from './workspace-manager.ts';
 
 // ─── Types ──────────────────────────────────────────────
@@ -264,6 +261,7 @@ export class ProjectService {
   constructor(
     private readonly eventBus: EventBus,
     private readonly workspaceManager: WorkspaceManager,
+    private readonly requestHistoryService: RequestHistoryService,
   ) {}
 
   // ─── Queries ────────────────────────────────────────
@@ -534,9 +532,8 @@ export class ProjectService {
       },
     });
     const provider = runtimeConfig.createProvider();
-    const projectDir = this.project.getWorkspaceFileManifest().projectDir;
     provider.setHistoryLogger(
-      new FileRequestHistoryLogger(join(projectDir, 'logs'), 'chapter_editor_assistant_requests'),
+      this.createRequestHistoryLogger('chapter_editor_assistant_requests', this.project),
     );
 
     const promptManager = new PromptManager();
@@ -693,37 +690,18 @@ export class ProjectService {
   }
 
   async getRequestHistoryDigest(): Promise<LlmRequestHistoryDigest> {
-    if (!this.project) {
-      return {
-        total: 0,
-        latestId: 0,
-      };
-    }
-    const projectDir = this.project.getWorkspaceFileManifest().projectDir;
-    return readHistoryDigestFromLogDir(join(projectDir, 'logs'));
+    return this.requestHistoryService.getDigest();
   }
 
   async getRequestHistoryPage(options: {
     limit?: number;
     beforeId?: number;
   }): Promise<LlmRequestHistoryPage> {
-    if (!this.project) {
-      return {
-        items: [],
-        total: 0,
-        latestId: 0,
-      };
-    }
-    const projectDir = this.project.getWorkspaceFileManifest().projectDir;
-    return readHistoryPageFromLogDir(join(projectDir, 'logs'), options);
+    return this.requestHistoryService.getPage(options);
   }
 
   async getRequestHistoryDetail(id: number): Promise<LlmRequestHistoryDetail | null> {
-    if (!this.project) {
-      return null;
-    }
-    const projectDir = this.project.getWorkspaceFileManifest().projectDir;
-    return readHistoryDetailFromLogDir(join(projectDir, 'logs'), id);
+    return this.requestHistoryService.getDetail(id);
   }
 
   // ─── Lifecycle ──────────────────────────────────────
@@ -977,12 +955,8 @@ export class ProjectService {
         const provider = new TranslationGlobalConfig({
           llm: globalConfig.llm,
         }).createProvider();
-        const projectDir = project.getWorkspaceFileManifest().projectDir;
         provider.setHistoryLogger(
-          new FileRequestHistoryLogger(
-            join(projectDir, 'logs'),
-            'glossary_scan_requests',
-          ),
+          this.createRequestHistoryLogger('glossary_scan_requests', project),
         );
 
         const scanner = new FullTextGlossaryScanner(
@@ -1255,15 +1229,12 @@ export class ProjectService {
         });
         const provider = runtimeConfig.createProvider();
         const documentManager = project.getDocumentManager();
-        const projectDir = project.getWorkspaceFileManifest().projectDir;
 
         provider.setHistoryLogger(
-          new FileRequestHistoryLogger(
-            join(projectDir, 'logs'),
-            'plot_summary_requests',
-          ),
+          this.createRequestHistoryLogger('plot_summary_requests', project),
         );
 
+        const projectDir = project.getWorkspaceFileManifest().projectDir;
         const summaryPath = join(projectDir, 'Data', 'plot-summaries.json');
         const currentTopology = project.getStoryTopology();
 
@@ -1882,9 +1853,8 @@ export class ProjectService {
           },
         },
       }).createProvider();
-      const projectDir = params.project.getWorkspaceFileManifest().projectDir;
       provider.setHistoryLogger(
-        new FileRequestHistoryLogger(join(projectDir, 'logs'), 'consistency_fix_requests'),
+        this.createRequestHistoryLogger('consistency_fix_requests', params.project),
       );
 
       const fixer = new RepetitionPatternFixer(provider.getChatClient(params.llmProfileName), {
@@ -2082,6 +2052,7 @@ export class ProjectService {
         const processor = await createProcessorForProject(
           currentProject,
           (level, msg) => this.log(level, msg),
+          this.requestHistoryService,
         );
         this.log('info', '翻译处理器已就绪，开始调度队列');
 
@@ -2193,6 +2164,14 @@ export class ProjectService {
       error: (msg: string) => this.log('error', msg),
       debug: () => {},
     };
+  }
+
+  private createRequestHistoryLogger(source: string, project: TranslationProject) {
+    const manifest = project.getWorkspaceFileManifest();
+    return this.requestHistoryService.createLogger(source, {
+      projectName: project.getProjectSnapshot().projectName,
+      workspaceDir: manifest.projectDir,
+    });
   }
 }
 
@@ -2382,6 +2361,7 @@ async function createProcessorForProject(
     level: 'error' | 'info' | 'warning' | 'success',
     msg: string,
   ) => void,
+  requestHistoryService: RequestHistoryService,
 ) {
   const manager = new GlobalConfigManager();
   const workspaceConfig = project.getWorkspaceConfig();
@@ -2418,12 +2398,12 @@ async function createProcessorForProject(
   });
 
   const provider = runtimeConfig.createProvider();
-  const projectDir = project.getWorkspaceFileManifest().projectDir;
+  const manifest = project.getWorkspaceFileManifest();
   provider.setHistoryLogger(
-    new FileRequestHistoryLogger(
-      join(projectDir, 'logs'),
-      'translation_requests',
-    ),
+    requestHistoryService.createLogger('translation_requests', {
+      projectName: project.getProjectSnapshot().projectName,
+      workspaceDir: manifest.projectDir,
+    }),
   );
 
   const logger: Logger = {

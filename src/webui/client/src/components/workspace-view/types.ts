@@ -110,6 +110,5 @@ export interface WorkspaceViewProps {
     payload: Record<string, unknown>,
     successText: string,
   ) => void | Promise<void>;
-  onClearLogs: () => void | Promise<void>;
   onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }

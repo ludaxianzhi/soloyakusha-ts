@@ -201,6 +201,23 @@ export async function readHistoryDetailFromLogDir(
   return readHistoryDetailFromDatabase(getHistoryDatabasePath(logDir), id);
 }
 
+export async function readAllHistoryDetailsFromLogDir(
+  logDir: string,
+): Promise<LlmRequestHistoryDetail[]> {
+  return readAllHistoryDetailsFromDatabase(getHistoryDatabasePath(logDir));
+}
+
+export async function deleteHistoryEntryFromLogDir(
+  logDir: string,
+  id: number,
+): Promise<boolean> {
+  return deleteHistoryEntryFromDatabase(getHistoryDatabasePath(logDir), id);
+}
+
+export async function clearHistoryFromLogDir(logDir: string): Promise<number> {
+  return clearHistoryFromDatabase(getHistoryDatabasePath(logDir));
+}
+
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
@@ -455,6 +472,118 @@ async function readHistoryDetailFromDatabase(
   } finally {
     db.close(false);
   }
+}
+
+async function readAllHistoryDetailsFromDatabase(
+  databasePath: string,
+): Promise<LlmRequestHistoryDetail[]> {
+  try {
+    await stat(databasePath);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return [];
+    }
+    throw error;
+  }
+
+  const db = openHistoryDatabase(databasePath);
+  try {
+    const rows = db
+      .query(
+        `
+          SELECT
+            id,
+            source,
+            version,
+            request_id,
+            timestamp,
+            type,
+            prompt,
+            response,
+            error_message,
+            response_body,
+            request_config_json,
+            meta_json,
+            statistics_json,
+            model_name,
+            duration_seconds,
+            reasoning
+          FROM llm_request_history
+          ORDER BY id DESC
+        `,
+      )
+      .all() as HistoryDetailRow[];
+    return rows.map(mapHistoryDetailRow);
+  } finally {
+    db.close(false);
+  }
+}
+
+async function deleteHistoryEntryFromDatabase(
+  databasePath: string,
+  id: number,
+): Promise<boolean> {
+  try {
+    await stat(databasePath);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return false;
+    }
+    throw error;
+  }
+
+  let deleted = false;
+  await enqueueDatabaseWrite(databasePath, async () => {
+    const db = openHistoryDatabase(databasePath);
+    try {
+      const result = db
+        .query(
+          `
+            DELETE FROM llm_request_history
+            WHERE id = ?
+          `,
+        )
+        .run(id) as { changes?: number };
+      deleted = (result.changes ?? 0) > 0;
+    } finally {
+      db.close(false);
+    }
+  });
+  return deleted;
+}
+
+async function clearHistoryFromDatabase(databasePath: string): Promise<number> {
+  try {
+    await stat(databasePath);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return 0;
+    }
+    throw error;
+  }
+
+  let deletedCount = 0;
+  await enqueueDatabaseWrite(databasePath, async () => {
+    const db = openHistoryDatabase(databasePath);
+    try {
+      const row = db
+        .query(
+          `
+            SELECT COUNT(*) AS total
+            FROM llm_request_history
+          `,
+        )
+        .get() as { total: number } | null;
+      deletedCount = row?.total ?? 0;
+      db.exec(`
+        DELETE FROM llm_request_history;
+        DELETE FROM sqlite_sequence WHERE name = 'llm_request_history';
+      `);
+    } finally {
+      db.close(false);
+    }
+  });
+  return deletedCount;
 }
 
 async function enqueueDatabaseWrite(

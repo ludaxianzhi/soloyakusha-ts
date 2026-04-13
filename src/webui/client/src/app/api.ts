@@ -18,6 +18,7 @@ import type {
   LogDigest,
   LogEntry,
   LogPage,
+  LogSession,
   ManagedWorkspace,
   PlotSummaryConfig,
   ProjectResourceVersions,
@@ -384,18 +385,32 @@ export const api = {
     }),
 
   getHistorySummary: () =>
-    request<LlmRequestHistoryDigest>('/api/project/history/summary'),
+    request<LlmRequestHistoryDigest>('/api/activity/history/summary'),
   getHistory: (params?: { limit?: number; beforeId?: number }) =>
     request<LlmRequestHistoryPage>(
-      `/api/project/history${buildQueryString(params)}`,
+      `/api/activity/history${buildQueryString(params)}`,
     ),
   getHistoryDetail: (id: number) =>
-    request<LlmRequestHistoryDetail>(`/api/project/history/${id}`),
+    request<LlmRequestHistoryDetail>(`/api/activity/history/${id}`),
+  deleteHistoryEntry: (id: number) =>
+    request<{ ok: boolean }>(`/api/activity/history/${id}`, {
+      method: 'DELETE',
+    }),
+  clearHistory: () =>
+    request<{ ok: boolean; deletedCount: number }>('/api/activity/history', {
+      method: 'DELETE',
+    }),
+  downloadHistoryExport: () =>
+    requestBlob('/api/activity/history/export'),
   getLogsSummary: () =>
     request<LogDigest>('/api/events/logs/summary'),
+  getLogSession: () =>
+    request<LogSession>('/api/events/logs/session'),
   getLogs: (params?: { limit?: number; beforeId?: number }) =>
     request<LogPage>(`/api/events/logs${buildQueryString(params)}`),
   clearLogs: () => request('/api/events/logs/clear', { method: 'POST' }),
+  downloadLogs: (format: 'json' | 'text' = 'text') =>
+    requestBlob(`/api/events/logs/export${buildQueryString({ format })}`),
 
   downloadExport: (format: string) =>
     requestBlob('/api/project/export', {

@@ -6,7 +6,6 @@ import { WorkspaceConfigTab } from './workspace-view/WorkspaceConfigTab.tsx';
 import { WorkspaceConsistencyTab } from './workspace-view/WorkspaceConsistencyTab.tsx';
 import { WorkspaceDashboardTab } from './workspace-view/WorkspaceDashboardTab.tsx';
 import { WorkspaceDictionaryTab } from './workspace-view/WorkspaceDictionaryTab.tsx';
-import { WorkspaceHistoryTab } from './workspace-view/WorkspaceHistoryTab.tsx';
 import type { WorkspaceViewProps } from './workspace-view/types.ts';
 
 export type { ProjectCommand, TaskActivityKind } from './workspace-view/types.ts';
@@ -52,14 +51,13 @@ export function WorkspaceView({
   onImportChapterArchive,
   onDownloadExport,
   onResetProject,
-  onClearLogs,
   onDismissTaskActivity,
 }: WorkspaceViewProps) {
   const location = useLocation();
   const [activeTabKey, setActiveTabKey] = useState('dashboard');
   const prefetchedWorkspaceKeyRef = useRef<string | null>(null);
   const availableTabKeys = useMemo(
-    () => ['dashboard', 'dictionary', 'chapters', 'workspace-config', 'history', 'consistency-analysis'],
+    () => ['dashboard', 'dictionary', 'chapters', 'workspace-config', 'consistency-analysis'],
     [],
   );
 
@@ -168,17 +166,6 @@ export function WorkspaceView({
                 onWorkspaceConfigSave={onWorkspaceConfigSave}
                 onDownloadExport={onDownloadExport}
                 onResetProject={onResetProject}
-              />
-            ),
-          },
-          {
-            key: 'history',
-            label: '历史与日志',
-            children: (
-              <WorkspaceHistoryTab
-                active={activeTabKey === 'history'}
-                workspaceKey={snapshot.projectName}
-                onClearLogs={onClearLogs}
               />
             ),
           },

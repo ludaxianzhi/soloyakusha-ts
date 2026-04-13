@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { App as AntdApp, Form, Layout, Menu, Space, Spin, Tag, Typography } from 'antd';
+import { App as AntdApp, Button, Form, Layout, Menu, Space, Spin, Tag, Typography } from 'antd';
 import {
+  ProfileOutlined,
   ClockCircleOutlined,
   FolderOpenOutlined,
   PlusCircleOutlined,
@@ -47,6 +48,7 @@ import type {
 } from './types.ts';
 import { useEventStream } from './useEventStream.ts';
 import { DictionaryEditorModal } from '../components/DictionaryEditorModal.tsx';
+import { ActivityCenterDrawer } from '../components/activity/ActivityCenterDrawer.tsx';
 import type { ProjectCommand, TaskActivityKind } from '../components/WorkspaceView.tsx';
 
 const LazyChapterTranslationEditorPage = lazy(async () => {
@@ -159,6 +161,7 @@ export function AppShell() {
   const [alignmentConfig, setAlignmentConfig] = useState<AlignmentRepairConfig | null>(null);
   const [selectedLlmName, setSelectedLlmName] = useState<string>();
   const [selectedTranslatorName, setSelectedTranslatorName] = useState<string>();
+  const [activityCenterOpen, setActivityCenterOpen] = useState(false);
   const workspaceResourceVersionsRef = useRef<ProjectResourceVersions>({
     dictionaryRevision: 0,
     chaptersRevision: 0,
@@ -1100,13 +1103,6 @@ export function AppShell() {
     ],
   );
 
-  const handleClearLogs = useCallback(async () => {
-    await runAction(async () => {
-      await api.clearLogs();
-      message.success('日志已清空');
-    });
-  }, [message, runAction]);
-
   const handleDismissTaskActivity = useCallback(
     async (task: TaskActivityKind) => {
       await runAction(async () => {
@@ -1487,6 +1483,9 @@ export function AppShell() {
                 {connected ? 'SSE 已连接' : 'SSE 断开'}
               </Tag>
               {projectStatus?.isBusy && <Tag color="gold">正在执行操作</Tag>}
+              <Button icon={<ProfileOutlined />} onClick={() => setActivityCenterOpen(true)}>
+                活动中心
+              </Button>
             </Space>
           </Header>
           <Content style={{ padding: 16 }}>
@@ -1548,7 +1547,6 @@ export function AppShell() {
                       onImportChapterArchive={handleImportChapterArchive}
                       onDownloadExport={handleDownloadExport}
                       onResetProject={handleResetProject}
-                      onClearLogs={handleClearLogs}
                       onDismissTaskActivity={handleDismissTaskActivity}
                     />
                   }
@@ -1627,6 +1625,11 @@ export function AppShell() {
           </Content>
         </Layout>
       </Layout>
+
+      <ActivityCenterDrawer
+        open={activityCenterOpen}
+        onClose={() => setActivityCenterOpen(false)}
+      />
 
       <DictionaryEditorModal
         open={dictionaryModalOpen}

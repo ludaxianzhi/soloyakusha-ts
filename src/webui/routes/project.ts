@@ -11,8 +11,12 @@ import {
   type ChapterTranslationAssistantRequest,
   type ProjectService,
 } from '../services/project-service.ts';
+import type { RequestHistoryService } from '../services/request-history-service.ts';
 
-export function createProjectRoutes(projectService: ProjectService): Hono {
+export function createProjectRoutes(
+  projectService: ProjectService,
+  requestHistoryService: RequestHistoryService,
+): Hono {
   const app = new Hono();
 
   // ─── 快照与状态 ─────────────────────────────────
@@ -524,7 +528,7 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
   // ─── 历史 ───────────────────────────────────────
 
   app.get('/history/summary', async (c) => {
-    return c.json(await projectService.getRequestHistoryDigest());
+    return c.json(await requestHistoryService.getDigest());
   });
 
   app.get('/history/:id', async (c) => {
@@ -532,7 +536,7 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
     if (!Number.isFinite(id) || id <= 0) {
       return c.json({ error: '无效的历史记录 ID' }, 400);
     }
-    const entry = await projectService.getRequestHistoryDetail(id);
+    const entry = await requestHistoryService.getDetail(id);
     if (!entry) {
       return c.json({ error: '未找到对应的请求历史' }, 404);
     }
@@ -541,7 +545,7 @@ export function createProjectRoutes(projectService: ProjectService): Hono {
 
   app.get('/history', async (c) => {
     return c.json(
-      await projectService.getRequestHistoryPage({
+      await requestHistoryService.getPage({
         limit: readPositiveIntegerQuery(c.req.query('limit'), 20, 100),
         beforeId: readOptionalPositiveIntegerQuery(c.req.query('beforeId')),
       }),

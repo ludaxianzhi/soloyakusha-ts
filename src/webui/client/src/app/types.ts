@@ -17,6 +17,11 @@ export interface LogPage {
   nextBeforeId?: number;
 }
 
+export interface LogSession {
+  runId: string;
+  startedAt: string;
+}
+
 export interface LlmRequestHistoryEntry {
   version: 1;
   requestId: string;

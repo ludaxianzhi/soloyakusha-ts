@@ -35,3 +35,22 @@ test('EventBus clears log digest and pages together', () => {
   });
   expect(eventBus.getLogPage({ limit: 10 }).items).toEqual([]);
 });
+
+test('EventBus exposes runtime log session metadata and formatted exports', () => {
+  const eventBus = new EventBus();
+  eventBus.addLog('info', 'hello');
+
+  const session = eventBus.getLogSession();
+  expect(session.runId).toContain('webui-');
+  expect(session.startedAt).toContain('T');
+
+  const textExport = eventBus.formatLogExport();
+  expect(textExport.fileName).toEndWith('.txt');
+  expect(textExport.content).toContain('hello');
+  expect(textExport.content).toContain(session.runId);
+
+  const jsonExport = eventBus.formatLogExport('json');
+  expect(jsonExport.fileName).toEndWith('.json');
+  expect(jsonExport.content).toContain('"items"');
+  expect(jsonExport.content).toContain('"runId"');
+});

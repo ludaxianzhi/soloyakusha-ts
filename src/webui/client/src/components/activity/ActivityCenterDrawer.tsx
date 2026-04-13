@@ -4,9 +4,11 @@ import {
   Button,
   Card,
   Descriptions,
+  Drawer,
   Empty,
   List,
   Modal,
+  Popconfirm,
   Space,
   Tabs,
   Tag,
@@ -18,6 +20,7 @@ import type {
   LlmRequestHistorySummaryItem,
   LogDigest,
   LogEntry,
+  LogSession,
 } from '../../app/types.ts';
 import { api } from '../../app/api.ts';
 import { usePollingTask } from '../../app/usePollingTask.ts';
@@ -26,64 +29,45 @@ import { logColor, toErrorMessage } from '../../app/ui-helpers.ts';
 const LOG_PAGE_SIZE = 50;
 const HISTORY_PAGE_SIZE = 20;
 
-interface WorkspaceHistoryTabProps {
-  active: boolean;
-  workspaceKey: string;
-  onClearLogs: () => void | Promise<void>;
+interface ActivityCenterDrawerProps {
+  open: boolean;
+  onClose: () => void;
 }
 
-export function WorkspaceHistoryTab({
-  active,
-  workspaceKey,
-  onClearLogs,
-}: WorkspaceHistoryTabProps) {
+export function ActivityCenterDrawer({ open, onClose }: ActivityCenterDrawerProps) {
   const [activeTabKey, setActiveTabKey] = useState('runtime-logs');
 
-  useEffect(() => {
-    setActiveTabKey('runtime-logs');
-  }, [workspaceKey]);
-
   return (
-    <Tabs
-      size="small"
-      activeKey={activeTabKey}
-      onChange={setActiveTabKey}
-      items={[
-        {
-          key: 'runtime-logs',
-          label: '运行日志',
-          children: (
-            <LogsPanel
-              active={active && activeTabKey === 'runtime-logs'}
-              workspaceKey={workspaceKey}
-              onClearLogs={onClearLogs}
-            />
-          ),
-        },
-        {
-          key: 'llm-history',
-          label: 'LLM 请求历史',
-          children: (
-            <LlmHistoryPanel
-              active={active && activeTabKey === 'llm-history'}
-              workspaceKey={workspaceKey}
-            />
-          ),
-        },
-      ]}
-    />
+    <Drawer
+      title="活动中心"
+      placement="right"
+      width={760}
+      open={open}
+      onClose={onClose}
+      destroyOnClose={false}
+    >
+      <Tabs
+        size="small"
+        activeKey={activeTabKey}
+        onChange={setActiveTabKey}
+        items={[
+          {
+            key: 'runtime-logs',
+            label: '运行日志',
+            children: <RuntimeLogsPanel active={open && activeTabKey === 'runtime-logs'} />,
+          },
+          {
+            key: 'llm-history',
+            label: '请求历史',
+            children: <RequestHistoryPanel active={open && activeTabKey === 'llm-history'} />,
+          },
+        ]}
+      />
+    </Drawer>
   );
 }
 
-function LogsPanel({
-  active,
-  workspaceKey,
-  onClearLogs,
-}: {
-  active: boolean;
-  workspaceKey: string;
-  onClearLogs: () => void | Promise<void>;
-}) {
+function RuntimeLogsPanel({ active }: { active: boolean }) {
   const { message } = AntdApp.useApp();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
@@ -92,16 +76,7 @@ function LogsPanel({
   const [initialized, setInitialized] = useState(false);
   const [nextBeforeId, setNextBeforeId] = useState<number>();
   const [digest, setDigest] = useState<LogDigest>({ total: 0, latestId: 0 });
-
-  useEffect(() => {
-    setLogs([]);
-    setSelectedLog(null);
-    setLoading(false);
-    setLoadingMore(false);
-    setInitialized(false);
-    setNextBeforeId(undefined);
-    setDigest({ total: 0, latestId: 0 });
-  }, [workspaceKey]);
+  const [session, setSession] = useState<LogSession | null>(null);
 
   const loadLogs = useCallback(
     async (mode: 'replace' | 'append' = 'replace') => {
@@ -114,16 +89,20 @@ function LogsPanel({
         setLoadingMore(true);
       }
       try {
-        const page = await api.getLogs({
-          limit: LOG_PAGE_SIZE,
-          beforeId: mode === 'append' ? nextBeforeId : undefined,
-        });
+        const [page, nextSession] = await Promise.all([
+          api.getLogs({
+            limit: LOG_PAGE_SIZE,
+            beforeId: mode === 'append' ? nextBeforeId : undefined,
+          }),
+          session ? Promise.resolve(session) : api.getLogSession(),
+        ]);
         setLogs((prev) => (mode === 'append' ? [...prev, ...page.items] : page.items));
         setNextBeforeId(page.nextBeforeId);
         setDigest({
           total: page.total,
           latestId: page.latestId,
         });
+        setSession(nextSession);
         setInitialized(true);
       } catch (error) {
         message.error(toErrorMessage(error));
@@ -135,7 +114,7 @@ function LogsPanel({
         }
       }
     },
-    [message, nextBeforeId],
+    [message, nextBeforeId, session],
   );
 
   const refreshIfChanged = useCallback(async () => {
@@ -168,30 +147,46 @@ function LogsPanel({
 
   const handleClear = useCallback(async () => {
     try {
-      await onClearLogs();
+      await api.clearLogs();
       setLogs([]);
       setSelectedLog(null);
       setNextBeforeId(undefined);
       setDigest({ total: 0, latestId: 0 });
       setInitialized(true);
+      message.success('运行日志已清空');
     } catch (error) {
       message.error(toErrorMessage(error));
     }
-  }, [message, onClearLogs]);
+  }, [message]);
+
+  const handleExport = useCallback(async () => {
+    try {
+      const blob = await api.downloadLogs('text');
+      const fileName = session ? `runtime-logs-${session.runId}.txt` : 'runtime-logs.txt';
+      downloadBlob(blob, fileName);
+      message.success('运行日志已开始导出');
+    } catch (error) {
+      message.error(toErrorMessage(error));
+    }
+  }, [message, session]);
 
   return (
     <>
       <Card
-        title="事件日志"
+        title="运行日志"
         extra={
           <Space>
+            {session ? (
+              <Tag color="blue">{`启动于 ${new Date(session.startedAt).toLocaleString()}`}</Tag>
+            ) : null}
             <Tag>{`共 ${digest.total} 条`}</Tag>
+            <Button onClick={() => void handleExport()}>导出</Button>
             <Button onClick={() => void handleClear()}>清空</Button>
           </Space>
         }
       >
         {logs.length === 0 && !loading ? (
-          <Empty description="暂无日志" />
+          <Empty description="当前运行暂无日志" />
         ) : (
           <List
             loading={loading}
@@ -219,10 +214,7 @@ function LogsPanel({
                   <Typography.Text type="secondary">
                     {new Date(item.timestamp).toLocaleString()}
                   </Typography.Text>
-                  <Typography.Text
-                    ellipsis={{ tooltip: item.message }}
-                    style={{ maxWidth: 520 }}
-                  >
+                  <Typography.Text ellipsis={{ tooltip: item.message }} style={{ maxWidth: 520 }}>
                     {item.message}
                   </Typography.Text>
                 </Space>
@@ -258,13 +250,7 @@ function LogsPanel({
   );
 }
 
-function LlmHistoryPanel({
-  active,
-  workspaceKey,
-}: {
-  active: boolean;
-  workspaceKey: string;
-}) {
+function RequestHistoryPanel({ active }: { active: boolean }) {
   const { message } = AntdApp.useApp();
   const [items, setItems] = useState<LlmRequestHistorySummaryItem[]>([]);
   const [selectedEntry, setSelectedEntry] = useState<LlmRequestHistoryDetail | null>(null);
@@ -278,18 +264,6 @@ function LlmHistoryPanel({
     latestId: 0,
   });
   const detailRequestRef = useRef(0);
-
-  useEffect(() => {
-    setItems([]);
-    setSelectedEntry(null);
-    setDetailLoading(false);
-    setLoading(false);
-    setLoadingMore(false);
-    setInitialized(false);
-    setNextBeforeId(undefined);
-    setDigest({ total: 0, latestId: 0 });
-    detailRequestRef.current += 1;
-  }, [workspaceKey]);
 
   const loadHistory = useCallback(
     async (mode: 'replace' | 'append' = 'replace') => {
@@ -382,9 +356,80 @@ function LlmHistoryPanel({
     setSelectedEntry(null);
   }, []);
 
+  const handleDelete = useCallback(
+    async (entryId: number) => {
+      try {
+        await api.deleteHistoryEntry(entryId);
+        if (selectedEntry?.id === entryId) {
+          handleCloseDetail();
+        }
+        setItems((prev) => prev.filter((entry) => entry.id !== entryId));
+        setDigest((prev) => ({
+          total: Math.max(0, prev.total - 1),
+          latestId: prev.latestId === entryId ? 0 : prev.latestId,
+        }));
+        message.success('请求历史已删除');
+        await loadHistory('replace');
+      } catch (error) {
+        message.error(toErrorMessage(error));
+      }
+    },
+    [handleCloseDetail, loadHistory, message, selectedEntry?.id],
+  );
+
+  const handleClear = useCallback(async () => {
+    try {
+      await api.clearHistory();
+      handleCloseDetail();
+      setItems([]);
+      setNextBeforeId(undefined);
+      setDigest({ total: 0, latestId: 0 });
+      setInitialized(true);
+      message.success('请求历史已清空');
+    } catch (error) {
+      message.error(toErrorMessage(error));
+    }
+  }, [handleCloseDetail, message]);
+
+  const handleExportAll = useCallback(async () => {
+    try {
+      const blob = await api.downloadHistoryExport();
+      downloadBlob(blob, 'request-history.json');
+      message.success('请求历史已开始导出');
+    } catch (error) {
+      message.error(toErrorMessage(error));
+    }
+  }, [message]);
+
+  const handleExportSelected = useCallback(() => {
+    if (!selectedEntry) {
+      return;
+    }
+    const blob = new Blob([JSON.stringify(selectedEntry, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    });
+    downloadBlob(blob, `request-history-${selectedEntry.id}.json`);
+    message.success('当前请求详情已导出');
+  }, [message, selectedEntry]);
+
   return (
     <>
-      <Card title="LLM 请求历史" extra={<Tag>{`共 ${digest.total} 条`}</Tag>}>
+      <Card
+        title="LLM 请求历史"
+        extra={
+          <Space>
+            <Tag>{`共 ${digest.total} 条`}</Tag>
+            <Button onClick={() => void handleExportAll()}>导出</Button>
+            <Popconfirm
+              title="确认清空全部请求历史？"
+              description="该操作不可撤销。"
+              onConfirm={() => void handleClear()}
+            >
+              <Button danger>清空</Button>
+            </Popconfirm>
+          </Space>
+        }
+      >
         {items.length === 0 && !loading ? (
           <Empty description="暂无请求历史" />
         ) : (
@@ -400,45 +445,63 @@ function LlmHistoryPanel({
                 </div>
               ) : undefined
             }
-            renderItem={(entry) => (
-              <List.Item
-                key={entry.id}
-                actions={[
-                  <Button
-                    key="detail"
-                    type="link"
-                    onClick={() => void handleOpenDetail(entry.id)}
-                  >
-                    详情
-                  </Button>,
-                ]}
-              >
-                <Space wrap size={[8, 8]}>
-                  <Tag color={entry.type === 'error' ? 'error' : 'success'}>
-                    {entry.type === 'error' ? 'ERROR' : 'COMPLETION'}
-                  </Tag>
-                  {entry.meta?.label ? <Tag color="purple">{entry.meta.label}</Tag> : null}
-                  {entry.source ? <Tag>{entry.source}</Tag> : null}
-                  {entry.meta?.stage ? <Tag>{`stage ${entry.meta.stage}`}</Tag> : null}
-                  {entry.modelName ? <Tag color="blue">{entry.modelName}</Tag> : null}
-                  <Tag>{`requestId ${entry.requestId}`}</Tag>
-                  {entry.durationSeconds != null ? (
-                    <Tag>{`${entry.durationSeconds.toFixed(3)}s`}</Tag>
-                  ) : null}
-                  {entry.statistics ? (
-                    <Tag>{`tokens ${entry.statistics.totalTokens}`}</Tag>
-                  ) : null}
-                  {entry.errorMessage ? (
-                    <Typography.Text type="danger" ellipsis style={{ maxWidth: 360 }}>
-                      {entry.errorMessage}
+            renderItem={(entry) => {
+              const context = readHistoryContext(entry);
+              return (
+                <List.Item
+                  key={entry.id}
+                  actions={[
+                    <Button
+                      key="detail"
+                      type="link"
+                      onClick={() => void handleOpenDetail(entry.id)}
+                    >
+                      详情
+                    </Button>,
+                    <Popconfirm
+                      key="delete"
+                      title="确认删除该请求历史？"
+                      onConfirm={() => void handleDelete(entry.id)}
+                    >
+                      <Button danger type="link">
+                        删除
+                      </Button>
+                    </Popconfirm>,
+                  ]}
+                >
+                  <Space wrap size={[8, 8]}>
+                    <Tag color={entry.type === 'error' ? 'error' : 'success'}>
+                      {entry.type === 'error' ? 'ERROR' : 'COMPLETION'}
+                    </Tag>
+                    {context.projectName ? <Tag color="gold">{context.projectName}</Tag> : null}
+                    {entry.meta?.label ? <Tag color="purple">{entry.meta.label}</Tag> : null}
+                    {entry.source ? <Tag>{entry.source}</Tag> : null}
+                    {entry.meta?.stage ? <Tag>{`stage ${entry.meta.stage}`}</Tag> : null}
+                    {entry.modelName ? <Tag color="blue">{entry.modelName}</Tag> : null}
+                    <Tag>{`requestId ${entry.requestId}`}</Tag>
+                    {entry.durationSeconds != null ? (
+                      <Tag>{`${entry.durationSeconds.toFixed(3)}s`}</Tag>
+                    ) : null}
+                    {entry.statistics ? (
+                      <Tag>{`tokens ${entry.statistics.totalTokens}`}</Tag>
+                    ) : null}
+                    {entry.errorMessage ? (
+                      <Typography.Text type="danger" ellipsis style={{ maxWidth: 260 }}>
+                        {entry.errorMessage}
+                      </Typography.Text>
+                    ) : null}
+                    {context.workspaceDir ? (
+                      <Typography.Text type="secondary" ellipsis style={{ maxWidth: 220 }}>
+                        {context.workspaceDir}
+                      </Typography.Text>
+                    ) : null}
+                    <Typography.Text type="secondary">
+                      {new Date(entry.timestamp).toLocaleString()}
                     </Typography.Text>
-                  ) : null}
-                  <Typography.Text type="secondary">
-                    {new Date(entry.timestamp).toLocaleString()}
-                  </Typography.Text>
-                </Space>
-              </List.Item>
-            )}
+                  </Space>
+                </List.Item>
+              );
+            }}
           />
         )}
       </Card>
@@ -446,7 +509,22 @@ function LlmHistoryPanel({
         open={selectedEntry !== null || detailLoading}
         title="LLM 请求详情"
         width={960}
-        footer={<Button onClick={handleCloseDetail}>关闭</Button>}
+        footer={
+          <Space>
+            <Button onClick={handleExportSelected} disabled={!selectedEntry}>
+              导出
+            </Button>
+            {selectedEntry ? (
+              <Popconfirm
+                title="确认删除该请求历史？"
+                onConfirm={() => void handleDelete(selectedEntry.id)}
+              >
+                <Button danger>删除</Button>
+              </Popconfirm>
+            ) : null}
+            <Button onClick={handleCloseDetail}>关闭</Button>
+          </Space>
+        }
         onCancel={handleCloseDetail}
       >
         {detailLoading ? (
@@ -467,6 +545,12 @@ function LlmHistoryPanel({
               </Descriptions.Item>
               <Descriptions.Item label="来源">
                 {selectedEntry.source ?? '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="项目">
+                {readHistoryContext(selectedEntry).projectName ?? '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="工作区">
+                {readHistoryContext(selectedEntry).workspaceDir ?? '-'}
               </Descriptions.Item>
               <Descriptions.Item label="Meta">
                 {selectedEntry.meta?.label ?? '-'}
@@ -530,4 +614,27 @@ function DetailSection({ title, content }: { title: string; content: string }) {
       </div>
     </div>
   );
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function readHistoryContext(entry: {
+  meta?: {
+    context?: Record<string, unknown>;
+  };
+}) {
+  const context = entry.meta?.context;
+  return {
+    projectName:
+      typeof context?.projectName === 'string' ? context.projectName : undefined,
+    workspaceDir:
+      typeof context?.workspaceDir === 'string' ? context.workspaceDir : undefined,
+  };
 }

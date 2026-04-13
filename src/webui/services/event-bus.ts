@@ -23,6 +23,11 @@ export interface LogPage {
   nextBeforeId?: number;
 }
 
+export interface LogSession {
+  runId: string;
+  startedAt: string;
+}
+
 export type BusEventType =
   | 'snapshot'
   | 'log'
@@ -41,6 +46,10 @@ export class EventBus {
   private listeners = new Set<Listener>();
   private logs: LogEntry[] = [];
   private logIdCounter = 0;
+  private readonly logSession: LogSession = {
+    runId: `webui-${Date.now()}-${process.pid}`,
+    startedAt: new Date().toISOString(),
+  };
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -95,6 +104,46 @@ export class EventBus {
       items,
       ...this.getLogDigest(),
       nextBeforeId: items.length === limit ? oldestEntry?.id : undefined,
+    };
+  }
+
+  getLogSession(): LogSession {
+    return { ...this.logSession };
+  }
+
+  formatLogExport(format: 'json' | 'text' = 'text'): {
+    content: string;
+    contentType: string;
+    fileName: string;
+  } {
+    if (format === 'json') {
+      return {
+        content: JSON.stringify(
+          {
+            session: this.getLogSession(),
+            items: this.getLogs(),
+          },
+          null,
+          2,
+        ),
+        contentType: 'application/json; charset=utf-8',
+        fileName: `runtime-logs-${this.logSession.runId}.json`,
+      };
+    }
+
+    const content = [
+      `Run ID: ${this.logSession.runId}`,
+      `Started At: ${this.logSession.startedAt}`,
+      '',
+      ...this.logs.map(
+        (entry) =>
+          `[${entry.timestamp}] [${entry.level.toUpperCase()}] ${entry.message}`,
+      ),
+    ].join('\n');
+    return {
+      content,
+      contentType: 'text/plain; charset=utf-8',
+      fileName: `runtime-logs-${this.logSession.runId}.txt`,
     };
   }
 

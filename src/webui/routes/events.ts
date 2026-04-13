@@ -56,6 +56,21 @@ export function createEventsRoute(eventBus: EventBus): Hono {
     return c.json(eventBus.getLogDigest());
   });
 
+  app.get('/logs/session', (c) => {
+    return c.json(eventBus.getLogSession());
+  });
+
+  app.get('/logs/export', (c) => {
+    const format = readLogExportFormatQuery(c.req.query('format'));
+    const exported = eventBus.formatLogExport(format);
+    return new Response(exported.content, {
+      headers: {
+        'Content-Type': exported.contentType,
+        'Content-Disposition': `attachment; filename="${encodeURIComponent(exported.fileName)}"`,
+      },
+    });
+  });
+
   /** 清空日志 */
   app.post('/logs/clear', (c) => {
     eventBus.clearLogs();
@@ -97,4 +112,8 @@ function readOptionalPositiveIntegerQuery(value: string | undefined): number | u
     return undefined;
   }
   return parsed;
+}
+
+function readLogExportFormatQuery(value: string | undefined): 'json' | 'text' {
+  return value?.trim().toLowerCase() === 'json' ? 'json' : 'text';
 }
