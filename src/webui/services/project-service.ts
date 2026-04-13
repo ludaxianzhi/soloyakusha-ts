@@ -67,6 +67,7 @@ import type {
 import type { EventBus } from './event-bus.ts';
 import { extractArchiveToDirectory } from './archive-extractor.ts';
 import type { RequestHistoryService } from './request-history-service.ts';
+import type { UsageStatsService } from './usage-stats-service.ts';
 import type { WorkspaceManager } from './workspace-manager.ts';
 
 // ─── Types ──────────────────────────────────────────────
@@ -262,6 +263,7 @@ export class ProjectService {
     private readonly eventBus: EventBus,
     private readonly workspaceManager: WorkspaceManager,
     private readonly requestHistoryService: RequestHistoryService,
+    private readonly usageStatsService: UsageStatsService,
   ) {}
 
   // ─── Queries ────────────────────────────────────────
@@ -537,6 +539,10 @@ export class ProjectService {
     );
 
     const promptManager = new PromptManager();
+    const selectedSourceTextLength = input.selectedUnits.reduce(
+      (total, unit) => total + unit.sourceText.length,
+      0,
+    );
     const renderedPrompt = await promptManager.renderChapterTranslationAssistantPrompt({
       mode,
       selectedUnits: input.selectedUnits.map((unit) => ({
@@ -564,17 +570,18 @@ export class ProjectService {
         label: '章节 AI 辅助',
         feature: 'chapter-editor',
         operation: mode,
-          component: 'webui',
-          workflow: 'assistant',
-          stage: mode,
-          context: {
-            chapterId: input.chapterId,
-            format: input.format,
-            selectedUnitCount: input.selectedUnits.length,
-            llmProfileName,
-          },
+        component: 'webui',
+        workflow: 'assistant',
+        stage: mode,
+        context: {
+          chapterId: input.chapterId,
+          format: input.format,
+          selectedUnitCount: input.selectedUnits.length,
+          selectedSourceTextLength,
+          llmProfileName,
         },
-      });
+      },
+    });
 
     return { assistantText: assistantText.trim() };
   }
@@ -2107,6 +2114,22 @@ export class ProjectService {
                 outputText: result.outputText,
               });
               await maybePersistProgress(currentProject, result);
+              void this.usageStatsService
+                .recordTranslationBlock({
+                  sourceText: item.inputText,
+                  translatedText: result.outputText,
+                  chapterId: item.chapterId,
+                  fragmentIndex: item.fragmentIndex,
+                  stepId: item.stepId,
+                  processorName: processor.constructor.name,
+                  workspaceContext: {
+                    projectName: currentProject.getProjectSnapshot().projectName,
+                    workspaceDir: currentProject.getWorkspaceFileManifest().projectDir,
+                  },
+                })
+                .catch((error) => {
+                  this.log('warning', `记录使用统计失败：${toMsg(error)}`);
+                });
               this.refreshSnapshot();
               this.log(
                 'success',

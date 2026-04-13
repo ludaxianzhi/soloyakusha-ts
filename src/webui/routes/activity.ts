@@ -1,7 +1,11 @@
 import { Hono } from 'hono';
 import type { RequestHistoryService } from '../services/request-history-service.ts';
+import type { UsageStatsService } from '../services/usage-stats-service.ts';
 
-export function createActivityRoutes(requestHistoryService: RequestHistoryService): Hono {
+export function createActivityRoutes(
+  requestHistoryService: RequestHistoryService,
+  usageStatsService: UsageStatsService,
+): Hono {
   const app = new Hono();
 
   app.get('/history/summary', async (c) => {
@@ -55,6 +59,10 @@ export function createActivityRoutes(requestHistoryService: RequestHistoryServic
         beforeId: readOptionalPositiveIntegerQuery(c.req.query('beforeId')),
       }),
     );
+  });
+
+  app.get('/usage', async (c) => {
+    return c.json(await usageStatsService.getSnapshot(readPositiveIntegerQuery(c.req.query('days'), 30, 365)));
   });
 
   return app;

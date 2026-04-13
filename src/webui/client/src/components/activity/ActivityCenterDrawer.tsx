@@ -25,6 +25,7 @@ import type {
 import { api } from '../../app/api.ts';
 import { usePollingTask } from '../../app/usePollingTask.ts';
 import { logColor, toErrorMessage } from '../../app/ui-helpers.ts';
+import { UsageStatsPanel } from './UsageStatsPanel.tsx';
 
 const LOG_PAGE_SIZE = 50;
 const HISTORY_PAGE_SIZE = 20;
@@ -41,7 +42,7 @@ export function ActivityCenterDrawer({ open, onClose }: ActivityCenterDrawerProp
     <Drawer
       title="活动中心"
       placement="right"
-      width={760}
+      width={960}
       open={open}
       onClose={onClose}
       destroyOnClose={false}
@@ -60,6 +61,11 @@ export function ActivityCenterDrawer({ open, onClose }: ActivityCenterDrawerProp
             key: 'llm-history',
             label: '请求历史',
             children: <RequestHistoryPanel active={open && activeTabKey === 'llm-history'} />,
+          },
+          {
+            key: 'usage-stats',
+            label: '使用统计',
+            children: <UsageStatsPanel active={open && activeTabKey === 'usage-stats'} />,
           },
         ]}
       />
@@ -89,20 +95,18 @@ function RuntimeLogsPanel({ active }: { active: boolean }) {
         setLoadingMore(true);
       }
       try {
-        const [page, nextSession] = await Promise.all([
-          api.getLogs({
-            limit: LOG_PAGE_SIZE,
-            beforeId: mode === 'append' ? nextBeforeId : undefined,
-          }),
-          session ? Promise.resolve(session) : api.getLogSession(),
-        ]);
+        const sessionSnapshot = mode === 'replace' || !session ? await api.getLogSession() : session;
+        const page = await api.getLogs({
+          limit: LOG_PAGE_SIZE,
+          beforeId: mode === 'append' ? nextBeforeId : undefined,
+        });
         setLogs((prev) => (mode === 'append' ? [...prev, ...page.items] : page.items));
         setNextBeforeId(page.nextBeforeId);
         setDigest({
           total: page.total,
           latestId: page.latestId,
         });
-        setSession(nextSession);
+        setSession(sessionSnapshot);
         setInitialized(true);
       } catch (error) {
         message.error(toErrorMessage(error));
@@ -133,6 +137,10 @@ function RuntimeLogsPanel({ active }: { active: boolean }) {
   }, [digest.latestId, digest.total, initialized, loadLogs]);
 
   useEffect(() => {
+    if (!active) {
+      setInitialized(false);
+      return;
+    }
     if (!active || initialized) {
       return;
     }
@@ -316,6 +324,10 @@ function RequestHistoryPanel({ active }: { active: boolean }) {
   }, [digest.latestId, digest.total, initialized, loadHistory]);
 
   useEffect(() => {
+    if (!active) {
+      setInitialized(false);
+      return;
+    }
     if (!active || initialized) {
       return;
     }

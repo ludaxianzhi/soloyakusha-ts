@@ -33,6 +33,7 @@ import type {
   TranslationProjectSnapshot,
   TranslationStepQueueEntryDetail,
   TranslatorEntry,
+  UsageStatsSnapshot,
   VectorStoreConfig,
   VectorStoreConnectionStatus,
   TranslationPreviewChapter,
@@ -411,6 +412,8 @@ export const api = {
   clearLogs: () => request('/api/events/logs/clear', { method: 'POST' }),
   downloadLogs: (format: 'json' | 'text' = 'text') =>
     requestBlob(`/api/events/logs/export${buildQueryString({ format })}`),
+  getUsageStats: (days = 30) =>
+    request<UsageStatsSnapshot>(`/api/activity/usage${buildQueryString({ days })}`),
 
   downloadExport: (format: string) =>
     requestBlob('/api/project/export', {

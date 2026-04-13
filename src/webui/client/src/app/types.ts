@@ -22,6 +22,32 @@ export interface LogSession {
   startedAt: string;
 }
 
+export interface UsageStatsSummary {
+  translatedCharacters: number;
+  translatedBlocks: number;
+  modelCalls: number;
+  failedModelCalls: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface UsageStatsDailyPoint {
+  date: string;
+  translatedCharacters: number;
+  translatedBlocks: number;
+  modelCalls: number;
+  failedModelCalls: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface UsageStatsSnapshot {
+  summary: UsageStatsSummary;
+  dailyPoints: UsageStatsDailyPoint[];
+}
+
 export interface LlmRequestHistoryEntry {
   version: 1;
   requestId: string;

@@ -122,6 +122,56 @@ body {
   overflow: auto;
 }
 
+.usage-chart-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.usage-chart {
+  width: 100%;
+  min-width: 720px;
+  display: block;
+}
+
+.usage-chart-axis {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+}
+
+.usage-chart-area {
+  fill: rgba(24, 144, 255, 0.14);
+}
+
+.usage-chart-line {
+  fill: none;
+  stroke: #1677ff;
+  stroke-width: 2.5;
+}
+
+.usage-chart-dot {
+  fill: #1677ff;
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
+.usage-chart-label {
+  fill: var(--text-secondary);
+  font-size: 11px;
+}
+
+.usage-point-list {
+  display: grid;
+  gap: 8px;
+}
+
+.usage-point-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .step-list {
   display: grid;
   gap: 10px;

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import { RequestHistoryService } from './request-history-service.ts';
+import { UsageStatsService } from './usage-stats-service.ts';
 
 const tempDirs: string[] = [];
 
@@ -18,7 +19,8 @@ test('RequestHistoryService persists entries in a global store with workspace co
   const manager = new GlobalConfigManager({
     filePath: join(rootDir, 'config', 'config.json'),
   });
-  const service = new RequestHistoryService({ manager });
+  const usageStatsService = new UsageStatsService({ manager });
+  const service = new RequestHistoryService({ manager, usageStatsService });
   const logger = service.createLogger('unit-test', {
     projectName: 'Demo Project',
     workspaceDir: 'C:\\Workspaces\\Demo',
@@ -62,6 +64,10 @@ test('RequestHistoryService persists entries in a global store with workspace co
   const exported = await service.exportPrettyJson();
   expect(exported).toContain('"projectName": "Demo Project"');
   expect(exported).toContain('"workspaceDir": "C:\\\\Workspaces\\\\Demo"');
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const usageSnapshot = await usageStatsService.getSnapshot();
+  expect(usageSnapshot.summary.modelCalls).toBe(1);
 });
 
 test('RequestHistoryService deletes entries and can clear the global store', async () => {

@@ -15,6 +15,7 @@ import { WorkspaceManager } from './services/workspace-manager.ts';
 import { ProjectService } from './services/project-service.ts';
 import { ConfigService } from './services/config-service.ts';
 import { RequestHistoryService } from './services/request-history-service.ts';
+import { UsageStatsService } from './services/usage-stats-service.ts';
 import { createActivityRoutes } from './routes/activity.ts';
 import { createWorkspaceRoutes } from './routes/workspace.ts';
 import { createProjectRoutes } from './routes/project.ts';
@@ -29,8 +30,16 @@ export interface CreateAppOptions {
 export function createApp(options: CreateAppOptions = {}) {
   const eventBus = new EventBus();
   const workspaceManager = new WorkspaceManager();
-  const requestHistoryService = new RequestHistoryService();
-  const projectService = new ProjectService(eventBus, workspaceManager, requestHistoryService);
+  const usageStatsService = new UsageStatsService();
+  const requestHistoryService = new RequestHistoryService({
+    usageStatsService,
+  });
+  const projectService = new ProjectService(
+    eventBus,
+    workspaceManager,
+    requestHistoryService,
+    usageStatsService,
+  );
   const configService = new ConfigService();
   void configService.initializeVectorStoreConnections().catch((error) => {
     console.error(
@@ -47,7 +56,7 @@ export function createApp(options: CreateAppOptions = {}) {
   // API 路由
   app.route('/api/workspaces', createWorkspaceRoutes(projectService, workspaceManager));
   app.route('/api/project', createProjectRoutes(projectService, requestHistoryService));
-  app.route('/api/activity', createActivityRoutes(requestHistoryService));
+  app.route('/api/activity', createActivityRoutes(requestHistoryService, usageStatsService));
   app.route('/api/config', createConfigRoutes(configService));
   app.route('/api/events', createEventsRoute(eventBus));
 

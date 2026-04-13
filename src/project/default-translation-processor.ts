@@ -414,5 +414,8 @@ function buildProcessorRequestContext(
     }
   }
 
+  context.sourceTextLength = request.sourceText.length;
+  context.sourceUnitCount = splitSourceTextIntoUnits(request.sourceText).length;
+
   return context;
 }

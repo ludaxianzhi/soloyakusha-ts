@@ -17,6 +17,7 @@ import type {
   ErrorLogEntry,
   RequestHistoryLogger,
 } from '../../llm/types.ts';
+import type { UsageStatsService } from './usage-stats-service.ts';
 
 export interface RequestHistoryWorkspaceContext {
   projectName?: string;
@@ -26,15 +27,18 @@ export interface RequestHistoryWorkspaceContext {
 type RequestHistoryServiceOptions = {
   manager?: GlobalConfigManager;
   logDir?: string;
+  usageStatsService?: UsageStatsService;
 };
 
 export class RequestHistoryService {
   private readonly manager: GlobalConfigManager;
   private readonly logDir?: string;
+  private readonly usageStatsService?: UsageStatsService;
 
   constructor(options: RequestHistoryServiceOptions = {}) {
     this.manager = options.manager ?? new GlobalConfigManager();
     this.logDir = options.logDir;
+    this.usageStatsService = options.usageStatsService;
   }
 
   getLogDir(): string {
@@ -46,15 +50,35 @@ export class RequestHistoryService {
     workspaceContext?: RequestHistoryWorkspaceContext,
   ): RequestHistoryLogger {
     const logger = new FileRequestHistoryLogger(this.getLogDir(), source);
-    if (!workspaceContext?.projectName && !workspaceContext?.workspaceDir) {
-      return logger;
-    }
-
     return {
-      logCompletion: (entry) =>
-        logger.logCompletion(attachWorkspaceContext(entry, workspaceContext)),
-      logError: (entry) =>
-        logger.logError(attachWorkspaceContext(entry, workspaceContext)),
+      logCompletion: async (entry) => {
+        const nextEntry = attachWorkspaceContext(entry, workspaceContext);
+        await logger.logCompletion(nextEntry);
+        const recordPromise = this.usageStatsService?.recordLlmRequest({
+            entry: nextEntry,
+            succeeded: true,
+            workspaceContext,
+          });
+        if (recordPromise) {
+          void recordPromise.catch((error) => {
+            console.error('记录使用统计失败:', error);
+          });
+        }
+      },
+      logError: async (entry) => {
+        const nextEntry = attachWorkspaceContext(entry, workspaceContext);
+        await logger.logError(nextEntry);
+        const recordPromise = this.usageStatsService?.recordLlmRequest({
+            entry: nextEntry,
+            succeeded: false,
+            workspaceContext,
+          });
+        if (recordPromise) {
+          void recordPromise.catch((error) => {
+            console.error('记录使用统计失败:', error);
+          });
+        }
+      },
     };
   }
 
@@ -86,12 +110,12 @@ export class RequestHistoryService {
 
 function attachWorkspaceContext<T extends CompletionLogEntry | ErrorLogEntry>(
   entry: T,
-  workspaceContext: RequestHistoryWorkspaceContext,
+  workspaceContext?: RequestHistoryWorkspaceContext,
 ): T {
   const nextContext = {
     ...(entry.meta?.context ?? {}),
-    ...(workspaceContext.projectName ? { projectName: workspaceContext.projectName } : {}),
-    ...(workspaceContext.workspaceDir ? { workspaceDir: workspaceContext.workspaceDir } : {}),
+    ...(workspaceContext?.projectName ? { projectName: workspaceContext.projectName } : {}),
+    ...(workspaceContext?.workspaceDir ? { workspaceDir: workspaceContext.workspaceDir } : {}),
   };
   return {
     ...entry,
