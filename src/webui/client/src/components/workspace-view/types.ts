@@ -72,6 +72,8 @@ export interface WorkspaceViewProps {
   onRefreshTopology: () => void | Promise<void>;
   onRefreshWorkspaceConfig: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
+  onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
   onImportDictionaryFromContent: (

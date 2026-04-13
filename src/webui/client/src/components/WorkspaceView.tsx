@@ -51,6 +51,8 @@ export function WorkspaceView({
   onImportChapterArchive,
   onDownloadExport,
   onResetProject,
+  onAbortTaskActivity,
+  onResumeTaskActivity,
   onDismissTaskActivity,
 }: WorkspaceViewProps) {
   const location = useLocation();
@@ -111,6 +113,8 @@ export function WorkspaceView({
                 projectStatus={projectStatus}
                 onRefreshProjectStatus={onRefreshProjectStatus}
                 onProjectCommand={onProjectCommand}
+                onAbortTaskActivity={onAbortTaskActivity}
+                onResumeTaskActivity={onResumeTaskActivity}
                 onDismissTaskActivity={onDismissTaskActivity}
               />
             ),
@@ -126,6 +130,8 @@ export function WorkspaceView({
                 onRefreshProjectStatus={onRefreshProjectStatus}
                 onRefreshDictionary={onRefreshDictionary}
                 onProjectCommand={onProjectCommand}
+                onAbortTaskActivity={onAbortTaskActivity}
+                onResumeTaskActivity={onResumeTaskActivity}
                 onOpenDictionaryEditor={onOpenDictionaryEditor}
                 onDeleteDictionary={onDeleteDictionary}
                 onImportDictionaryFromContent={onImportDictionaryFromContent}

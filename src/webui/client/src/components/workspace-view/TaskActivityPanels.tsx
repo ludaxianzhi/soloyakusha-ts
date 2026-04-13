@@ -1,18 +1,22 @@
 import type { ReactNode } from 'react';
 import { Alert, Button, Card, Col, Progress, Row, Space, Tag } from 'antd';
+import { CloseOutlined, MinusCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import type { ProjectStatus } from '../../app/types.ts';
-import { CloseOutlined } from '@ant-design/icons';
 import type { TaskActivityKind } from './types.ts';
 
 interface TaskActivityPanelsProps {
   projectStatus: ProjectStatus | null;
   tasks?: TaskActivityKind[];
+  onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }
 
 export function TaskActivityPanels({
   projectStatus,
   tasks = ['scan', 'plot'],
+  onAbortTaskActivity,
+  onResumeTaskActivity,
   onDismissTaskActivity,
 }: TaskActivityPanelsProps) {
   const visibleTasks: Array<{
@@ -34,6 +38,9 @@ export function TaskActivityPanels({
           <Space wrap>
             <Tag>{`批次 ${projectStatus.scanDictionaryProgress.completedBatches}/${projectStatus.scanDictionaryProgress.totalBatches}`}</Tag>
             <Tag>{`总行数 ${projectStatus.scanDictionaryProgress.totalLines}`}</Tag>
+            {projectStatus.scanDictionaryProgress.currentBatchIndex != null ? (
+              <Tag color="processing">{`下一批次 ${projectStatus.scanDictionaryProgress.currentBatchIndex}`}</Tag>
+            ) : null}
           </Space>
         ),
       });
@@ -86,6 +93,8 @@ export function TaskActivityPanels({
             title={task.title}
             progress={task.progress}
             details={task.details}
+            onAbort={() => void onAbortTaskActivity(task.key)}
+            onResume={() => void onResumeTaskActivity(task.key)}
             onDismiss={() => void onDismissTaskActivity(task.key)}
           />
         </Col>
@@ -99,6 +108,8 @@ function TaskActivityCard({
   title,
   progress,
   details,
+  onAbort,
+  onResume,
   onDismiss,
 }: {
   task: TaskActivityKind;
@@ -107,8 +118,14 @@ function TaskActivityCard({
     | NonNullable<ProjectStatus['scanDictionaryProgress']>
     | NonNullable<ProjectStatus['plotSummaryProgress']>;
   details: ReactNode;
+  onAbort: () => void;
+  onResume: () => void;
   onDismiss: () => void;
 }) {
+  const isRunning = progress.status === 'running';
+  const isDone = progress.status === 'done';
+  const isDismissable = progress.status !== 'running';
+
   return (
     <Card
       size="small"
@@ -118,7 +135,25 @@ function TaskActivityCard({
           <Tag color={toTaskStatusColor(progress.status)}>
             {toTaskStatusLabel(progress.status)}
           </Tag>
-          {progress.status !== 'running' ? (
+          {isRunning ? (
+            <Button
+              type="text"
+              size="small"
+              icon={<MinusCircleOutlined />}
+              onClick={onAbort}
+              aria-label={`中止${task}任务`}
+            />
+          ) : null}
+          {!isRunning && !isDone ? (
+            <Button
+              type="text"
+              size="small"
+              icon={<PlayCircleOutlined />}
+              onClick={onResume}
+              aria-label={`继续${task}任务`}
+            />
+          ) : null}
+          {isDismissable ? (
             <Button
               type="text"
               size="small"
@@ -152,7 +187,7 @@ function TaskActivityCard({
 function toPercent(
   completed: number,
   total: number,
-  status: 'running' | 'done' | 'error',
+  status: 'running' | 'paused' | 'done' | 'error',
 ): number {
   if (total <= 0) {
     return status === 'done' ? 100 : 0;
@@ -161,35 +196,40 @@ function toPercent(
 }
 
 function toProgressStatus(
-  status: 'running' | 'done' | 'error',
+  status: 'running' | 'paused' | 'done' | 'error',
 ): 'active' | 'success' | 'exception' {
   switch (status) {
     case 'done':
       return 'success';
     case 'error':
+    case 'paused':
       return 'exception';
     default:
       return 'active';
   }
 }
 
-function toTaskStatusColor(status: 'running' | 'done' | 'error'): string {
+function toTaskStatusColor(status: 'running' | 'paused' | 'done' | 'error'): string {
   switch (status) {
     case 'done':
       return 'success';
     case 'error':
       return 'error';
+    case 'paused':
+      return 'warning';
     default:
       return 'processing';
   }
 }
 
-function toTaskStatusLabel(status: 'running' | 'done' | 'error'): string {
+function toTaskStatusLabel(status: 'running' | 'paused' | 'done' | 'error'): string {
   switch (status) {
     case 'done':
       return '已完成';
     case 'error':
       return '失败';
+    case 'paused':
+      return '已中止';
     default:
       return '进行中';
   }

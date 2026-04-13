@@ -143,7 +143,7 @@ export interface WorkspaceArchiveManifest {
 }
 
 export interface PlotSummaryProgress {
-  status: 'running' | 'done' | 'error';
+  status: 'running' | 'paused' | 'done' | 'error';
   totalChapters: number;
   completedChapters: number;
   totalBatches: number;
@@ -153,10 +153,11 @@ export interface PlotSummaryProgress {
 }
 
 export interface ScanDictionaryProgress {
-  status: 'running' | 'done' | 'error';
+  status: 'running' | 'paused' | 'done' | 'error';
   totalBatches: number;
   completedBatches: number;
   totalLines: number;
+  currentBatchIndex?: number;
   errorMessage?: string;
 }
 

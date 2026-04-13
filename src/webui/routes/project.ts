@@ -96,6 +96,30 @@ export function createProjectRoutes(
     return c.json({ ok: true });
   });
 
+  app.post('/dictionary/scan/abort', async (c) => {
+    try {
+      await projectService.abortGlossaryScan();
+      return c.json({ ok: true, snapshot: projectService.getSnapshot() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/dictionary/scan/resume', async (c) => {
+    try {
+      await projectService.resumeGlossaryScan();
+      return c.json({ ok: true, snapshot: projectService.getSnapshot() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
   app.post('/dictionary/import', async (c) => {
     const body = await c.req.json<{ filePath: string }>();
     await projectService.importGlossary(body.filePath);
@@ -129,6 +153,30 @@ export function createProjectRoutes(
   app.post('/plot-summary', async (c) => {
     await projectService.startPlotSummary();
     return c.json({ ok: true });
+  });
+
+  app.post('/plot-summary/abort', async (c) => {
+    try {
+      await projectService.abortPlotSummary();
+      return c.json({ ok: true, snapshot: projectService.getSnapshot() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/plot-summary/resume', async (c) => {
+    try {
+      await projectService.resumePlotSummary();
+      return c.json({ ok: true, snapshot: projectService.getSnapshot() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
   });
 
   app.post('/task-ui/clear', (c) => {

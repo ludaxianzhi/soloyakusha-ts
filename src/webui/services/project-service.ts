@@ -27,15 +27,17 @@ import { TranslationProcessorFactory } from '../../project/translation-processor
 import { TranslationProject } from '../../project/translation-project.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { NatureDialogKeepNameFileHandler } from '../../file-handlers/nature-dialog-file-handler.ts';
-import { FullTextGlossaryScanner } from '../../glossary/index.ts';
+import { FullTextGlossaryScanner, type FullTextGlossaryScanBatch, type FullTextGlossaryScanLine } from '../../glossary/scanner.ts';
 import { GlossaryPersisterFactory } from '../../glossary/persister.ts';
-import type { GlossaryTermCategory } from '../../glossary/glossary.ts';
+import { Glossary } from '../../glossary/glossary.ts';
+import type { GlossaryTerm, GlossaryTermCategory } from '../../glossary/glossary.ts';
 import {
   readHistoryEntriesFromLogDir,
   type LlmRequestHistoryDetail,
   type LlmRequestHistoryDigest,
   type LlmRequestHistoryPage,
 } from '../../llm/history.ts';
+import type { ChatRequestOptions } from '../../llm/types.ts';
 import type { LlmRequestHistoryEntry } from '../../llm/types.ts';
 import { PlotSummarizer } from '../../project/plot-summarizer.ts';
 import type {
@@ -92,7 +94,7 @@ export interface InitializeProjectInput {
 }
 
 export interface PlotSummaryProgress {
-  status: 'running' | 'done' | 'error';
+  status: 'running' | 'paused' | 'done' | 'error';
   totalChapters: number;
   completedChapters: number;
   totalBatches: number;
@@ -102,10 +104,11 @@ export interface PlotSummaryProgress {
 }
 
 export interface ScanDictionaryProgress {
-  status: 'running' | 'done' | 'error';
+  status: 'running' | 'paused' | 'done' | 'error';
   totalBatches: number;
   completedBatches: number;
   totalLines: number;
+  currentBatchIndex?: number;
   errorMessage?: string;
 }
 
@@ -139,6 +142,42 @@ export interface ImportArchiveChaptersResult {
 }
 
 export class ProjectServiceUserInputError extends Error {}
+
+type ResumableTaskStatus = 'running' | 'paused' | 'done' | 'error';
+
+interface ScanDictionaryTaskState {
+  status: ResumableTaskStatus;
+  totalLines: number;
+  totalBatches: number;
+  completedBatches: number;
+  nextBatchIndex: number;
+  lines: FullTextGlossaryScanLine[];
+  batches: FullTextGlossaryScanBatch[];
+  glossary: Glossary;
+  requestOptions?: ChatRequestOptions;
+  maxCharsPerBatch?: number;
+  occurrenceTopK?: number;
+  occurrenceTopP?: number;
+  abortRequested: boolean;
+  errorMessage?: string;
+}
+
+interface PlotSummaryTaskState {
+  status: ResumableTaskStatus;
+  totalChapters: number;
+  completedChapters: number;
+  totalBatches: number;
+  completedBatches: number;
+  nextChapterIndex: number;
+  nextFragmentIndex: number;
+  chapters: Array<{ chapterId: number; fragmentCount: number }>;
+  requestOptions?: ChatRequestOptions;
+  fragmentsPerBatch: number;
+  maxContextSummaries: number;
+  summaryPath: string;
+  abortRequested: boolean;
+  errorMessage?: string;
+}
 
 export interface TranslationProjectProgressSnapshot
   extends Omit<
@@ -248,6 +287,8 @@ export class ProjectService {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private plotSummaryProgress: PlotSummaryProgress | null = null;
   private scanDictionaryProgress: ScanDictionaryProgress | null = null;
+  private scanTaskState: ScanDictionaryTaskState | null = null;
+  private plotTaskState: PlotSummaryTaskState | null = null;
   private repetitionPatternConsistencyFixProgress: RepetitionPatternConsistencyFixProgress | null =
     null;
   private plotSummaryReady = false;
@@ -936,103 +977,335 @@ export class ProjectService {
       this.log('warning', '当前没有已初始化的项目');
       return;
     }
-
-    this.clearTaskProgressUi('all');
-    this.isBusy = true;
-    this.scanDictionaryProgress = {
-      status: 'running',
-      totalBatches: 0,
-      completedBatches: 0,
-      totalLines: 0,
-    };
-    this.broadcastScanProgress();
-    this.log('info', '扫描项目字典...');
+    if (this.scanTaskState?.status === 'running') {
+      throw new ProjectServiceUserInputError('术语扫描任务正在运行');
+    }
 
     const project = this.project;
+    const { scanner, extractorConfig } = await this.createGlossaryScanner(project);
+    const isFreshRun = !this.scanTaskState || this.scanTaskState.status === 'done';
 
-    void (async () => {
-      try {
-        const manager = new GlobalConfigManager();
-        const globalConfig = await manager.getTranslationGlobalConfig();
-        const extractorConfig = globalConfig.getGlossaryExtractorConfig();
-        if (!extractorConfig || extractorConfig.modelNames.length === 0) {
-          throw new Error('未配置术语提取 LLM，请先设置术语提取模型');
+    if (isFreshRun) {
+      this.clearTaskProgressUi('scan');
+      this.scanTaskState = this.createGlossaryScanTask(project, scanner, extractorConfig);
+      this.scanTaskState.status = 'running';
+    } else {
+      this.scanTaskState!.requestOptions = extractorConfig.requestOptions;
+      this.scanTaskState!.maxCharsPerBatch = extractorConfig.maxCharsPerBatch;
+      this.scanTaskState!.occurrenceTopK = extractorConfig.occurrenceTopK;
+      this.scanTaskState!.occurrenceTopP = extractorConfig.occurrenceTopP;
+      this.scanTaskState!.abortRequested = false;
+      this.scanTaskState!.errorMessage = undefined;
+      this.scanTaskState!.status = 'running';
+    }
+
+    const task = this.scanTaskState!;
+    this.log(
+      'info',
+      isFreshRun
+        ? `术语扫描开始，共 ${task.totalLines} 行，分 ${task.totalBatches} 个批次`
+        : `继续术语扫描，已完成 ${task.completedBatches}/${task.totalBatches} 个批次`,
+    );
+    this.isBusy = true;
+    this.syncScanDictionaryProgress(task);
+    this.broadcastScanProgress();
+    void this.runGlossaryScanTask(project, scanner, task);
+  }
+
+  async resumeGlossaryScan(): Promise<void> {
+    await this.scanDictionary();
+  }
+
+  async abortGlossaryScan(): Promise<void> {
+    if (this.scanTaskState?.status !== 'running') {
+      throw new ProjectServiceUserInputError('当前没有正在运行的术语扫描任务');
+    }
+
+    this.scanTaskState.abortRequested = true;
+    this.log('warning', '已提交术语扫描中止请求');
+  }
+
+  private createGlossaryScanTask(
+    project: TranslationProject,
+    scanner: FullTextGlossaryScanner,
+    extractorConfig: {
+      maxCharsPerBatch?: number;
+      occurrenceTopK?: number;
+      occurrenceTopP?: number;
+      requestOptions?: ChatRequestOptions;
+    },
+  ): ScanDictionaryTaskState {
+    const lines = scanner.collectLinesFromDocumentManager(project.getDocumentManager());
+    const batches = scanner.buildBatches(lines, {
+      maxCharsPerBatch: extractorConfig.maxCharsPerBatch,
+    });
+    return {
+      status: 'paused',
+      totalLines: lines.length,
+      totalBatches: batches.length,
+      completedBatches: 0,
+      nextBatchIndex: 0,
+      lines,
+      batches,
+      glossary: new Glossary(project.getGlossary()?.getAllTerms() ?? []),
+      requestOptions: extractorConfig.requestOptions,
+      maxCharsPerBatch: extractorConfig.maxCharsPerBatch,
+      occurrenceTopK: extractorConfig.occurrenceTopK,
+      occurrenceTopP: extractorConfig.occurrenceTopP,
+      abortRequested: false,
+    };
+  }
+
+  private async createGlossaryScanner(project: TranslationProject): Promise<{
+    scanner: FullTextGlossaryScanner;
+    extractorConfig: {
+      maxCharsPerBatch?: number;
+      occurrenceTopK?: number;
+      occurrenceTopP?: number;
+      requestOptions?: ChatRequestOptions;
+    };
+  }> {
+    const manager = new GlobalConfigManager();
+    const globalConfig = await manager.getTranslationGlobalConfig();
+    const extractorConfig = globalConfig.getGlossaryExtractorConfig();
+    if (!extractorConfig || extractorConfig.modelNames.length === 0) {
+      throw new Error('未配置术语提取 LLM，请先设置术语提取模型');
+    }
+
+    const provider = new TranslationGlobalConfig({
+      llm: globalConfig.llm,
+    }).createProvider();
+    provider.setHistoryLogger(
+      this.createRequestHistoryLogger('glossary_scan_requests', project),
+    );
+
+    return {
+      scanner: new FullTextGlossaryScanner(
+        provider.getChatClientWithFallback(extractorConfig.modelNames),
+        this.createLogger(),
+      ),
+      extractorConfig: {
+        maxCharsPerBatch: extractorConfig.maxCharsPerBatch,
+        occurrenceTopK: extractorConfig.occurrenceTopK,
+        occurrenceTopP: extractorConfig.occurrenceTopP,
+        requestOptions: extractorConfig.requestOptions,
+      },
+    };
+  }
+
+  private async runGlossaryScanTask(
+    project: TranslationProject,
+    scanner: FullTextGlossaryScanner,
+    task: ScanDictionaryTaskState,
+  ): Promise<void> {
+    const taskToken = this.processingToken;
+
+    try {
+      while (task.nextBatchIndex < task.batches.length) {
+        if (taskToken !== this.processingToken) {
+          return;
+        }
+        if (task.abortRequested) {
+          break;
         }
 
-        const provider = new TranslationGlobalConfig({
-          llm: globalConfig.llm,
-        }).createProvider();
-        provider.setHistoryLogger(
-          this.createRequestHistoryLogger('glossary_scan_requests', project),
-        );
-
-        const scanner = new FullTextGlossaryScanner(
-          provider.getChatClientWithFallback(extractorConfig.modelNames),
-          this.createLogger(),
-        );
-
-        const lines = scanner.collectLinesFromDocumentManager(
-          project.getDocumentManager(),
-        );
-        const batches = scanner.buildBatches(lines, {
-          maxCharsPerBatch: extractorConfig.maxCharsPerBatch,
+        const batch = task.batches[task.nextBatchIndex]!;
+        const extractedEntities = await scanner.scanBatch(batch, {
+          requestOptions: task.requestOptions,
         });
 
+        if (taskToken !== this.processingToken) {
+          return;
+        }
+
+        for (const entity of extractedEntities) {
+          const existing = task.glossary.getTerm(entity.term);
+          task.glossary.addTerm(this.mergeScannedGlossaryTerm(existing, entity));
+        }
+
+        task.completedBatches = batch.batchIndex + 1;
+        task.nextBatchIndex = batch.batchIndex + 1;
+        this.syncScanDictionaryProgress(task);
+        this.broadcastScanProgress();
         this.log(
           'info',
-          `术语扫描开始，共 ${lines.length} 行，分 ${batches.length} 个批次`,
+          `术语扫描批次 ${task.completedBatches}/${task.totalBatches} 完成`,
         );
-        this.scanDictionaryProgress = {
-          status: 'running',
-          totalBatches: batches.length,
-          completedBatches: 0,
-          totalLines: lines.length,
-        };
-        this.broadcastScanProgress();
+      }
 
-        const result = await scanner.scanLines(lines, {
-          maxCharsPerBatch: extractorConfig.maxCharsPerBatch,
-          occurrenceTopK: extractorConfig.occurrenceTopK,
-          occurrenceTopP: extractorConfig.occurrenceTopP,
-          requestOptions: extractorConfig.requestOptions,
-          seedTerms: project.getGlossary()?.getAllTerms(),
-          onBatchProgress: (completed, total) => {
-            this.scanDictionaryProgress = {
-              ...this.scanDictionaryProgress!,
-              completedBatches: completed,
-            };
-            this.broadcastScanProgress();
-            this.log('info', `术语扫描批次 ${completed}/${total} 完成`);
-          },
-        });
+      if (taskToken !== this.processingToken) {
+        return;
+      }
 
-        project.replaceGlossary(result.glossary);
-        await project.saveProgress();
-        this.refreshSnapshot();
-        this.markDictionaryChanged();
-        this.scanDictionaryProgress = {
-          status: 'done',
-          totalBatches: batches.length,
-          completedBatches: batches.length,
-          totalLines: lines.length,
-        };
+      if (task.abortRequested) {
+        task.status = 'paused';
+        task.errorMessage = undefined;
+        this.syncScanDictionaryProgress(task);
         this.broadcastScanProgress();
         this.log(
-          'success',
-          `术语提取完成，共 ${result.glossary.getAllTerms().length} 个条目`,
+          'warning',
+          `术语扫描已中止，已完成 ${task.completedBatches}/${task.totalBatches} 个批次`,
         );
-      } catch (error) {
-        this.log('error', `扫描字典失败：${toMsg(error)}`);
-        this.scanDictionaryProgress = {
-          ...this.scanDictionaryProgress!,
-          status: 'error',
-          errorMessage: toMsg(error),
-        };
-        this.broadcastScanProgress();
-      } finally {
+        return;
+      }
+
+      task.glossary.updateOccurrenceStats(
+        task.lines.map((line) => ({
+          blockId: line.blockId,
+          text: line.text,
+        })),
+      );
+
+      const filteredTerms = task.glossary
+        .getAllTerms()
+        .filter(
+          (term) => term.totalOccurrenceCount > 0 && term.textBlockOccurrenceCount > 1,
+        )
+        .sort((left, right) => this.compareScannedGlossaryTerms(left, right));
+      const retainedTerms = this.applyOccurrenceRankingFilters(filteredTerms, {
+        occurrenceTopK: task.occurrenceTopK,
+        occurrenceTopP: task.occurrenceTopP,
+      });
+      const retainedTermSet = new Set(retainedTerms.map((term) => term.term));
+      for (const term of task.glossary.getAllTerms()) {
+        if (!retainedTermSet.has(term.term)) {
+          task.glossary.removeTerm(term.term);
+        }
+      }
+
+      project.replaceGlossary(task.glossary);
+      await project.saveProgress();
+      this.refreshSnapshot();
+      this.markDictionaryChanged();
+
+      task.status = 'done';
+      task.errorMessage = undefined;
+      task.completedBatches = task.totalBatches;
+      task.nextBatchIndex = task.totalBatches;
+      this.syncScanDictionaryProgress(task);
+      this.broadcastScanProgress();
+      this.log(
+        'success',
+        `术语提取完成，共 ${task.glossary.getAllTerms().length} 个条目`,
+      );
+    } catch (error) {
+      if (taskToken !== this.processingToken) {
+        return;
+      }
+
+      task.status = 'error';
+      task.errorMessage = toMsg(error);
+      this.syncScanDictionaryProgress(task);
+      this.broadcastScanProgress();
+      this.log('error', `扫描字典失败：${task.errorMessage}`);
+    } finally {
+      if (taskToken === this.processingToken) {
         this.isBusy = false;
       }
-    })();
+    }
+  }
+
+  private syncScanDictionaryProgress(task: ScanDictionaryTaskState): void {
+    this.scanDictionaryProgress = {
+      status: task.status,
+      totalBatches: task.totalBatches,
+      completedBatches: task.completedBatches,
+      totalLines: task.totalLines,
+      currentBatchIndex:
+        task.nextBatchIndex > 0 && task.nextBatchIndex < task.totalBatches
+          ? task.nextBatchIndex + 1
+          : undefined,
+      errorMessage: task.errorMessage,
+    };
+  }
+
+  private mergeScannedGlossaryTerm(
+    existing: ReturnType<Glossary['getAllTerms']>[number] | undefined,
+    scanned: { term: string; category?: GlossaryTermCategory },
+  ): GlossaryTerm {
+    if (!existing) {
+      return {
+        term: scanned.term,
+        translation: '',
+        category: scanned.category,
+      };
+    }
+
+    return {
+      term: existing.term,
+      translation: existing.translation,
+      category: existing.category ?? scanned.category,
+      totalOccurrenceCount: existing.totalOccurrenceCount,
+      textBlockOccurrenceCount: existing.textBlockOccurrenceCount,
+      description: existing.description,
+    };
+  }
+
+  private compareScannedGlossaryTerms(
+    left: {
+      totalOccurrenceCount: number;
+      textBlockOccurrenceCount: number;
+      term: string;
+    },
+    right: {
+      totalOccurrenceCount: number;
+      textBlockOccurrenceCount: number;
+      term: string;
+    },
+  ): number {
+    return (
+      right.textBlockOccurrenceCount - left.textBlockOccurrenceCount ||
+      right.totalOccurrenceCount - left.totalOccurrenceCount ||
+      left.term.localeCompare(right.term)
+    );
+  }
+
+  private applyOccurrenceRankingFilters<T extends {
+    totalOccurrenceCount: number;
+    textBlockOccurrenceCount: number;
+    term: string;
+  }>(
+    terms: ReadonlyArray<T>,
+    options: { occurrenceTopK?: number; occurrenceTopP?: number },
+  ): T[] {
+    if (terms.length === 0) {
+      this.validateOccurrenceRankingOptions(options);
+      return [];
+    }
+
+    this.validateOccurrenceRankingOptions(options);
+
+    let retainCount = terms.length;
+    if (options.occurrenceTopK !== undefined) {
+      retainCount = Math.min(retainCount, options.occurrenceTopK);
+    }
+    if (options.occurrenceTopP !== undefined) {
+      retainCount = Math.min(retainCount, Math.ceil(terms.length * options.occurrenceTopP));
+    }
+
+    return terms.slice(0, retainCount);
+  }
+
+  private validateOccurrenceRankingOptions(options: {
+    occurrenceTopK?: number;
+    occurrenceTopP?: number;
+  }): void {
+    const { occurrenceTopK, occurrenceTopP } = options;
+    if (
+      occurrenceTopK !== undefined &&
+      (!Number.isInteger(occurrenceTopK) || occurrenceTopK <= 0)
+    ) {
+      throw new Error('occurrenceTopK 必须是正整数');
+    }
+    if (
+      occurrenceTopP !== undefined &&
+      (typeof occurrenceTopP !== 'number' ||
+        !Number.isFinite(occurrenceTopP) ||
+        occurrenceTopP <= 0 ||
+        occurrenceTopP > 1)
+    ) {
+      throw new Error('occurrenceTopP 必须在 (0, 1] 范围内');
+    }
   }
 
   async updateDictionaryTerm(args: {
@@ -1208,144 +1481,281 @@ export class ProjectService {
       this.log('warning', '当前没有已初始化的项目');
       return;
     }
-
-    this.clearTaskProgressUi('all');
-    this.isBusy = true;
-    this.plotSummaryProgress = {
-      status: 'running',
-      totalChapters: 0,
-      completedChapters: 0,
-      totalBatches: 0,
-      completedBatches: 0,
-    };
-    this.broadcastPlotProgress();
+    if (this.plotTaskState?.status === 'running') {
+      throw new ProjectServiceUserInputError('情节总结任务正在运行');
+    }
 
     const project = this.project;
+    const { summarizer, plotConfig, chapters, totalBatches } =
+      await this.createPlotSummaryRuntime(project);
+    const isFreshRun = !this.plotTaskState || this.plotTaskState.status === 'done';
 
-    void (async () => {
-      try {
-        const manager = new GlobalConfigManager();
-        const globalConfig = await manager.getTranslationGlobalConfig();
-        const plotConfig = globalConfig.getPlotSummaryConfig();
-        if (!plotConfig || plotConfig.modelNames.length === 0) {
-          throw new Error('未配置情节总结 LLM');
+    if (isFreshRun) {
+      this.clearTaskProgressUi('plot');
+      this.plotTaskState = this.createPlotSummaryTaskState({
+        project,
+        plotConfig,
+        chapters,
+        totalBatches,
+      });
+      this.plotTaskState.status = 'running';
+    } else {
+      this.plotTaskState!.requestOptions = plotConfig.requestOptions;
+      this.plotTaskState!.fragmentsPerBatch = plotConfig.fragmentsPerBatch ?? 5;
+      this.plotTaskState!.maxContextSummaries = plotConfig.maxContextSummaries ?? 20;
+      this.plotTaskState!.abortRequested = false;
+      this.plotTaskState!.errorMessage = undefined;
+      this.plotTaskState!.status = 'running';
+    }
+
+    const task = this.plotTaskState!;
+    this.log(
+      'info',
+      isFreshRun
+        ? `情节总结开始，共 ${task.totalChapters} 个章节，${task.totalBatches} 个批次`
+        : `继续情节总结，已完成 ${task.completedBatches}/${task.totalBatches} 个批次`,
+    );
+    this.isBusy = true;
+    this.syncPlotSummaryProgress(task);
+    this.broadcastPlotProgress();
+    void this.runPlotSummaryTask(project, summarizer, task);
+  }
+
+  async resumePlotSummary(): Promise<void> {
+    await this.startPlotSummary();
+  }
+
+  async abortPlotSummary(): Promise<void> {
+    if (this.plotTaskState?.status !== 'running') {
+      throw new ProjectServiceUserInputError('当前没有正在运行的情节总结任务');
+    }
+
+    this.plotTaskState.abortRequested = true;
+    this.log('warning', '已提交情节总结中止请求');
+  }
+
+  private async createPlotSummaryRuntime(project: TranslationProject): Promise<{
+    summarizer: PlotSummarizer;
+    plotConfig: {
+      fragmentsPerBatch?: number;
+      maxContextSummaries?: number;
+      requestOptions?: ChatRequestOptions;
+    };
+    chapters: Array<{ chapterId: number; fragmentCount: number }>;
+    totalBatches: number;
+  }> {
+    const manager = new GlobalConfigManager();
+    const globalConfig = await manager.getTranslationGlobalConfig();
+    const plotConfig = globalConfig.getPlotSummaryConfig();
+    if (!plotConfig || plotConfig.modelNames.length === 0) {
+      throw new Error('未配置情节总结 LLM');
+    }
+
+    const runtimeConfig = new TranslationGlobalConfig({
+      llm: globalConfig.llm,
+    });
+    const provider = runtimeConfig.createProvider();
+    const documentManager = project.getDocumentManager();
+    provider.setHistoryLogger(
+      this.createRequestHistoryLogger('plot_summary_requests', project),
+    );
+
+    const projectDir = project.getWorkspaceFileManifest().projectDir;
+    const summaryPath = join(projectDir, 'Data', 'plot-summaries.json');
+    const topology = project.getStoryTopology();
+
+    const summarizer = new PlotSummarizer(
+      provider.getChatClientWithFallback(plotConfig.modelNames),
+      documentManager,
+      summaryPath,
+      {
+        fragmentsPerBatch: plotConfig.fragmentsPerBatch,
+        maxContextSummaries: plotConfig.maxContextSummaries,
+        requestOptions: plotConfig.requestOptions,
+        logger: this.createLogger(),
+        topology,
+      },
+    );
+    await summarizer.loadSummaries();
+
+    const chapters = documentManager
+      .getAllChapters()
+      .map((chapter) => ({
+        chapterId: chapter.id,
+        fragmentCount: chapter.fragments.length,
+      }));
+    const fragmentsPerBatch = plotConfig.fragmentsPerBatch ?? 5;
+    let totalBatches = 0;
+    for (const chapter of chapters) {
+      totalBatches += Math.ceil(chapter.fragmentCount / fragmentsPerBatch);
+    }
+
+    return {
+      summarizer,
+      plotConfig: {
+        fragmentsPerBatch: plotConfig.fragmentsPerBatch,
+        maxContextSummaries: plotConfig.maxContextSummaries,
+        requestOptions: plotConfig.requestOptions,
+      },
+      chapters,
+      totalBatches,
+    };
+  }
+
+  private createPlotSummaryTaskState(input: {
+    project: TranslationProject;
+    plotConfig: {
+      fragmentsPerBatch?: number;
+      maxContextSummaries?: number;
+      requestOptions?: ChatRequestOptions;
+    };
+    chapters: Array<{ chapterId: number; fragmentCount: number }>;
+    totalBatches: number;
+  }): PlotSummaryTaskState {
+    return {
+      status: 'paused',
+      totalChapters: input.chapters.length,
+      completedChapters: 0,
+      totalBatches: input.totalBatches,
+      completedBatches: 0,
+      nextChapterIndex: 0,
+      nextFragmentIndex: 0,
+      chapters: input.chapters,
+      requestOptions: input.plotConfig.requestOptions,
+      fragmentsPerBatch: input.plotConfig.fragmentsPerBatch ?? 5,
+      maxContextSummaries: input.plotConfig.maxContextSummaries ?? 20,
+      summaryPath: join(input.project.getWorkspaceFileManifest().projectDir, 'Data', 'plot-summaries.json'),
+      abortRequested: false,
+    };
+  }
+
+  private async runPlotSummaryTask(
+    project: TranslationProject,
+    summarizer: PlotSummarizer,
+    task: PlotSummaryTaskState,
+  ): Promise<void> {
+    const taskToken = this.processingToken;
+
+    try {
+      for (let chapterIndex = task.nextChapterIndex; chapterIndex < task.chapters.length; chapterIndex += 1) {
+        if (taskToken !== this.processingToken) {
+          return;
+        }
+        if (task.abortRequested) {
+          break;
         }
 
-        const runtimeConfig = new TranslationGlobalConfig({
-          llm: globalConfig.llm,
-        });
-        const provider = runtimeConfig.createProvider();
-        const documentManager = project.getDocumentManager();
-
-        provider.setHistoryLogger(
-          this.createRequestHistoryLogger('plot_summary_requests', project),
-        );
-
-        const projectDir = project.getWorkspaceFileManifest().projectDir;
-        const summaryPath = join(projectDir, 'Data', 'plot-summaries.json');
-        const currentTopology = project.getStoryTopology();
-
-        const summarizer = new PlotSummarizer(
-          provider.getChatClientWithFallback(plotConfig.modelNames),
-          documentManager,
-          summaryPath,
-          {
-            fragmentsPerBatch: plotConfig.fragmentsPerBatch,
-            maxContextSummaries: plotConfig.maxContextSummaries,
-            requestOptions: plotConfig.requestOptions,
-            logger: this.createLogger(),
-            topology: currentTopology,
-          },
-        );
-        await summarizer.loadSummaries();
-
-        const chapters = documentManager.getAllChapters();
-        const totalChapters = chapters.length;
-        const fragmentsPerBatch = plotConfig.fragmentsPerBatch ?? 5;
-        let totalBatches = 0;
-        for (const ch of chapters) {
-          totalBatches += Math.ceil(ch.fragments.length / fragmentsPerBatch);
+        const chapterMeta = task.chapters[chapterIndex]!;
+        const chapter = project.getDocumentManager().getChapterById(chapterMeta.chapterId);
+        if (!chapter) {
+          throw new Error(`章节不存在: ${chapterMeta.chapterId}`);
         }
 
-        let completedChapters = 0;
-        let completedBatches = 0;
-        this.plotSummaryProgress = {
-          status: 'running',
-          totalChapters,
-          completedChapters: 0,
-          totalBatches,
-          completedBatches: 0,
-        };
+        this.log(
+          'info',
+          `开始总结章节 ${chapter.id}（${chapter.fragments.length} 个文本块）`,
+        );
+        const startFragmentIndex =
+          chapterIndex === task.nextChapterIndex ? task.nextFragmentIndex : 0;
+        task.nextChapterIndex = chapterIndex;
+        task.nextFragmentIndex = startFragmentIndex;
+        this.syncPlotSummaryProgress(task, chapter.id);
         this.broadcastPlotProgress();
 
-        for (const chapter of chapters) {
-          this.log(
-            'info',
-            `开始总结章节 ${chapter.id}（${chapter.fragments.length} 个文本块）`,
-          );
-          this.plotSummaryProgress = {
-            ...this.plotSummaryProgress,
-            currentChapterId: chapter.id,
-          };
-          this.broadcastPlotProgress();
-
-          let fragmentIndex = 0;
-          while (fragmentIndex < chapter.fragments.length) {
-            const count = Math.min(
-              fragmentsPerBatch,
-              chapter.fragments.length - fragmentIndex,
-            );
-            await summarizer.summarizeFragments(
-              chapter.id,
-              fragmentIndex,
-              count,
-            );
-            fragmentIndex += count;
-            completedBatches += 1;
-            this.plotSummaryProgress = {
-              ...this.plotSummaryProgress,
-              completedBatches,
-              completedChapters,
-            };
-            this.broadcastPlotProgress();
+        let fragmentIndex = startFragmentIndex;
+        while (fragmentIndex < chapter.fragments.length) {
+          if (taskToken !== this.processingToken) {
+            return;
+          }
+          if (task.abortRequested) {
+            break;
           }
 
-          completedChapters += 1;
-          this.log('success', `章节 ${chapter.id} 总结完成`);
-          this.plotSummaryProgress = {
-            ...this.plotSummaryProgress,
-            completedChapters,
-          };
+          const count = Math.min(task.fragmentsPerBatch, chapter.fragments.length - fragmentIndex);
+          await summarizer.summarizeFragments(chapter.id, fragmentIndex, count, {
+            requestOptions: task.requestOptions,
+          });
+          fragmentIndex += count;
+          task.completedBatches += 1;
+          task.nextChapterIndex = chapterIndex;
+          task.nextFragmentIndex = fragmentIndex;
+          this.syncPlotSummaryProgress(task, chapter.id);
           this.broadcastPlotProgress();
         }
 
-        this.plotSummaryProgress = {
-          status: 'done',
-          totalChapters,
-          completedChapters,
-          totalBatches,
-          completedBatches,
-        };
+        if (task.abortRequested) {
+          break;
+        }
+
+        task.completedChapters += 1;
+        task.completedBatches = Math.min(task.completedBatches, task.totalBatches);
+        task.nextChapterIndex = chapterIndex + 1;
+        task.nextFragmentIndex = 0;
+        this.syncPlotSummaryProgress(task, chapter.id);
         this.broadcastPlotProgress();
-        await project.reloadNarrativeArtifacts();
-        this.topology = project.getStoryTopology() ?? null;
-        this.plotSummaryReady = project.hasPlotSummaries();
+        this.log('success', `章节 ${chapter.id} 总结完成`);
+      }
+
+      if (taskToken !== this.processingToken) {
+        return;
+      }
+
+      if (task.abortRequested) {
+        task.status = 'paused';
+        task.errorMessage = undefined;
+        this.syncPlotSummaryProgress(task);
+        this.broadcastPlotProgress();
         this.log(
-          'success',
-          `情节大纲完成（${totalChapters} 章节，${completedBatches} 批）`,
+          'warning',
+          `情节总结已中止，已完成 ${task.completedBatches}/${task.totalBatches} 个批次`,
         );
-      } catch (error) {
-        this.log('error', `情节总结失败：${toMsg(error)}`);
-        this.plotSummaryProgress = {
-          ...this.plotSummaryProgress!,
-          status: 'error',
-          errorMessage: toMsg(error),
-        };
-        this.broadcastPlotProgress();
-      } finally {
+        return;
+      }
+
+      task.status = 'done';
+      task.errorMessage = undefined;
+      task.completedChapters = task.totalChapters;
+      task.completedBatches = task.totalBatches;
+      task.nextChapterIndex = task.totalChapters;
+      task.nextFragmentIndex = 0;
+      this.syncPlotSummaryProgress(task);
+      this.broadcastPlotProgress();
+      await project.reloadNarrativeArtifacts();
+      this.topology = project.getStoryTopology() ?? null;
+      this.plotSummaryReady = project.hasPlotSummaries();
+      this.log(
+        'success',
+        `情节大纲完成（${task.totalChapters} 章节，${task.completedBatches} 批）`,
+      );
+    } catch (error) {
+      if (taskToken !== this.processingToken) {
+        return;
+      }
+
+      task.status = 'error';
+      task.errorMessage = toMsg(error);
+      this.syncPlotSummaryProgress(task);
+      this.broadcastPlotProgress();
+      this.log('error', `情节总结失败：${task.errorMessage}`);
+    } finally {
+      if (taskToken === this.processingToken) {
         this.isBusy = false;
       }
-    })();
+    }
+  }
+
+  private syncPlotSummaryProgress(task: PlotSummaryTaskState, currentChapterId?: number): void {
+    const resolvedCurrentChapterId =
+      currentChapterId ?? task.chapters[task.nextChapterIndex]?.chapterId;
+    this.plotSummaryProgress = {
+      status: task.status,
+      totalChapters: task.totalChapters,
+      completedChapters: task.completedChapters,
+      totalBatches: task.totalBatches,
+      completedBatches: task.completedBatches,
+      currentChapterId: resolvedCurrentChapterId,
+      errorMessage: task.errorMessage,
+    };
   }
 
   clearTaskProgressUi(task: 'scan' | 'plot' | 'all' = 'all'): void {
@@ -1732,6 +2142,8 @@ export class ProjectService {
     this.topology = null;
     this.plotSummaryProgress = null;
     this.scanDictionaryProgress = null;
+    this.scanTaskState = null;
+    this.plotTaskState = null;
     this.isBusy = false;
     this.resetResourceVersions(0);
   }

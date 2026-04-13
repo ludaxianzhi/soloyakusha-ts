@@ -1119,6 +1119,34 @@ export function AppShell() {
     [runAction],
   );
 
+  const handleAbortTaskActivity = useCallback(
+    async (task: TaskActivityKind) => {
+      await runAction(async () => {
+        if (task === 'scan') {
+          await api.abortScanDictionary();
+        } else {
+          await api.abortPlotSummary();
+        }
+        await refreshProjectStatus();
+      });
+    },
+    [refreshProjectStatus, runAction],
+  );
+
+  const handleResumeTaskActivity = useCallback(
+    async (task: TaskActivityKind) => {
+      await runAction(async () => {
+        if (task === 'scan') {
+          await api.resumeScanDictionary();
+        } else {
+          await api.resumePlotSummary();
+        }
+        await refreshProjectStatus();
+      });
+    },
+    [refreshProjectStatus, runAction],
+  );
+
   const handleCreateLlmProfile = useCallback(() => {
     setSelectedLlmName(undefined);
     llmForm.resetFields();
@@ -1556,6 +1584,8 @@ export function AppShell() {
                       onImportChapterArchive={handleImportChapterArchive}
                       onDownloadExport={handleDownloadExport}
                       onResetProject={handleResetProject}
+                      onAbortTaskActivity={handleAbortTaskActivity}
+                      onResumeTaskActivity={handleResumeTaskActivity}
                       onDismissTaskActivity={handleDismissTaskActivity}
                     />
                   }

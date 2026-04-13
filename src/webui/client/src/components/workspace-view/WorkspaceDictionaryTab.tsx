@@ -37,6 +37,8 @@ interface WorkspaceDictionaryTabProps {
     content: string,
     format: 'csv' | 'tsv',
   ) => Promise<DictionaryImportResult>;
+  onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }
 
@@ -50,6 +52,8 @@ export function WorkspaceDictionaryTab({
   onOpenDictionaryEditor,
   onDeleteDictionary,
   onImportDictionaryFromContent,
+  onAbortTaskActivity,
+  onResumeTaskActivity,
   onDismissTaskActivity,
 }: WorkspaceDictionaryTabProps) {
   const { message } = AntdApp.useApp();
@@ -125,6 +129,8 @@ export function WorkspaceDictionaryTab({
         <TaskActivityPanels
           projectStatus={projectStatus}
           tasks={['scan']}
+          onAbortTaskActivity={onAbortTaskActivity}
+          onResumeTaskActivity={onResumeTaskActivity}
           onDismissTaskActivity={onDismissTaskActivity}
         />
         <Table

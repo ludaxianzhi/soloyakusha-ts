@@ -173,7 +173,6 @@ export class FullTextGlossaryScanner {
   ): Promise<FullTextGlossaryScanResult> {
     const glossary = new Glossary(options.seedTerms ?? []);
     const batches = this.buildBatches(lines, options);
-    const promptManager = await getDefaultPromptManager();
 
     this.logger.info?.(
       `开始全文术语扫描，共 ${lines.length} 行，分 ${batches.length} 个批次`,
@@ -182,28 +181,7 @@ export class FullTextGlossaryScanner {
     let completedBatches = 0;
     const batchResults = await Promise.all(
       batches.map(async (batch) => {
-        this.logger.info?.(
-          `扫描批次 ${batch.batchIndex + 1}/${batches.length}（行 ${batch.startLineNumber}–${batch.endLineNumber}，约 ${batch.charCount} 字符）`,
-        );
-
-        const renderedPrompt = promptManager.renderPrompt("glossary.fullTextScan", {
-          startLineLabel: formatScanLineLabel(batch.startLineNumber),
-          endLineLabel: formatScanLineLabel(batch.endLineNumber),
-          batchText: batch.text,
-        });
-        const response = await this.chatClient.singleTurnRequest(
-          renderedPrompt.userPrompt,
-          withRequestMeta(
-            withOutputValidator(
-              buildScanRequestOptions(options.requestOptions, renderedPrompt.systemPrompt),
-              (responseText) => {
-                parseScanResponse(responseText);
-              },
-            ),
-            this.buildBatchRequestMeta(batch),
-          ),
-        );
-        const extractedEntities = parseScanResponse(response);
+        const extractedEntities = await this.scanBatch(batch, options);
 
         completedBatches += 1;
         this.logger.info?.(
@@ -260,6 +238,35 @@ export class FullTextGlossaryScanner {
       lines: [...lines],
       batches,
     };
+  }
+
+  async scanBatch(
+    batch: FullTextGlossaryScanBatch,
+    options: Pick<FullTextGlossaryScanOptions, "requestOptions"> = {},
+  ): Promise<RawScannedEntity[]> {
+    const promptManager = await getDefaultPromptManager();
+    this.logger.info?.(
+      `扫描批次 ${batch.batchIndex + 1}（行 ${batch.startLineNumber}–${batch.endLineNumber}，约 ${batch.charCount} 字符）`,
+    );
+
+    const renderedPrompt = promptManager.renderPrompt("glossary.fullTextScan", {
+      startLineLabel: formatScanLineLabel(batch.startLineNumber),
+      endLineLabel: formatScanLineLabel(batch.endLineNumber),
+      batchText: batch.text,
+    });
+    const response = await this.chatClient.singleTurnRequest(
+      renderedPrompt.userPrompt,
+      withRequestMeta(
+        withOutputValidator(
+          buildScanRequestOptions(options.requestOptions, renderedPrompt.systemPrompt),
+          (responseText) => {
+            parseScanResponse(responseText);
+          },
+        ),
+        this.buildBatchRequestMeta(batch),
+      ),
+    );
+    return parseScanResponse(response);
   }
 
   formatResult(result: FullTextGlossaryScanResult): string {

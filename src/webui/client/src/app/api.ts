@@ -273,6 +273,10 @@ export const api = {
     }),
   scanDictionary: () =>
     request('/api/project/dictionary/scan', { method: 'POST' }),
+  abortScanDictionary: () =>
+    request('/api/project/dictionary/scan/abort', { method: 'POST' }),
+  resumeScanDictionary: () =>
+    request('/api/project/dictionary/scan/resume', { method: 'POST' }),
   importDictionaryFromContent: (content: string, format: 'csv' | 'tsv') =>
     request<DictionaryImportResult>('/api/project/dictionary/import-content', {
       method: 'POST',
@@ -281,6 +285,10 @@ export const api = {
 
   startPlotSummary: () =>
     request('/api/project/plot-summary', { method: 'POST' }),
+  abortPlotSummary: () =>
+    request('/api/project/plot-summary/abort', { method: 'POST' }),
+  resumePlotSummary: () =>
+    request('/api/project/plot-summary/resume', { method: 'POST' }),
   clearTaskProgress: (task: 'scan' | 'plot' | 'all') =>
     request('/api/project/task-ui/clear', {
       method: 'POST',

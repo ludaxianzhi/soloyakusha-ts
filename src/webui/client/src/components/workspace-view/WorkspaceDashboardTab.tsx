@@ -30,6 +30,8 @@ interface WorkspaceDashboardTabProps {
   projectStatus: ProjectStatus | null;
   onRefreshProjectStatus: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
+  onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }
 
@@ -40,6 +42,8 @@ export function WorkspaceDashboardTab({
   projectStatus,
   onRefreshProjectStatus,
   onProjectCommand,
+  onAbortTaskActivity,
+  onResumeTaskActivity,
   onDismissTaskActivity,
 }: WorkspaceDashboardTabProps) {
   usePollingTask({
@@ -96,8 +100,18 @@ export function WorkspaceDashboardTab({
           >
             中止
           </Button>
-          <Button onClick={() => void onProjectCommand('scan')}>扫描术语</Button>
-          <Button onClick={() => void onProjectCommand('plot')}>生成情节大纲</Button>
+          <Button
+            disabled={projectStatus?.isBusy === true}
+            onClick={() => void onProjectCommand('scan')}
+          >
+            扫描术语
+          </Button>
+          <Button
+            disabled={projectStatus?.isBusy === true}
+            onClick={() => void onProjectCommand('plot')}
+          >
+            生成情节大纲
+          </Button>
           <Button onClick={() => void onProjectCommand('close')}>关闭工作区</Button>
           <Popconfirm
             title="确认删除当前工作区？"
@@ -155,6 +169,8 @@ export function WorkspaceDashboardTab({
 
       <TaskActivityPanels
         projectStatus={projectStatus}
+        onAbortTaskActivity={onAbortTaskActivity}
+        onResumeTaskActivity={onResumeTaskActivity}
         onDismissTaskActivity={onDismissTaskActivity}
       />
 
