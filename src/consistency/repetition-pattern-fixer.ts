@@ -10,6 +10,7 @@ import type {
   JsonObject,
   LlmRequestMetadata,
 } from "../llm/types.ts";
+import { parseJsonResponseText } from "../llm/utils.ts";
 import type { Logger } from "../project/logger.ts";
 import type {
   RepetitionPatternAnalysis,
@@ -204,7 +205,7 @@ export function parseRepetitionPatternFixResponse(
   responseText: string,
   targetLocations: ReadonlyArray<RepetitionPatternTaskLocation>,
 ): RepetitionPatternFixUpdate[] {
-  const parsed = JSON.parse(responseText) as { updates?: unknown };
+  const parsed = parseJsonResponseText(responseText) as { updates?: unknown };
   if (!parsed || !Array.isArray(parsed.updates)) {
     throw new Error("一致性修订响应必须包含 updates 数组");
   }

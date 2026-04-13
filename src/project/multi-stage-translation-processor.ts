@@ -35,6 +35,7 @@ import type {
   JsonObject,
   LlmRequestMetadata,
 } from "../llm/types.ts";
+import { parseJsonResponseText } from "../llm/utils.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
 import { PromptManager, type PromptTranslationUnit } from "./prompt-manager.ts";
 import type { TranslationWorkItem } from "./pipeline.ts";
@@ -515,7 +516,7 @@ function parseTranslationResponse(
 ): TranslationProcessorTranslation[] {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(responseText);
+    parsed = parseJsonResponseText(responseText);
   } catch (error) {
     throw new Error(
       `多步骤翻译结果不是合法 JSON: ${error instanceof Error ? error.message : String(error)}`,

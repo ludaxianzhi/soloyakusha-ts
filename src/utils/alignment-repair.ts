@@ -17,6 +17,7 @@ import type {
   LlmRequestMetadata,
 } from "../llm/types.ts";
 import { getDefaultPromptManager } from "../prompts/index.ts";
+import { parseJsonResponseText } from "../llm/utils.ts";
 import { TEXT_ALIGN_PLACEHOLDER, TextAligner } from "./text-align.ts";
 
 export const DEFAULT_ALIGNMENT_REPAIR_ID_PREFIX = "u";
@@ -311,7 +312,7 @@ function parseAlignmentRepairResponse(
 ): AlignmentRepairSuggestion[] {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(responseText);
+    parsed = parseJsonResponseText(responseText);
   } catch (error) {
     throw new Error(
       `补翻返回结果不是合法 JSON: ${error instanceof Error ? error.message : String(error)}`,

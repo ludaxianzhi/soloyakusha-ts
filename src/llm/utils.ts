@@ -249,6 +249,37 @@ export async function collectJsonSse<T>(
   }
 }
 
+export function parseJsonResponseText<T = unknown>(responseText: string): T {
+  const trimmed = responseText.replace(/^\uFEFF/, "").trim();
+  if (!trimmed) {
+    throw new Error("响应内容为空");
+  }
+
+  const candidates = new Set<string>([trimmed]);
+  const fencedBlock = extractFirstCodeBlock(trimmed);
+  if (fencedBlock) {
+    candidates.add(fencedBlock.trim());
+  }
+
+  const extractedJson = extractFirstJsonSubstring(trimmed);
+  if (extractedJson) {
+    candidates.add(extractedJson.trim());
+  }
+
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as T;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const errorMessage =
+    lastError instanceof Error ? lastError.message : String(lastError ?? "未知错误");
+  throw new Error(`无法从响应中解析 JSON: ${errorMessage}`);
+}
+
 export function estimateTokensFromText(text: string): number {
   if (!text) {
     return 0;
@@ -263,4 +294,67 @@ export function createRequestId(): string {
 
 export function getDurationSeconds(startAt: number): number {
   return (performance.now() - startAt) / 1000;
+}
+
+function extractFirstCodeBlock(text: string): string | undefined {
+  const match = text.match(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/);
+  return match?.[1];
+}
+
+function extractFirstJsonSubstring(text: string): string | undefined {
+  for (let start = 0; start < text.length; start += 1) {
+    const opener = text[start];
+    if (opener !== "{" && opener !== "[") {
+      continue;
+    }
+
+    const stack: string[] = [opener];
+    let inString = false;
+    let escaped = false;
+
+    for (let index = start + 1; index < text.length; index += 1) {
+      const char = text[index];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (char === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (char === "{" || char === "[") {
+        stack.push(char);
+        continue;
+      }
+
+      if (char === "}" || char === "]") {
+        const last = stack.pop();
+        if (!last) {
+          break;
+        }
+
+        if ((last === "{" && char !== "}") || (last === "[" && char !== "]")) {
+          break;
+        }
+
+        if (stack.length === 0) {
+          return text.slice(start, index + 1);
+        }
+      }
+    }
+  }
+
+  return undefined;
 }

@@ -27,6 +27,7 @@ import type {
   JsonObject,
   LlmRequestMetadata,
 } from "../llm/types.ts";
+import { parseJsonResponseText } from "../llm/utils.ts";
 import { getDefaultPromptManager } from "../prompts/index.ts";
 import type { PromptManager } from "../prompts/index.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
@@ -528,9 +529,11 @@ export async function loadPlotSummaryEntriesFromFile(
 function parsePlotSummaryResponse(responseText: string): PlotSummaryContent {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(responseText);
-  } catch {
-    throw new Error(`情节总结响应不是有效 JSON: ${responseText.slice(0, 200)}`);
+    parsed = parseJsonResponseText(responseText);
+  } catch (error) {
+    throw new Error(
+      `情节总结响应不是有效 JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   if (!isRecord(parsed)) {

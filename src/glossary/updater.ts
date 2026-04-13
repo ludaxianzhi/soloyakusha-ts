@@ -17,6 +17,7 @@ import type {
   JsonObject,
   LlmRequestMetadata,
 } from "../llm/types.ts";
+import { parseJsonResponseText } from "../llm/utils.ts";
 import {
   getDefaultPromptManager,
   type PromptManager as SharedPromptManager,
@@ -317,7 +318,7 @@ function parseGlossaryUpdateResponse(
 ): GlossaryTranslationUpdate[] {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(responseText);
+    parsed = parseJsonResponseText(responseText);
   } catch (error) {
     throw new Error(
       `术语表更新结果不是合法 JSON: ${error instanceof Error ? error.message : String(error)}`,
