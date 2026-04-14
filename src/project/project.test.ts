@@ -954,6 +954,203 @@ describe("TranslationProject", () => {
     expect(snapshot.queueSnapshots[0]?.progress.waitingFragments).toBe(1);
   });
 
+  test("requeues cleared chapter translations after project completion", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-clear-chapter-queue-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一章\n", "utf8");
+    await writeFile(join(sourceDir, "chapter-2.txt"), "第二章\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "clear-chapter-queue",
+        projectDir: workspaceDir,
+        chapters: [
+          { id: 1, filePath: "sources\\chapter-1.txt" },
+          { id: 2, filePath: "sources\\chapter-2.txt" },
+        ],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.startTranslation();
+
+    const translationQueue = project.getWorkQueue("translation");
+    const firstBatch = await translationQueue.dispatchReadyItems();
+    await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Chapter 1",
+    });
+
+    const secondBatch = await translationQueue.dispatchReadyItems();
+    await project.submitWorkResult({
+      runId: secondBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 2,
+      fragmentIndex: 0,
+      outputText: "Chapter 2",
+    });
+
+    expect(project.getLifecycleSnapshot().status).toBe("completed");
+
+    await project.clearChapterTranslations([2]);
+
+    expect(project.getFragment(1, 0)?.translation.lines).toEqual(["Chapter 1"]);
+    expect(project.getFragment(2, 0)?.translation.lines).toEqual([""]);
+
+    const snapshot = project.getProjectSnapshot();
+    expect(snapshot.progress.translatedFragments).toBe(1);
+    expect(snapshot.progress.translatedChapters).toBe(1);
+    expect(snapshot.lifecycle.status).toBe("stopped");
+    expect(snapshot.lifecycle.queuedWorkItems).toBe(1);
+    expect(snapshot.lifecycle.activeWorkItems).toBe(0);
+    expect(snapshot.queueSnapshots[0]?.progress.completedFragments).toBe(1);
+    expect(snapshot.queueSnapshots[0]?.progress.readyFragments).toBe(1);
+    expect(snapshot.queueSnapshots[0]?.progress.waitingFragments).toBe(0);
+    expect(project.getReadyWorkItemSnapshots().map((item) => item.chapterId)).toEqual([2]);
+
+    await project.startTranslation();
+    const resumedBatch = await translationQueue.dispatchReadyItems();
+    expect(resumedBatch.map((item) => [item.chapterId, item.fragmentIndex])).toEqual([[2, 0]]);
+  });
+
+  test("requeues all fragments after clearing all translations from a completed project", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-clear-all-queue-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n第二句\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "clear-all-queue",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.startTranslation();
+
+    const translationQueue = project.getWorkQueue("translation");
+    const firstBatch = await translationQueue.dispatchReadyItems();
+    await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Line 1",
+    });
+
+    const secondBatch = await translationQueue.dispatchReadyItems();
+    await project.submitWorkResult({
+      runId: secondBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 1,
+      outputText: "Line 2",
+    });
+
+    expect(project.getLifecycleSnapshot().status).toBe("completed");
+
+    await project.clearAllTranslations();
+
+    expect(project.getFragment(1, 0)?.translation.lines).toEqual([""]);
+    expect(project.getFragment(1, 1)?.translation.lines).toEqual([""]);
+
+    const snapshot = project.getProjectSnapshot();
+    expect(snapshot.progress.translatedFragments).toBe(0);
+    expect(snapshot.progress.translatedChapters).toBe(0);
+    expect(snapshot.lifecycle.status).toBe("stopped");
+    expect(snapshot.lifecycle.queuedWorkItems).toBe(2);
+    expect(snapshot.lifecycle.activeWorkItems).toBe(0);
+    expect(snapshot.queueSnapshots[0]?.progress.completedFragments).toBe(0);
+    expect(snapshot.queueSnapshots[0]?.progress.readyFragments).toBe(1);
+    expect(snapshot.queueSnapshots[0]?.progress.waitingFragments).toBe(1);
+    expect(project.getReadyWorkItemSnapshots().map((item) => item.fragmentIndex)).toEqual([0]);
+
+    await project.startTranslation();
+    const resumedBatch = await translationQueue.dispatchReadyItems();
+    expect(resumedBatch.map((item) => item.fragmentIndex)).toEqual([0]);
+  });
+
+  test("clearing translations during a run aborts the active run and rebuilds the queue", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-clear-running-queue-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n第二句\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "clear-running-queue",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.startTranslation();
+
+    const translationQueue = project.getWorkQueue("translation");
+    const firstBatch = await translationQueue.dispatchReadyItems();
+    const staleRunId = firstBatch[0]!.runId;
+
+    await project.clearChapterTranslations([1]);
+
+    const snapshot = project.getProjectSnapshot();
+    expect(snapshot.lifecycle.status).toBe("aborted");
+    expect(snapshot.lifecycle.activeWorkItems).toBe(0);
+    expect(snapshot.lifecycle.queuedWorkItems).toBe(2);
+    expect(snapshot.queueSnapshots[0]?.progress.completedFragments).toBe(0);
+    expect(snapshot.queueSnapshots[0]?.progress.readyFragments).toBe(1);
+    expect(snapshot.queueSnapshots[0]?.progress.waitingFragments).toBe(1);
+    expect(project.getFragment(1, 0)?.translation.lines).toEqual([""]);
+    expect(project.getFragment(1, 1)?.translation.lines).toEqual([""]);
+
+    await expect(
+      project.submitWorkResult({
+        runId: staleRunId,
+        stepId: "translation",
+        chapterId: 1,
+        fragmentIndex: 0,
+        outputText: "stale result",
+      }),
+    ).rejects.toThrow("当前项目不接受翻译结果");
+
+    const resumed = await project.startTranslation();
+    expect(resumed.status).toBe("running");
+
+    const resumedBatch = await translationQueue.dispatchReadyItems();
+    expect(resumedBatch.map((item) => item.fragmentIndex)).toEqual([0]);
+    expect(resumedBatch[0]?.runId).not.toBe(staleRunId);
+  });
+
   test("resumes from persisted intermediate pipeline steps after interruption", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-resume-"));
     cleanupTargets.push(workspaceDir);

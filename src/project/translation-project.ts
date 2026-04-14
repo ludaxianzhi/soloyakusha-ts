@@ -1217,7 +1217,9 @@ export class TranslationProject
   async clearAllTranslations(): Promise<void> {
     this.ensureInitialized();
     const chapters = this.documentManager.getAllChapters();
-    await this.documentManager.clearChapterTranslations(chapters.map((c) => c.id));
+    await this.resetTranslationsAndRebuildQueues(() =>
+      this.documentManager.clearChapterTranslations(chapters.map((c) => c.id)),
+    );
   }
 
   /**
@@ -1225,7 +1227,10 @@ export class TranslationProject
    */
   async clearChapterTranslations(chapterIds: number[]): Promise<void> {
     this.ensureInitialized();
-    await this.documentManager.clearChapterTranslations(chapterIds);
+    const normalizedChapterIds = [...new Set(chapterIds)];
+    await this.resetTranslationsAndRebuildQueues(() =>
+      this.documentManager.clearChapterTranslations(normalizedChapterIds),
+    );
   }
 
   /**
@@ -1507,6 +1512,22 @@ export class TranslationProject
       pipelineStepIds: this.pipeline.steps.map((step) => step.id),
       finalStepId: this.pipeline.finalStepId,
     });
+    await this.rebuildQueuesAfterTranslationReset();
+  }
+
+  private async resetTranslationsAndRebuildQueues(
+    resetTranslations: () => Promise<void>,
+  ): Promise<void> {
+    const lifecycleStatus = this.projectState.lifecycle.status;
+    if (lifecycleStatus === "running" || lifecycleStatus === "stopping") {
+      await this.lifecycleManager.abortTranslation("translation_reset");
+    }
+
+    await resetTranslations();
+    await this.rebuildQueuesAfterTranslationReset();
+  }
+
+  private async rebuildQueuesAfterTranslationReset(): Promise<void> {
     this.queueCache.clear();
     await this.initializePipelineQueues();
     await this.lifecycleManager.refreshLifecycleState();
