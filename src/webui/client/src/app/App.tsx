@@ -145,6 +145,7 @@ export function AppShell() {
   const [exportingWorkspaceArchiveDir, setExportingWorkspaceArchiveDir] = useState<
     string | null
   >(null);
+  const [openingWorkspaceDir, setOpeningWorkspaceDir] = useState<string | null>(null);
   const [llmProfiles, setLlmProfiles] = useState<Record<string, LlmProfileConfig>>({});
   const [defaultLlmName, setDefaultLlmName] = useState<string>();
   const [translators, setTranslators] = useState<Record<string, TranslatorEntry>>({});
@@ -743,15 +744,33 @@ export function AppShell() {
 
   const handleOpenWorkspace = useCallback(
     async (workspace: ManagedWorkspace) => {
+      if (openingWorkspaceDir) {
+        return;
+      }
+
+      setOpeningWorkspaceDir(workspace.dir);
       await runAction(async () => {
-        await api.openWorkspace(workspace.dir, workspace.name);
-        await refreshBootData();
-        resetWorkspaceDataCaches();
-        navigate('/workspace/current');
-        message.success(`已打开工作区：${workspace.name}`);
+        try {
+          await api.openWorkspace(workspace.dir, workspace.name);
+          await refreshBootData();
+          resetWorkspaceDataCaches();
+          navigate('/workspace/current');
+          message.success(`已打开工作区：${workspace.name}`);
+        } finally {
+          setOpeningWorkspaceDir((current) =>
+            current === workspace.dir ? null : current,
+          );
+        }
       });
     },
-    [message, navigate, refreshBootData, resetWorkspaceDataCaches, runAction],
+    [
+      message,
+      navigate,
+      openingWorkspaceDir,
+      refreshBootData,
+      resetWorkspaceDataCaches,
+      runAction,
+    ],
   );
 
   const handleDeleteWorkspace = useCallback(
@@ -1617,6 +1636,7 @@ export function AppShell() {
                       onExportWorkspaceArchive={handleExportWorkspaceArchive}
                       importingArchive={importingWorkspaceArchive}
                       exportingArchiveDir={exportingWorkspaceArchiveDir ?? undefined}
+                      openingWorkspaceDir={openingWorkspaceDir}
                     />
                   }
                 />
