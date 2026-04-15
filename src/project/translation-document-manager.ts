@@ -32,6 +32,7 @@ import type {
   SlidingWindowFragmentLine,
   SlidingWindowOptions,
   TextFragment,
+  TranslationDependencyGraph,
   TranslationProjectState,
   TranslationUnit,
   TranslationUnitMetadata,
@@ -189,6 +190,18 @@ export class TranslationDocumentManager {
     SavedRepetitionPatternAnalysisResult | undefined
   > {
     return this.storage.loadSavedRepetitionPatternAnalysis();
+  }
+
+  async loadTranslationDependencyGraph(): Promise<TranslationDependencyGraph | undefined> {
+    return this.storage.loadTranslationDependencyGraph();
+  }
+
+  async saveTranslationDependencyGraph(graph: TranslationDependencyGraph): Promise<void> {
+    await this.storage.saveTranslationDependencyGraph(graph);
+  }
+
+  async clearTranslationDependencyGraph(): Promise<void> {
+    await this.storage.clearTranslationDependencyGraph();
   }
 
   async saveSavedRepetitionPatternAnalysis(

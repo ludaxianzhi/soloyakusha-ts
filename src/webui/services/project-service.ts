@@ -340,7 +340,10 @@ export class ProjectService {
   }
 
   getSnapshotWithEntries(): TranslationProjectSnapshot | null {
-    return this.fullSnapshot;
+    if (!this.project) {
+      return null;
+    }
+    return this.project.getProjectSnapshot();
   }
 
   getQueueEntries(stepId: string): TranslationStepQueueEntrySnapshot[] {
@@ -1189,6 +1192,9 @@ export class ProjectService {
       }
 
       project.replaceGlossary(task.glossary);
+      if ("bumpGlossaryDependencyRevision" in project) {
+        await project.bumpGlossaryDependencyRevision();
+      }
       await project.saveProgress();
       this.refreshSnapshot();
       this.markDictionaryChanged();
@@ -1355,6 +1361,9 @@ export class ProjectService {
       }
 
       await this.project.saveProgress();
+      if ("bumpGlossaryDependencyRevision" in this.project) {
+        await this.project.bumpGlossaryDependencyRevision();
+      }
       this.refreshSnapshot();
       this.markDictionaryChanged();
       this.log('success', `字典条目已保存：${args.term}`);
@@ -1368,6 +1377,9 @@ export class ProjectService {
       if (!glossary) throw new Error('当前项目还没有字典');
       glossary.removeTerm(term);
       await this.project.saveProgress();
+      if ("bumpGlossaryDependencyRevision" in this.project) {
+        await this.project.bumpGlossaryDependencyRevision();
+      }
       this.refreshSnapshot();
       this.markDictionaryChanged();
       this.log('success', `字典条目已删除：${term}`);
@@ -1461,6 +1473,9 @@ export class ProjectService {
       };
 
       await this.project.saveProgress();
+      if ("bumpGlossaryDependencyRevision" in this.project) {
+        await this.project.bumpGlossaryDependencyRevision();
+      }
       this.refreshSnapshot();
       this.markDictionaryChanged();
       this.log(
@@ -2203,9 +2218,42 @@ export class ProjectService {
       this.topology = null;
       return;
     }
-    this.fullSnapshot = this.project.getProjectSnapshot();
-    this.snapshot = toProgressSnapshot(this.fullSnapshot);
+    const startedAt = Date.now();
+    const progressSnapshot = this.project.getProgressSnapshot();
+    const lifecycleSnapshot = this.project.getLifecycleSnapshot();
+    const glossaryProgress = this.project.getGlossaryProgress();
+    const pipeline = this.project.getPipeline();
+    this.fullSnapshot = null;
+    this.snapshot = {
+      projectName: this.project.getWorkspaceConfig().projectName,
+      currentCursor: this.project.getCurrentCursor(),
+      lifecycle: lifecycleSnapshot,
+      progress: progressSnapshot,
+      glossary: glossaryProgress,
+      pipeline: {
+        stepCount: pipeline.steps.length,
+        finalStepId: pipeline.finalStepId,
+        steps: pipeline.steps.map((step) => ({
+          id: step.id,
+          description: step.description,
+          isFinalStep: step.id === pipeline.finalStepId,
+        })),
+      },
+      queueSnapshots: pipeline.steps.map((step) => ({
+        stepId: step.id,
+        description: step.description,
+        isFinalStep: step.id === pipeline.finalStepId,
+        progress: this.project!.getStepProgress(step.id),
+        entries: [],
+      })),
+      activeWorkItems: [],
+      readyWorkItems: [],
+    };
     this.topology = this.project.getStoryTopology() ?? null;
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= 200) {
+      this.log("warning", `刷新运行态快照耗时较高：${elapsedMs}ms`);
+    }
     this.broadcastSnapshot();
   }
 
@@ -2501,9 +2549,16 @@ export class ProjectService {
         }
       };
 
+      const QUEUE_WAIT_TIMEOUT_MS = 5_000;
+
       const waitForQueueChange = () =>
         new Promise<void>((resolve) => {
           queueWaiters.add(resolve);
+          setTimeout(() => {
+            if (queueWaiters.delete(resolve)) {
+              resolve();
+            }
+          }, QUEUE_WAIT_TIMEOUT_MS);
         });
 
       const runSnapshotRefresh = () => {
@@ -2537,8 +2592,15 @@ export class ProjectService {
         runSnapshotRefresh();
       };
 
+      const yieldToEventLoop = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
       const queueMutation = async (operation: () => Promise<void>): Promise<void> => {
-        const next = mutationChain.then(operation);
+        const next = mutationChain.then(async () => {
+          await operation();
+          // 每次 mutation 完成后让出事件循环，防止微任务链连续执行同步 SQLite
+          // 写入而永久阻塞 HTTP 请求处理。
+          await yieldToEventLoop();
+        });
         mutationChain = next.then(
           () => {
             notifyQueueWaiters();
@@ -2653,7 +2715,18 @@ export class ProjectService {
               stepId: item.stepId,
               processorName: processor.constructor.name,
               workspaceContext: {
-                projectName: currentProject.getProjectSnapshot().projectName,
+                projectName:
+                  typeof (
+                    currentProject as {
+                      getWorkspaceConfig?: () => { projectName: string };
+                    }
+                  ).getWorkspaceConfig === "function"
+                    ? (
+                        currentProject as {
+                          getWorkspaceConfig: () => { projectName: string };
+                        }
+                      ).getWorkspaceConfig().projectName
+                    : currentProject.getProjectSnapshot().projectName,
                 workspaceDir: currentProject.getWorkspaceFileManifest().projectDir,
               },
             })
@@ -2668,6 +2741,8 @@ export class ProjectService {
           );
         });
       };
+
+      const FAILURE_BACKOFF_MS = 2_000;
 
       const queueFailureResult = async (
         item: TranslationWorkItem,
@@ -2690,6 +2765,10 @@ export class ProjectService {
           } catch {
             // ignore
           }
+
+          // 退避：防止失败 item 立即被重调度形成快速重试循环，
+          // 避免微任务链连续执行导致事件循环饥饿。
+          await delay(FAILURE_BACKOFF_MS);
 
           await dispatchMoreReadyItems();
           scheduleSnapshotRefresh();
@@ -2770,28 +2849,30 @@ export class ProjectService {
               `处理 ${item.stepId} · Ch${item.chapterId}/F${item.fragmentIndex + 1}`,
             );
 
+            // processWorkItem 的结果与 queueSuccessResult/queueFailureResult 的
+            // 异常处理分离，确保 activeProcessingCount 仅在 finally 中递减一次。
+            let processResult: Awaited<ReturnType<TranslationProcessor['processWorkItem']>> | undefined;
+            let processError: unknown;
             try {
-              const result = await processor.processWorkItem(item, {
+              processResult = await processor.processWorkItem(item, {
                 glossary: currentProject.getGlossary(),
                 documentManager: currentProject.getDocumentManager(),
               });
-              activeProcessingCount -= 1;
-              notifyQueueWaiters();
-
-              if (this.processingToken !== token) {
-                return;
-              }
-
-              await queueSuccessResult(processor, item, result);
             } catch (error) {
+              processError = error;
+            } finally {
               activeProcessingCount -= 1;
               notifyQueueWaiters();
+            }
 
-              if (this.processingToken !== token) {
-                return;
-              }
+            if (this.processingToken !== token) {
+              return;
+            }
 
-              await queueFailureResult(item, error);
+            if (processError !== undefined) {
+              await queueFailureResult(item, processError);
+            } else {
+              await queueSuccessResult(processor, item, processResult!);
             }
           }
         };

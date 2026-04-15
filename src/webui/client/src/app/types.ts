@@ -564,6 +564,10 @@ export interface WorkspaceConfig {
     path?: string;
     autoFilter?: boolean;
   };
+  dependencyTracking?: {
+    sourceRevision: number;
+    glossaryRevision: number;
+  };
   translator: {
     translatorName?: string;
   };

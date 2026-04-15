@@ -6,6 +6,7 @@ import type {
   ChapterEntry,
   FragmentEntry,
   FragmentPipelineStepState,
+  TranslationDependencyGraph,
   TextFragment,
   TranslationProjectState,
   TranslationUnitMetadata,
@@ -60,6 +61,18 @@ export class SqliteProjectStorage {
 
   async saveProjectState(state: TranslationProjectState): Promise<void> {
     await this.writeMetadata("project_state", state);
+  }
+
+  async loadTranslationDependencyGraph(): Promise<TranslationDependencyGraph | undefined> {
+    return this.readMetadata<TranslationDependencyGraph>("translation_dependency_graph");
+  }
+
+  async saveTranslationDependencyGraph(graph: TranslationDependencyGraph): Promise<void> {
+    await this.writeMetadata("translation_dependency_graph", graph);
+  }
+
+  async clearTranslationDependencyGraph(): Promise<void> {
+    await this.deleteMetadata("translation_dependency_graph");
   }
 
   async loadSavedRepetitionPatternAnalysis(): Promise<

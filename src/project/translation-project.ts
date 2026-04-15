@@ -67,6 +67,8 @@ import type {
   ProjectExportResult,
   ProjectProgressSnapshot,
   RouteExportResult,
+  TranslationDependencyGraph,
+  TranslationDependencyNode,
   TranslationExportResult,
   TranslationImportResult,
   TranslationProjectConfig,
@@ -79,6 +81,7 @@ import type {
   TranslationUnit,
   TranslationUnitParser,
   TranslationUnitSplitter,
+  WorkItemMetadata,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
   WorkspaceConfigPatch,
@@ -106,6 +109,32 @@ import {
   TranslationProjectWorkspace,
 } from "./translation-project-workspace.ts";
 
+type ResolvedDependencyState = {
+  dependencyMode?: "previousTranslations" | "glossaryTerms";
+  reason?: string;
+};
+
+type TranslationDependencyRuntimeState = {
+  readonly stepId: "translation";
+  readonly nodeById: Map<string, TranslationDependencyNode>;
+  readonly orderedNodeIds: string[];
+  readonly readyNodeIds: Set<string>;
+  readonly readyMetadataByNodeId: Map<string, WorkItemMetadata>;
+  readonly runningNodeIds: Set<string>;
+  readonly completedNodeIds: Set<string>;
+  readonly glossarySatisfiedSupportersByNodeId: Map<string, Map<string, number>>;
+  readonly glossaryDependentsBySupporterNodeId: Map<
+    string,
+    Array<{ nodeId: string; term: string }>
+  >;
+  readonly nodeIdsByRequiredPrecedingCount: Map<number, string[]>;
+  contiguousCompletedPrefix: number;
+};
+
+function createDependencyNodeId(stepId: string, chapterId: number, fragmentIndex: number): string {
+  return `${stepId}:${chapterId}:${fragmentIndex}`;
+}
+
 export class TranslationProject
   implements TranslationPipelineRuntime, TranslationWorkQueueRuntime
 {
@@ -118,6 +147,8 @@ export class TranslationProject
   private readonly workspaceManager: TranslationProjectWorkspace;
   private readonly lifecycleManager: TranslationProjectLifecycleManager;
   private readonly snapshotBuilder: TranslationProjectSnapshotBuilder;
+  private dependencyGraph: TranslationDependencyGraph | null = null;
+  private dependencyRuntimeState: TranslationDependencyRuntimeState | null = null;
   private glossary?: Glossary;
   private storyTopology?: StoryTopology;
   private plotSummaryEntries: PlotSummaryEntry[] = [];
@@ -336,6 +367,16 @@ export class TranslationProject
     return this.workspaceManager.updateWorkspaceConfig(patch);
   }
 
+  async bumpGlossaryDependencyRevision(): Promise<void> {
+    this.ensureInitialized();
+    const nextConfig = await this.workspaceManager.updateDependencyTracking((current) => ({
+      ...current,
+      glossaryRevision: current.glossaryRevision + 1,
+    }));
+    this.workspaceConfig = nextConfig;
+    await this.invalidateDependencyGraph();
+  }
+
   getChapterDescriptors(): WorkspaceChapterDescriptor[] {
     this.ensureInitialized();
     const descriptors = this.workspaceManager.getChapterDescriptors();
@@ -463,6 +504,7 @@ export class TranslationProject
       this.storyTopology.appendChapter(MAIN_ROUTE_ID, chapterId);
       await this.saveStoryTopology(this.storyTopology);
     }
+    await this.bumpSourceDependencyRevision();
     await this.invalidateSavedRepetitionPatternAnalysis();
     return result;
   }
@@ -486,6 +528,7 @@ export class TranslationProject
       this.storyTopology.removeChapter(routeId, chapterId);
       await this.saveStoryTopology(this.storyTopology);
     }
+    await this.bumpSourceDependencyRevision();
     await this.invalidateSavedRepetitionPatternAnalysis();
   }
 
@@ -511,6 +554,7 @@ export class TranslationProject
       for (const chapterId of normalizedChapterIds) {
         await this.workspaceManager.removeChapter(chapterId);
       }
+      await this.bumpSourceDependencyRevision();
       await this.invalidateSavedRepetitionPatternAnalysis();
       return;
     }
@@ -572,12 +616,14 @@ export class TranslationProject
     }
 
     await this.saveStoryTopology(topology);
+    await this.bumpSourceDependencyRevision();
     await this.invalidateSavedRepetitionPatternAnalysis();
   }
 
   async reorderChapters(chapterIds: number[]): Promise<void> {
     this.ensureInitialized();
     await this.workspaceManager.reorderChapters(chapterIds);
+    await this.bumpSourceDependencyRevision();
     await this.invalidateSavedRepetitionPatternAnalysis();
   }
 
@@ -892,7 +938,9 @@ export class TranslationProject
 
   async importGlossary(filePath: string): Promise<GlossaryImportResult> {
     this.ensureInitialized();
-    return this.workspaceManager.importGlossary(filePath);
+    const result = await this.workspaceManager.importGlossary(filePath);
+    await this.bumpGlossaryDependencyRevision();
+    return result;
   }
 
   async exportGlossary(outputPath: string): Promise<void> {
@@ -912,6 +960,8 @@ export class TranslationProject
 
   async startTranslation(): Promise<TranslationProjectLifecycleSnapshot> {
     this.ensureInitialized();
+    await this.ensureDependencyGraphUpToDate();
+    this.initializeDependencyRuntimeState();
     return this.lifecycleManager.startTranslation();
   }
 
@@ -968,6 +1018,11 @@ export class TranslationProject
 
   listReadyWorkItems(stepId: string): TranslationWorkItem[] {
     this.ensureInitialized();
+
+    const dependencyRuntimeItems = this.listReadyWorkItemsFromDependencyRuntime(stepId);
+    if (dependencyRuntimeItems) {
+      return dependencyRuntimeItems;
+    }
 
     return this.listStepQueueEntries(stepId)
       .filter((entry) => entry.status === "queued")
@@ -1031,6 +1086,7 @@ export class TranslationProject
           errorMessage: result.errorMessage,
         },
       );
+      this.markNodeQueuedInDependencyRuntime(result.stepId, result.chapterId, result.fragmentIndex);
       await this.lifecycleManager.refreshLifecycleState();
       return;
     }
@@ -1069,6 +1125,7 @@ export class TranslationProject
       await this.enqueueStepIfNeeded(result.chapterId, result.fragmentIndex, nextStepId);
     }
 
+    this.markNodeCompletedInDependencyRuntime(result.stepId, result.chapterId, result.fragmentIndex);
     await this.lifecycleManager.refreshLifecycleState();
   }
 
@@ -1250,6 +1307,7 @@ export class TranslationProject
     this.ensureInitialized();
     this.replaceGlossary(new Glossary([]));
     await this.workspaceManager.saveGlossaryIfNeeded();
+    await this.bumpGlossaryDependencyRevision();
   }
 
   /**
@@ -1533,6 +1591,7 @@ export class TranslationProject
 
   private async rebuildQueuesAfterTranslationReset(): Promise<void> {
     this.queueCache.clear();
+    this.dependencyRuntimeState = null;
     await this.initializePipelineQueues();
     await this.lifecycleManager.refreshLifecycleState();
   }
@@ -1654,7 +1713,57 @@ export class TranslationProject
       }),
     );
 
+    for (const item of readyItems) {
+      this.markNodeRunningInDependencyRuntime(item.stepId, item.chapterId, item.fragmentIndex);
+    }
+
     return readyItems;
+  }
+
+  private listReadyWorkItemsFromDependencyRuntime(stepId: string): TranslationWorkItem[] | undefined {
+    if (stepId !== "translation" || this.dependencyRuntimeState?.stepId !== "translation") {
+      return undefined;
+    }
+
+    return [...this.dependencyRuntimeState.readyNodeIds]
+      .map((nodeId) => {
+        const node = this.dependencyRuntimeState?.nodeById.get(nodeId);
+        if (!node) {
+          return undefined;
+        }
+
+        const stepState = this.documentManager.getPipelineStepState(
+          node.chapterId,
+          node.fragmentIndex,
+          stepId,
+        );
+        if (!stepState || stepState.status !== "queued") {
+          return undefined;
+        }
+
+        const resolution = this.dependencyRuntimeState?.readyMetadataByNodeId.get(nodeId);
+        if (!resolution) {
+          return undefined;
+        }
+
+        return this.buildWorkItem(
+          stepId,
+          {
+            stepId,
+            chapterId: node.chapterId,
+            fragmentIndex: node.fragmentIndex,
+            queueSequence: stepState.queueSequence,
+            status: stepState.status,
+            errorMessage: stepState.errorMessage,
+          },
+          {
+            ready: true,
+            metadata: resolution,
+          },
+        );
+      })
+      .filter((item): item is TranslationWorkItem => item !== undefined)
+      .sort((left, right) => left.queueSequence - right.queueSequence);
   }
 
   private buildWorkItem(
@@ -1715,6 +1824,25 @@ export class TranslationProject
     stepId: string,
     entry: TranslationStepQueueEntry,
   ): PipelineDependencyResolution {
+    const graphResolution = this.resolveDependenciesFromGraph(
+      stepId,
+      entry.chapterId,
+      entry.fragmentIndex,
+    );
+    if (graphResolution) {
+      return graphResolution.dependencyMode
+        ? {
+            ready: true,
+            metadata: {
+              dependencyMode: graphResolution.dependencyMode,
+            },
+          }
+        : {
+            ready: false,
+            reason: graphResolution.reason,
+          };
+    }
+
     const step = this.pipeline.getStep(stepId);
     return (
       step.resolveDependencies?.({
@@ -1747,6 +1875,7 @@ export class TranslationProject
       queuedAt: now,
       updatedAt: now,
     });
+    this.markNodeQueuedInDependencyRuntime(stepId, chapterId, fragmentIndex);
   }
 
   private listAllQueueEntries(): TranslationStepQueueEntry[] {
@@ -1806,10 +1935,410 @@ export class TranslationProject
         },
       })),
     );
+
+    for (const entry of runningEntries) {
+      this.markNodeQueuedInDependencyRuntime(entry.stepId, entry.chapterId, entry.fragmentIndex);
+    }
   }
 
   private async persistProjectState(): Promise<void> {
     await this.documentManager.saveProjectState(this.projectState);
+  }
+
+  private async bumpSourceDependencyRevision(): Promise<void> {
+    const nextConfig = await this.workspaceManager.updateDependencyTracking((current) => ({
+      ...current,
+      sourceRevision: current.sourceRevision + 1,
+    }));
+    this.workspaceConfig = nextConfig;
+    await this.invalidateDependencyGraph();
+  }
+
+  private async invalidateDependencyGraph(): Promise<void> {
+    this.dependencyGraph = null;
+    this.dependencyRuntimeState = null;
+    await this.documentManager.clearTranslationDependencyGraph();
+  }
+
+  private async ensureDependencyGraphUpToDate(): Promise<void> {
+    if (this.pipeline.steps.length !== 1 || this.pipeline.steps[0]?.id !== "translation") {
+      this.dependencyRuntimeState = null;
+      return;
+    }
+
+    const revisions = this.workspaceConfig.dependencyTracking ?? {
+      sourceRevision: 0,
+      glossaryRevision: 0,
+    };
+    if (
+      this.dependencyGraph &&
+      this.dependencyGraph.sourceRevision === revisions.sourceRevision &&
+      this.dependencyGraph.glossaryRevision === revisions.glossaryRevision
+    ) {
+      return;
+    }
+
+    const persistedGraph = await this.documentManager.loadTranslationDependencyGraph();
+    if (
+      persistedGraph &&
+      persistedGraph.stepId === "translation" &&
+      persistedGraph.sourceRevision === revisions.sourceRevision &&
+      persistedGraph.glossaryRevision === revisions.glossaryRevision
+    ) {
+      this.dependencyGraph = persistedGraph;
+      return;
+    }
+
+    const nextGraph = this.buildTranslationDependencyGraph();
+    await this.documentManager.saveTranslationDependencyGraph(nextGraph);
+    this.dependencyGraph = nextGraph;
+  }
+
+  private initializeDependencyRuntimeState(): void {
+    if (this.dependencyGraph?.stepId !== "translation") {
+      this.dependencyRuntimeState = null;
+      return;
+    }
+
+    const nodeById = new Map<string, TranslationDependencyNode>();
+    const orderedNodeIds: string[] = [];
+    const readyNodeIds = new Set<string>();
+    const readyMetadataByNodeId = new Map<string, WorkItemMetadata>();
+    const runningNodeIds = new Set<string>();
+    const completedNodeIds = new Set<string>();
+    const glossarySatisfiedSupportersByNodeId = new Map<string, Map<string, number>>();
+    const glossaryDependentsBySupporterNodeId = new Map<string, Array<{ nodeId: string; term: string }>>();
+    const nodeIdsByRequiredPrecedingCount = new Map<number, string[]>();
+
+    for (const node of this.dependencyGraph.nodes) {
+      nodeById.set(node.nodeId, node);
+      orderedNodeIds[node.orderedIndex] = node.nodeId;
+      const stepState = this.documentManager.getPipelineStepState(
+        node.chapterId,
+        node.fragmentIndex,
+        node.stepId,
+      );
+      if (stepState?.status === "completed") {
+        completedNodeIds.add(node.nodeId);
+      } else if (stepState?.status === "running") {
+        runningNodeIds.add(node.nodeId);
+      }
+
+      const requiredNodes = nodeIdsByRequiredPrecedingCount.get(node.requiredPrecedingCount) ?? [];
+      requiredNodes.push(node.nodeId);
+      nodeIdsByRequiredPrecedingCount.set(node.requiredPrecedingCount, requiredNodes);
+    }
+
+    for (const node of this.dependencyGraph.nodes) {
+      const supporterCounts = new Map<string, number>();
+      for (const group of node.glossarySupportGroups) {
+        let completedSupporters = 0;
+        for (const supporterNodeId of group.supporterNodeIds) {
+          if (completedNodeIds.has(supporterNodeId)) {
+            completedSupporters += 1;
+          }
+
+          const dependents = glossaryDependentsBySupporterNodeId.get(supporterNodeId) ?? [];
+          dependents.push({ nodeId: node.nodeId, term: group.term });
+          glossaryDependentsBySupporterNodeId.set(supporterNodeId, dependents);
+        }
+
+        supporterCounts.set(group.term, completedSupporters);
+      }
+      glossarySatisfiedSupportersByNodeId.set(node.nodeId, supporterCounts);
+    }
+
+    let contiguousCompletedPrefix = 0;
+    while (orderedNodeIds[contiguousCompletedPrefix] && completedNodeIds.has(orderedNodeIds[contiguousCompletedPrefix]!)) {
+      contiguousCompletedPrefix += 1;
+    }
+
+    this.dependencyRuntimeState = {
+      stepId: "translation",
+      nodeById,
+      orderedNodeIds,
+      readyNodeIds,
+      readyMetadataByNodeId,
+      runningNodeIds,
+      completedNodeIds,
+      glossarySatisfiedSupportersByNodeId,
+      glossaryDependentsBySupporterNodeId,
+      nodeIdsByRequiredPrecedingCount,
+      contiguousCompletedPrefix,
+    };
+
+    for (const nodeId of orderedNodeIds) {
+      if (nodeId) {
+        this.refreshDependencyRuntimeNodeReadiness(nodeId);
+      }
+    }
+  }
+
+  private buildTranslationDependencyGraph(): TranslationDependencyGraph {
+    const orderedFragments = this.getOrderedFragments();
+    const sourceTexts = orderedFragments.map((fragment) =>
+      this.documentManager.getSourceText(fragment.chapterId, fragment.fragmentIndex),
+    );
+    const glossary = this.glossary;
+    const matchedTermsByIndex = orderedFragments.map((fragment, orderedIndex) =>
+      [
+        ...new Set(
+          (glossary?.filterTerms(sourceTexts[orderedIndex] ?? "") ?? []).map((term) => term.term),
+        ),
+      ],
+    );
+    const uniqueTerms = [...new Set(matchedTermsByIndex.flatMap((terms) => terms))];
+    const supporterNodeIdsByTerm = new Map<string, string[]>();
+
+    for (const term of uniqueTerms) {
+      supporterNodeIdsByTerm.set(
+        term,
+        orderedFragments
+          .filter((_fragment, orderedIndex) => (sourceTexts[orderedIndex] ?? "").includes(term))
+          .map((fragment) =>
+            createDependencyNodeId("translation", fragment.chapterId, fragment.fragmentIndex),
+          ),
+      );
+    }
+
+    return {
+      schemaVersion: 1,
+      stepId: "translation",
+      sourceRevision: (this.workspaceConfig.dependencyTracking?.sourceRevision ?? 0),
+      glossaryRevision: (this.workspaceConfig.dependencyTracking?.glossaryRevision ?? 0),
+      builtAt: new Date().toISOString(),
+      nodes: orderedFragments.map((fragment, orderedIndex) => {
+        const nodeId = createDependencyNodeId("translation", fragment.chapterId, fragment.fragmentIndex);
+        return {
+          nodeId,
+          stepId: "translation",
+          chapterId: fragment.chapterId,
+          fragmentIndex: fragment.fragmentIndex,
+          orderedIndex,
+          requiredPrecedingCount: Math.floor((orderedIndex + 1) / 2),
+          glossarySupportGroups: matchedTermsByIndex[orderedIndex]!.map((term) => ({
+            term,
+            supporterNodeIds: (supporterNodeIdsByTerm.get(term) ?? []).filter(
+              (supporterNodeId) => supporterNodeId !== nodeId,
+            ),
+          })),
+        } satisfies TranslationDependencyNode;
+      }),
+    };
+  }
+
+  private resolveDependenciesFromGraph(
+    stepId: string,
+    chapterId: number,
+    fragmentIndex: number,
+  ): ResolvedDependencyState | undefined {
+    if (stepId !== "translation" || !this.dependencyGraph) {
+      return undefined;
+    }
+
+    const nodeId = createDependencyNodeId(stepId, chapterId, fragmentIndex);
+    const runtimeResolution = this.resolveDependenciesFromRuntimeState(nodeId);
+    if (runtimeResolution) {
+      return runtimeResolution;
+    }
+
+    const node = this.dependencyGraph.nodes.find(
+      (currentNode) => currentNode.nodeId === nodeId,
+    );
+    if (!node) {
+      return undefined;
+    }
+
+    const hasCompletedAllPrevious = this.dependencyGraph.nodes
+      .slice(0, node.orderedIndex)
+      .every((previousNode) =>
+        this.isStepCompleted(previousNode.chapterId, previousNode.fragmentIndex, stepId),
+      );
+    if (hasCompletedAllPrevious) {
+      return { dependencyMode: "previousTranslations" };
+    }
+
+    if (node.glossarySupportGroups.length === 0) {
+      return { reason: "waiting_for_previous_fragments" };
+    }
+
+    const hasCompletedRequiredPreceding = this.dependencyGraph.nodes
+      .slice(0, node.requiredPrecedingCount)
+      .every((previousNode) =>
+        this.isStepCompleted(previousNode.chapterId, previousNode.fragmentIndex, stepId),
+      );
+    if (!hasCompletedRequiredPreceding) {
+      return { reason: "waiting_for_preceding_fragments" };
+    }
+
+    const allSupportGroupsSatisfied = node.glossarySupportGroups.every((group) =>
+      group.supporterNodeIds.some((supporterNodeId) => {
+        const supporter = this.dependencyGraph?.nodes.find(
+          (currentNode) => currentNode.nodeId === supporterNodeId,
+        );
+        return supporter
+          ? this.isStepCompleted(supporter.chapterId, supporter.fragmentIndex, stepId)
+          : false;
+      }),
+    );
+
+    return allSupportGroupsSatisfied
+      ? { dependencyMode: "glossaryTerms" }
+      : { reason: "waiting_for_terms_in_translations" };
+  }
+
+  private resolveDependenciesFromRuntimeState(nodeId: string): ResolvedDependencyState | undefined {
+    const runtimeState = this.dependencyRuntimeState;
+    if (!runtimeState || runtimeState.stepId !== "translation") {
+      return undefined;
+    }
+
+    const node = runtimeState.nodeById.get(nodeId);
+    if (!node) {
+      return undefined;
+    }
+
+    const stepState = this.documentManager.getPipelineStepState(
+      node.chapterId,
+      node.fragmentIndex,
+      node.stepId,
+    );
+    if (!stepState || stepState.status !== "queued") {
+      return undefined;
+    }
+
+    if (runtimeState.contiguousCompletedPrefix >= node.orderedIndex) {
+      return { dependencyMode: "previousTranslations" };
+    }
+
+    if (node.glossarySupportGroups.length === 0) {
+      return { reason: "waiting_for_previous_fragments" };
+    }
+
+    if (runtimeState.contiguousCompletedPrefix < node.requiredPrecedingCount) {
+      return { reason: "waiting_for_preceding_fragments" };
+    }
+
+    const supporterCounts = runtimeState.glossarySatisfiedSupportersByNodeId.get(node.nodeId);
+    const allSupportGroupsSatisfied = node.glossarySupportGroups.every(
+      (group) => (supporterCounts?.get(group.term) ?? 0) > 0,
+    );
+    return allSupportGroupsSatisfied
+      ? { dependencyMode: "glossaryTerms" }
+      : { reason: "waiting_for_terms_in_translations" };
+  }
+
+  private refreshDependencyRuntimeNodeReadiness(nodeId: string): void {
+    const runtimeState = this.dependencyRuntimeState;
+    if (!runtimeState) {
+      return;
+    }
+
+    const resolution = this.resolveDependenciesFromRuntimeState(nodeId);
+    if (resolution?.dependencyMode) {
+      runtimeState.readyNodeIds.add(nodeId);
+      runtimeState.readyMetadataByNodeId.set(nodeId, {
+        dependencyMode: resolution.dependencyMode,
+      });
+      return;
+    }
+
+    runtimeState.readyNodeIds.delete(nodeId);
+    runtimeState.readyMetadataByNodeId.delete(nodeId);
+  }
+
+  private markNodeRunningInDependencyRuntime(
+    stepId: string,
+    chapterId: number,
+    fragmentIndex: number,
+  ): void {
+    const runtimeState = this.dependencyRuntimeState;
+    if (!runtimeState || stepId !== "translation") {
+      return;
+    }
+
+    const nodeId = createDependencyNodeId(stepId, chapterId, fragmentIndex);
+    runtimeState.readyNodeIds.delete(nodeId);
+    runtimeState.readyMetadataByNodeId.delete(nodeId);
+    runtimeState.runningNodeIds.add(nodeId);
+  }
+
+  private markNodeQueuedInDependencyRuntime(
+    stepId: string,
+    chapterId: number,
+    fragmentIndex: number,
+  ): void {
+    const runtimeState = this.dependencyRuntimeState;
+    if (!runtimeState || stepId !== "translation") {
+      return;
+    }
+
+    const nodeId = createDependencyNodeId(stepId, chapterId, fragmentIndex);
+    runtimeState.runningNodeIds.delete(nodeId);
+    this.refreshDependencyRuntimeNodeReadiness(nodeId);
+  }
+
+  private markNodeCompletedInDependencyRuntime(
+    stepId: string,
+    chapterId: number,
+    fragmentIndex: number,
+  ): void {
+    const runtimeState = this.dependencyRuntimeState;
+    if (!runtimeState || stepId !== "translation") {
+      return;
+    }
+
+    const nodeId = createDependencyNodeId(stepId, chapterId, fragmentIndex);
+    const node = runtimeState.nodeById.get(nodeId);
+    if (!node || runtimeState.completedNodeIds.has(nodeId)) {
+      return;
+    }
+
+    runtimeState.runningNodeIds.delete(nodeId);
+    runtimeState.readyNodeIds.delete(nodeId);
+    runtimeState.readyMetadataByNodeId.delete(nodeId);
+    runtimeState.completedNodeIds.add(nodeId);
+
+    const previousPrefix = runtimeState.contiguousCompletedPrefix;
+    if (node.orderedIndex === previousPrefix) {
+      while (
+        runtimeState.orderedNodeIds[runtimeState.contiguousCompletedPrefix] &&
+        runtimeState.completedNodeIds.has(
+          runtimeState.orderedNodeIds[runtimeState.contiguousCompletedPrefix]!,
+        )
+      ) {
+        runtimeState.contiguousCompletedPrefix += 1;
+      }
+
+      for (
+        let requiredPrecedingCount = previousPrefix + 1;
+        requiredPrecedingCount <= runtimeState.contiguousCompletedPrefix;
+        requiredPrecedingCount += 1
+      ) {
+        for (const dependentNodeId of runtimeState.nodeIdsByRequiredPrecedingCount.get(requiredPrecedingCount) ?? []) {
+          this.refreshDependencyRuntimeNodeReadiness(dependentNodeId);
+        }
+      }
+
+      for (
+        let orderedIndex = previousPrefix;
+        orderedIndex <= runtimeState.contiguousCompletedPrefix;
+        orderedIndex += 1
+      ) {
+        const dependentNodeId = runtimeState.orderedNodeIds[orderedIndex];
+        if (dependentNodeId) {
+          this.refreshDependencyRuntimeNodeReadiness(dependentNodeId);
+        }
+      }
+    }
+
+    for (const dependent of runtimeState.glossaryDependentsBySupporterNodeId.get(nodeId) ?? []) {
+      const supporterCounts = runtimeState.glossarySatisfiedSupportersByNodeId.get(dependent.nodeId);
+      if (supporterCounts) {
+        supporterCounts.set(dependent.term, (supporterCounts.get(dependent.term) ?? 0) + 1);
+      }
+      this.refreshDependencyRuntimeNodeReadiness(dependent.nodeId);
+    }
   }
 
   private getCurrentRunIdOrThrow(): string {
