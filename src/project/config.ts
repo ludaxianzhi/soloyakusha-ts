@@ -27,6 +27,8 @@ export const GLOBAL_EMBEDDING_CLIENT_NAME = "__global_embedding__";
 export type TranslationProcessorConfig = {
   workflow?: string;
   modelNames: string[];
+  /** 文本块级调度的最大并发数。 */
+  maxConcurrentWorkItems?: number;
   slidingWindow?: SlidingWindowOptions;
   requestOptions?: ChatRequestOptions;
   /**

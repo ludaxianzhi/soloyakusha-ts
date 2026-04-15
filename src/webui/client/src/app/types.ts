@@ -618,6 +618,7 @@ export interface TranslatorEntry {
   promptSet: string;
   type?: string;
   modelNames: string[];
+  maxConcurrentWorkItems?: number;
   slidingWindow?: {
     overlapChars?: number;
   };

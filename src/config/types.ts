@@ -105,6 +105,8 @@ export type TranslatorEntry = {
   type?: string;
   /** 引用的 LLM Profile 名称链（默认工作流使用；多步骤工作流可作为兼容回退值）。 */
   modelNames: string[];
+  /** 文本块级调度的最大并发数。 */
+  maxConcurrentWorkItems?: number;
   slidingWindow?: SlidingWindowOptions;
   requestOptions?: ChatRequestOptions;
   /**

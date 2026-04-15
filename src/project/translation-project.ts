@@ -1211,6 +1211,12 @@ export class TranslationProject
     await this.lifecycleManager.markProgressSaved();
   }
 
+  async saveTranslationRuntimeProgress(): Promise<void> {
+    this.ensureInitialized();
+    await this.workspaceManager.saveGlossaryIfNeeded();
+    await this.lifecycleManager.markProgressSaved();
+  }
+
   /**
    * 清除所有章节的译文与流水线状态，将整个项目恢复为"待翻译"初始状态。
    */
