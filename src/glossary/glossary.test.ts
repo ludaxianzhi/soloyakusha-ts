@@ -166,7 +166,7 @@ describe("glossary", () => {
     });
   });
 
-  test("warns and skips conflicting glossary updates instead of throwing", async () => {
+  test("skips stale glossary updates after concurrent term translation without warning", async () => {
     const glossary = new Glossary([{ term: "王都", translation: "" }]);
     const warnings: Array<{ message: string; metadata?: Record<string, unknown> }> = [];
     const client = new MutatingFakeChatClient(
@@ -203,15 +203,44 @@ describe("glossary", () => {
       translation: "Capital",
       status: "translated",
     });
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatchObject({
-      message: "术语更新与现有译文冲突，已忽略",
-      metadata: {
-        term: "王都",
-        existingTranslation: "Capital",
-        requestedTranslation: "Royal Capital",
+    expect(warnings).toEqual([]);
+  });
+
+  test("skips stale glossary terms before issuing concurrent update request", async () => {
+    const glossary = new Glossary([{ term: "王都", translation: "" }]);
+    const staleTerm = glossary.getTerm("王都")!;
+    glossary.updateTerm("王都", { term: "王都", translation: "Royal Capital" });
+
+    const warnings: Array<{ message: string; metadata?: Record<string, unknown> }> = [];
+    const client = new FakeChatClient([
+      JSON.stringify({
+        glossaryUpdates: [{ term: "王都", translation: "Royal Capital" }],
+      }),
+    ]);
+    const updater = new DefaultGlossaryUpdater(client, {
+      logger: {
+        warn(message, metadata) {
+          warnings.push({ message, metadata });
+        },
       },
     });
+
+    const result = await updater.updateGlossary({
+      glossary,
+      untranslatedTerms: [staleTerm],
+      translationUnits: [
+        {
+          id: "1",
+          sourceText: "王都",
+          translatedText: "Royal Capital",
+        },
+      ],
+    });
+
+    expect(result.updates).toEqual([]);
+    expect(result.appliedTerms).toEqual([]);
+    expect(client.requests).toHaveLength(0);
+    expect(warnings).toEqual([]);
   });
 
   test("persists extended glossary fields as csv", async () => {

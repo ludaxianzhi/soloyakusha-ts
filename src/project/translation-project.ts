@@ -122,6 +122,10 @@ type TranslationDependencyRuntimeState = {
   readonly readyMetadataByNodeId: Map<string, WorkItemMetadata>;
   readonly runningNodeIds: Set<string>;
   readonly completedNodeIds: Set<string>;
+  readonly glossaryTermsByNodeId: Map<string, string[]>;
+  readonly nodeIdsByGlossaryTerm: Map<string, string[]>;
+  readonly reservedGlossaryTermsByNodeId: Map<string, string[]>;
+  readonly glossaryTermOwnerNodeIds: Map<string, Set<string>>;
   readonly glossarySatisfiedSupportersByNodeId: Map<string, Map<string, number>>;
   readonly glossaryDependentsBySupporterNodeId: Map<
     string,
@@ -1683,7 +1687,9 @@ export class TranslationProject
   }
 
   private async dispatchReadyWorkItemsForStep(stepId: string): Promise<TranslationWorkItem[]> {
-    const readyItems = this.listReadyWorkItems(stepId);
+    const readyItems =
+      this.selectDispatchableReadyWorkItemsFromDependencyRuntime(stepId) ??
+      this.listReadyWorkItems(stepId);
     if (readyItems.length === 0) {
       return [];
     }
@@ -1764,6 +1770,32 @@ export class TranslationProject
       })
       .filter((item): item is TranslationWorkItem => item !== undefined)
       .sort((left, right) => left.queueSequence - right.queueSequence);
+  }
+
+  private selectDispatchableReadyWorkItemsFromDependencyRuntime(
+    stepId: string,
+  ): TranslationWorkItem[] | undefined {
+    const readyItems = this.listReadyWorkItemsFromDependencyRuntime(stepId);
+    if (!readyItems) {
+      return undefined;
+    }
+
+    const selectedItems: TranslationWorkItem[] = [];
+    const selectedTerms = new Set<string>();
+    for (const item of readyItems) {
+      const nodeId = createDependencyNodeId(item.stepId, item.chapterId, item.fragmentIndex);
+      const reservedTerms = this.getRuntimeExclusiveGlossaryTerms(nodeId);
+      if (reservedTerms.some((term) => selectedTerms.has(term))) {
+        continue;
+      }
+
+      selectedItems.push(item);
+      for (const term of reservedTerms) {
+        selectedTerms.add(term);
+      }
+    }
+
+    return selectedItems;
   }
 
   private buildWorkItem(
@@ -2006,6 +2038,10 @@ export class TranslationProject
     const readyMetadataByNodeId = new Map<string, WorkItemMetadata>();
     const runningNodeIds = new Set<string>();
     const completedNodeIds = new Set<string>();
+    const glossaryTermsByNodeId = new Map<string, string[]>();
+    const nodeIdsByGlossaryTerm = new Map<string, string[]>();
+    const reservedGlossaryTermsByNodeId = new Map<string, string[]>();
+    const glossaryTermOwnerNodeIds = new Map<string, Set<string>>();
     const glossarySatisfiedSupportersByNodeId = new Map<string, Map<string, number>>();
     const glossaryDependentsBySupporterNodeId = new Map<string, Array<{ nodeId: string; term: string }>>();
     const nodeIdsByRequiredPrecedingCount = new Map<number, string[]>();
@@ -2027,6 +2063,14 @@ export class TranslationProject
       const requiredNodes = nodeIdsByRequiredPrecedingCount.get(node.requiredPrecedingCount) ?? [];
       requiredNodes.push(node.nodeId);
       nodeIdsByRequiredPrecedingCount.set(node.requiredPrecedingCount, requiredNodes);
+
+      const glossaryTerms = [...new Set(node.glossarySupportGroups.map((group) => group.term))];
+      glossaryTermsByNodeId.set(node.nodeId, glossaryTerms);
+      for (const term of glossaryTerms) {
+        const nodeIds = nodeIdsByGlossaryTerm.get(term) ?? [];
+        nodeIds.push(node.nodeId);
+        nodeIdsByGlossaryTerm.set(term, nodeIds);
+      }
     }
 
     for (const node of this.dependencyGraph.nodes) {
@@ -2061,11 +2105,19 @@ export class TranslationProject
       readyMetadataByNodeId,
       runningNodeIds,
       completedNodeIds,
+      glossaryTermsByNodeId,
+      nodeIdsByGlossaryTerm,
+      reservedGlossaryTermsByNodeId,
+      glossaryTermOwnerNodeIds,
       glossarySatisfiedSupportersByNodeId,
       glossaryDependentsBySupporterNodeId,
       nodeIdsByRequiredPrecedingCount,
       contiguousCompletedPrefix,
     };
+
+    for (const nodeId of runningNodeIds) {
+      this.reserveNodeGlossaryTermsInDependencyRuntime(nodeId);
+    }
 
     for (const nodeId of orderedNodeIds) {
       if (nodeId) {
@@ -2208,7 +2260,9 @@ export class TranslationProject
     }
 
     if (runtimeState.contiguousCompletedPrefix >= node.orderedIndex) {
-      return { dependencyMode: "previousTranslations" };
+      return this.hasRuntimeGlossaryTermConflict(nodeId)
+        ? { reason: "waiting_for_glossary_term_release" }
+        : { dependencyMode: "previousTranslations" };
     }
 
     if (node.glossarySupportGroups.length === 0) {
@@ -2223,9 +2277,13 @@ export class TranslationProject
     const allSupportGroupsSatisfied = node.glossarySupportGroups.every(
       (group) => (supporterCounts?.get(group.term) ?? 0) > 0,
     );
-    return allSupportGroupsSatisfied
-      ? { dependencyMode: "glossaryTerms" }
-      : { reason: "waiting_for_terms_in_translations" };
+    if (!allSupportGroupsSatisfied) {
+      return { reason: "waiting_for_terms_in_translations" };
+    }
+
+    return this.hasRuntimeGlossaryTermConflict(nodeId)
+      ? { reason: "waiting_for_glossary_term_release" }
+      : { dependencyMode: "glossaryTerms" };
   }
 
   private refreshDependencyRuntimeNodeReadiness(nodeId: string): void {
@@ -2261,6 +2319,8 @@ export class TranslationProject
     runtimeState.readyNodeIds.delete(nodeId);
     runtimeState.readyMetadataByNodeId.delete(nodeId);
     runtimeState.runningNodeIds.add(nodeId);
+    const reservedTerms = this.reserveNodeGlossaryTermsInDependencyRuntime(nodeId);
+    this.refreshRuntimeReadinessForGlossaryTerms(reservedTerms);
   }
 
   private markNodeQueuedInDependencyRuntime(
@@ -2275,7 +2335,9 @@ export class TranslationProject
 
     const nodeId = createDependencyNodeId(stepId, chapterId, fragmentIndex);
     runtimeState.runningNodeIds.delete(nodeId);
+    const releasedTerms = this.releaseNodeGlossaryTermsInDependencyRuntime(nodeId);
     this.refreshDependencyRuntimeNodeReadiness(nodeId);
+    this.refreshRuntimeReadinessForGlossaryTerms(releasedTerms);
   }
 
   private markNodeCompletedInDependencyRuntime(
@@ -2295,6 +2357,7 @@ export class TranslationProject
     }
 
     runtimeState.runningNodeIds.delete(nodeId);
+    const releasedTerms = this.releaseNodeGlossaryTermsInDependencyRuntime(nodeId);
     runtimeState.readyNodeIds.delete(nodeId);
     runtimeState.readyMetadataByNodeId.delete(nodeId);
     runtimeState.completedNodeIds.add(nodeId);
@@ -2338,6 +2401,91 @@ export class TranslationProject
         supporterCounts.set(dependent.term, (supporterCounts.get(dependent.term) ?? 0) + 1);
       }
       this.refreshDependencyRuntimeNodeReadiness(dependent.nodeId);
+    }
+
+    this.refreshRuntimeReadinessForGlossaryTerms(releasedTerms);
+  }
+
+  private getRuntimeExclusiveGlossaryTerms(nodeId: string): string[] {
+    const runtimeState = this.dependencyRuntimeState;
+    const glossary = this.glossary;
+    if (!runtimeState || !glossary) {
+      return [];
+    }
+
+    return (runtimeState.glossaryTermsByNodeId.get(nodeId) ?? []).filter(
+      (term) => glossary.getTerm(term)?.status === "untranslated",
+    );
+  }
+
+  private hasRuntimeGlossaryTermConflict(nodeId: string): boolean {
+    const runtimeState = this.dependencyRuntimeState;
+    if (!runtimeState) {
+      return false;
+    }
+
+    return this.getRuntimeExclusiveGlossaryTerms(nodeId).some((term) =>
+      [...(runtimeState.glossaryTermOwnerNodeIds.get(term) ?? [])].some(
+        (ownerNodeId) => ownerNodeId !== nodeId,
+      ),
+    );
+  }
+
+  private reserveNodeGlossaryTermsInDependencyRuntime(nodeId: string): string[] {
+    const runtimeState = this.dependencyRuntimeState;
+    if (!runtimeState) {
+      return [];
+    }
+
+    const reservedTerms = this.getRuntimeExclusiveGlossaryTerms(nodeId);
+    runtimeState.reservedGlossaryTermsByNodeId.set(nodeId, reservedTerms);
+    for (const term of reservedTerms) {
+      const ownerNodeIds = runtimeState.glossaryTermOwnerNodeIds.get(term) ?? new Set<string>();
+      ownerNodeIds.add(nodeId);
+      runtimeState.glossaryTermOwnerNodeIds.set(term, ownerNodeIds);
+    }
+
+    return reservedTerms;
+  }
+
+  private releaseNodeGlossaryTermsInDependencyRuntime(nodeId: string): string[] {
+    const runtimeState = this.dependencyRuntimeState;
+    if (!runtimeState) {
+      return [];
+    }
+
+    const reservedTerms = runtimeState.reservedGlossaryTermsByNodeId.get(nodeId) ?? [];
+    runtimeState.reservedGlossaryTermsByNodeId.delete(nodeId);
+    for (const term of reservedTerms) {
+      const ownerNodeIds = runtimeState.glossaryTermOwnerNodeIds.get(term);
+      if (!ownerNodeIds) {
+        continue;
+      }
+
+      ownerNodeIds.delete(nodeId);
+      if (ownerNodeIds.size === 0) {
+        runtimeState.glossaryTermOwnerNodeIds.delete(term);
+      }
+    }
+
+    return reservedTerms;
+  }
+
+  private refreshRuntimeReadinessForGlossaryTerms(terms: ReadonlyArray<string>): void {
+    const runtimeState = this.dependencyRuntimeState;
+    if (!runtimeState || terms.length === 0) {
+      return;
+    }
+
+    const nodeIds = new Set<string>();
+    for (const term of terms) {
+      for (const nodeId of runtimeState.nodeIdsByGlossaryTerm.get(term) ?? []) {
+        nodeIds.add(nodeId);
+      }
+    }
+
+    for (const nodeId of nodeIds) {
+      this.refreshDependencyRuntimeNodeReadiness(nodeId);
     }
   }
 
