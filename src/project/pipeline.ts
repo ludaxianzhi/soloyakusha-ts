@@ -25,7 +25,6 @@ import type {
 export type OrderedFragmentSnapshot = {
   chapterId: number;
   fragmentIndex: number;
-  fragment: FragmentEntry;
 };
 
 export type TranslationPipelineRuntime = {

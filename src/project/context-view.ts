@@ -314,12 +314,7 @@ export class TranslationContextView {
 
   private getOrderedFragments(): OrderedFragmentRef[] {
     return this.options.traversalChapters.flatMap((chapter) =>
-      (this.options.documentManager.getChapterById(chapter.id)?.fragments ?? []).map(
-        (_fragment, fragmentIndex) => ({
-          chapterId: chapter.id,
-          fragmentIndex,
-        }),
-      ),
+      this.options.documentManager.getChapterFragmentRefs(chapter.id),
     );
   }
 

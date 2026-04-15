@@ -37,6 +37,12 @@ type PipelineStepStateRow = {
   state_json: string;
 };
 
+export type PersistedChapterIndex = {
+  chapterId: number;
+  filePath: string;
+  fragmentHashes: string[];
+};
+
 export class SqliteProjectStorage {
   constructor(readonly databasePath: string) {}
 
@@ -75,6 +81,10 @@ export class SqliteProjectStorage {
   }
 
   async loadChapter(chapterId: number): Promise<ChapterEntry | undefined> {
+    return this.loadChapterSync(chapterId);
+  }
+
+  loadChapterSync(chapterId: number): ChapterEntry | undefined {
     const db = this.openDatabase();
     try {
       const chapterRow = db
@@ -116,6 +126,43 @@ export class SqliteProjectStorage {
         .all(chapterId) as PipelineStepStateRow[];
 
       return hydrateChapter(chapterRow, fragmentRows, lineRows, pipelineRows);
+    } finally {
+      db.close();
+    }
+  }
+
+  async loadChapterIndex(chapterId: number): Promise<PersistedChapterIndex | undefined> {
+    return this.loadChapterIndexSync(chapterId);
+  }
+
+  loadChapterIndexSync(chapterId: number): PersistedChapterIndex | undefined {
+    const db = this.openDatabase();
+    try {
+      const chapterRow = db
+        .query(
+          `SELECT chapter_id, file_path
+             FROM chapters
+            WHERE chapter_id = ?1`,
+        )
+        .get(chapterId) as { chapter_id: number; file_path: string } | null;
+      if (!chapterRow) {
+        return undefined;
+      }
+
+      const fragmentRows = db
+        .query(
+          `SELECT fragment_index, hash
+             FROM fragments
+            WHERE chapter_id = ?1
+            ORDER BY fragment_index`,
+        )
+        .all(chapterId) as Array<{ fragment_index: number; hash: string }>;
+
+      return {
+        chapterId: chapterRow.chapter_id,
+        filePath: chapterRow.file_path,
+        fragmentHashes: fragmentRows.map((row) => row.hash),
+      };
     } finally {
       db.close();
     }

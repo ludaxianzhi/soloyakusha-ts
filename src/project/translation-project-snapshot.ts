@@ -60,14 +60,15 @@ export class TranslationProjectSnapshotBuilder {
 
     let translatedChapters = 0;
     for (const chapter of this.options.getTraversalChapters()) {
-      const chapterEntry = this.options.documentManager.getChapterById(chapter.id);
-      if (!chapterEntry) {
+      const fragmentCount = this.options.documentManager.getChapterFragmentCount(chapter.id);
+      if (fragmentCount === 0) {
         continue;
       }
 
       if (
-        chapterEntry.fragments.every((_, fragmentIndex) =>
-          this.options.isStepCompleted(chapter.id, fragmentIndex, this.options.pipeline.finalStepId),
+        Array.from({ length: fragmentCount }, (_value, fragmentIndex) => fragmentIndex).every(
+          (fragmentIndex) =>
+            this.options.isStepCompleted(chapter.id, fragmentIndex, this.options.pipeline.finalStepId),
         )
       ) {
         translatedChapters += 1;

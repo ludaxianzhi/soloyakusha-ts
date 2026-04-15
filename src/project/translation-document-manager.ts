@@ -43,7 +43,10 @@ import {
   createTextFragment,
   fragmentToText,
 } from "./types.ts";
-import { SqliteProjectStorage } from "./sqlite-project-storage.ts";
+import {
+  SqliteProjectStorage,
+  type PersistedChapterIndex,
+} from "./sqlite-project-storage.ts";
 import {
   buildWorkspaceBootstrapDocument,
   DEFAULT_WORKSPACE_DATABASE_FILE_PATH,
@@ -116,6 +119,14 @@ export class TranslationDocumentManager {
   private readonly textSplitter: TranslationUnitSplitter;
   private readonly parseUnits: TranslationUnitParser;
   private readonly chapters = new Map<number, ChapterEntry>();
+  private readonly chapterIndexes = new Map<
+    number,
+    {
+      filePath: string;
+      fragmentHashes: string[];
+    }
+  >();
+  private chapterOrder: number[] = [];
   private readonly hashIndex = new Map<string, { chapterId: number; fragmentIndex: number }>();
   private readonly storage: SqliteProjectStorage;
 
@@ -146,12 +157,12 @@ export class TranslationDocumentManager {
     chapterFiles: Array<{ chapterId: number; filePath: string }>,
   ): Promise<void> {
     await mkdir(this.dataDir, { recursive: true });
+    this.chapterOrder = [...chapterFiles.map(({ chapterId }) => chapterId)];
 
     for (const { chapterId, filePath } of chapterFiles) {
-      const persistedChapter = await this.storage.loadChapter(chapterId);
-      if (persistedChapter) {
-        this.chapters.set(chapterId, persistedChapter);
-        this.rebuildHashIndexForChapter(persistedChapter);
+      const persistedChapterIndex = this.storage.loadChapterIndexSync(chapterId);
+      if (persistedChapterIndex) {
+        this.setChapterIndex(persistedChapterIndex);
         continue;
       }
 
@@ -289,7 +300,7 @@ export class TranslationDocumentManager {
     chapterId: number,
     fragmentIndex: number,
   ): FragmentEntry | undefined {
-    const chapter = this.chapters.get(chapterId);
+    const chapter = this.getChapterById(chapterId);
     return chapter?.fragments[fragmentIndex];
   }
 
@@ -314,11 +325,25 @@ export class TranslationDocumentManager {
   }
 
   getChapterById(chapterId: number): ChapterEntry | undefined {
-    return this.chapters.get(chapterId);
+    return this.ensureChapterLoaded(chapterId);
   }
 
   getAllChapters(): ChapterEntry[] {
-    return Array.from(this.chapters.values());
+    return this.chapterOrder
+      .map((chapterId) => this.ensureChapterLoaded(chapterId))
+      .filter((chapter): chapter is ChapterEntry => Boolean(chapter));
+  }
+
+  getChapterFragmentCount(chapterId: number): number {
+    return this.chapterIndexes.get(chapterId)?.fragmentHashes.length ?? 0;
+  }
+
+  getChapterFragmentRefs(chapterId: number): Array<{ chapterId: number; fragmentIndex: number }> {
+    const fragmentCount = this.getChapterFragmentCount(chapterId);
+    return Array.from({ length: fragmentCount }, (_value, fragmentIndex) => ({
+      chapterId,
+      fragmentIndex,
+    }));
   }
 
   getSourceText(chapterId: number, fragmentIndex: number): string {
@@ -448,8 +473,8 @@ export class TranslationDocumentManager {
       : rawUnits.map((unit) => ({ ...unit, target: [] }));
     const chapter = createChapterEntry(chapterId, filePath, this.textSplitter.split(units));
 
-    this.chapters.set(chapterId, chapter);
-    this.rebuildHashIndexForChapter(chapter);
+    this.setLoadedChapter(chapter);
+    this.ensureChapterOrderContains(chapterId);
     await this.saveChapter(chapter);
     return chapter;
   }
@@ -460,8 +485,10 @@ export class TranslationDocumentManager {
   async clearChapterTranslations(chapterIds: number[]): Promise<void> {
     const affectedIds = [...new Set(chapterIds)];
     for (const chapterId of affectedIds) {
-      const chapter = this.chapters.get(chapterId);
-      if (!chapter) continue;
+      const chapter = this.getChapterById(chapterId);
+      if (!chapter) {
+        continue;
+      }
       for (const fragment of chapter.fragments) {
         resetFragmentToUntranslated(fragment);
       }
@@ -481,7 +508,7 @@ export class TranslationDocumentManager {
     const completedAt = new Date().toISOString();
 
     for (const chapterId of affectedIds) {
-      const chapter = this.chapters.get(chapterId);
+      const chapter = this.getChapterById(chapterId);
       if (!chapter) {
         continue;
       }
@@ -533,13 +560,9 @@ export class TranslationDocumentManager {
    * 移除章节：从内存中删除章节数据和哈希索引，并删除磁盘上的数据文件。
    */
   async removeChapter(chapterId: number): Promise<void> {
-    const chapter = this.chapters.get(chapterId);
-    if (chapter) {
-      for (const fragment of chapter.fragments) {
-        this.hashIndex.delete(fragment.hash);
-      }
-    }
+    this.deleteChapterIndex(chapterId);
     this.chapters.delete(chapterId);
+    this.chapterOrder = this.chapterOrder.filter((id) => id !== chapterId);
     await this.storage.deleteChapter(chapterId);
   }
 
@@ -573,22 +596,69 @@ export class TranslationDocumentManager {
       : this.parseUnits(await readFile(filePath, "utf8"));
     const chapter = createChapterEntry(chapterId, filePath, this.textSplitter.split(units));
 
-    this.chapters.set(chapterId, chapter);
-    this.rebuildHashIndexForChapter(chapter);
+    this.setLoadedChapter(chapter);
     await this.saveChapter(chapter);
   }
 
-  private rebuildHashIndexForChapter(chapter: ChapterEntry): void {
-    for (const [fragmentIndex, fragment] of chapter.fragments.entries()) {
-      this.hashIndex.set(fragment.hash, {
-        chapterId: chapter.id,
+  private ensureChapterOrderContains(chapterId: number): void {
+    if (!this.chapterOrder.includes(chapterId)) {
+      this.chapterOrder.push(chapterId);
+    }
+  }
+
+  private ensureChapterLoaded(chapterId: number): ChapterEntry | undefined {
+    const existing = this.chapters.get(chapterId);
+    if (existing) {
+      return existing;
+    }
+
+    const persistedChapter = this.storage.loadChapterSync(chapterId);
+    if (!persistedChapter) {
+      return undefined;
+    }
+
+    this.setLoadedChapter(persistedChapter);
+    return persistedChapter;
+  }
+
+  private setLoadedChapter(chapter: ChapterEntry): void {
+    this.chapters.set(chapter.id, chapter);
+    this.setChapterIndex({
+      chapterId: chapter.id,
+      filePath: chapter.filePath,
+      fragmentHashes: chapter.fragments.map((fragment) => fragment.hash),
+    });
+  }
+
+  private setChapterIndex(index: PersistedChapterIndex): void {
+    this.deleteChapterIndex(index.chapterId);
+    this.chapterIndexes.set(index.chapterId, {
+      filePath: index.filePath,
+      fragmentHashes: [...index.fragmentHashes],
+    });
+    this.ensureChapterOrderContains(index.chapterId);
+    for (const [fragmentIndex, hash] of index.fragmentHashes.entries()) {
+      this.hashIndex.set(hash, {
+        chapterId: index.chapterId,
         fragmentIndex,
       });
     }
   }
 
+  private deleteChapterIndex(chapterId: number): void {
+    const existingIndex = this.chapterIndexes.get(chapterId);
+    if (!existingIndex) {
+      return;
+    }
+
+    for (const hash of existingIndex.fragmentHashes) {
+      this.hashIndex.delete(hash);
+    }
+    this.chapterIndexes.delete(chapterId);
+  }
+
   private getRequiredChapter(chapterId: number): ChapterEntry {
-    const chapter = this.chapters.get(chapterId);
+    const chapter = this.getChapterById(chapterId);
     if (!chapter) {
       throw new Error(`章节 ${chapterId} 不存在`);
     }
@@ -607,6 +677,11 @@ export class TranslationDocumentManager {
 
   private async saveChapter(chapter: ChapterEntry): Promise<void> {
     await this.storage.saveChapter(chapter);
+    this.setChapterIndex({
+      chapterId: chapter.id,
+      filePath: chapter.filePath,
+      fragmentHashes: chapter.fragments.map((fragment) => fragment.hash),
+    });
   }
 }
 

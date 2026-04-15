@@ -251,9 +251,9 @@ export function collectSourceTextBlocks(
   chapters: Chapter[],
 ): Array<{ blockId: string; text: string }> {
   return chapters.flatMap((chapter) =>
-    (documentManager.getChapterById(chapter.id)?.fragments ?? []).map((fragment, fragmentIndex) => ({
+    documentManager.getChapterFragmentRefs(chapter.id).map(({ fragmentIndex }) => ({
       blockId: `chapter:${chapter.id}:fragment:${fragmentIndex}`,
-      text: fragment.source.lines.join("\n"),
+      text: documentManager.getSourceText(chapter.id, fragmentIndex),
     })),
   );
 }

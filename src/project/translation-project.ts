@@ -943,7 +943,11 @@ export class TranslationProject
 
     return this.getOrderedFragments()
       .flatMap((fragment) => {
-        const stepState = fragment.fragment.pipelineStates[stepId];
+        const stepState = this.documentManager.getPipelineStepState(
+          fragment.chapterId,
+          fragment.fragmentIndex,
+          stepId,
+        );
         if (!stepState) {
           return [];
         }
@@ -1493,13 +1497,7 @@ export class TranslationProject
 
   getOrderedFragments(): OrderedFragmentSnapshot[] {
     return this.getTraversalChapters().flatMap((chapter) =>
-      (this.documentManager.getChapterById(chapter.id)?.fragments ?? []).map(
-        (fragment, fragmentIndex) => ({
-          chapterId: chapter.id,
-          fragmentIndex,
-          fragment,
-        }),
-      ),
+      this.documentManager.getChapterFragmentRefs(chapter.id),
     );
   }
 
@@ -1578,7 +1576,7 @@ export class TranslationProject
       }
 
       const firstStepId = this.pipeline.steps[0]!.id;
-      if (!fragment.fragment.pipelineStates[firstStepId]) {
+      if (!this.documentManager.getPipelineStepState(fragment.chapterId, fragment.fragmentIndex, firstStepId)) {
         updates.push({
           chapterId: fragment.chapterId,
           fragmentIndex: fragment.fragmentIndex,
@@ -1598,7 +1596,11 @@ export class TranslationProject
         if (
           previousStepId &&
           this.isStepCompleted(fragment.chapterId, fragment.fragmentIndex, previousStepId) &&
-          !fragment.fragment.pipelineStates[step.id]
+          !this.documentManager.getPipelineStepState(
+            fragment.chapterId,
+            fragment.fragmentIndex,
+            step.id,
+          )
         ) {
           updates.push({
             chapterId: fragment.chapterId,
