@@ -56,6 +56,14 @@ export type GlossaryTranslationUpdate = {
   translation: string;
 };
 
+type GlossaryApplyTranslationsLogger = {
+  warn?(message: string, metadata?: Record<string, unknown>): void;
+};
+
+export type GlossaryApplyTranslationsOptions = {
+  logger?: GlossaryApplyTranslationsLogger;
+};
+
 /**
  * 术语表模型，负责维护术语集合并按上下文筛选、渲染可用条目。
  *
@@ -124,6 +132,7 @@ export class Glossary {
 
   applyTranslations(
     updates: ReadonlyArray<GlossaryTranslationUpdate>,
+    options: GlossaryApplyTranslationsOptions = {},
   ): ResolvedGlossaryTerm[] {
     const appliedTerms: ResolvedGlossaryTerm[] = [];
     for (const update of updates) {
@@ -144,9 +153,12 @@ export class Glossary {
         existing.translation.length > 0 &&
         existing.translation !== translation
       ) {
-        throw new Error(
-          `术语 ${termText} 已有不同译文，拒绝覆盖: ${existing.translation} -> ${translation}`,
-        );
+        options.logger?.warn?.("术语更新与现有译文冲突，已忽略", {
+          term: termText,
+          existingTranslation: existing.translation,
+          requestedTranslation: translation,
+        });
+        continue;
       }
 
       const nextTerm: ResolvedGlossaryTerm = {

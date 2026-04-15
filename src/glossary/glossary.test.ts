@@ -125,6 +125,95 @@ describe("glossary", () => {
     });
   });
 
+  test("only requests untranslated glossary terms for auto update", async () => {
+    const glossary = new Glossary([
+      { term: "勇者", translation: "Hero" },
+      { term: "王都", translation: "" },
+    ]);
+    const client = new FakeChatClient([
+      JSON.stringify({
+        glossaryUpdates: [{ term: "王都", translation: "Royal Capital" }],
+      }),
+    ]);
+    const updater = new DefaultGlossaryUpdater(client);
+
+    const result = await updater.updateGlossary({
+      glossary,
+      untranslatedTerms: [glossary.getTerm("勇者")!, glossary.getTerm("王都")!],
+      translationUnits: [
+        {
+          id: "1",
+          sourceText: "勇者来到王都",
+          translatedText: "Hero arrived at the Royal Capital",
+        },
+      ],
+    });
+
+    expect(client.requests[0]?.prompt).not.toContain("term: 勇者");
+    expect(client.requests[0]?.prompt).toContain("term: 王都");
+    expect(result.responseSchema).toMatchObject({
+      properties: {
+        glossaryUpdates: {
+          items: {
+            properties: {
+              term: {
+                enum: ["王都"],
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  test("warns and skips conflicting glossary updates instead of throwing", async () => {
+    const glossary = new Glossary([{ term: "王都", translation: "" }]);
+    const warnings: Array<{ message: string; metadata?: Record<string, unknown> }> = [];
+    const client = new MutatingFakeChatClient(
+      () => {
+        glossary.updateTerm("王都", { term: "王都", translation: "Capital" });
+      },
+      JSON.stringify({
+        glossaryUpdates: [{ term: "王都", translation: "Royal Capital" }],
+      }),
+    );
+    const updater = new DefaultGlossaryUpdater(client, {
+      logger: {
+        warn(message, metadata) {
+          warnings.push({ message, metadata });
+        },
+      },
+    });
+
+    const result = await updater.updateGlossary({
+      glossary,
+      untranslatedTerms: [glossary.getTerm("王都")!],
+      translationUnits: [
+        {
+          id: "1",
+          sourceText: "王都",
+          translatedText: "Royal Capital",
+        },
+      ],
+    });
+
+    expect(result.updates).toEqual([]);
+    expect(result.appliedTerms).toEqual([]);
+    expect(glossary.getTerm("王都")).toMatchObject({
+      translation: "Capital",
+      status: "translated",
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({
+      message: "术语更新与现有译文冲突，已忽略",
+      metadata: {
+        term: "王都",
+        existingTranslation: "Capital",
+        requestedTranslation: "Royal Capital",
+      },
+    });
+  });
+
   test("persists extended glossary fields as csv", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-glossary-"));
     cleanupTargets.push(workspaceDir);
@@ -424,6 +513,26 @@ class DelayedFakeChatClient extends ChatClient {
     } finally {
       this.inFlight -= 1;
     }
+  }
+}
+
+class MutatingFakeChatClient extends ChatClient {
+  readonly requests: Array<{ prompt: string; options?: ChatRequestOptions }> = [];
+
+  constructor(
+    private readonly mutate: () => void,
+    private readonly response: string,
+  ) {
+    super(createFakeChatConfig());
+  }
+
+  override async singleTurnRequest(
+    prompt: string,
+    options?: ChatRequestOptions,
+  ): Promise<string> {
+    this.requests.push({ prompt, options });
+    this.mutate();
+    return this.response;
   }
 }
 

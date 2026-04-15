@@ -120,7 +120,18 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
   async updateGlossary(
     request: GlossaryUpdateRequest,
   ): Promise<GlossaryUpdateExecutionResult> {
-    if (request.untranslatedTerms.length === 0 || request.translationUnits.length === 0) {
+    const untranslatedTerms = request.untranslatedTerms.filter(
+      (term) => term.status === "untranslated",
+    );
+
+    if (untranslatedTerms.length !== request.untranslatedTerms.length) {
+      this.logger.warn?.("术语更新请求中包含已翻译术语，已忽略", {
+        updaterName: this.updaterName,
+        ignoredTermCount: request.untranslatedTerms.length - untranslatedTerms.length,
+      });
+    }
+
+    if (untranslatedTerms.length === 0 || request.translationUnits.length === 0) {
       return {
         updates: [],
         appliedTerms: [],
@@ -136,10 +147,13 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
       updaterName: this.updaterName,
       modelName: getResolvedModelName(this.clientResolver),
       translationUnitCount: request.translationUnits.length,
-      glossaryTermCount: request.untranslatedTerms.length,
+      glossaryTermCount: untranslatedTerms.length,
     });
 
-    const renderedPrompt = await this.renderPrompt(request);
+    const renderedPrompt = await this.renderPrompt({
+      ...request,
+      untranslatedTerms,
+    });
     const chatClient = this.resolveChatClient();
     const responseText = await chatClient.singleTurnRequest(
       renderedPrompt.userPrompt,
@@ -153,29 +167,36 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
           (candidateResponseText) => {
             parseGlossaryUpdateResponse(
               candidateResponseText,
-              request.untranslatedTerms.map((term) => term.term),
+              untranslatedTerms.map((term) => term.term),
               request.translationUnits.map((unit) => unit.translatedText),
             );
           },
         ),
-        this.buildRequestMeta(request),
+        this.buildRequestMeta({
+          ...request,
+          untranslatedTerms,
+        }),
       ),
     );
     const updates = parseGlossaryUpdateResponse(
       responseText,
-      request.untranslatedTerms.map((term) => term.term),
+      untranslatedTerms.map((term) => term.term),
       request.translationUnits.map((unit) => unit.translatedText),
     );
-    const appliedTerms = request.glossary.applyTranslations(updates);
+    const appliedTerms = request.glossary.applyTranslations(updates, {
+      logger: this.logger,
+    });
+    const appliedTermSet = new Set(appliedTerms.map((term) => term.term));
+    const appliedUpdates = updates.filter((update) => appliedTermSet.has(update.term));
 
     this.logger.info?.("术语表更新完成", {
       updaterName: this.updaterName,
       modelName: getResolvedModelName(this.clientResolver),
-      glossaryUpdateCount: updates.length,
+      glossaryUpdateCount: appliedUpdates.length,
     });
 
     return {
-      updates,
+      updates: appliedUpdates,
       appliedTerms,
       responseText,
       responseSchema: renderedPrompt.responseSchema,
