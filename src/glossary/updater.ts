@@ -120,7 +120,27 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
   async updateGlossary(
     request: GlossaryUpdateRequest,
   ): Promise<GlossaryUpdateExecutionResult> {
-    if (request.untranslatedTerms.length === 0 || request.translationUnits.length === 0) {
+    const { untranslatedTerms, snapshotTranslatedCount, staleTranslatedCount } =
+      resolveLiveUntranslatedTerms(
+        request.glossary,
+        request.untranslatedTerms,
+      );
+
+    if (snapshotTranslatedCount > 0) {
+      this.logger.warn?.("术语更新请求中包含已翻译术语，已忽略", {
+        updaterName: this.updaterName,
+        ignoredTermCount: snapshotTranslatedCount,
+      });
+    }
+
+    if (staleTranslatedCount > 0) {
+      this.logger.info?.("术语更新请求中的术语已被并发翻译，已跳过", {
+        updaterName: this.updaterName,
+        ignoredTermCount: staleTranslatedCount,
+      });
+    }
+
+    if (untranslatedTerms.length === 0 || request.translationUnits.length === 0) {
       return {
         updates: [],
         appliedTerms: [],
@@ -136,10 +156,13 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
       updaterName: this.updaterName,
       modelName: getResolvedModelName(this.clientResolver),
       translationUnitCount: request.translationUnits.length,
-      glossaryTermCount: request.untranslatedTerms.length,
+      glossaryTermCount: untranslatedTerms.length,
     });
 
-    const renderedPrompt = await this.renderPrompt(request);
+    const renderedPrompt = await this.renderPrompt({
+      ...request,
+      untranslatedTerms,
+    });
     const chatClient = this.resolveChatClient();
     const responseText = await chatClient.singleTurnRequest(
       renderedPrompt.userPrompt,
@@ -153,29 +176,39 @@ export class DefaultGlossaryUpdater implements GlossaryUpdater {
           (candidateResponseText) => {
             parseGlossaryUpdateResponse(
               candidateResponseText,
-              request.untranslatedTerms.map((term) => term.term),
+              untranslatedTerms.map((term) => term.term),
               request.translationUnits.map((unit) => unit.translatedText),
             );
           },
         ),
-        this.buildRequestMeta(request),
+        this.buildRequestMeta({
+          ...request,
+          untranslatedTerms,
+        }),
       ),
     );
     const updates = parseGlossaryUpdateResponse(
       responseText,
-      request.untranslatedTerms.map((term) => term.term),
+      untranslatedTerms.map((term) => term.term),
       request.translationUnits.map((unit) => unit.translatedText),
     );
-    const appliedTerms = request.glossary.applyTranslations(updates);
+    const filteredUpdates = filterStaleGlossaryUpdates(request.glossary, updates, this.logger, {
+      updaterName: this.updaterName,
+    });
+    const appliedTerms = request.glossary.applyTranslations(filteredUpdates, {
+      logger: this.logger,
+    });
+    const appliedTermSet = new Set(appliedTerms.map((term) => term.term));
+    const appliedUpdates = filteredUpdates.filter((update) => appliedTermSet.has(update.term));
 
     this.logger.info?.("术语表更新完成", {
       updaterName: this.updaterName,
       modelName: getResolvedModelName(this.clientResolver),
-      glossaryUpdateCount: updates.length,
+      glossaryUpdateCount: appliedUpdates.length,
     });
 
     return {
-      updates,
+      updates: appliedUpdates,
       appliedTerms,
       responseText,
       responseSchema: renderedPrompt.responseSchema,
@@ -383,4 +416,78 @@ function getResolvedModelName(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function resolveLiveUntranslatedTerms(
+  glossary: Glossary,
+  requestedTerms: ReadonlyArray<ResolvedGlossaryTerm>,
+): {
+  untranslatedTerms: ResolvedGlossaryTerm[];
+  snapshotTranslatedCount: number;
+  staleTranslatedCount: number;
+} {
+  const untranslatedTerms: ResolvedGlossaryTerm[] = [];
+  let snapshotTranslatedCount = 0;
+  let staleTranslatedCount = 0;
+
+  for (const term of requestedTerms) {
+    if (term.status !== "untranslated") {
+      snapshotTranslatedCount += 1;
+      continue;
+    }
+
+    const currentTerm = glossary.getTerm(term.term);
+    if (currentTerm?.status === "untranslated") {
+      untranslatedTerms.push(term);
+      continue;
+    }
+
+    staleTranslatedCount += 1;
+  }
+
+  return {
+    untranslatedTerms,
+    snapshotTranslatedCount,
+    staleTranslatedCount,
+  };
+}
+
+function filterStaleGlossaryUpdates(
+  glossary: Glossary,
+  updates: ReadonlyArray<GlossaryTranslationUpdate>,
+  logger: GlossaryUpdaterLogger,
+  options: { updaterName?: string } = {},
+): GlossaryTranslationUpdate[] {
+  const applicableUpdates: GlossaryTranslationUpdate[] = [];
+
+  for (const update of updates) {
+    const currentTerm = glossary.getTerm(update.term);
+    if (!currentTerm) {
+      applicableUpdates.push(update);
+      continue;
+    }
+
+    if (currentTerm.status === "untranslated") {
+      applicableUpdates.push(update);
+      continue;
+    }
+
+    if (currentTerm.translation === update.translation) {
+      logger.info?.("术语更新结果与现有译文一致，已跳过重复应用", {
+        updaterName: options.updaterName,
+        term: update.term,
+        translation: update.translation,
+      });
+      continue;
+    }
+
+    logger.info?.("术语更新结果已过时，检测到术语已有其他译文，已跳过", {
+      updaterName: options.updaterName,
+      term: update.term,
+      existingTranslation: currentTerm.translation,
+      requestedTranslation: update.translation,
+    });
+  }
+
+  return applicableUpdates;
 }

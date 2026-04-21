@@ -10,6 +10,7 @@ import type { TranslationDocumentManager } from "./translation-document-manager.
 import type {
   Chapter,
   GlossaryImportResult,
+  WorkspaceDependencyTrackingConfig,
   TranslationExportResult,
   TranslationImportResult,
   TranslationProjectConfig,
@@ -70,6 +71,21 @@ export class TranslationProjectWorkspace {
     patch: WorkspaceConfigPatch,
   ): Promise<WorkspaceConfig> {
     const nextConfig = applyWorkspaceConfigPatch(this.getWorkspaceConfigState(), patch);
+    this.setWorkspaceConfigState(nextConfig);
+    await this.documentManager.saveWorkspaceConfig(nextConfig);
+    return this.getWorkspaceConfig();
+  }
+
+  async updateDependencyTracking(
+    update: (
+      current: WorkspaceDependencyTrackingConfig,
+    ) => WorkspaceDependencyTrackingConfig,
+  ): Promise<WorkspaceConfig> {
+    const currentConfig = this.getWorkspaceConfigState();
+    const nextConfig = {
+      ...currentConfig,
+      dependencyTracking: update(resolveDependencyTracking(currentConfig)),
+    };
     this.setWorkspaceConfigState(nextConfig);
     await this.documentManager.saveWorkspaceConfig(nextConfig);
     return this.getWorkspaceConfig();
@@ -406,6 +422,10 @@ export function buildInitialWorkspaceConfig(
       path: config.glossary?.path ?? DEFAULT_GLOSSARY_FILE_PATH,
       autoFilter: config.glossary?.autoFilter ?? true,
     },
+    dependencyTracking: {
+      sourceRevision: 0,
+      glossaryRevision: 0,
+    },
     translator: {},
     slidingWindow: {},
     textSplitMaxChars: config.textSplitMaxChars,
@@ -426,6 +446,14 @@ export function mergePersistedWorkspaceConfig(
     translator: {
       ...current.translator,
       ...persisted.translator,
+    },
+    dependencyTracking: {
+      sourceRevision:
+        persisted.dependencyTracking?.sourceRevision ??
+        resolveDependencyTracking(current).sourceRevision,
+      glossaryRevision:
+        persisted.dependencyTracking?.glossaryRevision ??
+        resolveDependencyTracking(current).glossaryRevision,
     },
     slidingWindow: {
       ...current.slidingWindow,
@@ -457,6 +485,7 @@ export function applyWorkspaceConfigPatch(
     glossary: patch.glossary
       ? { ...config.glossary, ...patch.glossary }
       : config.glossary,
+    dependencyTracking: { ...resolveDependencyTracking(config) },
     translator: nextTranslator,
     slidingWindow: patch.slidingWindow
       ? { ...config.slidingWindow, ...patch.slidingWindow }
@@ -486,6 +515,7 @@ export function cloneWorkspaceConfig(config: WorkspaceConfig): WorkspaceConfig {
     ...config,
     chapters: config.chapters.map((chapter) => ({ ...chapter })),
     glossary: { ...config.glossary },
+    dependencyTracking: { ...resolveDependencyTracking(config) },
     translator: { ...config.translator },
     slidingWindow: { ...config.slidingWindow },
     customRequirements: [...config.customRequirements],
@@ -501,6 +531,13 @@ export function buildWorkspaceBootstrapDocument(
     storage: "sqlite",
     projectName,
     databasePath,
+  };
+}
+
+function resolveDependencyTracking(config: WorkspaceConfig): WorkspaceDependencyTrackingConfig {
+  return {
+    sourceRevision: config.dependencyTracking?.sourceRevision ?? 0,
+    glossaryRevision: config.dependencyTracking?.glossaryRevision ?? 0,
   };
 }
 

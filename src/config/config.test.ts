@@ -643,6 +643,7 @@ describe("GlobalConfigManager", () => {
       promptSet: "ja-zhCN",
       type: "multi-stage",
       modelNames: ["analysis-chat"],
+      maxConcurrentWorkItems: 3,
       steps: {
         analyzer: {
           modelNames: ["analysis-chat", "analysis-fallback"],
@@ -664,6 +665,7 @@ describe("GlobalConfigManager", () => {
     });
 
     const loaded = await manager.getTranslator("multi-stage");
+    expect(loaded?.maxConcurrentWorkItems).toBe(3);
     expect(loaded?.steps).toMatchObject({
       analyzer: {
         modelNames: ["analysis-chat", "analysis-fallback"],

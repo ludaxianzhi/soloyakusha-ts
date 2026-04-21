@@ -23,10 +23,9 @@ export class TranslationProjectLifecycleManager {
   constructor(private readonly options: TranslationProjectLifecycleManagerOptions) {}
 
   getLifecycleSnapshot(): TranslationProjectLifecycleSnapshot {
-    const queuedWorkItems = this.options.listAllQueueEntries().filter((entry) => entry.status === "queued")
-      .length;
-    const activeWorkItems = this.options.listAllQueueEntries().filter((entry) => entry.status === "running")
-      .length;
+    const allEntries = this.options.listAllQueueEntries();
+    const queuedWorkItems = allEntries.filter((entry) => entry.status === "queued").length;
+    const activeWorkItems = allEntries.filter((entry) => entry.status === "running").length;
     const status = this.options.getProjectState().lifecycle.status;
 
     return {
@@ -163,8 +162,9 @@ export class TranslationProjectLifecycleManager {
   async refreshLifecycleState(): Promise<void> {
     const lifecycle = this.options.getProjectState().lifecycle;
     const now = new Date().toISOString();
-    const hasQueuedWork = this.options.listAllQueueEntries().some((entry) => entry.status === "queued");
-    const hasRunningWork = this.options.listAllQueueEntries().some((entry) => entry.status === "running");
+    const allEntries = this.options.listAllQueueEntries();
+    const hasQueuedWork = allEntries.some((entry) => entry.status === "queued");
+    const hasRunningWork = allEntries.some((entry) => entry.status === "running");
     const isCompleted = this.options.getOrderedFragments().every((fragment) =>
       this.options.isStepCompleted(
         fragment.chapterId,

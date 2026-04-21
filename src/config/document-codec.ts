@@ -189,6 +189,10 @@ export function normalizeTranslationProcessorConfig(
   const result: TranslationProcessorConfig = {
     workflow: readOptionalString(value.workflow, `${sourceLabel}.workflow`),
     modelNames: readRequiredModelNames(value, sourceLabel),
+    maxConcurrentWorkItems: readOptionalPositiveInteger(
+      value.maxConcurrentWorkItems,
+      `${sourceLabel}.maxConcurrentWorkItems`,
+    ),
     slidingWindow:
       value.slidingWindow === undefined
         ? undefined
@@ -251,6 +255,10 @@ export function normalizeTranslatorEntry(
       DEFAULT_TRANSLATOR_PROMPT_SET,
     type: workflowType,
     modelNames: baseModelNames,
+    maxConcurrentWorkItems: readOptionalPositiveInteger(
+      value.maxConcurrentWorkItems,
+      `${sourceLabel}.maxConcurrentWorkItems`,
+    ),
     slidingWindow:
       value.slidingWindow === undefined
         ? undefined
@@ -717,6 +725,7 @@ export function cloneTranslatorEntry(entry: TranslatorEntry): TranslatorEntry {
     promptSet: entry.promptSet,
     type: entry.type,
     modelNames: [...entry.modelNames],
+    maxConcurrentWorkItems: entry.maxConcurrentWorkItems,
     slidingWindow: entry.slidingWindow ? { ...entry.slidingWindow } : undefined,
     requestOptions: entry.requestOptions
       ? clonePersistedChatRequestOptions(entry.requestOptions)
@@ -758,6 +767,7 @@ export function cloneTranslationProcessorConfig(
   const result: TranslationProcessorConfig = {
     workflow: config.workflow,
     modelNames: [...config.modelNames],
+    maxConcurrentWorkItems: config.maxConcurrentWorkItems,
     slidingWindow: config.slidingWindow ? { ...config.slidingWindow } : undefined,
     requestOptions: config.requestOptions
       ? clonePersistedChatRequestOptions(config.requestOptions)

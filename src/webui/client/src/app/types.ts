@@ -564,6 +564,10 @@ export interface WorkspaceConfig {
     path?: string;
     autoFilter?: boolean;
   };
+  dependencyTracking?: {
+    sourceRevision: number;
+    glossaryRevision: number;
+  };
   translator: {
     translatorName?: string;
   };
@@ -618,6 +622,7 @@ export interface TranslatorEntry {
   promptSet: string;
   type?: string;
   modelNames: string[];
+  maxConcurrentWorkItems?: number;
   slidingWindow?: {
     overlapChars?: number;
   };

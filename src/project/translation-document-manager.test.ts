@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PlainTextFileHandler } from "../file-handlers/plain-text-file-handler.ts";
@@ -105,5 +105,34 @@ describe("TranslationDocumentManager sliding window views", () => {
 
     expect(reloadedManager.getChapterTranslatedText(1)).toBe("A1\nB1\nC2\nD3");
     expect(reloadedManager.getChapterById(1)?.fragments).toHaveLength(4);
+  });
+
+  test("keeps persisted fragment indexes available before chapter bodies are rehydrated", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-window-index-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourcePath = join(workspaceDir, "chapter.txt");
+    await writeFile(sourcePath, "aaaa\nbbbb\ncccc\ndddd\n", "utf8");
+
+    const manager = new TranslationDocumentManager(workspaceDir, {
+      textSplitter: new DefaultTextSplitter(4),
+    });
+    await manager.loadChapters([{ chapterId: 1, filePath: sourcePath }]);
+    await manager.updateTranslation(1, 0, ["A1"]);
+
+    const reloadedManager = new TranslationDocumentManager(workspaceDir, {
+      textSplitter: new DefaultTextSplitter(4),
+    });
+    await reloadedManager.loadChapters([{ chapterId: 1, filePath: sourcePath }]);
+    await unlink(sourcePath);
+
+    expect(reloadedManager.getChapterFragmentCount(1)).toBe(4);
+    expect(reloadedManager.getChapterFragmentRefs(1)).toEqual([
+      { chapterId: 1, fragmentIndex: 0 },
+      { chapterId: 1, fragmentIndex: 1 },
+      { chapterId: 1, fragmentIndex: 2 },
+      { chapterId: 1, fragmentIndex: 3 },
+    ]);
+    expect(reloadedManager.getTranslatedText(1, 0)).toBe("A1");
   });
 });

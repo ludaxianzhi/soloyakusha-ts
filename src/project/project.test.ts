@@ -170,6 +170,167 @@ describe("TranslationProject", () => {
     }
   });
 
+  test("prevents concurrent dispatch of items sharing the same untranslated glossary term", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-glossary-term-lock-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(
+      join(sourceDir, "chapter-1.txt"),
+      [
+        "王都公告正式发布",
+        "王都教会钟声回荡",
+        "王都广场开始集合",
+        "王都骑士开始列队",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const glossary = new Glossary([
+      {
+        term: "王都",
+        translation: "",
+      },
+    ]);
+
+    const project = new TranslationProject(
+      {
+        projectName: "glossary-term-lock",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        glossary,
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.startTranslation();
+
+    const translationQueue = project.getWorkQueue("translation");
+    const firstBatch = await translationQueue.dispatchReadyItems();
+    expect(firstBatch.map((item) => item.fragmentIndex)).toEqual([0]);
+
+    await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Royal capital bulletin",
+    });
+
+    const secondBatch = await translationQueue.dispatchReadyItems();
+    expect(secondBatch.map((item) => item.fragmentIndex)).toEqual([1]);
+
+    await project.submitWorkResult({
+      runId: secondBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 1,
+      outputText: "Church bells of the royal capital",
+    });
+
+    const thirdBatch = await translationQueue.dispatchReadyItems();
+    expect(thirdBatch.map((item) => [item.fragmentIndex, item.metadata.dependencyMode])).toEqual([
+      [2, "previousTranslations"],
+    ]);
+
+    await project.submitWorkResult({
+      runId: thirdBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 2,
+      outputText: "Royal capital square gathers",
+    });
+
+    const fourthBatch = await translationQueue.dispatchReadyItems();
+    expect(fourthBatch.map((item) => [item.fragmentIndex, item.metadata.dependencyMode])).toEqual([
+      [3, "previousTranslations"],
+    ]);
+  });
+
+  test("releases glossary term reservation when a running item returns to queued", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-glossary-term-retry-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(
+      join(sourceDir, "chapter-1.txt"),
+      [
+        "王都公告正式发布",
+        "王都教会钟声回荡",
+        "王都广场开始集合",
+        "王都骑士开始列队",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const glossary = new Glossary([
+      {
+        term: "王都",
+        translation: "",
+      },
+    ]);
+
+    const project = new TranslationProject(
+      {
+        projectName: "glossary-term-retry",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        glossary,
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.startTranslation();
+
+    const translationQueue = project.getWorkQueue("translation");
+    const firstBatch = await translationQueue.dispatchReadyItems();
+    await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Royal capital bulletin",
+    });
+
+    const secondBatch = await translationQueue.dispatchReadyItems();
+    await project.submitWorkResult({
+      runId: secondBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 1,
+      outputText: "Church bells of the royal capital",
+    });
+
+    const thirdBatch = await translationQueue.dispatchReadyItems();
+    expect(thirdBatch.map((item) => item.fragmentIndex)).toEqual([2]);
+
+    await project.submitWorkResult({
+      runId: thirdBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 2,
+      success: false,
+      errorMessage: "retry later",
+    });
+
+    const retryBatch = await translationQueue.dispatchReadyItems();
+    expect(retryBatch.map((item) => item.fragmentIndex)).toEqual([2]);
+  });
+
   test("loads plot summaries into context view and filters branch predecessors by topology", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-plot-context-"));
     cleanupTargets.push(workspaceDir);

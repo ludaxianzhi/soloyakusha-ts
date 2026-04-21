@@ -340,6 +340,11 @@ export type WorkspaceSlidingWindowConfig = {
   overlapChars?: number;
 };
 
+export type WorkspaceDependencyTrackingConfig = {
+  sourceRevision: number;
+  glossaryRevision: number;
+};
+
 /**
  * 工作区配置文件的完整结构。
  *
@@ -357,6 +362,7 @@ export type WorkspaceConfig = {
   projectName: string;
   chapters: Chapter[];
   glossary: GlossarySettings;
+  dependencyTracking?: WorkspaceDependencyTrackingConfig;
   translator: WorkspaceTranslatorConfig;
   slidingWindow: WorkspaceSlidingWindowConfig;
   textSplitMaxChars?: number;
@@ -449,6 +455,30 @@ export type TranslationExportResult = {
   chapterId: number;
   outputPath: string;
   unitCount: number;
+};
+
+export type TranslationDependencySupportGroup = {
+  term: string;
+  supporterNodeIds: string[];
+};
+
+export type TranslationDependencyNode = {
+  nodeId: string;
+  stepId: string;
+  chapterId: number;
+  fragmentIndex: number;
+  orderedIndex: number;
+  requiredPrecedingCount: number;
+  glossarySupportGroups: TranslationDependencySupportGroup[];
+};
+
+export type TranslationDependencyGraph = {
+  schemaVersion: 1;
+  stepId: string;
+  sourceRevision: number;
+  glossaryRevision: number;
+  builtAt: string;
+  nodes: TranslationDependencyNode[];
 };
 
 /**

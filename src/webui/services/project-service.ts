@@ -23,8 +23,10 @@ import {
   type ChapterTranslationAssistantPromptInput,
   type ChapterTranslationAssistantSelectedUnit,
 } from '../../project/prompt-manager.ts';
+import type { TranslationWorkItem } from '../../project/pipeline.ts';
 import { TranslationProcessorFactory } from '../../project/translation-processor-factory.ts';
 import { TranslationProject } from '../../project/translation-project.ts';
+import type { TranslationProcessor } from '../../project/translation-processor.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { NatureDialogKeepNameFileHandler } from '../../file-handlers/nature-dialog-file-handler.ts';
 import { FullTextGlossaryScanner, type FullTextGlossaryScanBatch, type FullTextGlossaryScanLine } from '../../glossary/scanner.ts';
@@ -275,6 +277,18 @@ export interface ProjectResourceVersions {
   repetitionPatternsRevision: number;
 }
 
+type TranslationExecutionRuntime = {
+  processor: TranslationProcessor;
+  maxConcurrentWorkItems: number;
+  close: () => Promise<void>;
+};
+
+type ProjectServiceOptions = {
+  createTranslationRuntime?: typeof createProcessorForProject;
+};
+
+const DEFAULT_TRANSLATION_MAX_CONCURRENT_WORK_ITEMS = 4;
+
 // ─── Service ────────────────────────────────────────────
 
 export class ProjectService {
@@ -305,6 +319,7 @@ export class ProjectService {
     private readonly workspaceManager: WorkspaceManager,
     private readonly requestHistoryService: RequestHistoryService,
     private readonly usageStatsService: UsageStatsService,
+    private readonly options: ProjectServiceOptions = {},
   ) {}
 
   // ─── Queries ────────────────────────────────────────
@@ -325,7 +340,10 @@ export class ProjectService {
   }
 
   getSnapshotWithEntries(): TranslationProjectSnapshot | null {
-    return this.fullSnapshot;
+    if (!this.project) {
+      return null;
+    }
+    return this.project.getProjectSnapshot();
   }
 
   getQueueEntries(stepId: string): TranslationStepQueueEntrySnapshot[] {
@@ -1174,6 +1192,9 @@ export class ProjectService {
       }
 
       project.replaceGlossary(task.glossary);
+      if ("bumpGlossaryDependencyRevision" in project) {
+        await project.bumpGlossaryDependencyRevision();
+      }
       await project.saveProgress();
       this.refreshSnapshot();
       this.markDictionaryChanged();
@@ -1340,6 +1361,9 @@ export class ProjectService {
       }
 
       await this.project.saveProgress();
+      if ("bumpGlossaryDependencyRevision" in this.project) {
+        await this.project.bumpGlossaryDependencyRevision();
+      }
       this.refreshSnapshot();
       this.markDictionaryChanged();
       this.log('success', `字典条目已保存：${args.term}`);
@@ -1353,6 +1377,9 @@ export class ProjectService {
       if (!glossary) throw new Error('当前项目还没有字典');
       glossary.removeTerm(term);
       await this.project.saveProgress();
+      if ("bumpGlossaryDependencyRevision" in this.project) {
+        await this.project.bumpGlossaryDependencyRevision();
+      }
       this.refreshSnapshot();
       this.markDictionaryChanged();
       this.log('success', `字典条目已删除：${term}`);
@@ -1446,6 +1473,9 @@ export class ProjectService {
       };
 
       await this.project.saveProgress();
+      if ("bumpGlossaryDependencyRevision" in this.project) {
+        await this.project.bumpGlossaryDependencyRevision();
+      }
       this.refreshSnapshot();
       this.markDictionaryChanged();
       this.log(
@@ -2188,9 +2218,42 @@ export class ProjectService {
       this.topology = null;
       return;
     }
-    this.fullSnapshot = this.project.getProjectSnapshot();
-    this.snapshot = toProgressSnapshot(this.fullSnapshot);
+    const startedAt = Date.now();
+    const progressSnapshot = this.project.getProgressSnapshot();
+    const lifecycleSnapshot = this.project.getLifecycleSnapshot();
+    const glossaryProgress = this.project.getGlossaryProgress();
+    const pipeline = this.project.getPipeline();
+    this.fullSnapshot = null;
+    this.snapshot = {
+      projectName: this.project.getWorkspaceConfig().projectName,
+      currentCursor: this.project.getCurrentCursor(),
+      lifecycle: lifecycleSnapshot,
+      progress: progressSnapshot,
+      glossary: glossaryProgress,
+      pipeline: {
+        stepCount: pipeline.steps.length,
+        finalStepId: pipeline.finalStepId,
+        steps: pipeline.steps.map((step) => ({
+          id: step.id,
+          description: step.description,
+          isFinalStep: step.id === pipeline.finalStepId,
+        })),
+      },
+      queueSnapshots: pipeline.steps.map((step) => ({
+        stepId: step.id,
+        description: step.description,
+        isFinalStep: step.id === pipeline.finalStepId,
+        progress: this.project!.getStepProgress(step.id),
+        entries: [],
+      })),
+      activeWorkItems: [],
+      readyWorkItems: [],
+    };
     this.topology = this.project.getStoryTopology() ?? null;
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= 200) {
+      this.log("warning", `刷新运行态快照耗时较高：${elapsedMs}ms`);
+    }
     this.broadcastSnapshot();
   }
 
@@ -2467,123 +2530,371 @@ export class ProjectService {
     const token = ++this.processingToken;
 
     void (async () => {
-      try {
-        const processor = await createProcessorForProject(
-          currentProject,
-          (level, msg) => this.log(level, msg),
-          this.requestHistoryService,
-        );
-        this.log('info', '翻译处理器已就绪，开始调度队列');
+      let translationRuntime: TranslationExecutionRuntime | undefined;
+      const pendingItems: TranslationWorkItem[] = [];
+      const queueWaiters = new Set<() => void>();
+      let activeProcessingCount = 0;
+      let mutationChain = Promise.resolve();
+      let dispatchScheduled = false;
+      let snapshotRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+      let progressPersistTimer: ReturnType<typeof setTimeout> | null = null;
+      let progressPersistRequested = false;
+      let fatalError: unknown;
 
+      const notifyQueueWaiters = () => {
+        const waiters = [...queueWaiters];
+        queueWaiters.clear();
+        for (const resolve of waiters) {
+          resolve();
+        }
+      };
+
+      const QUEUE_WAIT_TIMEOUT_MS = 5_000;
+
+      const waitForQueueChange = () =>
+        new Promise<void>((resolve) => {
+          queueWaiters.add(resolve);
+          setTimeout(() => {
+            if (queueWaiters.delete(resolve)) {
+              resolve();
+            }
+          }, QUEUE_WAIT_TIMEOUT_MS);
+        });
+
+      const runSnapshotRefresh = () => {
+        if (this.project !== currentProject) {
+          return;
+        }
+        this.refreshSnapshot();
+      };
+
+      const scheduleSnapshotRefresh = (delayMs = 150) => {
+        if (snapshotRefreshTimer) {
+          return;
+        }
+
+        snapshotRefreshTimer = setTimeout(() => {
+          snapshotRefreshTimer = null;
+          try {
+            runSnapshotRefresh();
+          } catch (error) {
+            fatalError ??= error;
+            notifyQueueWaiters();
+          }
+        }, delayMs);
+      };
+
+      const flushSnapshotRefresh = () => {
+        if (snapshotRefreshTimer) {
+          clearTimeout(snapshotRefreshTimer);
+          snapshotRefreshTimer = null;
+        }
+        runSnapshotRefresh();
+      };
+
+      const yieldToEventLoop = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
+      const queueMutation = async (operation: () => Promise<void>): Promise<void> => {
+        const next = mutationChain.then(async () => {
+          await operation();
+          // 每次 mutation 完成后让出事件循环，防止微任务链连续执行同步 SQLite
+          // 写入而永久阻塞 HTTP 请求处理。
+          await yieldToEventLoop();
+        });
+        mutationChain = next.then(
+          () => {
+            notifyQueueWaiters();
+          },
+          (error) => {
+            fatalError ??= error;
+            notifyQueueWaiters();
+          },
+        );
+        await next;
+      };
+
+      const flushQueuedProgressPersist = async (): Promise<void> => {
+        if (progressPersistTimer) {
+          clearTimeout(progressPersistTimer);
+          progressPersistTimer = null;
+        }
+        if (!progressPersistRequested || this.project !== currentProject) {
+          return;
+        }
+
+        await queueMutation(async () => {
+          if (!progressPersistRequested || this.project !== currentProject) {
+            return;
+          }
+          progressPersistRequested = false;
+          await currentProject.saveTranslationRuntimeProgress();
+        });
+      };
+
+      const scheduleProgressPersist = (result: { outputText?: string }) => {
+        if (!result.outputText) {
+          return;
+        }
+
+        progressPersistRequested = true;
+        if (progressPersistTimer) {
+          return;
+        }
+
+        progressPersistTimer = setTimeout(() => {
+          progressPersistTimer = null;
+          void flushQueuedProgressPersist().catch((error) => {
+            fatalError ??= error;
+            notifyQueueWaiters();
+          });
+        }, 1000);
+      };
+
+      const dispatchMoreReadyItems = async (): Promise<void> => {
+        if (this.processingToken !== token) {
+          return;
+        }
+
+        const lifecycle = currentProject.getLifecycleSnapshot();
+        if (
+          lifecycle.status !== 'running' &&
+          lifecycle.status !== 'stopping'
+        ) {
+          return;
+        }
+
+        try {
+          pendingItems.push(...(await currentProject.dispatchReadyWorkItems()));
+        } catch (error) {
+          const msg = toMsg(error);
+          if (msg.includes('停止中') || msg.includes('尚未启动')) {
+            return;
+          }
+          throw error;
+        }
+      };
+
+      const scheduleDispatch = async (): Promise<void> => {
+        if (dispatchScheduled) {
+          await mutationChain;
+          return;
+        }
+
+        dispatchScheduled = true;
+        await queueMutation(async () => {
+          dispatchScheduled = false;
+          await dispatchMoreReadyItems();
+          scheduleSnapshotRefresh();
+        });
+      };
+
+      const queueSuccessResult = async (
+        processor: TranslationProcessor,
+        item: TranslationWorkItem,
+        result: Awaited<ReturnType<TranslationProcessor['processWorkItem']>>,
+      ): Promise<void> => {
+        await queueMutation(async () => {
+          if (this.processingToken !== token) {
+            return;
+          }
+
+          await currentProject.submitWorkResult({
+            runId: item.runId,
+            stepId: item.stepId,
+            chapterId: item.chapterId,
+            fragmentIndex: item.fragmentIndex,
+            outputText: result.outputText,
+          });
+          scheduleProgressPersist(result);
+          void this.usageStatsService
+            .recordTranslationBlock({
+              sourceText: item.inputText,
+              translatedText: result.outputText,
+              chapterId: item.chapterId,
+              fragmentIndex: item.fragmentIndex,
+              stepId: item.stepId,
+              processorName: processor.constructor.name,
+              workspaceContext: {
+                projectName:
+                  typeof (
+                    currentProject as {
+                      getWorkspaceConfig?: () => { projectName: string };
+                    }
+                  ).getWorkspaceConfig === "function"
+                    ? (
+                        currentProject as {
+                          getWorkspaceConfig: () => { projectName: string };
+                        }
+                      ).getWorkspaceConfig().projectName
+                    : currentProject.getProjectSnapshot().projectName,
+                workspaceDir: currentProject.getWorkspaceFileManifest().projectDir,
+              },
+            })
+            .catch((error) => {
+              this.log('warning', `记录使用统计失败：${toMsg(error)}`);
+            });
+          await dispatchMoreReadyItems();
+          scheduleSnapshotRefresh();
+          this.log(
+            'success',
+            `完成 ${item.stepId} · Ch${item.chapterId}/F${item.fragmentIndex + 1}`,
+          );
+        });
+      };
+
+      const FAILURE_BACKOFF_MS = 2_000;
+
+      const queueFailureResult = async (
+        item: TranslationWorkItem,
+        error: unknown,
+      ): Promise<void> => {
+        await queueMutation(async () => {
+          if (this.processingToken !== token) {
+            return;
+          }
+
+          try {
+            await currentProject.submitWorkResult({
+              runId: item.runId,
+              stepId: item.stepId,
+              chapterId: item.chapterId,
+              fragmentIndex: item.fragmentIndex,
+              success: false,
+              errorMessage: toMsg(error),
+            });
+          } catch {
+            // ignore
+          }
+
+          // 退避：防止失败 item 立即被重调度形成快速重试循环，
+          // 避免微任务链连续执行导致事件循环饥饿。
+          await delay(FAILURE_BACKOFF_MS);
+
+          await dispatchMoreReadyItems();
+          scheduleSnapshotRefresh();
+          this.log(
+            'error',
+            `处理失败 ${item.stepId} · Ch${item.chapterId}/F${item.fragmentIndex + 1}：${toMsg(error)}`,
+          );
+        });
+      };
+
+      const takeNextPendingItem = async (): Promise<TranslationWorkItem | undefined> => {
         while (this.processingToken === token) {
+          if (fatalError) {
+            throw fatalError;
+          }
+
           const lifecycle = currentProject.getLifecycleSnapshot();
           if (
             lifecycle.status !== 'running' &&
             lifecycle.status !== 'stopping'
           ) {
-            break;
+            return undefined;
           }
 
-          let workItems: Awaited<
-            ReturnType<TranslationProject['dispatchReadyWorkItems']>
-          >;
-          try {
-            workItems = await currentProject.dispatchReadyWorkItems();
-          } catch (error) {
-            const msg = toMsg(error);
-            if (msg.includes('停止中') || msg.includes('尚未启动')) break;
-            throw error;
+          const pendingItem = pendingItems.shift();
+          if (pendingItem) {
+            return pendingItem;
           }
 
-          if (workItems.length === 0) {
+          await scheduleDispatch();
+          if (fatalError) {
+            throw fatalError;
+          }
+
+          const dispatchedItem = pendingItems.shift();
+          if (dispatchedItem) {
+            return dispatchedItem;
+          }
+
+          if (activeProcessingCount === 0) {
             await delay(400);
-            this.refreshSnapshot();
+            scheduleSnapshotRefresh(0);
             continue;
           }
 
-          const pendingItems = [...workItems];
-          while (pendingItems.length > 0) {
-            if (this.processingToken !== token) return;
-            const item = pendingItems.shift()!;
+          await waitForQueueChange();
+        }
 
+        return undefined;
+      };
+
+      try {
+        translationRuntime = await (
+          this.options.createTranslationRuntime ?? createProcessorForProject
+        )(
+          currentProject,
+          (level, msg) => this.log(level, msg),
+          this.requestHistoryService,
+        );
+        const processor = translationRuntime.processor;
+        const concurrency = Math.max(
+          1,
+          Math.floor(translationRuntime.maxConcurrentWorkItems),
+        );
+        this.log('info', '翻译处理器已就绪，开始调度队列');
+        await scheduleDispatch();
+
+        const worker = async () => {
+          while (this.processingToken === token) {
+            const item = await takeNextPendingItem();
+            if (!item) {
+              return;
+            }
+
+            activeProcessingCount += 1;
             this.log(
               'info',
               `处理 ${item.stepId} · Ch${item.chapterId}/F${item.fragmentIndex + 1}`,
             );
 
+            // processWorkItem 的结果与 queueSuccessResult/queueFailureResult 的
+            // 异常处理分离，确保 activeProcessingCount 仅在 finally 中递减一次。
+            let processResult: Awaited<ReturnType<TranslationProcessor['processWorkItem']>> | undefined;
+            let processError: unknown;
             try {
-              const result = await processor.processWorkItem(item, {
+              processResult = await processor.processWorkItem(item, {
                 glossary: currentProject.getGlossary(),
                 documentManager: currentProject.getDocumentManager(),
               });
-              if (this.processingToken !== token) return;
-
-              await currentProject.submitWorkResult({
-                runId: item.runId,
-                stepId: item.stepId,
-                chapterId: item.chapterId,
-                fragmentIndex: item.fragmentIndex,
-                outputText: result.outputText,
-              });
-              await maybePersistProgress(currentProject, result);
-              void this.usageStatsService
-                .recordTranslationBlock({
-                  sourceText: item.inputText,
-                  translatedText: result.outputText,
-                  chapterId: item.chapterId,
-                  fragmentIndex: item.fragmentIndex,
-                  stepId: item.stepId,
-                  processorName: processor.constructor.name,
-                  workspaceContext: {
-                    projectName: currentProject.getProjectSnapshot().projectName,
-                    workspaceDir: currentProject.getWorkspaceFileManifest().projectDir,
-                  },
-                })
-                .catch((error) => {
-                  this.log('warning', `记录使用统计失败：${toMsg(error)}`);
-                });
-              this.refreshSnapshot();
-              this.log(
-                'success',
-                `完成 ${item.stepId} · Ch${item.chapterId}/F${item.fragmentIndex + 1}`,
-              );
             } catch (error) {
-              if (this.processingToken !== token) return;
-              try {
-                await currentProject.submitWorkResult({
-                  runId: item.runId,
-                  stepId: item.stepId,
-                  chapterId: item.chapterId,
-                  fragmentIndex: item.fragmentIndex,
-                  success: false,
-                  errorMessage: toMsg(error),
-                });
-              } catch {
-                // ignore
-              }
-              this.refreshSnapshot();
-              this.log(
-                'error',
-                `处理失败 ${item.stepId} · Ch${item.chapterId}/F${item.fragmentIndex + 1}：${toMsg(error)}`,
-              );
+              processError = error;
+            } finally {
+              activeProcessingCount -= 1;
+              notifyQueueWaiters();
             }
 
-            try {
-              const newItems =
-                await currentProject.dispatchReadyWorkItems();
-              pendingItems.push(...newItems);
-            } catch (err) {
-              const msg = toMsg(err);
-              if (msg.includes('停止中') || msg.includes('尚未启动')) break;
-              throw err;
+            if (this.processingToken !== token) {
+              return;
+            }
+
+            if (processError !== undefined) {
+              await queueFailureResult(item, processError);
+            } else {
+              await queueSuccessResult(processor, item, processResult!);
             }
           }
-        }
+        };
 
-        this.refreshSnapshot();
+        await Promise.all(Array.from({ length: concurrency }, () => worker()));
+        await mutationChain;
+        await flushQueuedProgressPersist();
+        flushSnapshotRefresh();
       } catch (error) {
         this.log('error', `翻译执行循环异常：${toMsg(error)}`);
-        this.refreshSnapshot();
+        flushSnapshotRefresh();
+      } finally {
+        if (progressPersistTimer) {
+          clearTimeout(progressPersistTimer);
+          progressPersistTimer = null;
+        }
+        if (snapshotRefreshTimer) {
+          clearTimeout(snapshotRefreshTimer);
+          snapshotRefreshTimer = null;
+        }
+        notifyQueueWaiters();
+        await translationRuntime?.close();
       }
     })();
   }
@@ -2797,7 +3108,7 @@ async function createProcessorForProject(
     msg: string,
   ) => void,
   requestHistoryService: RequestHistoryService,
-) {
+): Promise<TranslationExecutionRuntime> {
   const manager = new GlobalConfigManager();
   const workspaceConfig = project.getWorkspaceConfig();
   const translatorName = workspaceConfig.translator?.translatorName;
@@ -2848,20 +3159,56 @@ async function createProcessorForProject(
     debug: () => {},
   };
 
-  return runtimeConfig.createTranslationProcessor({
-    provider,
-    logger,
-    promptManager: new PromptManager({
-      translationPromptSet: workflow?.promptSet ?? entry.promptSet,
+  return {
+    processor: runtimeConfig.createTranslationProcessor({
+      provider,
+      logger,
+      promptManager: new PromptManager({
+        translationPromptSet: workflow?.promptSet ?? entry.promptSet,
+      }),
     }),
-  });
+    maxConcurrentWorkItems: await resolveTranslatorMaxConcurrentWorkItems(
+      manager,
+      entry,
+    ),
+    close: async () => {
+      await provider.closeAll();
+    },
+  };
 }
 
-async function maybePersistProgress(
-  project: TranslationProject,
-  result: { outputText?: string },
-): Promise<void> {
-  if (result.outputText) {
-    await project.saveProgress();
+async function resolveTranslatorMaxConcurrentWorkItems(
+  manager: GlobalConfigManager,
+  entry: {
+    modelNames: string[];
+    maxConcurrentWorkItems?: number;
+    steps?: Record<string, { modelNames: string[] } | undefined>;
+  },
+): Promise<number> {
+  if (typeof entry.maxConcurrentWorkItems === 'number') {
+    return Math.max(1, Math.floor(entry.maxConcurrentWorkItems));
   }
+
+  const profileNames = new Set<string>(entry.modelNames);
+  for (const step of Object.values(entry.steps ?? {})) {
+    for (const modelName of step?.modelNames ?? []) {
+      profileNames.add(modelName);
+    }
+  }
+
+  const parallelLimits = (
+    await Promise.all(
+      [...profileNames].map(async (profileName) => {
+        const profile = await manager.getRequiredLlmProfile(profileName);
+        return profile.maxParallelRequests;
+      }),
+    )
+  ).filter((value): value is number => typeof value === 'number' && value > 0);
+
+  if (parallelLimits.length > 0) {
+    return Math.max(...parallelLimits);
+  }
+
+  return DEFAULT_TRANSLATION_MAX_CONCURRENT_WORK_ITEMS;
 }
+
