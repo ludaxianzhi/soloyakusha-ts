@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import logging
 import random
@@ -16,6 +17,16 @@ from openai import AsyncOpenAI
 from sklearn.decomposition import PCA
 
 logger = logging.getLogger(__name__)
+
+
+def _ndarray_to_b64(arr: np.ndarray) -> dict[str, Any]:
+    """Encode a numpy array as a base64 float32 blob with shape metadata."""
+    arr_f32 = np.asarray(arr, dtype=np.float32)
+    return {
+        "dtype": "float32",
+        "shape": list(arr_f32.shape),
+        "data": base64.b64encode(arr_f32.tobytes()).decode("ascii"),
+    }
 
 
 @dataclass(frozen=True)
@@ -221,15 +232,15 @@ def save_outputs(
             "target_dim": target_dim,
             "input_dim": int(pca.n_features_in_),
             "sample_count": int(pca.n_samples_),
-            "components": pca.components_.tolist(),
-            "mean": pca.mean_.tolist(),
-            "explained_variance": pca.explained_variance_.tolist(),
-            "explained_variance_ratio": pca.explained_variance_ratio_.tolist(),
+            "components": _ndarray_to_b64(pca.components_),
+            "mean": _ndarray_to_b64(pca.mean_),
+            "explained_variance": _ndarray_to_b64(pca.explained_variance_),
+            "explained_variance_ratio": _ndarray_to_b64(pca.explained_variance_ratio_),
             "explained_variance_ratio_sum": float(np.sum(pca.explained_variance_ratio_)),
-            "cumulative_explained_variance_ratio": np.cumsum(
-                pca.explained_variance_ratio_
-            ).tolist(),
-            "singular_values": pca.singular_values_.tolist(),
+            "cumulative_explained_variance_ratio": _ndarray_to_b64(
+                np.cumsum(pca.explained_variance_ratio_)
+            ),
+            "singular_values": _ndarray_to_b64(pca.singular_values_),
         },
     }
     with output_base.with_suffix(".json").open("w", encoding="utf-8") as handle:
