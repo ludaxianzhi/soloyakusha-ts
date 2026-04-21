@@ -1,0 +1,25 @@
+# OpenAI-compatible embedding configuration for train_pca.py
+#
+# The script accepts either:
+# 1. this nested form under `embedding`, or
+# 2. the same keys at the YAML root.
+#
+# Required fields:
+# - api_key
+# - model
+#
+# Optional fields:
+# - base_url
+# - batch_size (default: 50)
+# - max_concurrency (default: 10)
+# - timeout
+# - trust_env (default: false)
+
+embedding:
+  api_key: sk-your-api-key
+  base_url: https://api.openai.com/v1
+  model: text-embedding-3-small
+  batch_size: 50
+  max_concurrency: 10
+  timeout: 60
+  trust_env: false

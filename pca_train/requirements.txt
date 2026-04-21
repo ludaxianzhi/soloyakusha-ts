@@ -1,0 +1,5 @@
+httpx==0.28.1
+numpy==2.4.4
+openai==2.32.0
+PyYAML==6.0.3
+scikit-learn==1.8.0
