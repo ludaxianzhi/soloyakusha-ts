@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import logging
+import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -240,6 +241,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Embed text lines and train a PCA projection.")
     parser.add_argument("--config", required=True, type=Path, help="YAML configuration file.")
     parser.add_argument("--input", required=True, type=Path, help="Text file to read line-by-line.")
+    parser.add_argument("--sample", type=int, help="Optional: Number of lines to randomly sample.")
     parser.add_argument("--target-dim", required=True, type=int, help="PCA output dimension.")
     parser.add_argument("--basename", required=True, type=Path, help="Output basename without extension.")
     return parser.parse_args()
@@ -253,6 +255,13 @@ def main() -> None:
     texts = read_text_lines(args.input)
     if not texts:
         raise ValueError(f"No lines were found in the input file: {args.input}")
+
+    if args.sample is not None and args.sample > 0:
+        if args.sample < len(texts):
+            logger.info("Sampling %d lines from %d total lines", args.sample, len(texts))
+            texts = random.sample(texts, args.sample)
+        else:
+            logger.info("Sample size %d is greater than or equal to total lines %d, using all lines", args.sample, len(texts))
 
     logger.info("Loaded %d lines from %s", len(texts), args.input)
     logger.info("Training PCA to %d dimensions", args.target_dim)
