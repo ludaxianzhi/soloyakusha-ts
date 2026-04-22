@@ -20,6 +20,11 @@ import type {
   VectorStoreQueryParams,
   VectorStoreUpsertParams,
 } from "./types.ts";
+import type {
+  SqliteMemoryQueryResult,
+  SqliteMemoryWorkerRequest,
+  SqliteMemoryWorkerResponse,
+} from "./sqlite-memory-protocol.ts";
 
 describe("createVectorStoreConfig", () => {
   test("resolves apiKey from environment variables", () => {
@@ -499,7 +504,170 @@ describe("SqliteMemoryVectorStoreClient", () => {
       await rm(workspaceDir, { recursive: true, force: true });
     }
   });
+
+  test("uses dedicated workers per collection and evicts idle workers", async () => {
+    const workers: FakeSqliteWorker[] = [];
+    const client = new SqliteMemoryVectorStoreClient(
+      createVectorStoreConfig({
+        provider: "sqlite-memory",
+        endpoint: "C:/temp/soloyakusha-vector-idle.sqlite",
+        distance: "cosine",
+      }),
+      {
+        idleTtlMs: 20,
+        workerFactory: () => {
+          const worker = new FakeSqliteWorker();
+          workers.push(worker);
+          return worker as unknown as Worker;
+        },
+      },
+    );
+
+    try {
+      await client.ensureCollection({ name: "alpha", dimension: 1 });
+      await client.ensureCollection({ name: "beta", dimension: 1 });
+
+      expect(workers).toHaveLength(2);
+      expect(workers[0]?.messages.map((message) => message.type)).toEqual([
+        "init",
+        "ensureCollection",
+      ]);
+      expect(workers[1]?.messages.map((message) => message.type)).toEqual([
+        "init",
+        "ensureCollection",
+      ]);
+
+      await Bun.sleep(50);
+
+      expect(workers.every((worker) => worker.terminated)).toBe(true);
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("serializes concurrent tasks for the same collection", async () => {
+    const workers: FakeSqliteWorker[] = [];
+    const client = new SqliteMemoryVectorStoreClient(
+      createVectorStoreConfig({
+        provider: "sqlite-memory",
+        endpoint: "C:/temp/soloyakusha-vector-queue.sqlite",
+        distance: "cosine",
+      }),
+      {
+        idleTtlMs: 1_000,
+        workerFactory: () => {
+          const worker = new FakeSqliteWorker({ holdQueries: true });
+          workers.push(worker);
+          return worker as unknown as Worker;
+        },
+      },
+    );
+
+    try {
+      await client.ensureCollection({ name: "alpha", dimension: 1 });
+      const worker = workers[0]!;
+
+      const firstQuery = client.query({
+        collectionName: "alpha",
+        vector: [1],
+        topK: 1,
+      });
+      const secondQuery = client.query({
+        collectionName: "alpha",
+        vector: [1],
+        topK: 1,
+      });
+
+      await Bun.sleep(0);
+      expect(worker.messages.filter((message) => message.type === "query")).toHaveLength(1);
+
+      worker.releaseNextQuery([{ id: "frag-1", score: 1, rawScore: 1 }]);
+      await firstQuery;
+
+      await Bun.sleep(0);
+      expect(worker.messages.filter((message) => message.type === "query")).toHaveLength(2);
+
+      worker.releaseNextQuery([{ id: "frag-2", score: 0.8, rawScore: 0.8 }]);
+      await expect(secondQuery).resolves.toEqual([
+        {
+          id: "frag-2",
+          score: 0.8,
+          rawScore: 0.8,
+          payload: undefined,
+          document: undefined,
+          vector: undefined,
+        },
+      ]);
+    } finally {
+      await client.close();
+    }
+  });
 });
+
+type FakeSqliteWorkerOptions = {
+  holdQueries?: boolean;
+};
+
+class FakeSqliteWorker {
+  readonly messages: SqliteMemoryWorkerRequest[] = [];
+  terminated = false;
+
+  private readonly messageListeners = new Set<
+    (event: MessageEvent<SqliteMemoryWorkerResponse>) => void
+  >();
+  private readonly errorListeners = new Set<(event: ErrorEvent) => void>();
+  private readonly queuedQueries: Array<Extract<SqliteMemoryWorkerRequest, { type: "query" }>> = [];
+
+  constructor(private readonly options: FakeSqliteWorkerOptions = {}) {}
+
+  addEventListener(
+    type: "message" | "error",
+    listener: EventListenerOrEventListenerObject,
+  ): void {
+    if (type === "message") {
+      this.messageListeners.add(listener as (event: MessageEvent<SqliteMemoryWorkerResponse>) => void);
+      return;
+    }
+
+    this.errorListeners.add(listener as (event: ErrorEvent) => void);
+  }
+
+  postMessage(message: SqliteMemoryWorkerRequest): void {
+    this.messages.push(message);
+    if (message.type === "query" && this.options.holdQueries) {
+      this.queuedQueries.push(message);
+      return;
+    }
+
+    queueMicrotask(() => {
+      if (message.type === "query") {
+        this.emit({ id: message.id, ok: true, result: [] });
+        return;
+      }
+
+      this.emit({ id: message.id, ok: true });
+    });
+  }
+
+  terminate(): void {
+    this.terminated = true;
+  }
+
+  releaseNextQuery(result: SqliteMemoryQueryResult[]): void {
+    const next = this.queuedQueries.shift();
+    if (!next) {
+      throw new Error("没有待释放的 query 请求");
+    }
+
+    this.emit({ id: next.id, ok: true, result });
+  }
+
+  private emit(response: SqliteMemoryWorkerResponse): void {
+    for (const listener of this.messageListeners) {
+      listener({ data: response } as MessageEvent<SqliteMemoryWorkerResponse>);
+    }
+  }
+}
 
 class FakeEmbeddingClient extends EmbeddingClient {
   constructor() {
