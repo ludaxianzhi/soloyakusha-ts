@@ -67,8 +67,6 @@ import type {
   ProjectExportResult,
   ProjectProgressSnapshot,
   RouteExportResult,
-  TranslationDependencyGraph,
-  TranslationDependencyNode,
   TranslationExportResult,
   TranslationImportResult,
   TranslationProjectConfig,
@@ -81,7 +79,6 @@ import type {
   TranslationUnit,
   TranslationUnitParser,
   TranslationUnitSplitter,
-  WorkItemMetadata,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
   WorkspaceConfigPatch,
@@ -108,36 +105,11 @@ import {
   resolveFileHandlerFromOptions,
   TranslationProjectWorkspace,
 } from "./translation-project-workspace.ts";
-
-type ResolvedDependencyState = {
-  dependencyMode?: "previousTranslations" | "glossaryTerms";
-  reason?: string;
-};
-
-type TranslationDependencyRuntimeState = {
-  readonly stepId: "translation";
-  readonly nodeById: Map<string, TranslationDependencyNode>;
-  readonly orderedNodeIds: string[];
-  readonly readyNodeIds: Set<string>;
-  readonly readyMetadataByNodeId: Map<string, WorkItemMetadata>;
-  readonly runningNodeIds: Set<string>;
-  readonly completedNodeIds: Set<string>;
-  readonly glossaryTermsByNodeId: Map<string, string[]>;
-  readonly nodeIdsByGlossaryTerm: Map<string, string[]>;
-  readonly reservedGlossaryTermsByNodeId: Map<string, string[]>;
-  readonly glossaryTermOwnerNodeIds: Map<string, Set<string>>;
-  readonly glossarySatisfiedSupportersByNodeId: Map<string, Map<string, number>>;
-  readonly glossaryDependentsBySupporterNodeId: Map<
-    string,
-    Array<{ nodeId: string; term: string }>
-  >;
-  readonly nodeIdsByRequiredPrecedingCount: Map<number, string[]>;
-  contiguousCompletedPrefix: number;
-};
-
-function createDependencyNodeId(stepId: string, chapterId: number, fragmentIndex: number): string {
-  return `${stepId}:${chapterId}:${fragmentIndex}`;
-}
+import { GlossaryDependencyOrderingStrategy } from "./glossary-dependency-ordering.ts";
+import type {
+  ReadyOrderingItem,
+  TranslationOrderingStrategy,
+} from "./translation-ordering-strategy.ts";
 
 export class TranslationProject
   implements TranslationPipelineRuntime, TranslationWorkQueueRuntime
@@ -151,8 +123,7 @@ export class TranslationProject
   private readonly workspaceManager: TranslationProjectWorkspace;
   private readonly lifecycleManager: TranslationProjectLifecycleManager;
   private readonly snapshotBuilder: TranslationProjectSnapshotBuilder;
-  private dependencyGraph: TranslationDependencyGraph | null = null;
-  private dependencyRuntimeState: TranslationDependencyRuntimeState | null = null;
+  private readonly orderingStrategy: TranslationOrderingStrategy;
   private glossary?: Glossary;
   private storyTopology?: StoryTopology;
   private plotSummaryEntries: PlotSummaryEntry[] = [];
@@ -170,6 +141,7 @@ export class TranslationProject
       documentManager?: TranslationDocumentManager;
       glossary?: Glossary;
       pipeline?: TranslationPipelineDefinition | TranslationPipeline;
+      orderingStrategy?: TranslationOrderingStrategy;
     } = {},
   ) {
     this.projectDir = resolve(config.projectDir);
@@ -200,6 +172,28 @@ export class TranslationProject
               }),
           );
     this.projectState = createDefaultProjectState(this.pipeline);
+    this.orderingStrategy = options.orderingStrategy ?? new GlossaryDependencyOrderingStrategy();
+    this.orderingStrategy.setContext({
+      config: this.config,
+      getOrderedFragments: () => this.getOrderedFragments(),
+      getSourceText: (chapterId, fragmentIndex) =>
+        this.documentManager.getSourceText(chapterId, fragmentIndex),
+      getStepState: (chapterId, fragmentIndex, stepId) =>
+        this.documentManager.getPipelineStepState(chapterId, fragmentIndex, stepId),
+      isStepCompleted: (chapterId, fragmentIndex, stepId) =>
+        this.isStepCompleted(chapterId, fragmentIndex, stepId),
+      getGlossaryTermStatus: (term) => this.glossary?.getTerm(term)?.status,
+      filterGlossaryTerms: (text) =>
+        [...new Set((this.glossary?.filterTerms(text) ?? []).map((term) => term.term))],
+      getDependencyTrackingRevisions: () => ({
+        sourceRevision: this.workspaceConfig?.dependencyTracking?.sourceRevision ?? 0,
+        glossaryRevision: this.workspaceConfig?.dependencyTracking?.glossaryRevision ?? 0,
+      }),
+      loadDependencyGraph: async () =>
+        (await this.documentManager.loadTranslationDependencyGraph()) ?? null,
+      saveDependencyGraph: async (graph) => this.documentManager.saveTranslationDependencyGraph(graph),
+      clearDependencyGraph: async () => this.documentManager.clearTranslationDependencyGraph(),
+    });
 
     this.workspaceManager = new TranslationProjectWorkspace(
       this.projectDir,
@@ -332,6 +326,7 @@ export class TranslationProject
       fileHandlerResolver?: TranslationFileHandlerResolver;
       glossary?: Glossary;
       pipeline?: TranslationPipelineDefinition | TranslationPipeline;
+      orderingStrategy?: TranslationOrderingStrategy;
     } = {},
   ): Promise<TranslationProject> {
     const workspaceConfig = await openWorkspaceConfig(projectDir);
@@ -964,8 +959,9 @@ export class TranslationProject
 
   async startTranslation(): Promise<TranslationProjectLifecycleSnapshot> {
     this.ensureInitialized();
-    await this.ensureDependencyGraphUpToDate();
-    this.initializeDependencyRuntimeState();
+    for (const step of this.pipeline.steps) {
+      await this.orderingStrategy.initializeForRun(step.id);
+    }
     return this.lifecycleManager.startTranslation();
   }
 
@@ -1022,12 +1018,6 @@ export class TranslationProject
 
   listReadyWorkItems(stepId: string): TranslationWorkItem[] {
     this.ensureInitialized();
-
-    const dependencyRuntimeItems = this.listReadyWorkItemsFromDependencyRuntime(stepId);
-    if (dependencyRuntimeItems) {
-      return dependencyRuntimeItems;
-    }
-
     return this.listStepQueueEntries(stepId)
       .filter((entry) => entry.status === "queued")
       .flatMap((entry) => {
@@ -1090,7 +1080,11 @@ export class TranslationProject
           errorMessage: result.errorMessage,
         },
       );
-      this.markNodeQueuedInDependencyRuntime(result.stepId, result.chapterId, result.fragmentIndex);
+      this.orderingStrategy.onItemRequeued(
+        result.stepId,
+        result.chapterId,
+        result.fragmentIndex,
+      );
       await this.lifecycleManager.refreshLifecycleState();
       return;
     }
@@ -1129,7 +1123,11 @@ export class TranslationProject
       await this.enqueueStepIfNeeded(result.chapterId, result.fragmentIndex, nextStepId);
     }
 
-    this.markNodeCompletedInDependencyRuntime(result.stepId, result.chapterId, result.fragmentIndex);
+    this.orderingStrategy.onItemCompleted(
+      result.stepId,
+      result.chapterId,
+      result.fragmentIndex,
+    );
     await this.lifecycleManager.refreshLifecycleState();
   }
 
@@ -1595,7 +1593,7 @@ export class TranslationProject
 
   private async rebuildQueuesAfterTranslationReset(): Promise<void> {
     this.queueCache.clear();
-    this.dependencyRuntimeState = null;
+    await this.orderingStrategy.invalidate();
     await this.initializePipelineQueues();
     await this.lifecycleManager.refreshLifecycleState();
   }
@@ -1687,9 +1685,14 @@ export class TranslationProject
   }
 
   private async dispatchReadyWorkItemsForStep(stepId: string): Promise<TranslationWorkItem[]> {
-    const readyItems =
-      this.selectDispatchableReadyWorkItemsFromDependencyRuntime(stepId) ??
-      this.listReadyWorkItems(stepId);
+    const queuedEntries = this.listStepQueueEntries(stepId).filter((entry) => entry.status === "queued");
+    const strategyReadyItems = await this.orderingStrategy.listReadyItems(stepId, queuedEntries);
+    const readyItems = strategyReadyItems
+      ? this.buildWorkItemsFromOrderingItems(
+          this.orderingStrategy.selectDispatchableItems(stepId, strategyReadyItems),
+          queuedEntries,
+        )
+      : this.listReadyWorkItems(stepId);
     if (readyItems.length === 0) {
       return [];
     }
@@ -1720,82 +1723,37 @@ export class TranslationProject
     );
 
     for (const item of readyItems) {
-      this.markNodeRunningInDependencyRuntime(item.stepId, item.chapterId, item.fragmentIndex);
+      this.orderingStrategy.onItemStarted(item.stepId, item.chapterId, item.fragmentIndex);
     }
 
     return readyItems;
   }
 
-  private listReadyWorkItemsFromDependencyRuntime(stepId: string): TranslationWorkItem[] | undefined {
-    if (stepId !== "translation" || this.dependencyRuntimeState?.stepId !== "translation") {
-      return undefined;
-    }
+  private buildWorkItemsFromOrderingItems(
+    readyItems: ReadyOrderingItem[],
+    queuedEntries: TranslationStepQueueEntry[],
+  ): TranslationWorkItem[] {
+    const queuedEntryByNodeId = new Map(
+      queuedEntries.map((entry) => [
+        `${entry.stepId}:${entry.chapterId}:${entry.fragmentIndex}`,
+        entry,
+      ]),
+    );
 
-    return [...this.dependencyRuntimeState.readyNodeIds]
-      .map((nodeId) => {
-        const node = this.dependencyRuntimeState?.nodeById.get(nodeId);
-        if (!node) {
+    return readyItems
+      .map((item) => {
+        const entry = queuedEntryByNodeId.get(`${item.stepId}:${item.chapterId}:${item.fragmentIndex}`);
+        if (!entry) {
           return undefined;
         }
 
-        const stepState = this.documentManager.getPipelineStepState(
-          node.chapterId,
-          node.fragmentIndex,
-          stepId,
-        );
-        if (!stepState || stepState.status !== "queued") {
-          return undefined;
-        }
-
-        const resolution = this.dependencyRuntimeState?.readyMetadataByNodeId.get(nodeId);
-        if (!resolution) {
-          return undefined;
-        }
-
-        return this.buildWorkItem(
-          stepId,
-          {
-            stepId,
-            chapterId: node.chapterId,
-            fragmentIndex: node.fragmentIndex,
-            queueSequence: stepState.queueSequence,
-            status: stepState.status,
-            errorMessage: stepState.errorMessage,
-          },
-          {
-            ready: true,
-            metadata: resolution,
-          },
-        );
+        return this.buildWorkItem(item.stepId, entry, {
+          ready: true,
+          metadata: item.metadata,
+        });
       })
       .filter((item): item is TranslationWorkItem => item !== undefined)
       .sort((left, right) => left.queueSequence - right.queueSequence);
-  }
-
-  private selectDispatchableReadyWorkItemsFromDependencyRuntime(
-    stepId: string,
-  ): TranslationWorkItem[] | undefined {
-    const readyItems = this.listReadyWorkItemsFromDependencyRuntime(stepId);
-    if (!readyItems) {
-      return undefined;
-    }
-
-    const selectedItems: TranslationWorkItem[] = [];
-    const selectedTerms = new Set<string>();
-    for (const item of readyItems) {
-      const nodeId = createDependencyNodeId(item.stepId, item.chapterId, item.fragmentIndex);
-      const reservedTerms = this.getRuntimeExclusiveGlossaryTerms(nodeId);
-      if (reservedTerms.some((term) => selectedTerms.has(term))) {
-        continue;
-      }
-
-      selectedItems.push(item);
-      for (const term of reservedTerms) {
-        selectedTerms.add(term);
-      }
-    }
-
-    return selectedItems;
   }
 
   private buildWorkItem(
@@ -1856,23 +1814,9 @@ export class TranslationProject
     stepId: string,
     entry: TranslationStepQueueEntry,
   ): PipelineDependencyResolution {
-    const graphResolution = this.resolveDependenciesFromGraph(
-      stepId,
-      entry.chapterId,
-      entry.fragmentIndex,
-    );
-    if (graphResolution) {
-      return graphResolution.dependencyMode
-        ? {
-            ready: true,
-            metadata: {
-              dependencyMode: graphResolution.dependencyMode,
-            },
-          }
-        : {
-            ready: false,
-            reason: graphResolution.reason,
-          };
+    const strategyResolution = this.orderingStrategy.resolveDependencies?.(stepId, entry);
+    if (strategyResolution) {
+      return strategyResolution;
     }
 
     const step = this.pipeline.getStep(stepId);
@@ -1907,7 +1851,7 @@ export class TranslationProject
       queuedAt: now,
       updatedAt: now,
     });
-    this.markNodeQueuedInDependencyRuntime(stepId, chapterId, fragmentIndex);
+    this.orderingStrategy.onItemRequeued(stepId, chapterId, fragmentIndex);
   }
 
   private listAllQueueEntries(): TranslationStepQueueEntry[] {
@@ -1969,7 +1913,7 @@ export class TranslationProject
     );
 
     for (const entry of runningEntries) {
-      this.markNodeQueuedInDependencyRuntime(entry.stepId, entry.chapterId, entry.fragmentIndex);
+      this.orderingStrategy.onItemRequeued(entry.stepId, entry.chapterId, entry.fragmentIndex);
     }
   }
 
@@ -1983,510 +1927,11 @@ export class TranslationProject
       sourceRevision: current.sourceRevision + 1,
     }));
     this.workspaceConfig = nextConfig;
-    await this.invalidateDependencyGraph();
+    await this.orderingStrategy.invalidate();
   }
 
   private async invalidateDependencyGraph(): Promise<void> {
-    this.dependencyGraph = null;
-    this.dependencyRuntimeState = null;
-    await this.documentManager.clearTranslationDependencyGraph();
-  }
-
-  private async ensureDependencyGraphUpToDate(): Promise<void> {
-    if (this.pipeline.steps.length !== 1 || this.pipeline.steps[0]?.id !== "translation") {
-      this.dependencyRuntimeState = null;
-      return;
-    }
-
-    const revisions = this.workspaceConfig.dependencyTracking ?? {
-      sourceRevision: 0,
-      glossaryRevision: 0,
-    };
-    if (
-      this.dependencyGraph &&
-      this.dependencyGraph.sourceRevision === revisions.sourceRevision &&
-      this.dependencyGraph.glossaryRevision === revisions.glossaryRevision
-    ) {
-      return;
-    }
-
-    const persistedGraph = await this.documentManager.loadTranslationDependencyGraph();
-    if (
-      persistedGraph &&
-      persistedGraph.stepId === "translation" &&
-      persistedGraph.sourceRevision === revisions.sourceRevision &&
-      persistedGraph.glossaryRevision === revisions.glossaryRevision
-    ) {
-      this.dependencyGraph = persistedGraph;
-      return;
-    }
-
-    const nextGraph = this.buildTranslationDependencyGraph();
-    await this.documentManager.saveTranslationDependencyGraph(nextGraph);
-    this.dependencyGraph = nextGraph;
-  }
-
-  private initializeDependencyRuntimeState(): void {
-    if (this.dependencyGraph?.stepId !== "translation") {
-      this.dependencyRuntimeState = null;
-      return;
-    }
-
-    const nodeById = new Map<string, TranslationDependencyNode>();
-    const orderedNodeIds: string[] = [];
-    const readyNodeIds = new Set<string>();
-    const readyMetadataByNodeId = new Map<string, WorkItemMetadata>();
-    const runningNodeIds = new Set<string>();
-    const completedNodeIds = new Set<string>();
-    const glossaryTermsByNodeId = new Map<string, string[]>();
-    const nodeIdsByGlossaryTerm = new Map<string, string[]>();
-    const reservedGlossaryTermsByNodeId = new Map<string, string[]>();
-    const glossaryTermOwnerNodeIds = new Map<string, Set<string>>();
-    const glossarySatisfiedSupportersByNodeId = new Map<string, Map<string, number>>();
-    const glossaryDependentsBySupporterNodeId = new Map<string, Array<{ nodeId: string; term: string }>>();
-    const nodeIdsByRequiredPrecedingCount = new Map<number, string[]>();
-
-    for (const node of this.dependencyGraph.nodes) {
-      nodeById.set(node.nodeId, node);
-      orderedNodeIds[node.orderedIndex] = node.nodeId;
-      const stepState = this.documentManager.getPipelineStepState(
-        node.chapterId,
-        node.fragmentIndex,
-        node.stepId,
-      );
-      if (stepState?.status === "completed") {
-        completedNodeIds.add(node.nodeId);
-      } else if (stepState?.status === "running") {
-        runningNodeIds.add(node.nodeId);
-      }
-
-      const requiredNodes = nodeIdsByRequiredPrecedingCount.get(node.requiredPrecedingCount) ?? [];
-      requiredNodes.push(node.nodeId);
-      nodeIdsByRequiredPrecedingCount.set(node.requiredPrecedingCount, requiredNodes);
-
-      const glossaryTerms = [...new Set(node.glossarySupportGroups.map((group) => group.term))];
-      glossaryTermsByNodeId.set(node.nodeId, glossaryTerms);
-      for (const term of glossaryTerms) {
-        const nodeIds = nodeIdsByGlossaryTerm.get(term) ?? [];
-        nodeIds.push(node.nodeId);
-        nodeIdsByGlossaryTerm.set(term, nodeIds);
-      }
-    }
-
-    for (const node of this.dependencyGraph.nodes) {
-      const supporterCounts = new Map<string, number>();
-      for (const group of node.glossarySupportGroups) {
-        let completedSupporters = 0;
-        for (const supporterNodeId of group.supporterNodeIds) {
-          if (completedNodeIds.has(supporterNodeId)) {
-            completedSupporters += 1;
-          }
-
-          const dependents = glossaryDependentsBySupporterNodeId.get(supporterNodeId) ?? [];
-          dependents.push({ nodeId: node.nodeId, term: group.term });
-          glossaryDependentsBySupporterNodeId.set(supporterNodeId, dependents);
-        }
-
-        supporterCounts.set(group.term, completedSupporters);
-      }
-      glossarySatisfiedSupportersByNodeId.set(node.nodeId, supporterCounts);
-    }
-
-    let contiguousCompletedPrefix = 0;
-    while (orderedNodeIds[contiguousCompletedPrefix] && completedNodeIds.has(orderedNodeIds[contiguousCompletedPrefix]!)) {
-      contiguousCompletedPrefix += 1;
-    }
-
-    this.dependencyRuntimeState = {
-      stepId: "translation",
-      nodeById,
-      orderedNodeIds,
-      readyNodeIds,
-      readyMetadataByNodeId,
-      runningNodeIds,
-      completedNodeIds,
-      glossaryTermsByNodeId,
-      nodeIdsByGlossaryTerm,
-      reservedGlossaryTermsByNodeId,
-      glossaryTermOwnerNodeIds,
-      glossarySatisfiedSupportersByNodeId,
-      glossaryDependentsBySupporterNodeId,
-      nodeIdsByRequiredPrecedingCount,
-      contiguousCompletedPrefix,
-    };
-
-    for (const nodeId of runningNodeIds) {
-      this.reserveNodeGlossaryTermsInDependencyRuntime(nodeId);
-    }
-
-    for (const nodeId of orderedNodeIds) {
-      if (nodeId) {
-        this.refreshDependencyRuntimeNodeReadiness(nodeId);
-      }
-    }
-  }
-
-  private buildTranslationDependencyGraph(): TranslationDependencyGraph {
-    const orderedFragments = this.getOrderedFragments();
-    const sourceTexts = orderedFragments.map((fragment) =>
-      this.documentManager.getSourceText(fragment.chapterId, fragment.fragmentIndex),
-    );
-    const glossary = this.glossary;
-    const matchedTermsByIndex = orderedFragments.map((fragment, orderedIndex) =>
-      [
-        ...new Set(
-          (glossary?.filterTerms(sourceTexts[orderedIndex] ?? "") ?? []).map((term) => term.term),
-        ),
-      ],
-    );
-    const uniqueTerms = [...new Set(matchedTermsByIndex.flatMap((terms) => terms))];
-    const supporterNodeIdsByTerm = new Map<string, string[]>();
-
-    for (const term of uniqueTerms) {
-      supporterNodeIdsByTerm.set(
-        term,
-        orderedFragments
-          .filter((_fragment, orderedIndex) => (sourceTexts[orderedIndex] ?? "").includes(term))
-          .map((fragment) =>
-            createDependencyNodeId("translation", fragment.chapterId, fragment.fragmentIndex),
-          ),
-      );
-    }
-
-    return {
-      schemaVersion: 1,
-      stepId: "translation",
-      sourceRevision: (this.workspaceConfig.dependencyTracking?.sourceRevision ?? 0),
-      glossaryRevision: (this.workspaceConfig.dependencyTracking?.glossaryRevision ?? 0),
-      builtAt: new Date().toISOString(),
-      nodes: orderedFragments.map((fragment, orderedIndex) => {
-        const nodeId = createDependencyNodeId("translation", fragment.chapterId, fragment.fragmentIndex);
-        return {
-          nodeId,
-          stepId: "translation",
-          chapterId: fragment.chapterId,
-          fragmentIndex: fragment.fragmentIndex,
-          orderedIndex,
-          requiredPrecedingCount: Math.floor((orderedIndex + 1) / 2),
-          glossarySupportGroups: matchedTermsByIndex[orderedIndex]!.map((term) => ({
-            term,
-            supporterNodeIds: (supporterNodeIdsByTerm.get(term) ?? []).filter(
-              (supporterNodeId) => supporterNodeId !== nodeId,
-            ),
-          })),
-        } satisfies TranslationDependencyNode;
-      }),
-    };
-  }
-
-  private resolveDependenciesFromGraph(
-    stepId: string,
-    chapterId: number,
-    fragmentIndex: number,
-  ): ResolvedDependencyState | undefined {
-    if (stepId !== "translation" || !this.dependencyGraph) {
-      return undefined;
-    }
-
-    const nodeId = createDependencyNodeId(stepId, chapterId, fragmentIndex);
-    const runtimeResolution = this.resolveDependenciesFromRuntimeState(nodeId);
-    if (runtimeResolution) {
-      return runtimeResolution;
-    }
-
-    const node = this.dependencyGraph.nodes.find(
-      (currentNode) => currentNode.nodeId === nodeId,
-    );
-    if (!node) {
-      return undefined;
-    }
-
-    const hasCompletedAllPrevious = this.dependencyGraph.nodes
-      .slice(0, node.orderedIndex)
-      .every((previousNode) =>
-        this.isStepCompleted(previousNode.chapterId, previousNode.fragmentIndex, stepId),
-      );
-    if (hasCompletedAllPrevious) {
-      return { dependencyMode: "previousTranslations" };
-    }
-
-    if (node.glossarySupportGroups.length === 0) {
-      return { reason: "waiting_for_previous_fragments" };
-    }
-
-    const hasCompletedRequiredPreceding = this.dependencyGraph.nodes
-      .slice(0, node.requiredPrecedingCount)
-      .every((previousNode) =>
-        this.isStepCompleted(previousNode.chapterId, previousNode.fragmentIndex, stepId),
-      );
-    if (!hasCompletedRequiredPreceding) {
-      return { reason: "waiting_for_preceding_fragments" };
-    }
-
-    const allSupportGroupsSatisfied = node.glossarySupportGroups.every((group) =>
-      group.supporterNodeIds.some((supporterNodeId) => {
-        const supporter = this.dependencyGraph?.nodes.find(
-          (currentNode) => currentNode.nodeId === supporterNodeId,
-        );
-        return supporter
-          ? this.isStepCompleted(supporter.chapterId, supporter.fragmentIndex, stepId)
-          : false;
-      }),
-    );
-
-    return allSupportGroupsSatisfied
-      ? { dependencyMode: "glossaryTerms" }
-      : { reason: "waiting_for_terms_in_translations" };
-  }
-
-  private resolveDependenciesFromRuntimeState(nodeId: string): ResolvedDependencyState | undefined {
-    const runtimeState = this.dependencyRuntimeState;
-    if (!runtimeState || runtimeState.stepId !== "translation") {
-      return undefined;
-    }
-
-    const node = runtimeState.nodeById.get(nodeId);
-    if (!node) {
-      return undefined;
-    }
-
-    const stepState = this.documentManager.getPipelineStepState(
-      node.chapterId,
-      node.fragmentIndex,
-      node.stepId,
-    );
-    if (!stepState || stepState.status !== "queued") {
-      return undefined;
-    }
-
-    if (runtimeState.contiguousCompletedPrefix >= node.orderedIndex) {
-      return this.hasRuntimeGlossaryTermConflict(nodeId)
-        ? { reason: "waiting_for_glossary_term_release" }
-        : { dependencyMode: "previousTranslations" };
-    }
-
-    if (node.glossarySupportGroups.length === 0) {
-      return { reason: "waiting_for_previous_fragments" };
-    }
-
-    if (runtimeState.contiguousCompletedPrefix < node.requiredPrecedingCount) {
-      return { reason: "waiting_for_preceding_fragments" };
-    }
-
-    const supporterCounts = runtimeState.glossarySatisfiedSupportersByNodeId.get(node.nodeId);
-    const allSupportGroupsSatisfied = node.glossarySupportGroups.every(
-      (group) => (supporterCounts?.get(group.term) ?? 0) > 0,
-    );
-    if (!allSupportGroupsSatisfied) {
-      return { reason: "waiting_for_terms_in_translations" };
-    }
-
-    return this.hasRuntimeGlossaryTermConflict(nodeId)
-      ? { reason: "waiting_for_glossary_term_release" }
-      : { dependencyMode: "glossaryTerms" };
-  }
-
-  private refreshDependencyRuntimeNodeReadiness(nodeId: string): void {
-    const runtimeState = this.dependencyRuntimeState;
-    if (!runtimeState) {
-      return;
-    }
-
-    const resolution = this.resolveDependenciesFromRuntimeState(nodeId);
-    if (resolution?.dependencyMode) {
-      runtimeState.readyNodeIds.add(nodeId);
-      runtimeState.readyMetadataByNodeId.set(nodeId, {
-        dependencyMode: resolution.dependencyMode,
-      });
-      return;
-    }
-
-    runtimeState.readyNodeIds.delete(nodeId);
-    runtimeState.readyMetadataByNodeId.delete(nodeId);
-  }
-
-  private markNodeRunningInDependencyRuntime(
-    stepId: string,
-    chapterId: number,
-    fragmentIndex: number,
-  ): void {
-    const runtimeState = this.dependencyRuntimeState;
-    if (!runtimeState || stepId !== "translation") {
-      return;
-    }
-
-    const nodeId = createDependencyNodeId(stepId, chapterId, fragmentIndex);
-    runtimeState.readyNodeIds.delete(nodeId);
-    runtimeState.readyMetadataByNodeId.delete(nodeId);
-    runtimeState.runningNodeIds.add(nodeId);
-    const reservedTerms = this.reserveNodeGlossaryTermsInDependencyRuntime(nodeId);
-    this.refreshRuntimeReadinessForGlossaryTerms(reservedTerms);
-  }
-
-  private markNodeQueuedInDependencyRuntime(
-    stepId: string,
-    chapterId: number,
-    fragmentIndex: number,
-  ): void {
-    const runtimeState = this.dependencyRuntimeState;
-    if (!runtimeState || stepId !== "translation") {
-      return;
-    }
-
-    const nodeId = createDependencyNodeId(stepId, chapterId, fragmentIndex);
-    runtimeState.runningNodeIds.delete(nodeId);
-    const releasedTerms = this.releaseNodeGlossaryTermsInDependencyRuntime(nodeId);
-    this.refreshDependencyRuntimeNodeReadiness(nodeId);
-    this.refreshRuntimeReadinessForGlossaryTerms(releasedTerms);
-  }
-
-  private markNodeCompletedInDependencyRuntime(
-    stepId: string,
-    chapterId: number,
-    fragmentIndex: number,
-  ): void {
-    const runtimeState = this.dependencyRuntimeState;
-    if (!runtimeState || stepId !== "translation") {
-      return;
-    }
-
-    const nodeId = createDependencyNodeId(stepId, chapterId, fragmentIndex);
-    const node = runtimeState.nodeById.get(nodeId);
-    if (!node || runtimeState.completedNodeIds.has(nodeId)) {
-      return;
-    }
-
-    runtimeState.runningNodeIds.delete(nodeId);
-    const releasedTerms = this.releaseNodeGlossaryTermsInDependencyRuntime(nodeId);
-    runtimeState.readyNodeIds.delete(nodeId);
-    runtimeState.readyMetadataByNodeId.delete(nodeId);
-    runtimeState.completedNodeIds.add(nodeId);
-
-    const previousPrefix = runtimeState.contiguousCompletedPrefix;
-    if (node.orderedIndex === previousPrefix) {
-      while (
-        runtimeState.orderedNodeIds[runtimeState.contiguousCompletedPrefix] &&
-        runtimeState.completedNodeIds.has(
-          runtimeState.orderedNodeIds[runtimeState.contiguousCompletedPrefix]!,
-        )
-      ) {
-        runtimeState.contiguousCompletedPrefix += 1;
-      }
-
-      for (
-        let requiredPrecedingCount = previousPrefix + 1;
-        requiredPrecedingCount <= runtimeState.contiguousCompletedPrefix;
-        requiredPrecedingCount += 1
-      ) {
-        for (const dependentNodeId of runtimeState.nodeIdsByRequiredPrecedingCount.get(requiredPrecedingCount) ?? []) {
-          this.refreshDependencyRuntimeNodeReadiness(dependentNodeId);
-        }
-      }
-
-      for (
-        let orderedIndex = previousPrefix;
-        orderedIndex <= runtimeState.contiguousCompletedPrefix;
-        orderedIndex += 1
-      ) {
-        const dependentNodeId = runtimeState.orderedNodeIds[orderedIndex];
-        if (dependentNodeId) {
-          this.refreshDependencyRuntimeNodeReadiness(dependentNodeId);
-        }
-      }
-    }
-
-    for (const dependent of runtimeState.glossaryDependentsBySupporterNodeId.get(nodeId) ?? []) {
-      const supporterCounts = runtimeState.glossarySatisfiedSupportersByNodeId.get(dependent.nodeId);
-      if (supporterCounts) {
-        supporterCounts.set(dependent.term, (supporterCounts.get(dependent.term) ?? 0) + 1);
-      }
-      this.refreshDependencyRuntimeNodeReadiness(dependent.nodeId);
-    }
-
-    this.refreshRuntimeReadinessForGlossaryTerms(releasedTerms);
-  }
-
-  private getRuntimeExclusiveGlossaryTerms(nodeId: string): string[] {
-    const runtimeState = this.dependencyRuntimeState;
-    const glossary = this.glossary;
-    if (!runtimeState || !glossary) {
-      return [];
-    }
-
-    return (runtimeState.glossaryTermsByNodeId.get(nodeId) ?? []).filter(
-      (term) => glossary.getTerm(term)?.status === "untranslated",
-    );
-  }
-
-  private hasRuntimeGlossaryTermConflict(nodeId: string): boolean {
-    const runtimeState = this.dependencyRuntimeState;
-    if (!runtimeState) {
-      return false;
-    }
-
-    return this.getRuntimeExclusiveGlossaryTerms(nodeId).some((term) =>
-      [...(runtimeState.glossaryTermOwnerNodeIds.get(term) ?? [])].some(
-        (ownerNodeId) => ownerNodeId !== nodeId,
-      ),
-    );
-  }
-
-  private reserveNodeGlossaryTermsInDependencyRuntime(nodeId: string): string[] {
-    const runtimeState = this.dependencyRuntimeState;
-    if (!runtimeState) {
-      return [];
-    }
-
-    const reservedTerms = this.getRuntimeExclusiveGlossaryTerms(nodeId);
-    runtimeState.reservedGlossaryTermsByNodeId.set(nodeId, reservedTerms);
-    for (const term of reservedTerms) {
-      const ownerNodeIds = runtimeState.glossaryTermOwnerNodeIds.get(term) ?? new Set<string>();
-      ownerNodeIds.add(nodeId);
-      runtimeState.glossaryTermOwnerNodeIds.set(term, ownerNodeIds);
-    }
-
-    return reservedTerms;
-  }
-
-  private releaseNodeGlossaryTermsInDependencyRuntime(nodeId: string): string[] {
-    const runtimeState = this.dependencyRuntimeState;
-    if (!runtimeState) {
-      return [];
-    }
-
-    const reservedTerms = runtimeState.reservedGlossaryTermsByNodeId.get(nodeId) ?? [];
-    runtimeState.reservedGlossaryTermsByNodeId.delete(nodeId);
-    for (const term of reservedTerms) {
-      const ownerNodeIds = runtimeState.glossaryTermOwnerNodeIds.get(term);
-      if (!ownerNodeIds) {
-        continue;
-      }
-
-      ownerNodeIds.delete(nodeId);
-      if (ownerNodeIds.size === 0) {
-        runtimeState.glossaryTermOwnerNodeIds.delete(term);
-      }
-    }
-
-    return reservedTerms;
-  }
-
-  private refreshRuntimeReadinessForGlossaryTerms(terms: ReadonlyArray<string>): void {
-    const runtimeState = this.dependencyRuntimeState;
-    if (!runtimeState || terms.length === 0) {
-      return;
-    }
-
-    const nodeIds = new Set<string>();
-    for (const term of terms) {
-      for (const nodeId of runtimeState.nodeIdsByGlossaryTerm.get(term) ?? []) {
-        nodeIds.add(nodeId);
-      }
-    }
-
-    for (const nodeId of nodeIds) {
-      this.refreshDependencyRuntimeNodeReadiness(nodeId);
-    }
+    await this.orderingStrategy.invalidate();
   }
 
   private getCurrentRunIdOrThrow(): string {

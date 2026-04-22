@@ -25,6 +25,8 @@ export type {
   RenderedPrompt as ProjectRenderedPrompt,
 } from "./src/project/prompt-manager.ts";
 export * from "./src/project/translation-document-manager.ts";
+export * from "./src/project/translation-ordering-strategy.ts";
+export * from "./src/project/glossary-dependency-ordering.ts";
 export * from "./src/project/translation-processor.ts";
 export * from "./src/project/translation-processor-factory.ts";
 export * from "./src/project/translation-project.ts";
