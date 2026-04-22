@@ -10,6 +10,7 @@ import type {
   JsonObject,
   JsonValue,
   LlmModelType,
+  PcaEmbeddingConfig,
   LlmProvider,
   LlmRequestConfigInput,
 } from "../llm/types.ts";
@@ -53,6 +54,7 @@ export type PersistedLlmClientConfig = {
   retries: number;
   defaultRequestConfig?: PersistedLlmRequestConfig;
   supportsStructuredOutput?: boolean;
+  pca?: PcaEmbeddingConfig;
 };
 
 export type GlobalLlmConfig = {

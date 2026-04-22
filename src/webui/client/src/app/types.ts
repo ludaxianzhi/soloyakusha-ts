@@ -588,6 +588,10 @@ export interface LlmProfileConfig {
   retries: number;
   defaultRequestConfig?: Record<string, unknown>;
   supportsStructuredOutput?: boolean;
+  pca?: {
+    enabled: boolean;
+    weightsFilePath?: string;
+  };
 }
 
 export interface VectorStoreConfig {

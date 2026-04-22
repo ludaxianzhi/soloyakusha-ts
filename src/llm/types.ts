@@ -12,6 +12,11 @@ export type LlmProvider = "openai" | "anthropic";
 
 export type LlmModelType = "chat" | "embedding";
 
+export type PcaEmbeddingConfig = {
+  enabled: boolean;
+  weightsFilePath?: string;
+};
+
 export type JsonValue =
   | string
   | number
@@ -53,6 +58,7 @@ export type LlmClientConfig = {
   retries: number;
   defaultRequestConfig?: LlmRequestConfig;
   supportsStructuredOutput?: boolean;
+  pca?: PcaEmbeddingConfig;
 };
 
 export type LlmClientConfigInput = {
@@ -67,6 +73,7 @@ export type LlmClientConfigInput = {
   retries?: number;
   defaultRequestConfig?: LlmRequestConfigInput;
   supportsStructuredOutput?: boolean;
+  pca?: PcaEmbeddingConfig;
 };
 
 export type CompletionResponseStatistics = {
@@ -248,6 +255,14 @@ export function createLlmClientConfig(
     throw new Error("必须配置 apiKey 或 apiKeyEnv 其中一个");
   }
 
+  const normalizedPca =
+    input.pca && input.pca.enabled
+      ? {
+          enabled: true,
+          weightsFilePath: input.pca.weightsFilePath?.trim(),
+        }
+      : undefined;
+
   return {
     provider: input.provider ?? "openai",
     modelName: input.modelName,
@@ -261,6 +276,7 @@ export function createLlmClientConfig(
       ? resolveRequestConfig(input.defaultRequestConfig)
       : undefined,
     supportsStructuredOutput: input.supportsStructuredOutput === true,
+    ...(normalizedPca ? { pca: normalizedPca } : {}),
   };
 }
 

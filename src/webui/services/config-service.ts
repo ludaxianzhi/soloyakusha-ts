@@ -2,7 +2,10 @@
  * 全局配置服务：LLM Profile、翻译器、辅助功能配置的 CRUD 包装。
  */
 
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, extname, join } from 'node:path';
 import { GlobalConfigManager } from '../../config/manager.ts';
+import { PcaProjection } from '../../llm/pca-embedding-client.ts';
 import type {
   PersistedLlmClientConfig,
   PersistedVectorStoreConfig,
@@ -90,7 +93,32 @@ export class ConfigService {
   async setEmbeddingConfig(
     config: PersistedLlmClientConfig | undefined,
   ): Promise<void> {
+    this.validateEmbeddingPcaConfig(config);
     await this.manager.setEmbeddingConfig(config);
+  }
+
+  async uploadEmbeddingPcaWeights(input: {
+    fileName: string;
+    content: Uint8Array;
+  }): Promise<{ filePath: string }> {
+    const extension = extname(input.fileName).toLowerCase();
+    if (extension !== '.json') {
+      throw new Error('PCA 权重文件必须是 .json 格式');
+    }
+
+    const text = new TextDecoder().decode(input.content);
+    PcaProjection.fromJsonString(text);
+
+    const configDir = dirname(this.manager.getFilePath());
+    const targetDir = join(configDir, 'pca-weights');
+    await mkdir(targetDir, { recursive: true });
+
+    const timestamp = new Date().toISOString().replace(/[.:]/g, '-');
+    const baseName = this.sanitizeFileName(input.fileName).replace(/\.json$/i, '');
+    const targetPath = join(targetDir, `${timestamp}-${baseName}.json`);
+    await writeFile(targetPath, input.content);
+
+    return { filePath: targetPath };
   }
 
   // === Vector Stores ===
@@ -299,5 +327,25 @@ export class ConfigService {
     }
     const names = await this.manager.listVectorStoreNames();
     return names[0];
+  }
+
+  private validateEmbeddingPcaConfig(
+    config: PersistedLlmClientConfig | undefined,
+  ): void {
+    if (!config?.pca?.enabled) {
+      return;
+    }
+
+    const weightsFilePath = config.pca.weightsFilePath?.trim();
+    if (!weightsFilePath) {
+      throw new Error('启用 PCA 时必须提供权重文件路径');
+    }
+
+    PcaProjection.fromJsonFile(weightsFilePath);
+  }
+
+  private sanitizeFileName(fileName: string): string {
+    const normalized = fileName.trim().replace(/[/\\:*?"<>|]+/g, '-');
+    return normalized.length > 0 ? normalized : 'pca-weights';
   }
 }

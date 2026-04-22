@@ -1255,6 +1255,8 @@ export function AppShell() {
   const handleSaveEmbedding = useCallback(
     async (values: Record<string, unknown>) => {
       await runAction(async () => {
+        const pcaEnabled = values.pcaEnabled === true;
+        const pcaWeightsFilePath = optionalString(values.pcaWeightsFilePath);
         const payload: LlmProfileConfig = {
           provider: values.provider as 'openai' | 'anthropic',
           modelName: String(values.modelName ?? ''),
@@ -1268,6 +1270,16 @@ export function AppShell() {
           defaultRequestConfig: parseLlmRequestConfigYaml(
             values.defaultRequestConfigYaml,
           ),
+          ...(pcaEnabled
+            ? {
+                pca: {
+                  enabled: true,
+                  ...(pcaWeightsFilePath
+                    ? { weightsFilePath: pcaWeightsFilePath }
+                    : {}),
+                },
+              }
+            : {}),
         };
         await runSettingsAction(['embedding'], async () => {
           await api.saveEmbeddingConfig(payload);
@@ -1277,6 +1289,27 @@ export function AppShell() {
       });
     },
     [message, runAction, runSettingsAction],
+  );
+
+  const handleUploadEmbeddingPcaWeights = useCallback(
+    async (file: File): Promise<string> => {
+      try {
+        let uploadedPath = '';
+        await runSettingsAction(['embedding'], async () => {
+          const result = await api.uploadEmbeddingPcaWeights(file);
+          uploadedPath = result.filePath;
+        });
+        if (!uploadedPath) {
+          throw new Error('上传失败：未返回文件路径');
+        }
+        message.success('PCA 权重文件上传成功');
+        return uploadedPath;
+      } catch (error) {
+        message.error(toErrorMessage(error));
+        throw error;
+      }
+    },
+    [message, runSettingsAction],
   );
 
   const buildVectorStorePayload = useCallback((values: Record<string, unknown>) => {
@@ -1667,6 +1700,7 @@ export function AppShell() {
                       onSetDefaultLlmProfile={handleSetDefaultLlmProfile}
                       onDeleteLlmProfile={handleDeleteLlmProfile}
                       onSaveEmbedding={handleSaveEmbedding}
+                      onUploadEmbeddingPcaWeights={handleUploadEmbeddingPcaWeights}
                       onSaveVectorStore={handleSaveVectorStore}
                       onConnectVectorStore={handleConnectVectorStore}
                       onDeleteVectorStore={handleDeleteVectorStore}

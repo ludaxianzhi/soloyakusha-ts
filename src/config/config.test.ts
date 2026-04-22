@@ -429,6 +429,69 @@ describe("GlobalConfigManager", () => {
     delete process.env.SOLOYAKUSHA_VECTOR_TEST_KEY;
   });
 
+  test("persists embedding PCA config", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-"));
+    cleanupTargets.push(rootDir);
+
+    const weightsPath = join(rootDir, "pca-weights.json");
+    const componentsBase64 = Buffer.from(
+      new Uint8Array(new Float32Array([1, 0]).buffer),
+    ).toString("base64");
+    const meanBase64 = Buffer.from(
+      new Uint8Array(new Float32Array([0, 0]).buffer),
+    ).toString("base64");
+
+    await Bun.write(
+      weightsPath,
+      JSON.stringify({
+        pca: {
+          target_dim: 1,
+          input_dim: 2,
+          components: {
+            dtype: "float32",
+            shape: [1, 2],
+            data: componentsBase64,
+          },
+          mean: {
+            dtype: "float32",
+            shape: [2],
+            data: meanBase64,
+          },
+        },
+      }),
+    );
+
+    const manager = new GlobalConfigManager({
+      filePath: join(rootDir, "settings.json"),
+    });
+
+    await manager.setEmbeddingConfig({
+      provider: "openai",
+      modelType: "embedding",
+      modelName: "text-embedding-3-small",
+      endpoint: "https://example.com/v1",
+      apiKey: "secret",
+      retries: 3,
+      pca: {
+        enabled: true,
+        weightsFilePath: weightsPath,
+      },
+    });
+
+    expect(await manager.getEmbeddingConfig()).toMatchObject({
+      modelType: "embedding",
+      pca: {
+        enabled: true,
+        weightsFilePath: weightsPath,
+      },
+    });
+
+    expect((await manager.getResolvedEmbeddingConfig()).pca).toEqual({
+      enabled: true,
+      weightsFilePath: weightsPath,
+    });
+  });
+
   test("persists embedding and feature configs in global file", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-"));
     cleanupTargets.push(rootDir);

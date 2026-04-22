@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Button, Card, Checkbox, Collapse, Col, Form, Input, Popconfirm, Row, Select, Space, Tabs, Tag, Typography } from 'antd';
+import { useEffect, useState } from 'react';
+import { Button, Card, Checkbox, Collapse, Col, Form, Input, Popconfirm, Row, Select, Space, Tabs, Tag, Typography, Upload } from 'antd';
 import type { FormInstance } from 'antd';
 import type {
   AlignmentRepairConfig,
@@ -56,6 +56,7 @@ interface SettingsViewProps {
   onSetDefaultLlmProfile: () => void | Promise<void>;
   onDeleteLlmProfile: () => void | Promise<void>;
   onSaveEmbedding: (values: Record<string, unknown>) => void | Promise<void>;
+  onUploadEmbeddingPcaWeights: (file: File) => Promise<string>;
   onSaveVectorStore: (values: Record<string, unknown>) => void | Promise<void>;
   onConnectVectorStore: () => void | Promise<void>;
   onDeleteVectorStore: () => void | Promise<void>;
@@ -93,6 +94,7 @@ export function SettingsView({
   onSetDefaultLlmProfile,
   onDeleteLlmProfile,
   onSaveEmbedding,
+  onUploadEmbeddingPcaWeights,
   onSaveVectorStore,
   onConnectVectorStore,
   onDeleteVectorStore,
@@ -102,8 +104,11 @@ export function SettingsView({
   onDeleteTranslator,
   onSaveAuxiliaryConfig,
 }: SettingsViewProps) {
+  const [uploadingPcaWeights, setUploadingPcaWeights] = useState(false);
   const llmNames = Object.keys(llmProfiles);
   const translatorNames = Object.keys(translators);
+  const embeddingPcaEnabled =
+    (Form.useWatch('pcaEnabled', embeddingForm) as boolean | undefined) === true;
   const selectedWorkflowKey = (Form.useWatch('type', translatorForm) as string | undefined) ?? 'default';
   const selectedVectorProvider =
     (Form.useWatch('provider', vectorForm) as VectorStoreConfig['provider'] | undefined) ??
@@ -130,6 +135,12 @@ export function SettingsView({
       vectorForm.setFieldValue('distance', vectorDistanceOptions[0]?.value ?? 'cosine');
     }
   }, [selectedVectorDistance, selectedVectorProvider, vectorDistanceOptions, vectorForm]);
+
+  useEffect(() => {
+    if (!embeddingPcaEnabled) {
+      embeddingForm.setFieldValue('pcaWeightsFilePath', undefined);
+    }
+  }, [embeddingForm, embeddingPcaEnabled]);
 
   return (
     <Tabs
@@ -345,6 +356,54 @@ export function SettingsView({
                         </Form.Item>
                       </Col>
                     </Row>
+                    <Form.Item
+                      name="pcaEnabled"
+                      valuePropName="checked"
+                      extra="启用后会使用 PCA 降维后的向量替代原始嵌入结果。"
+                    >
+                      <Checkbox>PCA 降维</Checkbox>
+                    </Form.Item>
+                    <Form.Item
+                      name="pcaWeightsFilePath"
+                      label="PCA 权重文件"
+                      rules={
+                        embeddingPcaEnabled
+                          ? [{ required: true, message: '请上传 PCA 权重 JSON 文件' }]
+                          : undefined
+                      }
+                    >
+                      <Input
+                        placeholder="请上传 PCA 权重 JSON 文件"
+                        readOnly
+                        disabled={!embeddingPcaEnabled}
+                        addonAfter={
+                          <Upload
+                            accept=".json,application/json"
+                            showUploadList={false}
+                            beforeUpload={() => false}
+                            disabled={!embeddingPcaEnabled || uploadingPcaWeights}
+                            onChange={(info) => {
+                              const file = info.file.originFileObj;
+                              if (!file) {
+                                return;
+                              }
+                              setUploadingPcaWeights(true);
+                              void onUploadEmbeddingPcaWeights(file)
+                                .then((filePath) => {
+                                  embeddingForm.setFieldValue('pcaWeightsFilePath', filePath);
+                                })
+                                .finally(() => {
+                                  setUploadingPcaWeights(false);
+                                });
+                            }}
+                          >
+                            <Button type="link" size="small" loading={uploadingPcaWeights}>
+                              上传
+                            </Button>
+                          </Upload>
+                        }
+                      />
+                    </Form.Item>
                     <Button type="primary" htmlType="submit">
                       保存 Embedding
                     </Button>

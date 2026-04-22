@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { GlobalConfigManager } from '../../config/manager.ts';
@@ -113,4 +113,52 @@ test('initializeVectorStoreConnections and manual connect update statuses withou
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('uploadEmbeddingPcaWeights stores json under user config directory', async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), 'soloyakusha-config-service-'));
+  tempDirs.push(rootDir);
+  const manager = new GlobalConfigManager({
+    filePath: join(rootDir, 'config.json'),
+  });
+  const service = new ConfigService({ manager });
+
+  const componentsBase64 = Buffer.from(
+    new Uint8Array(new Float32Array([1, 0]).buffer),
+  ).toString('base64');
+  const meanBase64 = Buffer.from(
+    new Uint8Array(new Float32Array([0, 0]).buffer),
+  ).toString('base64');
+
+  const payload = JSON.stringify({
+    pca: {
+      target_dim: 1,
+      input_dim: 2,
+      components: {
+        dtype: 'float32',
+        shape: [1, 2],
+        data: componentsBase64,
+      },
+      mean: {
+        dtype: 'float32',
+        shape: [2],
+        data: meanBase64,
+      },
+    },
+  });
+
+  const result = await service.uploadEmbeddingPcaWeights({
+    fileName: 'weights.json',
+    content: new TextEncoder().encode(payload),
+  });
+
+  expect(result.filePath).toContain('pca-weights');
+  expect(result.filePath).toContain(rootDir);
+  const saved = await readFile(result.filePath, 'utf8');
+  expect(JSON.parse(saved)).toMatchObject({
+    pca: {
+      target_dim: 1,
+      input_dim: 2,
+    },
+  });
 });

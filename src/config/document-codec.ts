@@ -3,6 +3,7 @@ import type {
   JsonObject,
   JsonValue,
   LlmProvider,
+  PcaEmbeddingConfig,
   LlmRequestConfigInput,
 } from "../llm/types.ts";
 import type {
@@ -154,6 +155,10 @@ export function normalizePersistedLlmClientConfig(
   const supportsStructuredOutput =
     readOptionalBoolean(value.supportsStructuredOutput, `${sourceLabel}.supportsStructuredOutput`) ??
     false;
+  const pca =
+    value.pca === undefined
+      ? undefined
+      : normalizePcaEmbeddingConfig(value.pca, `${sourceLabel}.pca`);
 
   if (apiKey && apiKeyEnv) {
     throw new Error(`${sourceLabel} 中 apiKey 和 apiKeyEnv 只能配置其中一个`);
@@ -161,6 +166,10 @@ export function normalizePersistedLlmClientConfig(
 
   if (!apiKey && !apiKeyEnv) {
     throw new Error(`${sourceLabel} 必须配置 apiKey 或 apiKeyEnv 其中一个`);
+  }
+
+  if (pca && modelType !== "embedding") {
+    throw new Error(`${sourceLabel}.pca 仅可用于 embedding 类型配置`);
   }
 
   return {
@@ -175,6 +184,31 @@ export function normalizePersistedLlmClientConfig(
     retries,
     defaultRequestConfig,
     supportsStructuredOutput,
+    ...(pca ? { pca } : {}),
+  };
+}
+
+function normalizePcaEmbeddingConfig(
+  value: unknown,
+  sourceLabel: string,
+): PcaEmbeddingConfig {
+  if (!isRecord(value)) {
+    throw new Error(`PCA 配置必须是对象: ${sourceLabel}`);
+  }
+
+  const enabled = readOptionalBoolean(value.enabled, `${sourceLabel}.enabled`) === true;
+  const weightsFilePath = readOptionalString(
+    value.weightsFilePath,
+    `${sourceLabel}.weightsFilePath`,
+  );
+
+  if (enabled && !weightsFilePath) {
+    throw new Error(`${sourceLabel}.enabled 为 true 时必须提供 weightsFilePath`);
+  }
+
+  return {
+    enabled,
+    ...(weightsFilePath ? { weightsFilePath } : {}),
   };
 }
 
@@ -878,6 +912,16 @@ export function clonePersistedLlmClientConfig(
       ? cloneRequestConfig(config.defaultRequestConfig)
       : undefined,
     supportsStructuredOutput: config.supportsStructuredOutput === true,
+    ...(config.pca
+      ? {
+          pca: {
+            enabled: config.pca.enabled === true,
+            ...(config.pca.weightsFilePath
+              ? { weightsFilePath: config.pca.weightsFilePath }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 

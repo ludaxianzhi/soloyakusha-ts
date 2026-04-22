@@ -460,6 +460,14 @@ export const api = {
     request<LlmProfileConfig | null>('/api/config/embedding'),
   saveEmbeddingConfig: (config: LlmProfileConfig) =>
     request('/api/config/embedding', { method: 'PUT', body: config }),
+  uploadEmbeddingPcaWeights: (file: File) => {
+    const formData = new FormData();
+    formData.set('file', file);
+    return request<{ filePath: string }>('/api/config/embedding/pca/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  },
   getVectorStores: () =>
     request<{
       config: VectorStoreConfig | null;

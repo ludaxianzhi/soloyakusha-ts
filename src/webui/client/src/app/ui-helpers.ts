@@ -47,6 +47,7 @@ export function profileToForm(
       provider: 'openai',
       modelType: 'chat',
       retries: 2,
+      pcaEnabled: false,
     };
   }
   return {
@@ -64,6 +65,8 @@ export function profileToForm(
       profile.defaultRequestConfig,
     ),
     supportsStructuredOutput: profile.supportsStructuredOutput ?? false,
+    pcaEnabled: profile.pca?.enabled ?? false,
+    pcaWeightsFilePath: profile.pca?.weightsFilePath,
   };
 }
 

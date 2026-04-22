@@ -20,6 +20,7 @@ import {
 } from "./fallback-chat-client.ts";
 import { OpenAIEmbeddingClient } from "./openai-embedding-client.ts";
 import { OpenAIChatClient } from "./openai-chat-client.ts";
+import { PcaEmbeddingClient, PcaProjection } from "./pca-embedding-client.ts";
 import type {
   ClientHooks,
   LlmClientConfig,
@@ -158,11 +159,24 @@ export class LlmClientProvider {
     }
 
     if (config.modelType === "embedding") {
+      let embeddingClient: EmbeddingClient;
       if (config.provider === "openai") {
-        return new OpenAIEmbeddingClient(config, hooks);
+        embeddingClient = new OpenAIEmbeddingClient(config, hooks);
+      } else {
+        throw new Error(`不支持的 Embedding Provider: ${config.provider}`);
       }
 
-      throw new Error(`不支持的 Embedding Provider: ${config.provider}`);
+      if (config.pca?.enabled) {
+        const weightsFilePath = config.pca.weightsFilePath?.trim();
+        if (!weightsFilePath) {
+          throw new Error("PCA 已启用，但未配置 weightsFilePath");
+        }
+
+        const projection = PcaProjection.fromJsonFile(weightsFilePath);
+        return new PcaEmbeddingClient(embeddingClient, projection);
+      }
+
+      return embeddingClient;
     }
 
     throw new Error(`不支持的模型类型(modelType): ${config.modelType}`);

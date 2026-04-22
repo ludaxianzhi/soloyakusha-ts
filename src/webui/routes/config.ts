@@ -55,6 +55,21 @@ export function createConfigRoutes(configService: ConfigService): Hono {
     return c.json({ ok: true });
   });
 
+  app.post('/embedding/pca/upload', async (c) => {
+    const formData = await c.req.formData();
+    const file = formData.get('file');
+    if (!(file instanceof File)) {
+      return c.json({ error: '缺少文件字段 file' }, 400);
+    }
+
+    const content = new Uint8Array(await file.arrayBuffer());
+    const result = await configService.uploadEmbeddingPcaWeights({
+      fileName: file.name,
+      content,
+    });
+    return c.json(result);
+  });
+
   // ─── Vector Stores ───────────────────────────────
 
   app.get('/vector', async (c) => {

@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AnthropicChatClient } from "./anthropic-chat-client.ts";
 import { ChatClient } from "./base.ts";
 import { isRetryableOutputValidationError, runOutputValidator } from "./chat-request.ts";
 import { FallbackChatClient } from "./fallback-chat-client.ts";
 import { OpenAIChatClient } from "./openai-chat-client.ts";
+import { PcaEmbeddingClient } from "./pca-embedding-client.ts";
 import { LlmClientProvider } from "./provider.ts";
 import { RateLimiter } from "./rate-limiter.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "./types.ts";
@@ -161,6 +165,63 @@ describe("LlmClientProvider", () => {
 
     expect(primary).toBe(alias);
     expect(primary).toBeInstanceOf(ChatClient);
+  });
+
+  test("wraps embedding client with PCA projection when configured", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-llm-pca-"));
+    const weightsPath = join(rootDir, "weights.json");
+
+    const componentsBase64 = Buffer.from(
+      new Uint8Array(new Float32Array([1, 0]).buffer),
+    ).toString("base64");
+    const meanBase64 = Buffer.from(
+      new Uint8Array(new Float32Array([0, 0]).buffer),
+    ).toString("base64");
+
+    await writeFile(
+      weightsPath,
+      JSON.stringify(
+        {
+          pca: {
+            target_dim: 1,
+            input_dim: 2,
+            components: {
+              dtype: "float32",
+              shape: [1, 2],
+              data: componentsBase64,
+            },
+            mean: {
+              dtype: "float32",
+              shape: [2],
+              data: meanBase64,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    try {
+      const provider = new LlmClientProvider();
+      provider.register("embed", {
+        provider: "openai",
+        modelType: "embedding",
+        modelName: "text-embedding-3-small",
+        endpoint: "https://example.com/v1",
+        apiKey: "secret",
+        pca: {
+          enabled: true,
+          weightsFilePath: weightsPath,
+        },
+      });
+
+      const embeddingClient = provider.getEmbeddingClient("embed");
+      expect(embeddingClient).toBeInstanceOf(PcaEmbeddingClient);
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
   });
 });
 
