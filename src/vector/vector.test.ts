@@ -16,6 +16,7 @@ import {
 import type {
   VectorCollectionConfig,
   VectorSearchResult,
+  VectorStoreCollectionDeleteParams,
   VectorStoreDeleteParams,
   VectorStoreQueryParams,
   VectorStoreUpsertParams,
@@ -483,6 +484,49 @@ describe("SqliteMemoryVectorStoreClient", () => {
     }
   });
 
+  test("deletes collections from sqlite worker storage", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-vector-"));
+    const databasePath = join(workspaceDir, "vector.sqlite");
+
+    try {
+      const client = new SqliteMemoryVectorStoreClient(
+        createVectorStoreConfig({
+          provider: "sqlite-memory",
+          endpoint: databasePath,
+          distance: "cosine",
+        }),
+      );
+
+      await client.ensureCollection({
+        name: "temp-links",
+        dimension: 2,
+      });
+      await client.upsert({
+        collectionName: "temp-links",
+        records: [
+          {
+            id: "row-1",
+            vector: [1, 0],
+          },
+        ],
+      });
+
+      await client.deleteCollection({
+        collectionName: "temp-links",
+      });
+
+      await expect(client.query({
+        collectionName: "temp-links",
+        vector: [1, 0],
+        topK: 1,
+      })).rejects.toThrow("未找到向量集合: temp-links");
+
+      await client.close();
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   test("rejects collections beyond configured dimension limit", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-vector-"));
     const databasePath = join(workspaceDir, "vector.sqlite");
@@ -696,6 +740,7 @@ function createStubEmbeddingConfig(): LlmClientConfig {
 
 class FakeVectorStoreClient extends VectorStoreClient {
   lastCollection?: VectorCollectionConfig;
+  lastDeletedCollection?: VectorStoreCollectionDeleteParams;
   lastUpsert?: VectorStoreUpsertParams;
   lastQuery?: VectorStoreQueryParams;
   lastDelete?: VectorStoreDeleteParams;
@@ -714,6 +759,10 @@ class FakeVectorStoreClient extends VectorStoreClient {
 
   override async ensureCollection(collection: VectorCollectionConfig): Promise<void> {
     this.lastCollection = collection;
+  }
+
+  override async deleteCollection(params: VectorStoreCollectionDeleteParams): Promise<void> {
+    this.lastDeletedCollection = params;
   }
 
   override async upsert(params: VectorStoreUpsertParams): Promise<void> {

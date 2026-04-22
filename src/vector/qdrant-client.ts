@@ -5,6 +5,7 @@ import type {
   VectorCollectionConfig,
   VectorDistanceMetric,
   VectorSearchResult,
+  VectorStoreCollectionDeleteParams,
   VectorStoreConfig,
   VectorStoreDeleteParams,
   VectorStoreQueryParams,
@@ -53,6 +54,18 @@ export class QdrantVectorStoreClient extends VectorStoreClient {
         },
         ...(collection.options ?? {}),
       },
+    });
+  }
+
+  override async deleteCollection(params: VectorStoreCollectionDeleteParams): Promise<void> {
+    await requestJson<void>({
+      endpoint: this.config.endpoint,
+      path: `collections/${encodeURIComponent(params.collectionName)}?timeout=${this.config.timeoutMs}`,
+      method: "DELETE",
+      timeoutMs: this.config.timeoutMs,
+      retries: this.config.retries,
+      errorPrefix: "Qdrant collection 删除失败",
+      headers: this.buildHeaders(),
     });
   }
 

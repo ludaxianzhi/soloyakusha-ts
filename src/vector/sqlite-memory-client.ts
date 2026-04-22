@@ -4,6 +4,7 @@ import { VectorStoreClient } from "./base.ts";
 import type {
   VectorCollectionConfig,
   VectorSearchResult,
+  VectorStoreCollectionDeleteParams,
   VectorStoreConfig,
   VectorStoreDeleteParams,
   VectorStoreQueryParams,
@@ -23,6 +24,7 @@ type ClientWorkerRequest =
   | { type: "init"; databasePath: string }
   | { type: "probe" }
   | { type: "ensureCollection"; collection: VectorCollectionConfig }
+  | { type: "deleteCollection"; params: VectorStoreCollectionDeleteParams }
   | { type: "upsert"; params: UpsertRequestParams }
   | { type: "query"; params: QueryRequestParams }
   | { type: "delete"; params: DeleteRequestParams }
@@ -89,6 +91,21 @@ export class SqliteMemoryVectorStoreClient extends VectorStoreClient {
         options: collection.options ? { ...collection.options } : undefined,
       },
     }));
+  }
+
+  override async deleteCollection(params: VectorStoreCollectionDeleteParams): Promise<void> {
+    const handle = this.getOrCreateCollectionWorker(params.collectionName);
+    await this.runCollectionTask(params.collectionName, (activeHandle) => this.postRequest(activeHandle, {
+      type: "deleteCollection",
+      params: {
+        collectionName: params.collectionName,
+      },
+    }));
+
+    if (this.collectionWorkers.get(params.collectionName) === handle) {
+      this.collectionWorkers.delete(params.collectionName);
+    }
+    await this.disposeWorkerHandle(handle);
   }
 
   override async upsert(params: VectorStoreUpsertParams): Promise<void> {

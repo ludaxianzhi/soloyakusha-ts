@@ -55,6 +55,10 @@ async function handleRequest(request: SqliteMemoryWorkerRequest): Promise<void> 
         validateCollectionBounds(collection.dimension, collection.records.length);
         return postSuccess(request.id);
       }
+      case "deleteCollection": {
+        await deleteCollection(request.params.collectionName);
+        return postSuccess(request.id);
+      }
       case "upsert": {
         const collection = await loadExistingCollection(request.params.collectionName);
         await upsertIntoCollection(collection, request.params.records);
@@ -196,6 +200,15 @@ async function loadExistingCollection(name: string): Promise<CachedCollection> {
   validateCollectionBounds(collection.dimension, collection.records.length);
   collections.set(name, collection);
   return collection;
+}
+
+async function deleteCollection(name: string): Promise<void> {
+  const db = requireDatabase();
+  db.query(
+    `DELETE FROM vector_collections
+      WHERE name = ?1`,
+  ).run(name);
+  collections.delete(name);
 }
 
 async function upsertIntoCollection(

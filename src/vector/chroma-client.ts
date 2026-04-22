@@ -5,6 +5,7 @@ import type {
   VectorCollectionConfig,
   VectorDistanceMetric,
   VectorSearchResult,
+  VectorStoreCollectionDeleteParams,
   VectorStoreConfig,
   VectorStoreDeleteParams,
   VectorStoreQueryParams,
@@ -58,6 +59,21 @@ export class ChromaVectorStoreClient extends VectorStoreClient {
         ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         ...(collection.options ?? {}),
       },
+    });
+  }
+
+  override async deleteCollection(params: VectorStoreCollectionDeleteParams): Promise<void> {
+    await requestJson<void>({
+      endpoint: this.config.endpoint,
+      path: buildChromaPath(
+        this.config.endpoint,
+        `collections/${encodeURIComponent(params.collectionName)}`,
+      ),
+      method: "DELETE",
+      timeoutMs: this.config.timeoutMs,
+      retries: this.config.retries,
+      errorPrefix: "Chroma collection 删除失败",
+      headers: this.buildHeaders(),
     });
   }
 

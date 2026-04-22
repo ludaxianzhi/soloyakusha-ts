@@ -1,6 +1,7 @@
 import type {
   VectorCollectionConfig,
   VectorSearchResult,
+  VectorStoreCollectionDeleteParams,
   VectorStoreConfig,
   VectorStoreDeleteParams,
   VectorStoreQueryParams,
@@ -16,6 +17,7 @@ export abstract class ManagedVectorStoreClient {
 export abstract class VectorStoreClient extends ManagedVectorStoreClient {
   abstract probeConnection(): Promise<void>;
   abstract ensureCollection(collection: VectorCollectionConfig): Promise<void>;
+  abstract deleteCollection(params: VectorStoreCollectionDeleteParams): Promise<void>;
   abstract upsert(params: VectorStoreUpsertParams): Promise<void>;
   abstract query(params: VectorStoreQueryParams): Promise<VectorSearchResult[]>;
   abstract delete(params: VectorStoreDeleteParams): Promise<void>;

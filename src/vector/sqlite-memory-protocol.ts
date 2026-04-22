@@ -2,6 +2,7 @@ import type { JsonObject } from "../llm/types.ts";
 import type {
   VectorCollectionConfig,
   VectorDistanceMetric,
+  VectorStoreCollectionDeleteParams,
   VectorStoreDeleteParams,
   VectorStoreQueryParams,
   VectorStoreUpsertParams,
@@ -56,6 +57,12 @@ export type SqliteMemoryDeleteRequest = {
   params: VectorStoreDeleteParams;
 };
 
+export type SqliteMemoryDeleteCollectionRequest = {
+  id: number;
+  type: "deleteCollection";
+  params: VectorStoreCollectionDeleteParams;
+};
+
 export type SqliteMemoryCloseRequest = {
   id: number;
   type: "close";
@@ -68,6 +75,7 @@ export type SqliteMemoryWorkerRequest =
   | SqliteMemoryUpsertRequest
   | SqliteMemoryQueryRequest
   | SqliteMemoryDeleteRequest
+  | SqliteMemoryDeleteCollectionRequest
   | SqliteMemoryCloseRequest;
 
 export type SqliteMemoryResultVector = Float32Array;

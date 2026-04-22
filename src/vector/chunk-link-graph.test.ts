@@ -1,0 +1,72 @@
+import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { computeChunkLinkGraph } from "./chunk-link-graph.ts";
+import { createVectorStoreConfig, SqliteMemoryVectorStoreClient } from "./index.ts";
+
+describe("computeChunkLinkGraph", () => {
+  test("builds a bidirectional cross-block matrix with sqlite-memory vectors", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-chunk-link-graph-"));
+    const databasePath = join(workspaceDir, "vector.sqlite");
+    const logs: string[] = [];
+
+    try {
+      const result = await computeChunkLinkGraph({
+        vectorStoreConfig: createVectorStoreConfig({
+          provider: "sqlite-memory",
+          endpoint: databasePath,
+          distance: "cosine",
+        }),
+        embeddings: [
+          [1, 0],
+          [0, 1],
+          [0.99, 0.01],
+          [0.01, 0.99],
+        ],
+        blockSize: 2,
+        topCandidates: 1,
+        topPercent: 100,
+        upsertBatchSize: 2,
+        tempCollectionName: "temp-link-graph",
+      }, {
+        logger: {
+          info(message, metadata) {
+            logs.push(`${message}:${String(metadata?.phase)}:${metadata?.processed}/${metadata?.total}`);
+          },
+        },
+      });
+
+      expect(result.lineCount).toBe(4);
+      expect(result.blockCount).toBe(2);
+      expect(result.candidateEdgeCount).toBe(4);
+      expect(result.crossBlockCandidateCount).toBe(4);
+      expect(result.strongEdgeCount).toBe(4);
+      expect(result.bidirectionalEdgeCount).toBe(4);
+      expect(Array.from(result.matrix)).toEqual([
+        0,
+        2,
+        2,
+        0,
+      ]);
+      expect(logs.some((entry) => entry.includes("top10 获取进度:topk:4/4"))).toBe(true);
+      expect(logs.some((entry) => entry.includes("块间连接矩阵计算进度:matrix:4/4"))).toBe(true);
+
+      const probeClient = new SqliteMemoryVectorStoreClient(
+        createVectorStoreConfig({
+          provider: "sqlite-memory",
+          endpoint: databasePath,
+          distance: "cosine",
+        }),
+      );
+      await expect(probeClient.query({
+        collectionName: "temp-link-graph",
+        vector: [1, 0],
+        topK: 1,
+      })).rejects.toThrow("未找到向量集合: temp-link-graph");
+      await probeClient.close();
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+});

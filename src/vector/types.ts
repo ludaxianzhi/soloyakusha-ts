@@ -70,6 +70,10 @@ export type VectorStoreDeleteParams = {
   filter?: JsonObject;
 };
 
+export type VectorStoreCollectionDeleteParams = {
+  collectionName: string;
+};
+
 export type VectorSearchResult = {
   id: string;
   score: number;
