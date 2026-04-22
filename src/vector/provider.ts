@@ -1,4 +1,5 @@
 import { stableStringify } from "../llm/utils.ts";
+import { SqliteMemoryVectorStoreClient } from "./sqlite-memory-client.ts";
 import { VectorStoreClient } from "./base.ts";
 import { ChromaVectorStoreClient } from "./chroma-client.ts";
 import { QdrantVectorStoreClient } from "./qdrant-client.ts";
@@ -53,6 +54,8 @@ export class VectorStoreClientProvider {
         return new QdrantVectorStoreClient(config);
       case "chroma":
         return new ChromaVectorStoreClient(config);
+      case "sqlite-memory":
+        return new SqliteMemoryVectorStoreClient(config);
     }
   }
 }

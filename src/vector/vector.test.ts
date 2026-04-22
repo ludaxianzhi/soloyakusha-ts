@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { EmbeddingClient } from "../llm/base.ts";
 import type { LlmClientConfig } from "../llm/types.ts";
 import {
   ChromaVectorStoreClient,
   createVectorStoreConfig,
   QdrantVectorStoreClient,
+  SqliteMemoryVectorStoreClient,
   VectorRetriever,
   VectorStoreClient,
   VectorStoreClientProvider,
@@ -54,6 +58,18 @@ describe("VectorStoreClientProvider", () => {
 
     expect(primary).toBe(alias);
     expect(primary).toBeInstanceOf(VectorStoreClient);
+  });
+
+  test("creates sqlite-memory client instances", () => {
+    const provider = new VectorStoreClientProvider();
+    provider.register("local", {
+      provider: "sqlite-memory",
+      endpoint: "C:/temp/soloyakusha-vector-test.sqlite",
+    });
+
+    const client = provider.getClient("local");
+
+    expect(client).toBeInstanceOf(SqliteMemoryVectorStoreClient);
   });
 });
 
@@ -368,6 +384,119 @@ describe("ChromaVectorStoreClient", () => {
       ]);
     } finally {
       globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("SqliteMemoryVectorStoreClient", () => {
+  test("persists vectors in sqlite and reloads them into worker memory", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-vector-"));
+    const databasePath = join(workspaceDir, "vector.sqlite");
+
+    try {
+      const client = new SqliteMemoryVectorStoreClient(
+        createVectorStoreConfig({
+          provider: "sqlite-memory",
+          endpoint: databasePath,
+          distance: "cosine",
+        }),
+      );
+
+      await client.ensureCollection({
+        name: "chapters",
+        dimension: 3,
+      });
+      await client.upsert({
+        collectionName: "chapters",
+        records: [
+          {
+            id: "frag-1",
+            vector: [1, 0, 0],
+            payload: { chapter: 1 },
+            document: "勇者登场",
+          },
+          {
+            id: "frag-2",
+            vector: [0, 1, 0],
+            payload: { chapter: 2 },
+            document: "反派现身",
+          },
+        ],
+      });
+
+      const firstResults = await client.query({
+        collectionName: "chapters",
+        vector: [0.9, 0.1, 0],
+        topK: 2,
+        filter: { chapter: 1 },
+        includeVectors: true,
+      });
+
+      expect(firstResults).toHaveLength(1);
+      const firstResult = firstResults[0]!;
+      expect(firstResult).toEqual({
+        id: "frag-1",
+        score: firstResult.score,
+        rawScore: firstResult.rawScore,
+        payload: { chapter: 1 },
+        document: "勇者登场",
+        vector: [1, 0, 0],
+      });
+      expect(firstResult.score > 0.99).toBe(true);
+
+      await client.close();
+
+      const reloadedClient = new SqliteMemoryVectorStoreClient(
+        createVectorStoreConfig({
+          provider: "sqlite-memory",
+          endpoint: databasePath,
+          distance: "cosine",
+        }),
+      );
+
+      const reloadedResults = await reloadedClient.query({
+        collectionName: "chapters",
+        vector: [0, 1, 0],
+        topK: 2,
+      });
+      expect(reloadedResults.map((item) => item.id)).toEqual(["frag-2", "frag-1"]);
+
+      await reloadedClient.delete({
+        collectionName: "chapters",
+        ids: ["frag-2"],
+      });
+      const afterDelete = await reloadedClient.query({
+        collectionName: "chapters",
+        vector: [0, 1, 0],
+        topK: 5,
+      });
+      expect(afterDelete.map((item) => item.id)).toEqual(["frag-1"]);
+
+      await reloadedClient.close();
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects collections beyond configured dimension limit", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-vector-"));
+    const databasePath = join(workspaceDir, "vector.sqlite");
+    const client = new SqliteMemoryVectorStoreClient(
+      createVectorStoreConfig({
+        provider: "sqlite-memory",
+        endpoint: databasePath,
+        distance: "cosine",
+      }),
+    );
+
+    try {
+      await expect(client.ensureCollection({
+        name: "too-wide",
+        dimension: 257,
+      })).rejects.toThrow("仅支持 1-256 维向量");
+    } finally {
+      await client.close();
+      await rm(workspaceDir, { recursive: true, force: true });
     }
   });
 });

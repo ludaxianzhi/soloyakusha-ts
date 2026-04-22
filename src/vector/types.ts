@@ -1,6 +1,6 @@
 import type { JsonObject } from "../llm/types.ts";
 
-export type VectorStoreProviderName = "qdrant" | "chroma";
+export type VectorStoreProviderName = "qdrant" | "chroma" | "sqlite-memory";
 
 export type VectorDistanceMetric = "cosine" | "dot" | "euclid" | "manhattan";
 
