@@ -16,7 +16,7 @@ import { withOutputValidator, withRequestMeta } from "../llm/chat-request.ts";
 import type { ChatRequestOptions, LlmRequestMetadata } from "../llm/types.ts";
 import { getDefaultPromptManager } from "../prompts/index.ts";
 import { NOOP_LOGGER, type Logger } from "../project/logger.ts";
-import type { TranslationDocumentManager } from "../project/translation-document-manager.ts";
+import type { TranslationDocumentManager } from "../project/document/translation-document-manager.ts";
 import {
   Glossary,
   type GlossaryTerm,

@@ -4,11 +4,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
-import { SqliteProjectStorage } from '../../project/sqlite-project-storage.ts';
+import { SqliteProjectStorage } from '../../project/storage/sqlite-project-storage.ts';
 import {
   buildWorkspaceBootstrapDocument,
   saveWorkspaceBootstrap,
-} from '../../project/translation-project-workspace.ts';
+} from '../../project/pipeline/translation-project-workspace.ts';
 import { WorkspaceManager } from './workspace-manager.ts';
 
 const tempDirs: string[] = [];

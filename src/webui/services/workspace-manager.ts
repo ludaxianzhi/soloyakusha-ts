@@ -11,7 +11,7 @@ import {
   DEFAULT_GLOSSARY_FILE_PATH,
   inspectWorkspaceBootstrap,
   openWorkspaceConfig,
-} from '../../project/translation-project-workspace.ts';
+} from '../../project/pipeline/translation-project-workspace.ts';
 import {
   exportWorkspaceArchive,
   importWorkspaceArchive,

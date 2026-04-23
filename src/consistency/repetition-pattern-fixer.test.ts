@@ -4,7 +4,7 @@ import type { ChatRequestOptions, LlmClientConfig } from "../llm/types.ts";
 import type {
   RepetitionPatternAnalysis,
   RepetitionPatternLocation,
-} from "../project/repetition-pattern-analysis.ts";
+} from "../project/analysis/repetition-pattern-analysis.ts";
 import {
   RepetitionPatternFixer,
   buildRepetitionPatternFixTasks,

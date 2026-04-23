@@ -1,0 +1,105 @@
+index.ts(14,1): error TS2308: Module "./src/prompts/index.ts" has already exported a member named 'PromptManager'. Consider explicitly re-exporting to resolve the ambiguity.
+index.ts(14,1): error TS2308: Module "./src/prompts/index.ts" has already exported a member named 'RenderedPrompt'. Consider explicitly re-exporting to resolve the ambiguity.
+src/project/analysis/project-repetition-analysis.test.ts(63,47): error TS7006: Parameter 'location' implicitly has an 'any' type.
+src/project/analysis/project-repetition-analysis.test.ts(66,47): error TS7006: Parameter 'location' implicitly has an 'any' type.
+src/project/analysis/project-repetition-analysis.test.ts(116,37): error TS7006: Parameter 'pattern' implicitly has an 'any' type.
+src/project/analysis/project-repetition-analysis.test.ts(192,41): error TS7006: Parameter 'pattern' implicitly has an 'any' type.
+src/project/analysis/project-repetition-analysis.ts(2,49): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/analysis/repetition-pattern-analysis.test.ts(5,44): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/analysis/repetition-pattern-analysis.test.ts(40,15): error TS7006: Parameter 'units' implicitly has an 'any' type.
+src/project/analysis/repetition-pattern-analysis.test.ts(41,29): error TS7006: Parameter 'unit' implicitly has an 'any' type.
+src/project/analysis/repetition-pattern-analysis.ts(6,49): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/context/chapter-translation-editor.test.ts(12,36): error TS2307: Cannot find module '../translation-project.ts' or its corresponding type declarations.
+src/project/context/chapter-translation-editor.test.ts(111,17): error TS7006: Parameter 'units' implicitly has an 'any' type.
+src/project/context/chapter-translation-editor.test.ts(112,31): error TS7006: Parameter 'unit' implicitly has an 'any' type.
+src/project/context/chapter-translation-editor.test.ts(126,35): error TS7006: Parameter 'update' implicitly has an 'any' type.
+src/project/context/chapter-translation-editor.test.ts(129,31): error TS7006: Parameter 'unit' implicitly has an 'any' type.
+src/project/context/context-view-glossary-injection.test.ts(6,36): error TS2307: Cannot find module '../translation-project.ts' or its corresponding type declarations.
+src/project/context/context-view-glossary-injection.test.ts(47,17): error TS7006: Parameter 'units' implicitly has an 'any' type.
+src/project/context/context-view-glossary-injection.test.ts(48,31): error TS7006: Parameter 'unit' implicitly has an 'any' type.
+src/project/context/context-view-glossary-injection.test.ts(65,24): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/project/context/context-view-glossary-injection.test.ts(66,24): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/project/context/context-view-glossary-injection.test.ts(67,24): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/project/context/context-view-glossary-injection.test.ts(68,24): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/project/context/context-view.ts(15,44): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/context/plot-summarizer.ts(34,49): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/context/plot-summarizer.ts(35,57): error TS2307: Cannot find module '../translation-processor.ts' or its corresponding type declarations.
+src/project/document/translation-document-manager.ts(26,59): error TS2307: Cannot find module '../repetition-pattern-analysis.ts' or its corresponding type declarations.
+src/project/document/translation-document-manager.ts(43,41): error TS2307: Cannot find module '../context-network-types.ts' or its corresponding type declarations.
+src/project/document/translation-document-manager.ts(51,8): error TS2307: Cannot find module '../sqlite-project-storage.ts' or its corresponding type declarations.
+src/project/document/translation-document-manager.ts(56,8): error TS2307: Cannot find module '../context-network-storage.ts' or its corresponding type declarations.
+src/project/document/translation-document-manager.ts(61,8): error TS2307: Cannot find module '../translation-project-workspace.ts' or its corresponding type declarations.
+src/project/pipeline/context-network-ordering.test.ts(6,31): error TS2307: Cannot find module '../story-topology.ts' or its corresponding type declarations.
+src/project/pipeline/context-network-ordering.test.ts(7,36): error TS2307: Cannot find module '../translation-project.ts' or its corresponding type declarations.
+src/project/pipeline/context-network-ordering.test.ts(53,44): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/project/pipeline/context-network-ordering.test.ts(115,15): error TS7006: Parameter 'units' implicitly has an 'any' type.
+src/project/pipeline/context-network-ordering.test.ts(116,29): error TS7006: Parameter 'unit' implicitly has an 'any' type.
+src/project/pipeline/context-network-ordering.ts(2,41): error TS2307: Cannot find module '../context-network-types.ts' or its corresponding type declarations.
+src/project/pipeline/context-network-ordering.ts(3,36): error TS2307: Cannot find module '../story-topology.ts' or its corresponding type declarations.
+src/project/pipeline/default-translation-pipeline.ts(2,39): error TS2307: Cannot find module '../plot-summarizer.ts' or its corresponding type declarations.
+src/project/pipeline/default-translation-pipeline.ts(3,36): error TS2307: Cannot find module '../story-topology.ts' or its corresponding type declarations.
+src/project/pipeline/default-translation-pipeline.ts(4,40): error TS2307: Cannot find module '../context-view.ts' or its corresponding type declarations.
+src/project/pipeline/default-translation-pipeline.ts(5,47): error TS2307: Cannot find module '../global-pattern-scanner.ts' or its corresponding type declarations.
+src/project/pipeline/default-translation-pipeline.ts(10,49): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/pipeline/default-translation-pipeline.ts(291,63): error TS7031: Binding element 'fragmentIndex' implicitly has an 'any' type.
+src/project/pipeline/pipeline.ts(15,45): error TS2307: Cannot find module '../context-view.ts' or its corresponding type declarations.
+src/project/pipeline/project.test.ts(8,38): error TS2307: Cannot find module '../sqlite-project-storage.ts' or its corresponding type declarations.
+src/project/pipeline/translation-ordering-strategy.ts(10,41): error TS2307: Cannot find module '../context-network-types.ts' or its corresponding type declarations.
+src/project/pipeline/translation-ordering-strategy.ts(11,36): error TS2307: Cannot find module '../story-topology.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project-snapshot.ts(9,49): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project-workspace.ts(8,48): error TS2307: Cannot find module '../context-network-storage.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project-workspace.ts(9,38): error TS2307: Cannot find module '../sqlite-project-storage.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project-workspace.ts(10,49): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project-workspace.ts(140,10): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/project/pipeline/translation-project-workspace.ts(140,15): error TS7006: Parameter 'fragment' implicitly has an 'any' type.
+src/project/pipeline/translation-project-workspace.ts(359,8): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/project/pipeline/translation-project-workspace.ts(359,13): error TS7006: Parameter 'fragment' implicitly has an 'any' type.
+src/project/pipeline/translation-project-workspace.ts(363,8): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/project/pipeline/translation-project-workspace.ts(363,13): error TS7006: Parameter 'fragment' implicitly has an 'any' type.
+src/project/pipeline/translation-project-workspace.ts(364,50): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(17,8): error TS2307: Cannot find module '../plot-summarizer.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project.ts(18,46): error TS2307: Cannot find module '../story-topology.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project.ts(27,8): error TS2307: Cannot find module '../chapter-translation-editor.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project.ts(31,8): error TS2307: Cannot find module '../global-pattern-scanner.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project.ts(32,49): error TS2307: Cannot find module '../global-pattern-scanner.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project.ts(37,8): error TS2307: Cannot find module '../project-repetition-analysis.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project.ts(45,8): error TS2307: Cannot find module '../repetition-pattern-analysis.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project.ts(58,44): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project.ts(99,37): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project.ts(109,41): error TS2307: Cannot find module '../context-network-types.ts' or its corresponding type declarations.
+src/project/pipeline/translation-project.ts(419,15): error TS7006: Parameter 'unit' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(419,21): error TS7006: Parameter 'index' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(521,16): error TS7006: Parameter 'route' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(571,10): error TS7006: Parameter 'route' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(643,44): error TS7006: Parameter 'route' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(681,8): error TS7006: Parameter 'chapterId' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(681,19): error TS7006: Parameter 'index' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(688,38): error TS7006: Parameter 'chapterId' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(758,16): error TS7006: Parameter 'b' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(924,59): error TS7006: Parameter 'fragment' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(925,42): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(1256,8): error TS7006: Parameter 'location' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(1295,67): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(1447,16): error TS7006: Parameter 'pattern' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(1448,13): error TS7006: Parameter 'pattern' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(1450,39): error TS7006: Parameter 'location' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(1459,16): error TS7006: Parameter 'pattern' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(1477,10): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(1477,15): error TS7006: Parameter 'fragment' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(2025,63): error TS7006: Parameter 'branch' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(2048,31): error TS7006: Parameter 'chapterId' implicitly has an 'any' type.
+src/project/pipeline/translation-project.ts(2048,42): error TS7006: Parameter 'routeChapterIndex' implicitly has an 'any' type.
+src/project/processing/default-translation-processor.ts(27,42): error TS2307: Cannot find module '../pipeline.ts' or its corresponding type declarations.
+src/project/processing/default-translation-processor.ts(35,44): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/processing/multi-stage-translation-processor.ts(41,42): error TS2307: Cannot find module '../pipeline.ts' or its corresponding type declarations.
+src/project/processing/multi-stage-translation-processor.ts(49,44): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/processing/translation-processor.test.ts(14,37): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/processing/translation-processor.test.ts(17,36): error TS2307: Cannot find module '../translation-project.ts' or its corresponding type declarations.
+src/project/processing/translation-processor.test.ts(88,17): error TS7006: Parameter 'units' implicitly has an 'any' type.
+src/project/processing/translation-processor.test.ts(89,31): error TS7006: Parameter 'unit' implicitly has an 'any' type.
+src/project/processing/translation-processor.ts(12,45): error TS2307: Cannot find module '../context-view.ts' or its corresponding type declarations.
+src/project/processing/translation-processor.ts(13,42): error TS2307: Cannot find module '../pipeline.ts' or its corresponding type declarations.
+src/project/processing/translation-processor.ts(14,49): error TS2307: Cannot find module '../translation-document-manager.ts' or its corresponding type declarations.
+src/project/processing/translation-prompt-context.ts(2,45): error TS2307: Cannot find module '../context-view.ts' or its corresponding type declarations.
+src/webui/services/project-service.ts(423,61): error TS7006: Parameter 'update' implicitly has an 'any' type.
+src/webui/services/project-service.ts(1613,13): error TS7006: Parameter 'chapter' implicitly has an 'any' type.

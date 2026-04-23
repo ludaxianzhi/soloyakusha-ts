@@ -22,7 +22,7 @@ import type {
   TranslationProcessorStepConfig,
   TranslationProcessorConfig,
 } from "../project/config.ts";
-import type { MultiStageStepName } from "../project/multi-stage-translation-processor.ts";
+import type { MultiStageStepName } from "../project/processing/multi-stage-translation-processor.ts";
 import type { SlidingWindowOptions } from "../project/types.ts";
 import type {
   VectorDistanceMetric,

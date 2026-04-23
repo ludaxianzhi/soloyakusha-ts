@@ -17,7 +17,7 @@ import type {
 import {
   MULTI_STAGE_STEP_NAMES,
   type MultiStageStepName,
-} from "../project/multi-stage-translation-processor.ts";
+} from "../project/processing/multi-stage-translation-processor.ts";
 import type { SlidingWindowOptions } from "../project/types.ts";
 import type {
   GlobalConfigDocument,

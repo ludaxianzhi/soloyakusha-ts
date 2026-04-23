@@ -16,7 +16,7 @@ import type {
   RepetitionPatternAnalysis,
   RepetitionPatternAnalysisResult,
   RepetitionPatternLocation,
-} from "../project/repetition-pattern-analysis.ts";
+} from "../project/analysis/repetition-pattern-analysis.ts";
 import type { PromptManager as SharedPromptManager } from "../prompts/index.ts";
 import { getConsistencyPromptManager } from "./prompt-manager.ts";
 

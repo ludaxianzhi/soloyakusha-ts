@@ -2,14 +2,14 @@ import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
 import { normalize as normalizePosix } from 'node:path/posix';
 import JSZip from 'jszip';
-import { SqliteProjectStorage } from '../../project/sqlite-project-storage.ts';
+import { SqliteProjectStorage } from '../../project/storage/sqlite-project-storage.ts';
 import {
   DEFAULT_WORKSPACE_DATABASE_FILE_PATH,
   WORKSPACE_BOOTSTRAP_SCHEMA_VERSION,
   type WorkspaceBootstrapDocument,
   openWorkspaceConfig,
   resolveWorkspaceDatabasePath,
-} from '../../project/translation-project-workspace.ts';
+} from '../../project/pipeline/translation-project-workspace.ts';
 
 const ARCHIVE_MANIFEST_FILE = 'soloyakusha-workspace.json';
 const ARCHIVE_WORKSPACE_ROOT = 'workspace';

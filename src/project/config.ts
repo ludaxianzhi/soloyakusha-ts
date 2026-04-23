@@ -12,14 +12,14 @@ import { createProviderFromConfigs, LlmClientProvider } from "../llm/provider.ts
 import type { ChatRequestOptions, ClientHooks, LlmClientConfigInput } from "../llm/types.ts";
 import { AlignmentRepairTool, DefaultTextAligner } from "../utils/index.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
-import type { MultiStageStepName } from "./multi-stage-translation-processor.ts";
-import { PromptManager } from "./prompt-manager.ts";
-import { TranslationProcessorFactory } from "./translation-processor-factory.ts";
+import type { MultiStageStepName } from "./processing/multi-stage-translation-processor.ts";
+import { PromptManager } from "./processing/prompt-manager.ts";
+import { TranslationProcessorFactory } from "./processing/translation-processor-factory.ts";
 import type {
   TranslationProcessor,
   TranslationProcessorClientResolver,
-} from "./translation-processor.ts";
-import type { TranslationOutputRepairer } from "./translation-output-repair.ts";
+} from "./processing/translation-processor.ts";
+import type { TranslationOutputRepairer } from "./processing/translation-output-repair.ts";
 import type { SlidingWindowOptions } from "./types.ts";
 
 export const GLOBAL_EMBEDDING_CLIENT_NAME = "__global_embedding__";

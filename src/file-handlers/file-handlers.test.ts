@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { TranslationFileHandlerFactory } from "./factory.ts";
 import { GaltranslJsonFileHandler } from "./galtransl-json-file-handler.ts";
 import { NatureDialogKeepNameFileHandler } from "./nature-dialog-file-handler.ts";
-import { TranslationDocumentManager } from "../project/translation-document-manager.ts";
+import { TranslationDocumentManager } from "../project/document/translation-document-manager.ts";
 
 const cleanupTargets: string[] = [];
 

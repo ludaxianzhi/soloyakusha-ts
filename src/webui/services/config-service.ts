@@ -20,7 +20,7 @@ import type {
 import {
   TranslationProcessorFactory,
   type TranslationProcessorWorkflowMetadata,
-} from '../../project/translation-processor-factory.ts';
+} from '../../project/processing/translation-processor-factory.ts';
 import { VectorStoreClientProvider } from '../../vector/provider.ts';
 
 export type VectorConnectionTrigger =

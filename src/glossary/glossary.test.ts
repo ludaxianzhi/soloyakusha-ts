@@ -8,8 +8,8 @@ import { GlossaryPersisterFactory } from "./persister.ts";
 import { DefaultGlossaryUpdater } from "./updater.ts";
 import { ChatClient } from "../llm/base.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "../llm/types.ts";
-import { TranslationDocumentManager } from "../project/translation-document-manager.ts";
-import { TranslationProject } from "../project/translation-project.ts";
+import { TranslationDocumentManager } from "../project/document/translation-document-manager.ts";
+import { TranslationProject } from "../project/pipeline/translation-project.ts";
 
 const cleanupTargets: string[] = [];
 

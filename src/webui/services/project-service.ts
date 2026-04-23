@@ -22,11 +22,11 @@ import {
   type ChapterTranslationAssistantMode,
   type ChapterTranslationAssistantPromptInput,
   type ChapterTranslationAssistantSelectedUnit,
-} from '../../project/prompt-manager.ts';
-import type { TranslationWorkItem } from '../../project/pipeline.ts';
-import { TranslationProcessorFactory } from '../../project/translation-processor-factory.ts';
-import { TranslationProject } from '../../project/translation-project.ts';
-import type { TranslationProcessor } from '../../project/translation-processor.ts';
+} from '../../project/processing/prompt-manager.ts';
+import type { TranslationWorkItem } from '../../project/pipeline/pipeline.ts';
+import { TranslationProcessorFactory } from '../../project/processing/translation-processor-factory.ts';
+import { TranslationProject } from '../../project/pipeline/translation-project.ts';
+import type { TranslationProcessor } from '../../project/processing/translation-processor.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { NatureDialogKeepNameFileHandler } from '../../file-handlers/nature-dialog-file-handler.ts';
 import { FullTextGlossaryScanner, type FullTextGlossaryScanBatch, type FullTextGlossaryScanLine } from '../../glossary/scanner.ts';
@@ -41,21 +41,21 @@ import {
 } from '../../llm/history.ts';
 import type { ChatRequestOptions } from '../../llm/types.ts';
 import type { LlmRequestHistoryEntry } from '../../llm/types.ts';
-import { PlotSummarizer } from '../../project/plot-summarizer.ts';
+import { PlotSummarizer } from '../../project/context/plot-summarizer.ts';
 import type {
   ChapterTranslationEditorDiagnostic,
   ChapterTranslationEditorGlossaryMatch,
   ChapterTranslationEditorLineUpdate,
   ChapterTranslationEditorRepetitionMatch,
   EditableTranslationFormat,
-} from '../../project/chapter-translation-editor.ts';
+} from '../../project/context/chapter-translation-editor.ts';
 import type {
   RepetitionPatternAnalysisOptions,
   RepetitionPatternAnalysisResult,
   SavedRepetitionPatternAnalysisResult,
-} from '../../project/repetition-pattern-analysis.ts';
-import { StoryTopology } from '../../project/story-topology.ts';
-import { DefaultTextSplitter } from '../../project/translation-document-manager.ts';
+} from '../../project/analysis/repetition-pattern-analysis.ts';
+import { StoryTopology } from '../../project/context/story-topology.ts';
+import { DefaultTextSplitter } from '../../project/document/translation-document-manager.ts';
 import type { Logger } from '../../project/logger.ts';
 import type {
   GlossaryImportResult,

@@ -3,12 +3,12 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import JSZip from 'jszip';
-import { SqliteProjectStorage } from '../../project/sqlite-project-storage.ts';
+import { SqliteProjectStorage } from '../../project/storage/sqlite-project-storage.ts';
 import {
   WORKSPACE_BOOTSTRAP_SCHEMA_VERSION,
   buildWorkspaceBootstrapDocument,
   saveWorkspaceBootstrap,
-} from '../../project/translation-project-workspace.ts';
+} from '../../project/pipeline/translation-project-workspace.ts';
 import {
   exportWorkspaceArchive,
   importWorkspaceArchive,
