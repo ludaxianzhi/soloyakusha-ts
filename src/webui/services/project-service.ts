@@ -15,7 +15,13 @@ import {
   type RepetitionPatternFixTask,
 } from '../../consistency/repetition-pattern-fixer.ts';
 import { WorkspaceRegistry } from '../../config/workspace-registry.ts';
-import { TranslationGlobalConfig, type TranslationProcessorConfig } from '../../project/config.ts';
+import {
+  GLOBAL_EMBEDDING_CLIENT_NAME,
+  TranslationGlobalConfig,
+  type TranslationProcessorConfig,
+} from '../../project/config.ts';
+import { buildContextNetworkData } from '../../project/context/context-network-builder.ts';
+import { collectSourceTextBlocks } from '../../project/pipeline/default-translation-pipeline.ts';
 import {
   PromptManager,
   type ChapterTranslationAssistantConversationTurn,
@@ -24,8 +30,14 @@ import {
   type ChapterTranslationAssistantSelectedUnit,
 } from '../../project/processing/prompt-manager.ts';
 import type { TranslationWorkItem } from '../../project/pipeline/pipeline.ts';
+import { ContextNetworkOrderingStrategy } from '../../project/pipeline/context-network-ordering.ts';
+import { GlossaryDependencyOrderingStrategy } from '../../project/pipeline/glossary-dependency-ordering.ts';
 import { TranslationProcessorFactory } from '../../project/processing/translation-processor-factory.ts';
 import { TranslationProject } from '../../project/pipeline/translation-project.ts';
+import {
+  DEFAULT_WORKSPACE_PIPELINE_STRATEGY,
+  openWorkspaceConfig,
+} from '../../project/pipeline/translation-project-workspace.ts';
 import type { TranslationProcessor } from '../../project/processing/translation-processor.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { NatureDialogKeepNameFileHandler } from '../../file-handlers/nature-dialog-file-handler.ts';
@@ -57,6 +69,8 @@ import type {
 import { StoryTopology } from '../../project/context/story-topology.ts';
 import { DefaultTextSplitter } from '../../project/document/translation-document-manager.ts';
 import type { Logger } from '../../project/logger.ts';
+import { computeChunkLinkGraph } from '../../vector/chunk-link-graph.ts';
+import { createVectorStoreConfig } from '../../vector/types.ts';
 import type {
   GlossaryImportResult,
   ProjectExportResult,
@@ -67,6 +81,7 @@ import type {
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
   WorkspaceConfigPatch,
+  WorkspacePipelineStrategy,
 } from '../../project/types.ts';
 import type { EventBus } from './event-bus.ts';
 import { extractArchiveToDirectory } from './archive-extractor.ts';
@@ -90,9 +105,18 @@ export interface InitializeProjectInput {
   glossaryPath?: string;
   importFormat?: string;
   translatorName?: string;
+  pipelineStrategy?: WorkspacePipelineStrategy;
   textSplitMaxChars?: number;
   importTranslation?: boolean;
   branches?: BranchImportInput[];
+}
+
+export type ContextNetworkVectorStoreType = 'registered' | 'memory';
+
+export interface ContextNetworkBuildResult {
+  vectorStoreType: ContextNetworkVectorStoreType;
+  fragmentCount: number;
+  edgeCount: number;
 }
 
 export interface PlotSummaryProgress {
@@ -796,7 +820,10 @@ export class ProjectService {
 
       if (hasConfig) {
         this.log('info', `检测到已有工作区，正在打开：${normalizedDir}`);
-        nextProject = await TranslationProject.openWorkspace(normalizedDir);
+        const existingConfig = await openWorkspaceConfig(normalizedDir);
+        nextProject = await TranslationProject.openWorkspace(normalizedDir, {
+          orderingStrategy: createWorkspaceOrderingStrategy(existingConfig.pipelineStrategy),
+        });
         nextTopology = nextProject.getStoryTopology() ?? null;
         if (nextTopology) {
           this.log('info', `已加载剧情拓扑（${nextTopology.getAllRoutes().length} 条路线）`);
@@ -837,6 +864,7 @@ export class ProjectService {
             customRequirements: [],
           },
           {
+            orderingStrategy: createWorkspaceOrderingStrategy(input.pipelineStrategy),
             textSplitter:
               typeof input.textSplitMaxChars === 'number'
                 ? new DefaultTextSplitter(input.textSplitMaxChars)
@@ -887,6 +915,7 @@ export class ProjectService {
       await applyWorkspacePreferences(nextProject, {
         importFormat: input.importFormat,
         translatorName: input.translatorName,
+        pipelineStrategy: input.pipelineStrategy,
       });
 
       if (!hasConfig) {
@@ -2088,12 +2117,142 @@ export class ProjectService {
   // ─── Config ─────────────────────────────────────────
 
   async updateWorkspaceConfig(patch: WorkspaceConfigPatch): Promise<void> {
-    await this.runAction('保存工作区配置', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
+    if (this.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!this.project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    this.isBusy = true;
+    this.log('info', '保存工作区配置...');
+    try {
+      const currentProject = this.project;
+      const currentConfig = currentProject.getWorkspaceConfig();
+      const previousPipelineStrategy = resolveWorkspacePipelineStrategy(
+        currentConfig.pipelineStrategy,
+      );
+      const nextPipelineStrategy = resolveWorkspacePipelineStrategy(
+        patch.pipelineStrategy ?? currentConfig.pipelineStrategy,
+      );
+
+      if (
+        previousPipelineStrategy !== nextPipelineStrategy &&
+        ['running', 'stopping'].includes(currentProject.getLifecycleSnapshot().status)
+      ) {
+        throw new ProjectServiceUserInputError('请先暂停或中止翻译，再切换工作流');
+      }
+
       await this.project.updateWorkspaceConfig(patch);
+
+      if (previousPipelineStrategy !== nextPipelineStrategy) {
+        await clearWorkspaceSupportData(this.project);
+        this.project = await reopenProjectWithStrategy(
+          this.project.getWorkspaceFileManifest().projectDir,
+          nextPipelineStrategy,
+        );
+        this.topology = this.project.getStoryTopology() ?? null;
+        this.plotSummaryReady = this.project.hasPlotSummaries();
+        this.log('warning', '工作流已切换，已清除相关支持数据，请重新构建后再启动翻译');
+      }
+
       this.refreshSnapshot();
       this.markWorkspaceConfigChanged();
-    });
+      this.log('success', '工作区配置已保存');
+    } catch (error) {
+      this.log('error', `保存工作区配置失败：${toMsg(error)}`);
+      throw error;
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  async buildContextNetwork(input: {
+    vectorStoreType: ContextNetworkVectorStoreType;
+  }): Promise<ContextNetworkBuildResult> {
+    if (this.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!this.project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    const project = this.project;
+    const workspaceConfig = project.getWorkspaceConfig();
+    if (resolveWorkspacePipelineStrategy(workspaceConfig.pipelineStrategy) !== 'context-network') {
+      throw new ProjectServiceUserInputError('当前工作区未启用上下文网络工作流');
+    }
+
+    this.isBusy = true;
+    this.log('info', '开始构建上下文网络...');
+
+    let provider: ReturnType<TranslationGlobalConfig['createProvider']> | undefined;
+    try {
+      const globalConfigManager = new GlobalConfigManager();
+      const globalConfig = await globalConfigManager.getTranslationGlobalConfig();
+      if (!globalConfig.getEmbeddingConfig()) {
+        throw new ProjectServiceUserInputError('请先在设置中配置全局 Embedding 模型');
+      }
+
+      provider = globalConfig.createProvider();
+      provider.setHistoryLogger(this.createRequestHistoryLogger('context_network_requests', project));
+
+      const blocks = collectSourceTextBlocks(
+        project.getDocumentManager(),
+        workspaceConfig.chapters,
+      );
+      if (blocks.length === 0) {
+        throw new ProjectServiceUserInputError('当前工作区没有可用于构建上下文网络的文本块');
+      }
+
+      this.log('info', `正在生成文本块向量（${blocks.length} 个）...`);
+      const embeddings = await provider
+        .getEmbeddingClient(GLOBAL_EMBEDDING_CLIENT_NAME)
+        .getEmbeddings(blocks.map((block: { text: string }) => block.text));
+
+      const vectorStoreConfig = await resolveContextNetworkVectorStoreConfig(
+        globalConfigManager,
+        project.getWorkspaceFileManifest().projectDir,
+        input.vectorStoreType,
+      );
+
+      this.log('info', '正在计算上下文网络连接...');
+      const graph = await computeChunkLinkGraph(
+        {
+          vectorStoreConfig,
+          embeddings,
+          blockSize: 1,
+          tempCollectionName: `context-network-${Date.now()}`,
+        },
+        { logger: this.createLogger() },
+      );
+
+      const network = buildContextNetworkData({
+        sourceRevision: workspaceConfig.dependencyTracking?.sourceRevision ?? 0,
+        fragmentCount: blocks.length,
+        graph,
+      });
+
+      await project.clearContextNetwork();
+      await project.saveContextNetwork(network);
+
+      const result: ContextNetworkBuildResult = {
+        vectorStoreType: input.vectorStoreType,
+        fragmentCount: network.manifest.fragmentCount,
+        edgeCount: network.manifest.edgeCount,
+      };
+      this.log(
+        'success',
+        `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边`,
+      );
+      return result;
+    } catch (error) {
+      this.log('error', `构建上下文网络失败：${toMsg(error)}`);
+      throw error;
+    } finally {
+      this.isBusy = false;
+      await provider?.closeAll();
+    }
   }
 
   // ─── Reset ──────────────────────────────────────────
@@ -3086,7 +3245,11 @@ function normalizeGlossaryCategory(
 
 async function applyWorkspacePreferences(
   project: TranslationProject,
-  prefs: { importFormat?: string; translatorName?: string },
+  prefs: {
+    importFormat?: string;
+    translatorName?: string;
+    pipelineStrategy?: WorkspacePipelineStrategy;
+  },
 ): Promise<void> {
   const patch: WorkspaceConfigPatch = {};
   if (prefs.importFormat) {
@@ -3096,9 +3259,58 @@ async function applyWorkspacePreferences(
   if (prefs.translatorName) {
     patch.translator = { translatorName: prefs.translatorName };
   }
+  if (prefs.pipelineStrategy) {
+    patch.pipelineStrategy = prefs.pipelineStrategy;
+  }
   if (Object.keys(patch).length > 0) {
     await project.updateWorkspaceConfig(patch);
   }
+}
+
+function resolveWorkspacePipelineStrategy(
+  strategy?: WorkspacePipelineStrategy,
+): WorkspacePipelineStrategy {
+  return strategy ?? DEFAULT_WORKSPACE_PIPELINE_STRATEGY;
+}
+
+function createWorkspaceOrderingStrategy(strategy?: WorkspacePipelineStrategy) {
+  return resolveWorkspacePipelineStrategy(strategy) === 'context-network'
+    ? new ContextNetworkOrderingStrategy()
+    : new GlossaryDependencyOrderingStrategy();
+}
+
+async function reopenProjectWithStrategy(
+  projectDir: string,
+  strategy?: WorkspacePipelineStrategy,
+): Promise<TranslationProject> {
+  return TranslationProject.openWorkspace(projectDir, {
+    orderingStrategy: createWorkspaceOrderingStrategy(strategy),
+  });
+}
+
+async function clearWorkspaceSupportData(project: TranslationProject): Promise<void> {
+  await Promise.all([
+    project.clearContextNetwork(),
+    project.getDocumentManager().clearTranslationDependencyGraph(),
+  ]);
+}
+
+async function resolveContextNetworkVectorStoreConfig(
+  manager: GlobalConfigManager,
+  projectDir: string,
+  vectorStoreType: ContextNetworkVectorStoreType,
+) {
+  if (vectorStoreType === 'registered') {
+    return manager.getResolvedVectorStoreConfig();
+  }
+
+  const databasePath = join(projectDir, 'Data', 'context-network', 'sqlite-memory-build.sqlite');
+  await mkdir(dirname(databasePath), { recursive: true });
+  return createVectorStoreConfig({
+    provider: 'sqlite-memory',
+    endpoint: databasePath,
+    distance: 'cosine',
+  });
 }
 
 async function createProcessorForProject(

@@ -61,6 +61,11 @@ export function WorkspaceCreateSummaryPanel({
                 <Descriptions.Item label="翻译器">
                   {String(values.translatorName ?? '').trim() || '未选择'}
                 </Descriptions.Item>
+                <Descriptions.Item label="翻译工作流">
+                  {values.pipelineStrategy === 'context-network'
+                    ? '上下文网络工作流'
+                    : '默认工作流'}
+                </Descriptions.Item>
                 <Descriptions.Item label="文本切分长度">
                   {values.textSplitMaxChars ?? 2000}
                 </Descriptions.Item>

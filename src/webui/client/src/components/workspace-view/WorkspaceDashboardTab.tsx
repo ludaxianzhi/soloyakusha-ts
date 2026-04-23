@@ -1,11 +1,15 @@
+import { useState } from 'react';
 import { usePollingTask } from '../../app/usePollingTask.ts';
 import {
+  Alert,
   Button,
   Card,
   Col,
+  Modal,
   Empty,
   Popconfirm,
   Progress,
+  Radio,
   Row,
   Space,
   Statistic,
@@ -28,8 +32,10 @@ interface WorkspaceDashboardTabProps {
   sseConnected: boolean;
   snapshot: TranslationProjectSnapshot;
   projectStatus: ProjectStatus | null;
+  pipelineStrategy?: 'default' | 'context-network';
   onRefreshProjectStatus: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
+  onBuildContextNetwork: (vectorStoreType: 'registered' | 'memory') => void | Promise<void>;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
@@ -40,12 +46,17 @@ export function WorkspaceDashboardTab({
   sseConnected,
   snapshot,
   projectStatus,
+  pipelineStrategy,
   onRefreshProjectStatus,
   onProjectCommand,
+  onBuildContextNetwork,
   onAbortTaskActivity,
   onResumeTaskActivity,
   onDismissTaskActivity,
 }: WorkspaceDashboardTabProps) {
+  const [contextNetworkModalOpen, setContextNetworkModalOpen] = useState(false);
+  const [vectorStoreType, setVectorStoreType] = useState<'registered' | 'memory'>('registered');
+
   usePollingTask({
     enabled: active && !sseConnected,
     intervalMs: 2_000,
@@ -112,6 +123,14 @@ export function WorkspaceDashboardTab({
           >
             生成情节大纲
           </Button>
+          {pipelineStrategy === 'context-network' ? (
+            <Button
+              disabled={projectStatus?.isBusy === true}
+              onClick={() => setContextNetworkModalOpen(true)}
+            >
+              构建上下文网络
+            </Button>
+          ) : null}
           <Button onClick={() => void onProjectCommand('close')}>关闭工作区</Button>
           <Popconfirm
             title="确认删除当前工作区？"
@@ -209,6 +228,37 @@ export function WorkspaceDashboardTab({
           </div>
         )}
       </Card>
+
+      <Modal
+        title="构建上下文网络"
+        open={contextNetworkModalOpen}
+        okText="开始构建"
+        cancelText="取消"
+        confirmLoading={projectStatus?.isBusy === true}
+        onCancel={() => setContextNetworkModalOpen(false)}
+        onOk={async () => {
+          await onBuildContextNetwork(vectorStoreType);
+          setContextNetworkModalOpen(false);
+        }}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Alert
+            type="info"
+            showIcon
+            message="请选择上下文网络构建使用的向量数据库"
+            description="内存向量数据库只支持最多 50K 条、256 维向量；不做预检，超限时会直接返回错误。"
+          />
+          <Radio.Group
+            value={vectorStoreType}
+            onChange={(event) => setVectorStoreType(event.target.value)}
+          >
+            <Space direction="vertical">
+              <Radio value="registered">使用已注册的向量数据库</Radio>
+              <Radio value="memory">使用内存向量数据库</Radio>
+            </Space>
+          </Radio.Group>
+        </Space>
+      </Modal>
     </div>
   );
 }

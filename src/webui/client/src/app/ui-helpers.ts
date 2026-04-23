@@ -24,6 +24,16 @@ export const DEFAULT_ARCHIVE_IMPORT_PATTERN = '**/*';
 export const DEFAULT_TRANSLATOR_SOURCE_LANGUAGE = 'ja';
 export const DEFAULT_TRANSLATOR_TARGET_LANGUAGE = 'zh-CN';
 export const DEFAULT_TRANSLATOR_PROMPT_SET = 'ja-zhCN';
+export const WORKSPACE_PIPELINE_STRATEGY_OPTIONS = [
+  {
+    label: '默认工作流',
+    value: 'default',
+  },
+  {
+    label: '上下文网络工作流',
+    value: 'context-network',
+  },
+];
 
 const LLM_REQUEST_CONFIG_KEY_ALIASES = {
   systemPrompt: ['systemPrompt', 'system_prompt'],

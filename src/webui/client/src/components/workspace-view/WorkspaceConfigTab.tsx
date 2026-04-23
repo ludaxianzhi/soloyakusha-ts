@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { DeleteOutlined, DownloadOutlined, ExportOutlined } from '@ant-design/icons';
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -12,6 +13,7 @@ import {
 } from 'antd';
 import type { FormInstance } from 'antd';
 import { IMPORT_FORMAT_OPTIONS } from '../../app/ui-helpers.ts';
+import { WORKSPACE_PIPELINE_STRATEGY_OPTIONS } from '../../app/ui-helpers.ts';
 import { usePollingTask } from '../../app/usePollingTask.ts';
 
 const { TextArea } = Input;
@@ -70,6 +72,17 @@ export function WorkspaceConfigTab({
             </Col>
             <Col span={12}>
               <Form.Item
+                name="pipelineStrategy"
+                label="翻译工作流"
+                rules={[{ required: true, message: '请选择翻译工作流' }]}
+              >
+                <Select options={WORKSPACE_PIPELINE_STRATEGY_OPTIONS} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
                 name="translatorName"
                 label="翻译器"
                 rules={[{ required: true, message: '请选择翻译器' }]}
@@ -77,13 +90,13 @@ export function WorkspaceConfigTab({
                 <Select options={translatorOptions} />
               </Form.Item>
             </Col>
-          </Row>
-          <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="glossaryPath" label="术语表路径">
                 <Input placeholder="Data/glossary.json" />
               </Form.Item>
             </Col>
+          </Row>
+          <Row gutter={16}>
             <Col span={6}>
               <Form.Item name="defaultImportFormat" label="默认导入格式">
                 <Select options={IMPORT_FORMAT_OPTIONS} />
@@ -93,6 +106,14 @@ export function WorkspaceConfigTab({
               <Form.Item name="defaultExportFormat" label="默认导出格式">
                 <Select options={IMPORT_FORMAT_OPTIONS} />
               </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Alert
+                type="info"
+                showIcon
+                message="切换工作流会清除相关支持数据"
+                description="例如上下文网络与依赖图会被清空，切换后需要重新构建所需支持数据。"
+              />
             </Col>
           </Row>
           <Form.Item name="customRequirements" label="自定义要求">

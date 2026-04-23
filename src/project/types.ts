@@ -348,6 +348,8 @@ export type WorkspaceDependencyTrackingConfig = {
   glossaryRevision: number;
 };
 
+export type WorkspacePipelineStrategy = "default" | "context-network";
+
 /**
  * 工作区配置文件的完整结构。
  *
@@ -366,6 +368,7 @@ export type WorkspaceConfig = {
   chapters: Chapter[];
   glossary: GlossarySettings;
   dependencyTracking?: WorkspaceDependencyTrackingConfig;
+  pipelineStrategy?: WorkspacePipelineStrategy;
   translator: WorkspaceTranslatorConfig;
   slidingWindow: WorkspaceSlidingWindowConfig;
   textSplitMaxChars?: number;
@@ -383,6 +386,7 @@ export type WorkspaceConfig = {
 export type WorkspaceConfigPatch = {
   projectName?: string;
   glossary?: Partial<GlossarySettings>;
+  pipelineStrategy?: WorkspacePipelineStrategy;
   translator?: { translatorName?: string | null };
   slidingWindow?: Partial<WorkspaceSlidingWindowConfig>;
   textSplitMaxChars?: number | null;

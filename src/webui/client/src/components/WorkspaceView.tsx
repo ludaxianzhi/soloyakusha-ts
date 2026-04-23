@@ -13,6 +13,7 @@ export type { ProjectCommand, TaskActivityKind } from './workspace-view/types.ts
 export function WorkspaceView({
   snapshot,
   projectStatus,
+  pipelineStrategy,
   sseConnected,
   dictionary,
   repeatedPatterns,
@@ -37,6 +38,7 @@ export function WorkspaceView({
   onRefreshTopology,
   onRefreshWorkspaceConfig,
   onProjectCommand,
+  onBuildContextNetwork,
   onOpenDictionaryEditor,
   onDeleteDictionary,
   onImportDictionaryFromContent,
@@ -111,8 +113,10 @@ export function WorkspaceView({
                 sseConnected={sseConnected}
                 snapshot={snapshot}
                 projectStatus={projectStatus}
+                pipelineStrategy={pipelineStrategy}
                 onRefreshProjectStatus={onRefreshProjectStatus}
                 onProjectCommand={onProjectCommand}
+                onBuildContextNetwork={onBuildContextNetwork}
                 onAbortTaskActivity={onAbortTaskActivity}
                 onResumeTaskActivity={onResumeTaskActivity}
                 onDismissTaskActivity={onDismissTaskActivity}

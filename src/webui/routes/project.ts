@@ -560,9 +560,29 @@ export function createProjectRoutes(
   });
 
   app.put('/config', async (c) => {
-    const patch = await c.req.json();
-    await projectService.updateWorkspaceConfig(patch);
-    return c.json({ ok: true, config: projectService.getWorkspaceConfig() });
+    try {
+      const patch = await c.req.json();
+      await projectService.updateWorkspaceConfig(patch);
+      return c.json({ ok: true, config: projectService.getWorkspaceConfig() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/context-network', async (c) => {
+    try {
+      const body = await c.req.json<{ vectorStoreType?: 'registered' | 'memory' }>();
+      const vectorStoreType = body.vectorStoreType === 'memory' ? 'memory' : 'registered';
+      return c.json(await projectService.buildContextNetwork({ vectorStoreType }));
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
   });
 
   // ─── 重置 ───────────────────────────────────────

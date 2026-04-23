@@ -30,6 +30,7 @@ export type TaskActivityKind = 'scan' | 'plot';
 export interface WorkspaceViewProps {
   snapshot: TranslationProjectSnapshot | null;
   projectStatus: ProjectStatus | null;
+  pipelineStrategy?: 'default' | 'context-network';
   sseConnected: boolean;
   dictionary: GlossaryTerm[];
   repeatedPatterns: SavedRepetitionPatternAnalysisResult | null;
@@ -72,6 +73,9 @@ export interface WorkspaceViewProps {
   onRefreshTopology: () => void | Promise<void>;
   onRefreshWorkspaceConfig: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
+  onBuildContextNetwork: (
+    vectorStoreType: 'registered' | 'memory',
+  ) => void | Promise<void>;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;

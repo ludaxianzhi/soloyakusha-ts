@@ -12,6 +12,7 @@ import type {
   Chapter,
   GlossaryImportResult,
   WorkspaceDependencyTrackingConfig,
+  WorkspacePipelineStrategy,
   TranslationExportResult,
   TranslationImportResult,
   TranslationProjectConfig,
@@ -411,6 +412,7 @@ export function resolveChapterPath(projectDir: string, path: string): string {
 
 /** 未指定术语表路径时的默认路径（相对于工作区目录）。 */
 export const DEFAULT_GLOSSARY_FILE_PATH = 'Data/glossary.json';
+export const DEFAULT_WORKSPACE_PIPELINE_STRATEGY: WorkspacePipelineStrategy = 'default';
 
 export function buildInitialWorkspaceConfig(
   config: TranslationProjectConfig,
@@ -428,6 +430,7 @@ export function buildInitialWorkspaceConfig(
       sourceRevision: 0,
       glossaryRevision: 0,
     },
+    pipelineStrategy: DEFAULT_WORKSPACE_PIPELINE_STRATEGY,
     translator: {},
     slidingWindow: {},
     textSplitMaxChars: config.textSplitMaxChars,
@@ -457,6 +460,7 @@ export function mergePersistedWorkspaceConfig(
         persisted.dependencyTracking?.glossaryRevision ??
         resolveDependencyTracking(current).glossaryRevision,
     },
+    pipelineStrategy: persisted.pipelineStrategy ?? current.pipelineStrategy,
     slidingWindow: {
       ...current.slidingWindow,
       ...persisted.slidingWindow,
@@ -488,6 +492,7 @@ export function applyWorkspaceConfigPatch(
       ? { ...config.glossary, ...patch.glossary }
       : config.glossary,
     dependencyTracking: { ...resolveDependencyTracking(config) },
+    pipelineStrategy: patch.pipelineStrategy ?? config.pipelineStrategy,
     translator: nextTranslator,
     slidingWindow: patch.slidingWindow
       ? { ...config.slidingWindow, ...patch.slidingWindow }
@@ -518,6 +523,7 @@ export function cloneWorkspaceConfig(config: WorkspaceConfig): WorkspaceConfig {
     chapters: config.chapters.map((chapter) => ({ ...chapter })),
     glossary: { ...config.glossary },
     dependencyTracking: { ...resolveDependencyTracking(config) },
+    pipelineStrategy: config.pipelineStrategy,
     translator: { ...config.translator },
     slidingWindow: { ...config.slidingWindow },
     customRequirements: [...config.customRequirements],

@@ -45,6 +45,7 @@ import type {
   VectorStoreConfig,
   VectorStoreConnectionStatus,
   WorkspaceChapterDescriptor,
+  WorkspaceConfig,
 } from './types.ts';
 import { useEventStream } from './useEventStream.ts';
 import { DictionaryEditorModal } from '../components/DictionaryEditorModal.tsx';
@@ -121,7 +122,7 @@ const INITIAL_SETTINGS_LOADING: SettingsLoadingState = {
 };
 
 export function AppShell() {
-  const { message } = AntdApp.useApp();
+  const { message, modal } = AntdApp.useApp();
   const location = useLocation();
   const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState<ManagedWorkspace[]>([]);
@@ -132,6 +133,7 @@ export function AppShell() {
     null,
   );
   const repeatedPatternsRef = useRef<SavedRepetitionPatternAnalysisResult | null>(null);
+  const workspaceConfigRef = useRef<WorkspaceConfig | null>(null);
   const chaptersRefreshPromiseRef = useRef<Promise<void> | null>(null);
   const topologyRefreshPromiseRef = useRef<Promise<void> | null>(null);
   const [chapters, setChapters] = useState<WorkspaceChapterDescriptor[]>([]);
@@ -182,6 +184,10 @@ export function AppShell() {
   const [plotForm] = Form.useForm<Record<string, unknown>>();
   const [alignmentForm] = Form.useForm<Record<string, unknown>>();
   const defaultImportFormat = Form.useWatch('defaultImportFormat', workspaceForm);
+  const pipelineStrategy = Form.useWatch('pipelineStrategy', workspaceForm) as
+    | 'default'
+    | 'context-network'
+    | undefined;
   const workflowMap = useMemo(
     () =>
       new Map(
@@ -261,6 +267,7 @@ export function AppShell() {
     setRepeatedPatterns(null);
     setChapters([]);
     setTopology(null);
+    workspaceConfigRef.current = null;
     workspaceForm.resetFields();
     resetWorkspaceResourceVersions(0);
   }, [resetWorkspaceResourceVersions, workspaceForm]);
@@ -464,12 +471,14 @@ export function AppShell() {
 
     workspaceForm.setFieldsValue({
       projectName: configRes.projectName,
+      pipelineStrategy: configRes.pipelineStrategy ?? 'default',
       glossaryPath: configRes.glossary.path,
       translatorName: configRes.translator.translatorName,
       defaultImportFormat: configRes.defaultImportFormat,
       defaultExportFormat: configRes.defaultExportFormat,
       customRequirements: configRes.customRequirements.join('\n'),
     });
+    workspaceConfigRef.current = configRes;
     workspaceResourceVersionsRef.current = {
       ...workspaceResourceVersionsRef.current,
       workspaceConfigRevision:
@@ -946,9 +955,31 @@ export function AppShell() {
 
   const handleWorkspaceConfigSave = useCallback(
     async (values: Record<string, unknown>) => {
+      const nextPipelineStrategy =
+        values.pipelineStrategy === 'context-network' ? 'context-network' : 'default';
+      const currentPipelineStrategy = workspaceConfigRef.current?.pipelineStrategy ?? 'default';
+      if (nextPipelineStrategy !== currentPipelineStrategy) {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          modal.confirm({
+            title: '确认切换翻译工作流',
+            content:
+              '切换工作流会清除相关支持数据，例如上下文网络与依赖图。切换后需要重新构建所需支持数据。',
+            okText: '确认切换',
+            cancelText: '取消',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        });
+        if (!confirmed) {
+          workspaceForm.setFieldValue('pipelineStrategy', currentPipelineStrategy);
+          return;
+        }
+      }
+
       await runAction(async () => {
         await api.updateWorkspaceConfig({
           projectName: String(values.projectName ?? ''),
+          pipelineStrategy: nextPipelineStrategy,
           glossary: {
             path: String(values.glossaryPath ?? '').trim() || undefined,
           },
@@ -967,7 +998,28 @@ export function AppShell() {
         message.success('工作区配置已保存');
       });
     },
-    [message, refreshBootData, refreshProjectStatus, refreshWorkspaceConfig, runAction],
+    [
+      message,
+      modal,
+      refreshBootData,
+      refreshProjectStatus,
+      refreshWorkspaceConfig,
+      runAction,
+      workspaceForm,
+    ],
+  );
+
+  const handleBuildContextNetwork = useCallback(
+    async (vectorStoreType: 'registered' | 'memory') => {
+      await runAction(async () => {
+        const result = await api.buildContextNetwork(vectorStoreType);
+        await refreshProjectStatus();
+        message.success(
+          `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边`,
+        );
+      });
+    },
+    [message, refreshProjectStatus, runAction],
   );
 
   const handleClearChapterTranslations = useCallback(
@@ -1588,6 +1640,7 @@ export function AppShell() {
                       key={snapshot?.projectName ?? 'no-workspace'}
                       snapshot={snapshot}
                       projectStatus={projectStatus}
+                      pipelineStrategy={pipelineStrategy}
                       sseConnected={connected}
                       dictionary={dictionary}
                       repeatedPatterns={repeatedPatterns}
@@ -1622,6 +1675,7 @@ export function AppShell() {
                       onRefreshTopology={refreshTopology}
                       onRefreshWorkspaceConfig={refreshWorkspaceConfig}
                       onProjectCommand={handleProjectCommand}
+                      onBuildContextNetwork={handleBuildContextNetwork}
                       onOpenDictionaryEditor={openDictionaryEditor}
                       onDeleteDictionary={handleDeleteDictionary}
                       onImportDictionaryFromContent={handleImportDictionaryFromContent}

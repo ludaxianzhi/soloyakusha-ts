@@ -1,6 +1,7 @@
 import { Alert, Card, Col, Form, Row, Select } from 'antd';
 import { Input } from 'antd';
 import { FileZipOutlined } from '@ant-design/icons';
+import { WORKSPACE_PIPELINE_STRATEGY_OPTIONS } from '../../app/ui-helpers.ts';
 
 interface WorkspaceCreateBasicsSectionProps {
   translatorOptions: Array<{ label: string; value: string }>;
@@ -39,6 +40,17 @@ export function WorkspaceCreateBasicsSection({
             <Input placeholder="例如：某轻小说项目" />
           </Form.Item>
         </Col>
+        <Col xs={24} md={12}>
+          <Form.Item
+            label="翻译工作流"
+            name="pipelineStrategy"
+            rules={[{ required: true, message: '请选择翻译工作流' }]}
+          >
+            <Select options={WORKSPACE_PIPELINE_STRATEGY_OPTIONS} />
+          </Form.Item>
+        </Col>
+      </Row>
+      <Row gutter={12}>
         <Col xs={24} md={12}>
           <Form.Item
             label="翻译器"

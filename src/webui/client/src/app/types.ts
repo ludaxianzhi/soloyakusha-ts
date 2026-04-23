@@ -254,10 +254,16 @@ export interface TranslationStepQueueEntryDetail
   runId?: string;
   inputText: string;
   outputText?: string;
-  dependencyMode?: 'previousTranslations' | 'glossaryTerms';
+  dependencyMode?: 'previousTranslations' | 'glossaryTerms' | 'contextNetwork';
   readyToDispatch: boolean;
   blockedReason?: string;
   metadata: Record<string, string | number | boolean>;
+}
+
+export interface ContextNetworkBuildResult {
+  vectorStoreType: 'registered' | 'memory';
+  fragmentCount: number;
+  edgeCount: number;
 }
 
 export interface RepetitionPatternLocation {
@@ -568,6 +574,7 @@ export interface WorkspaceConfig {
     sourceRevision: number;
     glossaryRevision: number;
   };
+  pipelineStrategy?: 'default' | 'context-network';
   translator: {
     translatorName?: string;
   };

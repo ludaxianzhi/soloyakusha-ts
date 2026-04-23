@@ -71,6 +71,9 @@ export function useWorkspaceCreateController({
           const formData = new FormData();
           formData.set('file', file);
           formData.set('projectName', String(values.projectName ?? ''));
+          if (values.pipelineStrategy) {
+            formData.set('pipelineStrategy', String(values.pipelineStrategy));
+          }
           if (values.importFormat) {
             formData.set('importFormat', String(values.importFormat));
           }

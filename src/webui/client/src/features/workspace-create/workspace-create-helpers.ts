@@ -3,6 +3,7 @@ import { DEFAULT_ARCHIVE_IMPORT_PATTERN } from '../../app/ui-helpers.ts';
 
 export interface WorkspaceCreateFormValues {
   projectName?: string;
+  pipelineStrategy?: 'default' | 'context-network';
   importFormat?: string;
   importPattern?: string;
   textSplitMaxChars?: number;
@@ -28,12 +29,14 @@ export type WorkspaceTranslationChoiceError = {
 
 export const WORKSPACE_CREATE_INITIAL_VALUES: WorkspaceCreateFormValues = {
   projectName: '新建项目',
+  pipelineStrategy: 'default',
   importPattern: DEFAULT_ARCHIVE_IMPORT_PATTERN,
   textSplitMaxChars: 2000,
 };
 
 export const WORKSPACE_MANIFEST_EXAMPLE = `{
   "projectName": "某轻小说项目",
+  "pipelineStrategy": "default",
   "translatorName": "ja-zhCN-default",
   "importFormat": "naturedialog",
   "importPattern": "scenario/**/*.txt",
@@ -43,6 +46,7 @@ export const WORKSPACE_MANIFEST_EXAMPLE = `{
 
 const MANIFEST_OVERRIDE_KEYS = [
   'projectName',
+  'pipelineStrategy',
   'chapterPaths',
   'branches',
   'glossaryPath',

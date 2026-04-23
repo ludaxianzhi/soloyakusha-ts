@@ -28,6 +28,7 @@ import type {
   RepetitionPatternContextResult,
   SavedRepetitionPatternAnalysisResult,
   CreateStoryBranchPayload,
+  ContextNetworkBuildResult,
   StoryTopologyDescriptor,
   TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
@@ -386,6 +387,11 @@ export const api = {
     request<{ ok: boolean; config: WorkspaceConfig }>('/api/project/config', {
       method: 'PUT',
       body: patch,
+    }),
+  buildContextNetwork: (vectorStoreType: 'registered' | 'memory') =>
+    request<ContextNetworkBuildResult>('/api/project/context-network', {
+      method: 'POST',
+      body: { vectorStoreType },
     }),
   resetProject: (payload: Record<string, unknown>) =>
     request('/api/project/reset', {

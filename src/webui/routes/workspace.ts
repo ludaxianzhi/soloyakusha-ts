@@ -4,7 +4,7 @@
 
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { TranslationUnit } from '../../project/types.ts';
+import type { TranslationUnit, WorkspacePipelineStrategy } from '../../project/types.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { Hono } from 'hono';
 import type { ProjectService } from '../services/project-service.ts';
@@ -32,6 +32,7 @@ export function createWorkspaceRoutes(
     const importPattern = (formData.get('importPattern') as string) || undefined;
     const translatorName =
       (formData.get('translatorName') as string) || undefined;
+    const pipelineStrategy = parsePipelineStrategy(formData.get('pipelineStrategy'));
     const manifestJson = (formData.get('manifestJson') as string) || undefined;
     const textSplitMaxChars = readOptionalPositiveInteger(
       formData.get('textSplitMaxChars'),
@@ -50,6 +51,7 @@ export function createWorkspaceRoutes(
     try {
       const manifest = manifestJson ? parseWorkspaceManifest(manifestJson) : undefined;
       const resolvedTranslatorName = manifest?.translatorName ?? translatorName;
+      const resolvedPipelineStrategy = manifest?.pipelineStrategy ?? pipelineStrategy;
       if (!resolvedTranslatorName) {
         return c.json({ error: '请选择翻译器，翻译器现在是语言对与提示词的唯一入口。' }, 400);
       }
@@ -117,6 +119,7 @@ export function createWorkspaceRoutes(
         chapterPaths: chapterFiles,
         importFormat: resolvedImportFormat,
         translatorName: resolvedTranslatorName,
+        pipelineStrategy: resolvedPipelineStrategy,
         textSplitMaxChars: resolvedTextSplitMaxChars,
         importTranslation: resolvedTranslationImportMode === 'with-translation',
         glossaryPath: manifest?.glossaryPath,
@@ -241,6 +244,7 @@ export function createWorkspaceRoutes(
 
 type UploadedWorkspaceManifest = {
   projectName?: string;
+  pipelineStrategy?: WorkspacePipelineStrategy;
   chapterPaths?: string[];
   importPattern?: string;
   glossaryPath?: string;
@@ -284,7 +288,20 @@ function parseWorkspaceManifest(raw: string): UploadedWorkspaceManifest {
       'manifest.translationImportMode',
     );
   }
+  if (parsed.pipelineStrategy !== undefined) {
+    parsed.pipelineStrategy = parsePipelineStrategy(parsed.pipelineStrategy);
+  }
   return parsed;
+}
+
+function parsePipelineStrategy(value: unknown): WorkspacePipelineStrategy | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (value === 'default' || value === 'context-network') {
+    return value;
+  }
+  throw new Error('pipelineStrategy 必须是 default 或 context-network');
 }
 
 async function resolveImportedChapterFiles(
