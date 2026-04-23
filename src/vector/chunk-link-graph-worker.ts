@@ -19,8 +19,7 @@ async function handleRequest(request: ChunkLinkGraphWorkerRequest): Promise<void
     switch (request.type) {
       case "compute": {
         const result = await computeChunkLinkGraph(request);
-        const matrixBuffer = result.matrix.buffer as ArrayBuffer;
-        postMessage({ type: "result", result }, [matrixBuffer]);
+        postMessage({ type: "result", result }, collectTransferables(result));
         return;
       }
     }
@@ -110,6 +109,7 @@ async function computeChunkLinkGraph(
     const matrix = new Int32Array(blockCount * blockCount);
     if (crossBlockCandidateCount === 0) {
       emitProgress("matrix", "块间连接矩阵计算进度", 1, 1);
+      const emptyStrengths = createEmptyBlockPairStrengths();
       return {
         lineCount,
         blockSize,
@@ -122,6 +122,10 @@ async function computeChunkLinkGraph(
         strongEdgeCount: 0,
         bidirectionalEdgeCount: 0,
         matrix,
+        blockPairCount: 0,
+        blockPairSourceBlocks: emptyStrengths.sourceBlocks,
+        blockPairTargetBlocks: emptyStrengths.targetBlocks,
+        blockPairStrengths: emptyStrengths.strengths,
       };
     }
 
@@ -141,6 +145,7 @@ async function computeChunkLinkGraph(
       blockCount,
       matrix,
     });
+    const blockPairStrengths = collectBlockPairStrengths(matrix, blockCount);
 
     return {
       lineCount,
@@ -154,6 +159,10 @@ async function computeChunkLinkGraph(
       strongEdgeCount: strongEdges.edgeCount,
       bidirectionalEdgeCount,
       matrix,
+      blockPairCount: blockPairStrengths.count,
+      blockPairSourceBlocks: blockPairStrengths.sourceBlocks,
+      blockPairTargetBlocks: blockPairStrengths.targetBlocks,
+      blockPairStrengths: blockPairStrengths.strengths,
     };
   } finally {
     if (collectionCreated) {
@@ -375,6 +384,59 @@ function buildMatrixFromBidirectionalEdges(params: {
   return bidirectionalEdgeCount;
 }
 
+function collectBlockPairStrengths(
+  matrix: Int32Array,
+  blockCount: number,
+): {
+  count: number;
+  sourceBlocks: Int32Array;
+  targetBlocks: Int32Array;
+  strengths: Int32Array;
+} {
+  let count = 0;
+  for (let index = 0; index < matrix.length; index += 1) {
+    if (matrix[index]! > 0) {
+      count += 1;
+    }
+  }
+
+  const sourceBlocks = new Int32Array(count);
+  const targetBlocks = new Int32Array(count);
+  const strengths = new Int32Array(count);
+
+  let writeIndex = 0;
+  for (let index = 0; index < matrix.length; index += 1) {
+    const strength = matrix[index]!;
+    if (strength <= 0) {
+      continue;
+    }
+
+    sourceBlocks[writeIndex] = Math.floor(index / blockCount);
+    targetBlocks[writeIndex] = index % blockCount;
+    strengths[writeIndex] = strength;
+    writeIndex += 1;
+  }
+
+  return {
+    count,
+    sourceBlocks,
+    targetBlocks,
+    strengths,
+  };
+}
+
+function createEmptyBlockPairStrengths(): {
+  sourceBlocks: Int32Array;
+  targetBlocks: Int32Array;
+  strengths: Int32Array;
+} {
+  return {
+    sourceBlocks: new Int32Array(0),
+    targetBlocks: new Int32Array(0),
+    strengths: new Int32Array(0),
+  };
+}
+
 function validateParameters(params: {
   flatEmbeddings: Float32Array;
   dimension: number;
@@ -415,6 +477,15 @@ function validateParameters(params: {
   if (!Number.isInteger(upsertBatchSize) || upsertBatchSize <= 0) {
     throw new Error("upsertBatchSize 必须是正整数");
   }
+}
+
+function collectTransferables(result: ChunkLinkGraphWorkerResult): ArrayBuffer[] {
+  return [
+    result.matrix.buffer,
+    result.blockPairSourceBlocks.buffer,
+    result.blockPairTargetBlocks.buffer,
+    result.blockPairStrengths.buffer,
+  ] as ArrayBuffer[];
 }
 
 function emitProgress(

@@ -43,6 +43,10 @@ describe("computeChunkLinkGraph", () => {
       expect(result.crossBlockCandidateCount).toBe(4);
       expect(result.strongEdgeCount).toBe(4);
       expect(result.bidirectionalEdgeCount).toBe(4);
+      expect(result.blockPairCount).toBe(2);
+      expect(Array.from(result.blockPairSourceBlocks)).toEqual([0, 1]);
+      expect(Array.from(result.blockPairTargetBlocks)).toEqual([1, 0]);
+      expect(Array.from(result.blockPairStrengths)).toEqual([2, 2]);
       expect(Array.from(result.matrix)).toEqual([
         0,
         2,

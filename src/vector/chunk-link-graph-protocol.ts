@@ -45,6 +45,10 @@ export type ChunkLinkGraphWorkerResult = {
   strongEdgeCount: number;
   bidirectionalEdgeCount: number;
   matrix: Int32Array;
+  blockPairCount: number;
+  blockPairSourceBlocks: Int32Array;
+  blockPairTargetBlocks: Int32Array;
+  blockPairStrengths: Int32Array;
 };
 
 export type ChunkLinkGraphWorkerResultEvent = {
