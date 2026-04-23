@@ -7,6 +7,8 @@ import type {
   TranslationProjectConfig,
   WorkItemMetadata,
 } from "./types.ts";
+import type { ContextNetworkData } from "./context-network-types.ts";
+import type { StoryTopology } from "./story-topology.ts";
 
 export type ReadyOrderingItem = {
   stepId: string;
@@ -18,6 +20,7 @@ export type ReadyOrderingItem = {
 export type TranslationOrderingContext = {
   readonly config: TranslationProjectConfig;
   getOrderedFragments: () => Array<{ chapterId: number; fragmentIndex: number }>;
+  getStoryTopology: () => StoryTopology | undefined;
   getSourceText: (chapterId: number, fragmentIndex: number) => string;
   getStepState: (chapterId: number, fragmentIndex: number, stepId: string) => {
     status: "queued" | "running" | "completed";
@@ -32,6 +35,9 @@ export type TranslationOrderingContext = {
   loadDependencyGraph: () => Promise<TranslationDependencyGraph | null>;
   saveDependencyGraph: (graph: TranslationDependencyGraph) => Promise<void>;
   clearDependencyGraph: () => Promise<void>;
+  loadContextNetwork: () => Promise<ContextNetworkData | null>;
+  saveContextNetwork: (network: ContextNetworkData) => Promise<void>;
+  clearContextNetwork: () => Promise<void>;
 };
 
 export interface TranslationOrderingStrategy {

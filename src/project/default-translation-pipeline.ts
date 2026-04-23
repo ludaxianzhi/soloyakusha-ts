@@ -64,14 +64,26 @@ export function createDefaultTranslationPipelineDefinition(
                 }),
               };
         },
-        buildContextView: ({ chapterId, fragmentIndex, metadata }) => {
+        buildContextView: ({ chapterId, fragmentIndex, metadata, runtime }) => {
           const dependencyMode = metadata.dependencyMode;
           if (
             dependencyMode !== "previousTranslations" &&
-            dependencyMode !== "glossaryTerms"
+            dependencyMode !== "glossaryTerms" &&
+            dependencyMode !== "contextNetwork"
           ) {
             return undefined;
           }
+
+          const networkContextRefs =
+            dependencyMode === "contextNetwork"
+              ? resolveContextNetworkRefs(
+                  metadata.networkContextGlobalIndices,
+                  metadata.dependencyMode,
+                  runtime.getOrderedFragments(),
+                  chapterId,
+                  fragmentIndex,
+                )
+              : undefined;
 
           return new TranslationContextView(chapterId, fragmentIndex, {
             documentManager: options.documentManager,
@@ -83,11 +95,36 @@ export function createDefaultTranslationPipelineDefinition(
             plotSummaryEntries: options.getPlotSummaryEntries?.(),
             storyTopology: options.getStoryTopology?.(),
             maxPlotSummaryEntries: options.maxPlotSummaryEntries,
+            networkContextRefs,
           });
         },
       },
     ],
   };
+}
+
+function resolveContextNetworkRefs(
+  encodedIndices: string | number | boolean | undefined,
+  dependencyMode: string | number | boolean | undefined,
+  orderedFragments: OrderedFragmentSnapshot[],
+  chapterId: number,
+  fragmentIndex: number,
+): Array<{ chapterId: number; fragmentIndex: number }> {
+  if (dependencyMode !== "contextNetwork" || typeof encodedIndices !== "string") {
+    return [];
+  }
+
+  return encodedIndices
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .map((value) => Number.parseInt(value, 10))
+    .filter((globalIndex) => Number.isInteger(globalIndex) && globalIndex >= 0)
+    .map((globalIndex) => orderedFragments[globalIndex])
+    .filter(
+      (ref): ref is { chapterId: number; fragmentIndex: number } =>
+        ref !== undefined && !(ref.chapterId === chapterId && ref.fragmentIndex === fragmentIndex),
+    );
 }
 
 type TranslationDependencyOptions = {

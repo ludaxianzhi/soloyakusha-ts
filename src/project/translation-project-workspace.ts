@@ -5,6 +5,7 @@ import type {
 } from "../file-handlers/base.ts";
 import { TranslationFileHandlerFactory } from "../file-handlers/factory.ts";
 import { Glossary, GlossaryPersisterFactory } from "../glossary/index.ts";
+import { getContextNetworkDirectoryPath } from "./context-network-storage.ts";
 import { SqliteProjectStorage } from "./sqlite-project-storage.ts";
 import type { TranslationDocumentManager } from "./translation-document-manager.ts";
 import type {
@@ -282,6 +283,7 @@ export class TranslationProjectWorkspace {
       projectDir: this.projectDir,
       bootstrapPath: this.documentManager.workspaceConfigPath,
       databasePath: this.documentManager.databasePath,
+      contextNetworkDir: getContextNetworkDirectoryPath(this.projectDir),
       glossaryPath,
       chapters: this.chapters.map((chapter) => ({
         id: chapter.id,

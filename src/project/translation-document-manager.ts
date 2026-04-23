@@ -40,6 +40,7 @@ import type {
   TranslationUnitSplitter,
   WorkspaceConfig,
 } from "./types.ts";
+import type { ContextNetworkData } from "./context-network-types.ts";
 import {
   createTextFragment,
   fragmentToText,
@@ -48,6 +49,11 @@ import {
   SqliteProjectStorage,
   type PersistedChapterIndex,
 } from "./sqlite-project-storage.ts";
+import {
+  clearContextNetwork,
+  loadContextNetwork,
+  saveContextNetwork,
+} from "./context-network-storage.ts";
 import {
   buildWorkspaceBootstrapDocument,
   DEFAULT_WORKSPACE_DATABASE_FILE_PATH,
@@ -202,6 +208,18 @@ export class TranslationDocumentManager {
 
   async clearTranslationDependencyGraph(): Promise<void> {
     await this.storage.clearTranslationDependencyGraph();
+  }
+
+  async loadContextNetwork(): Promise<ContextNetworkData | undefined> {
+    return loadContextNetwork(this.projectDir);
+  }
+
+  async saveContextNetwork(data: ContextNetworkData): Promise<void> {
+    await saveContextNetwork(this.projectDir, data);
+  }
+
+  async clearContextNetwork(): Promise<void> {
+    await clearContextNetwork(this.projectDir);
   }
 
   async saveSavedRepetitionPatternAnalysis(

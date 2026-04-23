@@ -122,7 +122,10 @@ export type ContextPair = {
   translatedText: string;
 };
 
-export type TranslationDependencyMode = "previousTranslations" | "glossaryTerms";
+export type TranslationDependencyMode =
+  | "previousTranslations"
+  | "glossaryTerms"
+  | "contextNetwork";
 
 export type TranslationContextType =
   | "glossary"
@@ -431,6 +434,7 @@ export type WorkspaceFileManifest = {
   projectDir: string;
   bootstrapPath: string;
   databasePath: string;
+  contextNetworkDir?: string;
   glossaryPath?: string;
   chapters: Array<{
     id: number;

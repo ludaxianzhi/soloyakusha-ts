@@ -42,6 +42,7 @@ export class TranslationContextView {
       stepId: string;
       dependencyMode: TranslationDependencyMode;
       traversalChapters: Chapter[];
+      networkContextRefs?: OrderedFragmentRef[];
       glossary?: Glossary;
       glossaryConfig?: GlossarySettings;
       plotSummaryEntries?: ReadonlyArray<PlotSummaryEntry>;
@@ -176,16 +177,24 @@ export class TranslationContextView {
       description:
         this.options.dependencyMode === "previousTranslations"
           ? "前序步骤参考"
-          : "词汇依赖步骤参考",
+          : this.options.dependencyMode === "glossaryTerms"
+            ? "词汇依赖步骤参考"
+            : "上下文网络参考",
       priority: 60,
       pairs,
     };
   }
 
   getDependencyPairs(): ContextPair[] {
-    return this.options.dependencyMode === "previousTranslations"
-      ? this.buildPreviousStepPairs()
-      : this.buildGlossaryDependencyPairs();
+    if (this.options.dependencyMode === "previousTranslations") {
+      return this.buildPreviousStepPairs();
+    }
+
+    if (this.options.dependencyMode === "glossaryTerms") {
+      return this.buildGlossaryDependencyPairs();
+    }
+
+    return this.buildContextNetworkPairs();
   }
 
   getDependencyTranslatedTexts(): string[] {
@@ -269,6 +278,28 @@ export class TranslationContextView {
     ];
   }
 
+  private buildContextNetworkPairs(): ContextPair[] {
+    const refs: OrderedFragmentRef[] = [];
+    const directPredecessor = this.getDirectPredecessorRef();
+    if (directPredecessor && this.isStepCompleted(directPredecessor.chapterId, directPredecessor.fragmentIndex)) {
+      refs.push(directPredecessor);
+    }
+
+    for (const ref of this.options.networkContextRefs ?? []) {
+      if (!this.isStepCompleted(ref.chapterId, ref.fragmentIndex)) {
+        continue;
+      }
+      refs.push(ref);
+    }
+
+    const uniqueRefs = dedupeFragmentRefs(refs).filter(
+      (ref) => !(ref.chapterId === this.chapterId && ref.fragmentIndex === this.fragmentIndex),
+    );
+    return uniqueRefs.map((ref) =>
+      createContextPair(ref.chapterId, ref.fragmentIndex, this.options.documentManager),
+    );
+  }
+
   private selectBestGlossaryDependencyRef(
     translatedRefs: OrderedFragmentRef[],
     currentIndex: number,
@@ -316,6 +347,47 @@ export class TranslationContextView {
     return this.options.traversalChapters.flatMap((chapter) =>
       this.options.documentManager.getChapterFragmentRefs(chapter.id),
     );
+  }
+
+  private getDirectPredecessorRef(): OrderedFragmentRef | undefined {
+    if (this.fragmentIndex > 0) {
+      return {
+        chapterId: this.chapterId,
+        fragmentIndex: this.fragmentIndex - 1,
+      };
+    }
+
+    const previousChapterId = this.getPreviousChapterIdInRoute();
+    if (previousChapterId === undefined) {
+      return undefined;
+    }
+
+    const fragmentCount = this.options.documentManager.getChapterFragmentCount(previousChapterId);
+    if (fragmentCount <= 0) {
+      return undefined;
+    }
+
+    return {
+      chapterId: previousChapterId,
+      fragmentIndex: fragmentCount - 1,
+    };
+  }
+
+  private getPreviousChapterIdInRoute(): number | undefined {
+    if (this.options.storyTopology) {
+      const route = this.options.storyTopology.findRouteForChapter(this.chapterId);
+      if (route) {
+        const sequence = this.options.storyTopology.getChapterSequence(route.id);
+        const index = sequence.indexOf(this.chapterId);
+        if (index > 0) {
+          return sequence[index - 1];
+        }
+      }
+    }
+
+    const traversalIds = this.options.traversalChapters.map((chapter) => chapter.id);
+    const index = traversalIds.indexOf(this.chapterId);
+    return index > 0 ? traversalIds[index - 1] : undefined;
   }
 
   private isStepCompleted(chapterId: number, fragmentIndex: number): boolean {
@@ -383,4 +455,18 @@ function compareByDistance(
     Math.abs(leftIndex - currentIndex) - Math.abs(rightIndex - currentIndex) ||
     leftIndex - rightIndex
   );
+}
+
+function dedupeFragmentRefs(refs: OrderedFragmentRef[]): OrderedFragmentRef[] {
+  const seen = new Set<string>();
+  const result: OrderedFragmentRef[] = [];
+  for (const ref of refs) {
+    const key = `${ref.chapterId}:${ref.fragmentIndex}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(ref);
+  }
+  return result;
 }

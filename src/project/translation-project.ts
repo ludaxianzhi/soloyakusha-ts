@@ -106,6 +106,7 @@ import {
   TranslationProjectWorkspace,
 } from "./translation-project-workspace.ts";
 import { GlossaryDependencyOrderingStrategy } from "./glossary-dependency-ordering.ts";
+import type { ContextNetworkData } from "./context-network-types.ts";
 import type {
   ReadyOrderingItem,
   TranslationOrderingStrategy,
@@ -165,7 +166,7 @@ export class TranslationProject
                 glossaryConfig: this.config.glossary,
                 getTraversalChapters: () => this.getTraversalChapters(),
                 getPlotSummaryEntries: () => this.plotSummaryEntries,
-                getStoryTopology: () => this.storyTopology,
+                getStoryTopology: () => this.getEffectiveStoryTopology().topology,
                 maxPlotSummaryEntries: 20,
                 isStepCompleted: (chapterId, fragmentIndex, stepId) =>
                   this.isStepCompleted(chapterId, fragmentIndex, stepId),
@@ -176,6 +177,7 @@ export class TranslationProject
     this.orderingStrategy.setContext({
       config: this.config,
       getOrderedFragments: () => this.getOrderedFragments(),
+      getStoryTopology: () => this.getEffectiveStoryTopology().topology,
       getSourceText: (chapterId, fragmentIndex) =>
         this.documentManager.getSourceText(chapterId, fragmentIndex),
       getStepState: (chapterId, fragmentIndex, stepId) =>
@@ -193,6 +195,9 @@ export class TranslationProject
         (await this.documentManager.loadTranslationDependencyGraph()) ?? null,
       saveDependencyGraph: async (graph) => this.documentManager.saveTranslationDependencyGraph(graph),
       clearDependencyGraph: async () => this.documentManager.clearTranslationDependencyGraph(),
+      loadContextNetwork: async () => (await this.documentManager.loadContextNetwork()) ?? null,
+      saveContextNetwork: async (network) => this.documentManager.saveContextNetwork(network),
+      clearContextNetwork: async () => this.documentManager.clearContextNetwork(),
     });
 
     this.workspaceManager = new TranslationProjectWorkspace(
@@ -1339,6 +1344,16 @@ export class TranslationProject
       JSON.stringify({ schemaVersion: 1, entries: [] }, null, 2),
       "utf8",
     );
+  }
+
+  async saveContextNetwork(data: ContextNetworkData): Promise<void> {
+    this.ensureInitialized();
+    await this.documentManager.saveContextNetwork(data);
+  }
+
+  async clearContextNetwork(): Promise<void> {
+    this.ensureInitialized();
+    await this.documentManager.clearContextNetwork();
   }
 
   getDocumentManager(): TranslationDocumentManager {
