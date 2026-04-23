@@ -142,6 +142,16 @@ export function SettingsView({
     }
   }, [embeddingForm, embeddingPcaEnabled]);
 
+  const handlePcaWeightsUpload = async (file: File) => {
+    setUploadingPcaWeights(true);
+    try {
+      const filePath = await onUploadEmbeddingPcaWeights(file);
+      embeddingForm.setFieldValue('pcaWeightsFilePath', filePath);
+    } finally {
+      setUploadingPcaWeights(false);
+    }
+  };
+
   return (
     <Tabs
       size="small"
@@ -380,22 +390,11 @@ export function SettingsView({
                           <Upload
                             accept=".json,application/json"
                             showUploadList={false}
-                            beforeUpload={() => false}
-                            disabled={!embeddingPcaEnabled || uploadingPcaWeights}
-                            onChange={(info) => {
-                              const file = info.file.originFileObj;
-                              if (!file) {
-                                return;
-                              }
-                              setUploadingPcaWeights(true);
-                              void onUploadEmbeddingPcaWeights(file)
-                                .then((filePath) => {
-                                  embeddingForm.setFieldValue('pcaWeightsFilePath', filePath);
-                                })
-                                .finally(() => {
-                                  setUploadingPcaWeights(false);
-                                });
+                            beforeUpload={(file) => {
+                              void handlePcaWeightsUpload(file);
+                              return false;
                             }}
+                            disabled={!embeddingPcaEnabled || uploadingPcaWeights}
                           >
                             <Button type="link" size="small" loading={uploadingPcaWeights}>
                               上传
