@@ -107,6 +107,18 @@ bun run webui:build
 
 在 Windows 下，默认输出文件为 `dist\soloyakusha-webui.exe`。
 
+## 上下文网络阈值链路
+
+上下文网络构建使用的“最小连接强度阈值”默认值是 `0.5`。这条调用链路是：
+
+1. [WorkspaceDashboardTab](src/webui/client/src/components/workspace-view/WorkspaceDashboardTab.tsx) 里的“构建上下文网络”弹窗提供默认阈值输入。
+2. [AppShell](src/webui/client/src/app/App.tsx) 把弹窗参数作为 `minEdgeStrength` 传给 [project-service](src/webui/services/project-service.ts) 的 `buildContextNetwork(...)`。
+3. `buildContextNetwork(...)` 再把阈值传给 [context-network-builder](src/project/context/context-network-builder.ts) 的 `buildContextNetworkDataFromTinyChunkGraph(...)`。
+4. Builder 在 fragment 聚合阶段按 `minEdgeStrength` 过滤边，再生成并保存上下文网络。
+5. 底层连接图由 [chunk-link-graph-worker](src/vector/chunk-link-graph-worker.ts) 计算，最终的 block pair 强度会汇总成 fragment 级网络。
+
+如果你要改默认阈值，优先同步这三个位置：UI 默认值、服务端默认值、builder 默认值。
+
 ## 默认提示词资源
 
 默认提示词以 YAML 静态资源形式随源码分发，位于 `src/prompts/resources/default-prompts.yaml`。

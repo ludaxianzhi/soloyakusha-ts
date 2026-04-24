@@ -60,7 +60,7 @@ export function WorkspaceDashboardTab({
 }: WorkspaceDashboardTabProps) {
   const [contextNetworkModalOpen, setContextNetworkModalOpen] = useState(false);
   const [vectorStoreType, setVectorStoreType] = useState<'registered' | 'memory'>('registered');
-  const [minEdgeStrength, setMinEdgeStrength] = useState(1.0);
+  const [minEdgeStrength, setMinEdgeStrength] = useState(0.5);
 
   usePollingTask({
     enabled: active && !sseConnected,
@@ -269,7 +269,7 @@ export function WorkspaceDashboardTab({
               precision={2}
               style={{ width: '100%' }}
               value={minEdgeStrength}
-              onChange={(value) => setMinEdgeStrength(value ?? 1.0)}
+              onChange={(value) => setMinEdgeStrength(value ?? 0.5)}
             />
             <Typography.Text type="secondary">
               当前值为 {minEdgeStrength}，将只保留强度大于等于 {minEdgeStrength} 的边。

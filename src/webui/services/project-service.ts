@@ -2192,7 +2192,7 @@ export class ProjectService {
     this.isBusy = true;
     this.log('info', '开始构建上下文网络...');
 
-    const minEdgeStrength = input.minEdgeStrength ?? 1;
+    const minEdgeStrength = input.minEdgeStrength ?? 0.5;
     if (!(minEdgeStrength > 0)) {
       this.isBusy = false;
       throw new ProjectServiceUserInputError('最小连接强度阈值必须是正数');

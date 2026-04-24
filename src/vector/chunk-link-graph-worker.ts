@@ -386,7 +386,7 @@ function buildBlockPairStrengthsFromBidirectionalEdges(params: {
     const targetBlock = Math.floor(targetRow / blockSize);
     if (sourceBlock !== targetBlock) {
       const pairKey = sourceBlock * blockCount + targetBlock;
-      const contribution = scoreForward * scoreForward + scoreBackward * scoreBackward;
+      const contribution = scoreForward * scoreForward;
       pairStrengths.set(pairKey, (pairStrengths.get(pairKey) ?? 0) + contribution);
     }
     bidirectionalEdgeCount += 1;

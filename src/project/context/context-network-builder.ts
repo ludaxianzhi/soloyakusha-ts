@@ -67,7 +67,7 @@ export function buildContextNetworkDataFromTinyChunkGraph(params: {
     fragmentCount,
     chunkToFragmentIndices,
     graph,
-    minEdgeStrength = 1,
+    minEdgeStrength = 0.5,
   } = params;
   if (graph.blockSize !== 1) {
     throw new Error(`仅支持 blockSize=1 的 tiny chunk link graph，当前为 ${graph.blockSize}`);
