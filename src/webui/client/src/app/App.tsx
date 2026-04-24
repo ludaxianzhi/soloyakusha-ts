@@ -188,6 +188,9 @@ export function AppShell() {
     | 'default'
     | 'context-network'
     | undefined;
+  const [workspacePipelineStrategy, setWorkspacePipelineStrategy] = useState<
+    'default' | 'context-network' | undefined
+  >(undefined);
   const workflowMap = useMemo(
     () =>
       new Map(
@@ -267,6 +270,7 @@ export function AppShell() {
     setRepeatedPatterns(null);
     setChapters([]);
     setTopology(null);
+    setWorkspacePipelineStrategy(undefined);
     workspaceConfigRef.current = null;
     workspaceForm.resetFields();
     resetWorkspaceResourceVersions(0);
@@ -478,6 +482,7 @@ export function AppShell() {
       defaultExportFormat: configRes.defaultExportFormat,
       customRequirements: configRes.customRequirements.join('\n'),
     });
+    setWorkspacePipelineStrategy(configRes.pipelineStrategy ?? 'default');
     workspaceConfigRef.current = configRes;
     workspaceResourceVersionsRef.current = {
       ...workspaceResourceVersionsRef.current,
@@ -619,6 +624,14 @@ export function AppShell() {
   useEffect(() => {
     resetWorkspaceDataCaches();
   }, [resetWorkspaceDataCaches, snapshot?.projectName]);
+
+  useEffect(() => {
+    if (!snapshot) {
+      return;
+    }
+
+    void refreshWorkspaceConfig();
+  }, [refreshWorkspaceConfig, snapshot]);
 
   useEffect(() => {
     if (!snapshot) {
@@ -1643,7 +1656,7 @@ export function AppShell() {
                       key={snapshot?.projectName ?? 'no-workspace'}
                       snapshot={snapshot}
                       projectStatus={projectStatus}
-                      pipelineStrategy={pipelineStrategy}
+                      pipelineStrategy={workspacePipelineStrategy ?? pipelineStrategy}
                       sseConnected={connected}
                       dictionary={dictionary}
                       repeatedPatterns={repeatedPatterns}
