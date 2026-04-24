@@ -46,7 +46,12 @@ describe("computeChunkLinkGraph", () => {
       expect(result.blockPairCount).toBe(2);
       expect(Array.from(result.blockPairSourceBlocks)).toEqual([0, 1]);
       expect(Array.from(result.blockPairTargetBlocks)).toEqual([1, 0]);
-      expect(Array.from(result.blockPairStrengths)).toEqual([2, 2]);
+      // Each block pair aggregates 2 bidirectional chunk pairs; each contributes
+      // cos(a,b)^2 + cos(b,a)^2 ≈ 2 * (0.99/√0.9802)^2 ≈ 2 * 0.9999 per pair.
+      // Total ≈ 4 * (0.9801/0.9802) ≈ 3.9996.
+      expect(result.blockPairStrengths).toBeInstanceOf(Float32Array);
+      expect(result.blockPairStrengths[0]).toBeCloseTo(4, 0);
+      expect(result.blockPairStrengths[1]).toBeCloseTo(4, 0);
       expect(logs.some((entry) => entry.includes("top10 获取进度:topk:4/4"))).toBe(true);
       expect(logs.some((entry) => entry.includes("块间连接矩阵计算进度:matrix:4/4"))).toBe(true);
 

@@ -60,7 +60,7 @@ export function WorkspaceDashboardTab({
 }: WorkspaceDashboardTabProps) {
   const [contextNetworkModalOpen, setContextNetworkModalOpen] = useState(false);
   const [vectorStoreType, setVectorStoreType] = useState<'registered' | 'memory'>('registered');
-  const [minEdgeStrength, setMinEdgeStrength] = useState(3);
+  const [minEdgeStrength, setMinEdgeStrength] = useState(1.0);
 
   usePollingTask({
     enabled: active && !sseConnected,
@@ -251,7 +251,7 @@ export function WorkspaceDashboardTab({
             type="info"
             showIcon
             message="请选择上下文网络构建使用的向量数据库"
-            description="内存向量数据库只支持最多 50K 条、256 维向量；不做预检，超限时会直接返回错误。最小连接数阈值会过滤掉连接数小于该值的边。"
+            description="内存向量数据库只支持最多 50K 条、256 维向量；不做预检，超限时会直接返回错误。最小连接强度阈值会过滤掉强度小于该值的边。"
           />
           <Radio.Group
             value={vectorStoreType}
@@ -263,16 +263,16 @@ export function WorkspaceDashboardTab({
             </Space>
           </Radio.Group>
           <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            <Typography.Text>最小连接数阈值</Typography.Text>
+            <Typography.Text>最小连接强度阈值</Typography.Text>
             <InputNumber
-              min={1}
-              precision={0}
+              min={0.01}
+              precision={2}
               style={{ width: '100%' }}
               value={minEdgeStrength}
-              onChange={(value) => setMinEdgeStrength(value ?? 3)}
+              onChange={(value) => setMinEdgeStrength(value ?? 1.0)}
             />
             <Typography.Text type="secondary">
-              当前值为 {minEdgeStrength}，将只保留连接数大于等于 {minEdgeStrength} 的边。
+              当前值为 {minEdgeStrength}，将只保留强度大于等于 {minEdgeStrength} 的边。
             </Typography.Text>
           </Space>
         </Space>

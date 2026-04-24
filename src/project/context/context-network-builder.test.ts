@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildContextNetworkData,
-  buildContextNetworkDataFromSentenceGraph,
+  buildContextNetworkDataFromTinyChunkGraph,
 } from "./context-network-builder.ts";
 
 describe("buildContextNetworkData", () => {
@@ -23,7 +23,7 @@ describe("buildContextNetworkData", () => {
         blockPairCount: 4,
         blockPairSourceBlocks: Int32Array.from([0, 0, 2, 2]),
         blockPairTargetBlocks: Int32Array.from([1, 2, 1, 3]),
-        blockPairStrengths: Int32Array.from([5, 1, 2, 3]),
+        blockPairStrengths: Float32Array.from([5.0, 1.0, 2.0, 3.0]),
       },
     });
 
@@ -32,14 +32,14 @@ describe("buildContextNetworkData", () => {
     expect(data.manifest.edgeCount).toBe(4);
     expect(Array.from(data.offsets)).toEqual([0, 2, 2, 4, 4]);
     expect(Array.from(data.targets)).toEqual([1, 2, 3, 1]);
-    expect(Array.from(data.strengths)).toEqual([5, 1, 3, 2]);
+    expect(Array.from(data.strengths)).toEqual([5.0, 1.0, 3.0, 2.0]);
   });
 
-  test("aggregates sentence-level edges into fragment-level strengths", () => {
-    const data = buildContextNetworkDataFromSentenceGraph({
+  test("aggregates tiny chunk edges into fragment-level strengths", () => {
+    const data = buildContextNetworkDataFromTinyChunkGraph({
       sourceRevision: 7,
       fragmentCount: 3,
-      sentenceToFragmentIndices: [0, 0, 1, 1, 2],
+      chunkToFragmentIndices: [0, 0, 1, 1, 2],
       graph: {
         lineCount: 5,
         blockSize: 1,
@@ -54,7 +54,7 @@ describe("buildContextNetworkData", () => {
         blockPairCount: 6,
         blockPairSourceBlocks: Int32Array.from([0, 1, 2, 3, 2, 4]),
         blockPairTargetBlocks: Int32Array.from([2, 3, 0, 1, 4, 2]),
-        blockPairStrengths: Int32Array.from([1, 1, 1, 1, 1, 1]),
+        blockPairStrengths: Float32Array.from([1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
       },
     });
 
@@ -63,14 +63,14 @@ describe("buildContextNetworkData", () => {
     expect(data.manifest.edgeCount).toBe(4);
     expect(Array.from(data.offsets)).toEqual([0, 1, 3, 4]);
     expect(Array.from(data.targets)).toEqual([1, 0, 2, 1]);
-    expect(Array.from(data.strengths)).toEqual([2, 2, 1, 1]);
+    expect(Array.from(data.strengths)).toEqual([2.0, 2.0, 1.0, 1.0]);
   });
 
   test("filters out fragment edges below the configured minimum strength", () => {
-    const data = buildContextNetworkDataFromSentenceGraph({
+    const data = buildContextNetworkDataFromTinyChunkGraph({
       sourceRevision: 8,
       fragmentCount: 3,
-      sentenceToFragmentIndices: [0, 0, 1, 1, 2],
+      chunkToFragmentIndices: [0, 0, 1, 1, 2],
       minEdgeStrength: 3,
       graph: {
         lineCount: 5,
@@ -86,13 +86,13 @@ describe("buildContextNetworkData", () => {
         blockPairCount: 10,
         blockPairSourceBlocks: Int32Array.from([0, 0, 1, 2, 3, 2, 4, 3, 0, 3]),
         blockPairTargetBlocks: Int32Array.from([2, 3, 3, 0, 0, 4, 2, 1, 3, 4]),
-        blockPairStrengths: Int32Array.from([1, 1, 1, 1, 1, 1, 1, 1, 1, 1]),
+        blockPairStrengths: Float32Array.from([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
       },
     });
 
     expect(data.manifest.edgeCount).toBe(2);
     expect(Array.from(data.offsets)).toEqual([0, 1, 2, 2]);
     expect(Array.from(data.targets)).toEqual([1, 0]);
-    expect(Array.from(data.strengths)).toEqual([4, 3]);
+    expect(Array.from(data.strengths)).toEqual([4.0, 3.0]);
   });
 });

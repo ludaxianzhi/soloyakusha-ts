@@ -1,4 +1,4 @@
-export const CONTEXT_NETWORK_SCHEMA_VERSION = 1;
+export const CONTEXT_NETWORK_SCHEMA_VERSION = 2;
 
 export type ContextNetworkManifest = {
   schemaVersion: typeof CONTEXT_NETWORK_SCHEMA_VERSION;
@@ -14,5 +14,5 @@ export type ContextNetworkData = {
   manifest: ContextNetworkManifest;
   offsets: Uint32Array;
   targets: Int32Array;
-  strengths: Int32Array;
+  strengths: Float32Array;
 };

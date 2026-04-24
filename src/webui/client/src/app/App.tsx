@@ -1018,7 +1018,7 @@ export function AppShell() {
         const result = await api.buildContextNetwork(input);
         await refreshProjectStatus();
         message.success(
-          `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边，最小连接数阈值 ${result.minEdgeStrength}`,
+          `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边，最小连接强度阈值 ${result.minEdgeStrength}`,
         );
       });
     },

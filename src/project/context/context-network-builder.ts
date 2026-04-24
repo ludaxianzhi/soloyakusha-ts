@@ -55,76 +55,76 @@ export function buildContextNetworkData(params: {
   });
 }
 
-export function buildContextNetworkDataFromSentenceGraph(params: {
+export function buildContextNetworkDataFromTinyChunkGraph(params: {
   sourceRevision: number;
   fragmentCount: number;
-  sentenceToFragmentIndices: ReadonlyArray<number>;
+  chunkToFragmentIndices: ReadonlyArray<number>;
   graph: ChunkLinkGraphResult;
   minEdgeStrength?: number;
 }): ContextNetworkData {
   const {
     sourceRevision,
     fragmentCount,
-    sentenceToFragmentIndices,
+    chunkToFragmentIndices,
     graph,
     minEdgeStrength = 1,
   } = params;
   if (graph.blockSize !== 1) {
-    throw new Error(`仅支持 blockSize=1 的句子级 chunk link graph，当前为 ${graph.blockSize}`);
+    throw new Error(`仅支持 blockSize=1 的 tiny chunk link graph，当前为 ${graph.blockSize}`);
   }
   if (graph.blockCount !== graph.lineCount) {
     throw new Error(
-      `句子级 chunk link graph 数据无效: blockCount=${graph.blockCount}, lineCount=${graph.lineCount}`,
+      `Tiny chunk link graph 数据无效: blockCount=${graph.blockCount}, lineCount=${graph.lineCount}`,
     );
   }
-  if (sentenceToFragmentIndices.length !== graph.lineCount) {
+  if (chunkToFragmentIndices.length !== graph.lineCount) {
     throw new Error(
-      `句子映射长度不匹配: sentenceToFragmentIndices=${sentenceToFragmentIndices.length}, lineCount=${graph.lineCount}`,
+      `Chunk 映射长度不匹配: chunkToFragmentIndices=${chunkToFragmentIndices.length}, lineCount=${graph.lineCount}`,
     );
   }
-  if (!Number.isInteger(minEdgeStrength) || minEdgeStrength <= 0) {
-    throw new Error(`minEdgeStrength 必须是正整数，当前为 ${String(minEdgeStrength)}`);
+  if (!(minEdgeStrength > 0)) {
+    throw new Error(`minEdgeStrength 必须是正数，当前为 ${String(minEdgeStrength)}`);
   }
   validateBlockPairLengths(graph);
 
   const pairStrengths = new Map<string, number>();
-  for (let sentenceIndex = 0; sentenceIndex < sentenceToFragmentIndices.length; sentenceIndex += 1) {
-    const fragmentIndex = sentenceToFragmentIndices[sentenceIndex];
+  for (let chunkIndex = 0; chunkIndex < chunkToFragmentIndices.length; chunkIndex += 1) {
+    const fragmentIndex = chunkToFragmentIndices[chunkIndex];
     if (
       fragmentIndex === undefined ||
       fragmentIndex < 0 ||
       fragmentIndex >= fragmentCount
     ) {
       throw new Error(
-        `句子到片段映射越界: sentence=${sentenceIndex}, fragment=${String(fragmentIndex)}`,
+        `Chunk 到片段映射越界: chunk=${chunkIndex}, fragment=${String(fragmentIndex)}`,
       );
     }
   }
 
   for (let index = 0; index < graph.blockPairCount; index += 1) {
-    const sourceSentence = graph.blockPairSourceBlocks[index];
-    const targetSentence = graph.blockPairTargetBlocks[index];
+    const sourceChunk = graph.blockPairSourceBlocks[index];
+    const targetChunk = graph.blockPairTargetBlocks[index];
     const strength = graph.blockPairStrengths[index];
     if (
-      sourceSentence === undefined ||
-      targetSentence === undefined ||
+      sourceChunk === undefined ||
+      targetChunk === undefined ||
       strength === undefined
     ) {
       continue;
     }
     if (
-      sourceSentence < 0 ||
-      sourceSentence >= graph.lineCount ||
-      targetSentence < 0 ||
-      targetSentence >= graph.lineCount
+      sourceChunk < 0 ||
+      sourceChunk >= graph.lineCount ||
+      targetChunk < 0 ||
+      targetChunk >= graph.lineCount
     ) {
       throw new Error(
-        `句子级 chunk link graph block pair 越界: source=${sourceSentence}, target=${targetSentence}`,
+        `Tiny chunk link graph block pair 越界: source=${sourceChunk}, target=${targetChunk}`,
       );
     }
 
-    const sourceFragment = sentenceToFragmentIndices[sourceSentence]!;
-    const targetFragment = sentenceToFragmentIndices[targetSentence]!;
+    const sourceFragment = chunkToFragmentIndices[sourceChunk]!;
+    const targetFragment = chunkToFragmentIndices[targetChunk]!;
     if (sourceFragment === targetFragment) {
       continue;
     }
@@ -143,7 +143,7 @@ export function buildContextNetworkDataFromSentenceGraph(params: {
     const source = Number.parseInt(sourceText ?? "", 10);
     const target = Number.parseInt(targetText ?? "", 10);
     if (!Number.isInteger(source) || !Number.isInteger(target)) {
-      throw new Error(`句子级片段聚合键无效: ${pairKey}`);
+      throw new Error(`Tiny chunk 片段聚合键无效: ${pairKey}`);
     }
 
     const existing = outgoing.get(source) ?? [];
@@ -206,6 +206,6 @@ function createContextNetworkData(params: {
     },
     offsets,
     targets: Int32Array.from(targets),
-    strengths: Int32Array.from(strengths),
+    strengths: Float32Array.from(strengths),
   };
 }

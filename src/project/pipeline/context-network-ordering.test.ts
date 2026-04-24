@@ -27,7 +27,7 @@ describe("ContextNetworkOrderingStrategy", () => {
 
     await project.saveContextNetwork({
       manifest: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         sourceRevision: project.getWorkspaceConfig().dependencyTracking?.sourceRevision ?? 0,
         fragmentCount: 5,
         blockSize: 1,
@@ -37,7 +37,7 @@ describe("ContextNetworkOrderingStrategy", () => {
       },
       offsets: Uint32Array.from([0, 0, 1, 2, 4, 5]),
       targets: Int32Array.from([0, 0, 2, 0, 0]),
-      strengths: Int32Array.from([5, 9, 10, 7, 8]),
+      strengths: Float32Array.from([5.0, 9.0, 10.0, 7.0, 8.0]),
     });
 
     await project.startTranslation();
@@ -66,7 +66,7 @@ describe("ContextNetworkOrderingStrategy", () => {
     const project = await createProject();
     await project.saveContextNetwork({
       manifest: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         sourceRevision: (project.getWorkspaceConfig().dependencyTracking?.sourceRevision ?? 0) + 1,
         fragmentCount: 5,
         blockSize: 1,
@@ -75,7 +75,7 @@ describe("ContextNetworkOrderingStrategy", () => {
       },
       offsets: Uint32Array.from([0, 0, 0, 0, 0, 0]),
       targets: Int32Array.from([]),
-      strengths: Int32Array.from([]),
+      strengths: Float32Array.from([]),
     });
 
     await expect(

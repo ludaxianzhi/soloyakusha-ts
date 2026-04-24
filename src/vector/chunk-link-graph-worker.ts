@@ -138,6 +138,7 @@ async function computeChunkLinkGraph(
     const blockPairStrengths = buildBlockPairStrengthsFromBidirectionalEdges({
       strongSourceRows: strongEdges.sourceRows,
       strongTargetRows: strongEdges.targetRows,
+      strongScores: strongEdges.scores,
       strongEdgeCount: strongEdges.edgeCount,
       blockSize,
       blockCount,
@@ -302,6 +303,7 @@ function selectStrongEdges(params: {
   edgeCount: number;
   sourceRows: Int32Array;
   targetRows: Int32Array;
+  scores: Float32Array;
 } {
   const { sourceRows, targetRows, scores, edgeCount, topPercent } = params;
   const order = new Uint32Array(edgeCount);
@@ -314,6 +316,7 @@ function selectStrongEdges(params: {
   const thresholdScore = scores[order[retainedCount - 1]!]!;
   const strongSourceRows = new Int32Array(edgeCount);
   const strongTargetRows = new Int32Array(edgeCount);
+  const strongScores = new Float32Array(edgeCount);
   let strongEdgeCount = 0;
 
   for (let index = 0; index < edgeCount; index += 1) {
@@ -323,6 +326,7 @@ function selectStrongEdges(params: {
     }
     strongSourceRows[strongEdgeCount] = sourceRows[candidateIndex]!;
     strongTargetRows[strongEdgeCount] = targetRows[candidateIndex]!;
+    strongScores[strongEdgeCount] = scores[candidateIndex]!;
     strongEdgeCount += 1;
     emitPeriodicProgress("bidirectional", "双向强连接确认进度", strongEdgeCount, edgeCount);
   }
@@ -332,12 +336,14 @@ function selectStrongEdges(params: {
     edgeCount: strongEdgeCount,
     sourceRows: strongSourceRows.subarray(0, strongEdgeCount),
     targetRows: strongTargetRows.subarray(0, strongEdgeCount),
+    scores: strongScores.subarray(0, strongEdgeCount),
   };
 }
 
 function buildBlockPairStrengthsFromBidirectionalEdges(params: {
   strongSourceRows: Int32Array;
   strongTargetRows: Int32Array;
+  strongScores: Float32Array;
   strongEdgeCount: number;
   blockSize: number;
   blockCount: number;
@@ -346,27 +352,32 @@ function buildBlockPairStrengthsFromBidirectionalEdges(params: {
   count: number;
   sourceBlocks: Int32Array;
   targetBlocks: Int32Array;
-  strengths: Int32Array;
+  strengths: Float32Array;
 } {
   const {
     strongSourceRows,
     strongTargetRows,
+    strongScores,
     strongEdgeCount,
     blockSize,
     blockCount,
   } = params;
 
-  const edgeSet = new Set<bigint>();
+  // Build edge score lookup: packEdgeKey(source, target) → score
+  const edgeScoreMap = new Map<bigint, number>();
   for (let index = 0; index < strongEdgeCount; index += 1) {
-    edgeSet.add(packEdgeKey(strongSourceRows[index]!, strongTargetRows[index]!));
+    edgeScoreMap.set(packEdgeKey(strongSourceRows[index]!, strongTargetRows[index]!), strongScores[index]!);
   }
 
+  // Accumulate cosine squared sum for block pairs
   const pairStrengths = new Map<number, number>();
   let bidirectionalEdgeCount = 0;
   for (let index = 0; index < strongEdgeCount; index += 1) {
     const sourceRow = strongSourceRows[index]!;
     const targetRow = strongTargetRows[index]!;
-    if (!edgeSet.has(packEdgeKey(targetRow, sourceRow))) {
+    const scoreForward = strongScores[index]!;
+    const scoreBackward = edgeScoreMap.get(packEdgeKey(targetRow, sourceRow));
+    if (scoreBackward === undefined) {
       emitPeriodicProgress("matrix", "块间连接矩阵计算进度", index + 1, strongEdgeCount);
       continue;
     }
@@ -375,7 +386,8 @@ function buildBlockPairStrengthsFromBidirectionalEdges(params: {
     const targetBlock = Math.floor(targetRow / blockSize);
     if (sourceBlock !== targetBlock) {
       const pairKey = sourceBlock * blockCount + targetBlock;
-      pairStrengths.set(pairKey, (pairStrengths.get(pairKey) ?? 0) + 1);
+      const contribution = scoreForward * scoreForward + scoreBackward * scoreBackward;
+      pairStrengths.set(pairKey, (pairStrengths.get(pairKey) ?? 0) + contribution);
     }
     bidirectionalEdgeCount += 1;
     emitPeriodicProgress("matrix", "块间连接矩阵计算进度", index + 1, strongEdgeCount);
@@ -394,7 +406,7 @@ function collectBlockPairStrengths(
   count: number;
   sourceBlocks: Int32Array;
   targetBlocks: Int32Array;
-  strengths: Int32Array;
+  strengths: Float32Array;
 } {
   const sortedPairs = [...pairStrengths.entries()]
     .filter((entry) => entry[1] > 0)
@@ -402,7 +414,7 @@ function collectBlockPairStrengths(
   const count = sortedPairs.length;
   const sourceBlocks = new Int32Array(count);
   const targetBlocks = new Int32Array(count);
-  const strengths = new Int32Array(count);
+  const strengths = new Float32Array(count);
 
   sortedPairs.forEach(([pairKey, strength], index) => {
     sourceBlocks[index] = Math.floor(pairKey / blockCount);
@@ -421,12 +433,12 @@ function collectBlockPairStrengths(
 function createEmptyBlockPairStrengths(): {
   sourceBlocks: Int32Array;
   targetBlocks: Int32Array;
-  strengths: Int32Array;
+  strengths: Float32Array;
 } {
   return {
     sourceBlocks: new Int32Array(0),
     targetBlocks: new Int32Array(0),
-    strengths: new Int32Array(0),
+    strengths: new Float32Array(0),
   };
 }
 

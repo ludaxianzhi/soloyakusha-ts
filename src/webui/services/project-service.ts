@@ -20,10 +20,11 @@ import {
   TranslationGlobalConfig,
   type TranslationProcessorConfig,
 } from '../../project/config.ts';
-import { buildContextNetworkDataFromSentenceGraph } from '../../project/context/context-network-builder.ts';
+import { buildContextNetworkDataFromTinyChunkGraph } from '../../project/context/context-network-builder.ts';
 import {
   collectSourceTextBlocks,
-  collectSourceTextSentences,
+  collectSourceTextTinyChunks,
+  upsertGlobalPatternTerm,
 } from '../../project/pipeline/default-translation-pipeline.ts';
 import {
   PromptManager,
@@ -2191,10 +2192,10 @@ export class ProjectService {
     this.isBusy = true;
     this.log('info', '开始构建上下文网络...');
 
-    const minEdgeStrength = input.minEdgeStrength ?? 2;
-    if (!Number.isInteger(minEdgeStrength) || minEdgeStrength <= 0) {
+    const minEdgeStrength = input.minEdgeStrength ?? 1;
+    if (!(minEdgeStrength > 0)) {
       this.isBusy = false;
-      throw new ProjectServiceUserInputError('最小连接数阈值必须是正整数');
+      throw new ProjectServiceUserInputError('最小连接强度阈值必须是正数');
     }
 
     let provider: ReturnType<TranslationGlobalConfig['createProvider']> | undefined;
@@ -2216,18 +2217,18 @@ export class ProjectService {
         throw new ProjectServiceUserInputError('当前工作区没有可用于构建上下文网络的文本块');
       }
 
-      const sentences = collectSourceTextSentences(
+      const chunks = collectSourceTextTinyChunks(
         project.getDocumentManager(),
         workspaceConfig.chapters,
       );
-      if (sentences.length === 0) {
-        throw new ProjectServiceUserInputError('当前工作区没有可用于构建上下文网络的句子');
+      if (chunks.length === 0) {
+        throw new ProjectServiceUserInputError('当前工作区没有可用于构建上下文网络的文本块');
       }
 
-      this.log('info', `正在生成句子向量（${sentences.length} 句，来自 ${blocks.length} 个文本块）...`);
+      this.log('info', `正在生成 Tiny Chunk 向量（${chunks.length} 个 chunk，来自 ${blocks.length} 个文本块）...`);
       const embeddings = await provider
         .getEmbeddingClient(GLOBAL_EMBEDDING_CLIENT_NAME)
-        .getEmbeddings(sentences.map((sentence) => sentence.text));
+        .getEmbeddings(chunks.map((chunk) => chunk.text));
 
       const vectorStoreConfig = await resolveContextNetworkVectorStoreConfig(
         globalConfigManager,
@@ -2246,10 +2247,10 @@ export class ProjectService {
         { logger: this.createLogger() },
       );
 
-      const network = buildContextNetworkDataFromSentenceGraph({
+      const network = buildContextNetworkDataFromTinyChunkGraph({
         sourceRevision: workspaceConfig.dependencyTracking?.sourceRevision ?? 0,
         fragmentCount: blocks.length,
-        sentenceToFragmentIndices: sentences.map((sentence) => sentence.fragmentGlobalIndex),
+        chunkToFragmentIndices: chunks.map((chunk) => chunk.fragmentGlobalIndex),
         graph,
         minEdgeStrength,
       });
@@ -2265,7 +2266,7 @@ export class ProjectService {
       };
       this.log(
         'success',
-        `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边，最小连接数阈值 ${result.minEdgeStrength}`,
+        `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边，最小连接强度阈值 ${result.minEdgeStrength}`,
       );
       return result;
     } catch (error) {

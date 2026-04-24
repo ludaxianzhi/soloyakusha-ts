@@ -344,3 +344,84 @@ export function collectSourceTextSentences(
 
   return sentences;
 }
+
+const TINY_CHUNK_MAX_CHARS = 100;
+
+export function collectSourceTextTinyChunks(
+  documentManager: TranslationDocumentManager,
+  chapters: Chapter[],
+): Array<{
+  chunkId: string;
+  text: string;
+  fragmentGlobalIndex: number;
+  chapterId: number;
+  fragmentIndex: number;
+}> {
+  const chaptersById = new Map(documentManager.getAllChapters().map((chapter) => [chapter.id, chapter]));
+  const chunks: Array<{
+    chunkId: string;
+    text: string;
+    fragmentGlobalIndex: number;
+    chapterId: number;
+    fragmentIndex: number;
+  }> = [];
+
+  let fragmentGlobalIndex = 0;
+  for (const chapter of chapters) {
+    const chapterEntry = chaptersById.get(chapter.id);
+    if (!chapterEntry) {
+      continue;
+    }
+
+    chapterEntry.fragments.forEach((fragment, fragmentIndex) => {
+      let accumulatedLines: string[] = [];
+      let accumulatedLength = 0;
+      let chunkLocalIndex = 0;
+
+      const flushAccumulated = () => {
+        if (accumulatedLines.length === 0) {
+          return;
+        }
+        chunks.push({
+          chunkId: `chapter:${chapter.id}:fragment:${fragmentIndex}:chunk:${chunkLocalIndex}`,
+          text: accumulatedLines.join(""),
+          fragmentGlobalIndex,
+          chapterId: chapter.id,
+          fragmentIndex,
+        });
+        chunkLocalIndex += 1;
+        accumulatedLines = [];
+        accumulatedLength = 0;
+      };
+
+      for (const line of fragment.source.lines) {
+        if (line.trim().length === 0) {
+          continue;
+        }
+
+        if (line.length > TINY_CHUNK_MAX_CHARS) {
+          flushAccumulated();
+          chunks.push({
+            chunkId: `chapter:${chapter.id}:fragment:${fragmentIndex}:chunk:${chunkLocalIndex}`,
+            text: line,
+            fragmentGlobalIndex,
+            chapterId: chapter.id,
+            fragmentIndex,
+          });
+          chunkLocalIndex += 1;
+        } else {
+          if (accumulatedLength + line.length > TINY_CHUNK_MAX_CHARS) {
+            flushAccumulated();
+          }
+          accumulatedLines.push(line);
+          accumulatedLength += line.length;
+        }
+      }
+
+      flushAccumulated();
+      fragmentGlobalIndex += 1;
+    });
+  }
+
+  return chunks;
+}

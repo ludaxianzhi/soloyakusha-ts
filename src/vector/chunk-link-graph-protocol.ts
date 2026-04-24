@@ -47,7 +47,7 @@ export type ChunkLinkGraphWorkerResult = {
   blockPairCount: number;
   blockPairSourceBlocks: Int32Array;
   blockPairTargetBlocks: Int32Array;
-  blockPairStrengths: Int32Array;
+  blockPairStrengths: Float32Array;
 };
 
 export type ChunkLinkGraphWorkerResultEvent = {

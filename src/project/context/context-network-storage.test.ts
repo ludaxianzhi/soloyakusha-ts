@@ -25,7 +25,7 @@ describe("context network storage", () => {
 
     await saveContextNetwork(workspaceDir, {
       manifest: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         sourceRevision: 2,
         fragmentCount: 3,
         blockSize: 1,
@@ -35,14 +35,14 @@ describe("context network storage", () => {
       },
       offsets: Uint32Array.from([0, 2, 3, 3]),
       targets: Int32Array.from([1, 2, 0]),
-      strengths: Int32Array.from([9, 4, 8]),
+      strengths: Float32Array.from([9.0, 4.0, 8.0]),
     });
 
     const loaded = await loadContextNetwork(workspaceDir);
     expect(loaded?.manifest.fragmentCount).toBe(3);
     expect(Array.from(loaded?.offsets ?? [])).toEqual([0, 2, 3, 3]);
     expect(Array.from(loaded?.targets ?? [])).toEqual([1, 2, 0]);
-    expect(Array.from(loaded?.strengths ?? [])).toEqual([9, 4, 8]);
+    expect(Array.from(loaded?.strengths ?? [])).toEqual([9.0, 4.0, 8.0]);
 
     await clearContextNetwork(workspaceDir);
     await expect(loadContextNetwork(workspaceDir)).resolves.toBeUndefined();

@@ -16,7 +16,7 @@ const CONTEXT_NETWORK_DIR = join("Data", "context-network");
 const MANIFEST_FILE_NAME = "manifest.json";
 const OFFSETS_FILE_NAME = "offsets.u32";
 const TARGETS_FILE_NAME = "targets.i32";
-const STRENGTHS_FILE_NAME = "strengths.i32";
+const STRENGTHS_FILE_NAME = "strengths.f32";
 
 export async function loadContextNetwork(
   projectDir: string,
@@ -41,7 +41,7 @@ export async function loadContextNetwork(
 
   const offsets = toUint32Array(offsetsBuffer, "offsets.u32");
   const targets = toInt32Array(targetsBuffer, "targets.i32");
-  const strengths = toInt32Array(strengthsBuffer, "strengths.i32");
+  const strengths = toFloat32Array(strengthsBuffer, "strengths.f32");
   validateContextNetworkData({ manifest, offsets, targets, strengths });
 
   return {
@@ -205,6 +205,15 @@ function toInt32Array(buffer: Buffer, label: string): Int32Array {
   );
 }
 
+function toFloat32Array(buffer: Buffer, label: string): Float32Array {
+  if (buffer.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+    throw new Error(`上下文网络 ${label} 字节长度无效`);
+  }
+  return new Float32Array(
+    buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
+  );
+}
+
 async function writeAtomicTextFile(path: string, content: string): Promise<void> {
   const tempPath = `${path}.tmp`;
   await mkdir(dirname(path), { recursive: true });
@@ -214,7 +223,7 @@ async function writeAtomicTextFile(path: string, content: string): Promise<void>
 
 async function writeAtomicBinaryFile(
   path: string,
-  array: Uint32Array | Int32Array,
+  array: Uint32Array | Int32Array | Float32Array,
 ): Promise<void> {
   const tempPath = `${path}.tmp`;
   await mkdir(dirname(path), { recursive: true });
