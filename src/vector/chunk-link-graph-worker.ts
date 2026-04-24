@@ -106,7 +106,6 @@ async function computeChunkLinkGraph(
     });
 
     const blockCount = Math.ceil(lineCount / blockSize);
-    const matrix = new Int32Array(blockCount * blockCount);
     if (crossBlockCandidateCount === 0) {
       emitProgress("matrix", "块间连接矩阵计算进度", 1, 1);
       const emptyStrengths = createEmptyBlockPairStrengths();
@@ -121,7 +120,6 @@ async function computeChunkLinkGraph(
         crossBlockCandidateCount,
         strongEdgeCount: 0,
         bidirectionalEdgeCount: 0,
-        matrix,
         blockPairCount: 0,
         blockPairSourceBlocks: emptyStrengths.sourceBlocks,
         blockPairTargetBlocks: emptyStrengths.targetBlocks,
@@ -137,15 +135,13 @@ async function computeChunkLinkGraph(
       topPercent,
     });
 
-    const bidirectionalEdgeCount = buildMatrixFromBidirectionalEdges({
+    const blockPairStrengths = buildBlockPairStrengthsFromBidirectionalEdges({
       strongSourceRows: strongEdges.sourceRows,
       strongTargetRows: strongEdges.targetRows,
       strongEdgeCount: strongEdges.edgeCount,
       blockSize,
       blockCount,
-      matrix,
     });
-    const blockPairStrengths = collectBlockPairStrengths(matrix, blockCount);
 
     return {
       lineCount,
@@ -157,8 +153,7 @@ async function computeChunkLinkGraph(
       candidateEdgeCount: retrievedCandidateCount,
       crossBlockCandidateCount,
       strongEdgeCount: strongEdges.edgeCount,
-      bidirectionalEdgeCount,
-      matrix,
+      bidirectionalEdgeCount: blockPairStrengths.bidirectionalEdgeCount,
       blockPairCount: blockPairStrengths.count,
       blockPairSourceBlocks: blockPairStrengths.sourceBlocks,
       blockPairTargetBlocks: blockPairStrengths.targetBlocks,
@@ -340,21 +335,25 @@ function selectStrongEdges(params: {
   };
 }
 
-function buildMatrixFromBidirectionalEdges(params: {
+function buildBlockPairStrengthsFromBidirectionalEdges(params: {
   strongSourceRows: Int32Array;
   strongTargetRows: Int32Array;
   strongEdgeCount: number;
   blockSize: number;
   blockCount: number;
-  matrix: Int32Array;
-}): number {
+}): {
+  bidirectionalEdgeCount: number;
+  count: number;
+  sourceBlocks: Int32Array;
+  targetBlocks: Int32Array;
+  strengths: Int32Array;
+} {
   const {
     strongSourceRows,
     strongTargetRows,
     strongEdgeCount,
     blockSize,
     blockCount,
-    matrix,
   } = params;
 
   const edgeSet = new Set<bigint>();
@@ -362,6 +361,7 @@ function buildMatrixFromBidirectionalEdges(params: {
     edgeSet.add(packEdgeKey(strongSourceRows[index]!, strongTargetRows[index]!));
   }
 
+  const pairStrengths = new Map<number, number>();
   let bidirectionalEdgeCount = 0;
   for (let index = 0; index < strongEdgeCount; index += 1) {
     const sourceRow = strongSourceRows[index]!;
@@ -374,18 +374,21 @@ function buildMatrixFromBidirectionalEdges(params: {
     const sourceBlock = Math.floor(sourceRow / blockSize);
     const targetBlock = Math.floor(targetRow / blockSize);
     if (sourceBlock !== targetBlock) {
-      const matrixIndex = sourceBlock * blockCount + targetBlock;
-      matrix[matrixIndex] = (matrix[matrixIndex] ?? 0) + 1;
+      const pairKey = sourceBlock * blockCount + targetBlock;
+      pairStrengths.set(pairKey, (pairStrengths.get(pairKey) ?? 0) + 1);
     }
     bidirectionalEdgeCount += 1;
     emitPeriodicProgress("matrix", "块间连接矩阵计算进度", index + 1, strongEdgeCount);
   }
 
-  return bidirectionalEdgeCount;
+  return {
+    bidirectionalEdgeCount,
+    ...collectBlockPairStrengths(pairStrengths, blockCount),
+  };
 }
 
 function collectBlockPairStrengths(
-  matrix: Int32Array,
+  pairStrengths: ReadonlyMap<number, number>,
   blockCount: number,
 ): {
   count: number;
@@ -393,29 +396,19 @@ function collectBlockPairStrengths(
   targetBlocks: Int32Array;
   strengths: Int32Array;
 } {
-  let count = 0;
-  for (let index = 0; index < matrix.length; index += 1) {
-    if (matrix[index]! > 0) {
-      count += 1;
-    }
-  }
-
+  const sortedPairs = [...pairStrengths.entries()]
+    .filter((entry) => entry[1] > 0)
+    .sort((left, right) => left[0] - right[0]);
+  const count = sortedPairs.length;
   const sourceBlocks = new Int32Array(count);
   const targetBlocks = new Int32Array(count);
   const strengths = new Int32Array(count);
 
-  let writeIndex = 0;
-  for (let index = 0; index < matrix.length; index += 1) {
-    const strength = matrix[index]!;
-    if (strength <= 0) {
-      continue;
-    }
-
-    sourceBlocks[writeIndex] = Math.floor(index / blockCount);
-    targetBlocks[writeIndex] = index % blockCount;
-    strengths[writeIndex] = strength;
-    writeIndex += 1;
-  }
+  sortedPairs.forEach(([pairKey, strength], index) => {
+    sourceBlocks[index] = Math.floor(pairKey / blockCount);
+    targetBlocks[index] = pairKey % blockCount;
+    strengths[index] = strength;
+  });
 
   return {
     count,
@@ -481,7 +474,6 @@ function validateParameters(params: {
 
 function collectTransferables(result: ChunkLinkGraphWorkerResult): ArrayBuffer[] {
   return [
-    result.matrix.buffer,
     result.blockPairSourceBlocks.buffer,
     result.blockPairTargetBlocks.buffer,
     result.blockPairStrengths.buffer,

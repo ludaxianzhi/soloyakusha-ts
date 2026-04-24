@@ -6,7 +6,7 @@ import { computeChunkLinkGraph } from "./chunk-link-graph.ts";
 import { createVectorStoreConfig, SqliteMemoryVectorStoreClient } from "./index.ts";
 
 describe("computeChunkLinkGraph", () => {
-  test("builds a bidirectional cross-block matrix with sqlite-memory vectors", async () => {
+  test("builds bidirectional cross-block pair strengths with sqlite-memory vectors", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-chunk-link-graph-"));
     const databasePath = join(workspaceDir, "vector.sqlite");
     const logs: string[] = [];
@@ -47,12 +47,6 @@ describe("computeChunkLinkGraph", () => {
       expect(Array.from(result.blockPairSourceBlocks)).toEqual([0, 1]);
       expect(Array.from(result.blockPairTargetBlocks)).toEqual([1, 0]);
       expect(Array.from(result.blockPairStrengths)).toEqual([2, 2]);
-      expect(Array.from(result.matrix)).toEqual([
-        0,
-        2,
-        2,
-        0,
-      ]);
       expect(logs.some((entry) => entry.includes("top10 获取进度:topk:4/4"))).toBe(true);
       expect(logs.some((entry) => entry.includes("块间连接矩阵计算进度:matrix:4/4"))).toBe(true);
 
