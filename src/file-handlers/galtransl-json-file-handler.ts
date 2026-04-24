@@ -23,6 +23,8 @@ import {
   type ParsedTranslationUnitBlock,
   TranslationFileHandler,
   extractBracketNameAndText,
+  normalizeBlankSourceUnit,
+  restoreBlankText,
 } from "./base.ts";
 
 /**
@@ -45,10 +47,10 @@ export class GaltranslJsonFileHandler extends TranslationFileHandler {
     const units = data.map<TranslationUnit>((item) => {
       const message = typeof item.message === "string" ? item.message : "";
       const name = typeof item.name === "string" ? item.name : undefined;
-      return {
+      return normalizeBlankSourceUnit({
         source: name ? `【${name}】${message}` : message,
         target: [],
-      };
+      });
     });
     const blocks = units.map<ParsedTranslationUnitBlock>((unit, index) => ({
       unit,
@@ -66,7 +68,7 @@ export class GaltranslJsonFileHandler extends TranslationFileHandler {
 
   override formatTranslationUnits(units: TranslationUnit[]): string {
     const data = units.map((unit) => {
-      const textToWrite = unit.target.at(-1) ?? unit.source;
+      const textToWrite = restoreBlankText(unit.target.at(-1) ?? unit.source);
       const parsed = extractBracketNameAndText(textToWrite);
       if (parsed.name) {
         return {

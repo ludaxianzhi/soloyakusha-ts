@@ -23,6 +23,11 @@ import type {
   TranslationFileHandler,
   TranslationFileHandlerResolver,
 } from "../../file-handlers/base.ts";
+import {
+  isBlankSourceText,
+  normalizeBlankSourceUnit,
+  restoreBlankText,
+} from "../../file-handlers/base.ts";
 import type { SavedRepetitionPatternAnalysisResult } from "../analysis/repetition-pattern-analysis.ts";
 import type {
   ChapterEntry,
@@ -378,20 +383,28 @@ export class TranslationDocumentManager {
   }
 
   getSourceText(chapterId: number, fragmentIndex: number): string {
-    return fragmentToText(this.getRequiredFragment(chapterId, fragmentIndex).source);
+    return fragmentToText(this.getRequiredFragment(chapterId, fragmentIndex).source).replace(
+      /<blank\/>/g,
+      "",
+    );
   }
 
   getTranslatedText(chapterId: number, fragmentIndex: number): string {
-    return fragmentToText(this.getRequiredFragment(chapterId, fragmentIndex).translation);
+    return fragmentToText(this.getRequiredFragment(chapterId, fragmentIndex).translation).replace(
+      /<blank\/>/g,
+      "",
+    );
   }
 
   getChapterSourceText(chapterId: number): string {
-    return this.getChapterTranslationUnits(chapterId).map((unit) => unit.source).join("\n");
+    return this.getChapterTranslationUnits(chapterId)
+      .map((unit) => restoreBlankText(unit.source))
+      .join("\n");
   }
 
   getChapterTranslatedText(chapterId: number): string {
     return this.getChapterTranslationUnits(chapterId)
-      .map((unit) => unit.target.at(-1) ?? "")
+      .map((unit) => restoreBlankText(unit.target.at(-1) ?? ""))
       .join("\n");
   }
 
@@ -812,6 +825,13 @@ function buildTranslationUnit(
   sourceLine: string,
 ): TranslationUnit {
   const metadataList = fragment.meta?.metadataList ?? [];
+  if (isBlankSourceText(sourceLine)) {
+    return normalizeBlankSourceUnit({
+      source: sourceLine,
+      target: [],
+      metadata: metadataList[lineIndex] ?? null,
+    });
+  }
   const targetGroups = fragment.meta?.targetGroups ?? [];
   const originalTargets = [...(targetGroups[lineIndex] ?? [])];
   const finalTranslation = fragment.translation.lines[lineIndex];
@@ -849,21 +869,28 @@ function createChapterEntry(
 }
 
 function createFragmentEntry(fragmentUnits: TranslationUnit[]): FragmentEntry {
-  const source = createTextFragment(fragmentUnits.map((unit) => unit.source));
+  const normalizedUnits = fragmentUnits.map((unit) => normalizeBlankSourceUnit(unit));
+  const source = createTextFragment(normalizedUnits.map((unit) => unit.source));
   return {
     source,
-    translation: createTextFragment(fragmentUnits.map((unit) => unit.target.at(-1) ?? "")),
+    translation: createTextFragment(
+      normalizedUnits.map((unit) => unit.target.at(-1) ?? ""),
+    ),
     pipelineStates: {},
     meta: {
-      metadataList: fragmentUnits.map((unit) => unit.metadata ?? null),
-      targetGroups: fragmentUnits.map((unit) => [...unit.target]),
+      metadataList: normalizedUnits.map((unit) => unit.metadata ?? null),
+      targetGroups: normalizedUnits.map((unit) => [...unit.target]),
     },
     hash: computeHash(source),
   };
 }
 
 function resetFragmentToUntranslated(fragment: FragmentEntry): void {
-  fragment.translation = { lines: fragment.source.lines.map(() => "") };
+  fragment.translation = {
+    lines: fragment.source.lines.map((sourceLine) =>
+      isBlankSourceText(sourceLine) ? "<blank/>" : "",
+    ),
+  };
   fragment.pipelineStates = {};
   if (fragment.meta) {
     fragment.meta.targetGroups = fragment.source.lines.map(() => []);

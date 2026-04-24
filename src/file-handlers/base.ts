@@ -12,6 +12,8 @@
 
 import type { TranslationUnit } from "../project/types.ts";
 
+export const BLANK_PLACEHOLDER = "<blank/>";
+
 export interface ParsedTranslationUnitBlock {
   unit: TranslationUnit;
   startLineNumber: number;
@@ -59,6 +61,37 @@ export type TranslationFileHandlerResolver = (
 
 export function stripBom(content: string): string {
   return content.startsWith("\uFEFF") ? content.slice(1) : content;
+}
+
+export function isBlankText(text: string | undefined): boolean {
+  return typeof text === "string" && text.trim().length === 0;
+}
+
+export function isBlankPlaceholder(text: string | undefined): boolean {
+  return text === BLANK_PLACEHOLDER;
+}
+
+export function isBlankSourceText(text: string | undefined): boolean {
+  return isBlankText(text) || isBlankPlaceholder(text);
+}
+
+export function normalizeBlankSourceUnit(unit: TranslationUnit): TranslationUnit {
+  if (!isBlankSourceText(unit.source)) {
+    return {
+      ...unit,
+      target: [...unit.target],
+    };
+  }
+
+  return {
+    source: BLANK_PLACEHOLDER,
+    target: [BLANK_PLACEHOLDER],
+    metadata: unit.metadata ?? null,
+  };
+}
+
+export function restoreBlankText(text: string): string {
+  return isBlankPlaceholder(text) ? "" : text;
 }
 
 export function extractBracketNameAndText(text: string): {

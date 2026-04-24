@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TranslationFileHandlerFactory } from "./factory.ts";
 import { GaltranslJsonFileHandler } from "./galtransl-json-file-handler.ts";
+import { NatureDialogFileHandler } from "./nature-dialog-file-handler.ts";
 import { NatureDialogKeepNameFileHandler } from "./nature-dialog-file-handler.ts";
 import { TranslationDocumentManager } from "../project/document/translation-document-manager.ts";
 
@@ -49,6 +50,17 @@ describe("file handlers", () => {
     const written = JSON.parse(await readFile(filePath, "utf8")) as Array<Record<string, string>>;
     expect(written[0]).toEqual({ message: "Narration" });
     expect(written[1]).toEqual({ name: "Alice", message: "Hello" });
+  });
+
+  test("round-trips blank nature dialog units as empty output", async () => {
+    const handler = new NatureDialogFileHandler();
+
+    const parsed = handler.parseTranslationDocument("○ \n\n");
+    expect(parsed.units).toEqual([
+      { source: "<blank/>", target: ["<blank/>"], metadata: null },
+    ]);
+
+    expect(handler.formatTranslationUnits(parsed.units)).toBe("○ \n● \n");
   });
 
   test("keeps source names in nature dialog keepname format", async () => {

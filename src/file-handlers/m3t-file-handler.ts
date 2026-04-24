@@ -25,6 +25,8 @@ import {
   type ParsedTranslationUnitBlock,
   TranslationFileHandler,
   extractBracketNameAndText,
+  normalizeBlankSourceUnit,
+  restoreBlankText,
   stripBom,
 } from "./base.ts";
 
@@ -73,18 +75,18 @@ function formatM3TTranslationUnits(units: TranslationUnit[]): string {
     if (parsed.name) {
       lines.push(`○ NAME: ${parsed.name}`);
       lines.push("");
-      lines.push(`○ ${parsed.body}`);
+      lines.push(`○ ${restoreBlankText(parsed.body)}`);
 
       for (const [index, targetText] of unit.target.entries()) {
         const targetParsed = extractBracketNameAndText(targetText);
         const prefix = index === unit.target.length - 1 ? "●" : "○";
-        lines.push(`${prefix} ${targetParsed.body}`);
+        lines.push(`${prefix} ${restoreBlankText(targetParsed.body)}`);
       }
     } else {
-      lines.push(`○ ${unit.source}`);
+      lines.push(`○ ${restoreBlankText(unit.source)}`);
       for (const [index, targetText] of unit.target.entries()) {
         const prefix = index === unit.target.length - 1 ? "●" : "○";
-        lines.push(`${prefix} ${targetText}`);
+        lines.push(`${prefix} ${restoreBlankText(targetText)}`);
       }
     }
 
@@ -177,6 +179,7 @@ function parseM3TDocument(content: string): ParsedTranslationDocument {
     const targets: string[] = [];
     const targetLineNumbers: number[] = [];
     let endLineNumber = sourceLineNumber;
+    let hasEmittedUnit = false;
     index += 1;
 
     while (index < lines.length) {
@@ -190,10 +193,10 @@ function parseM3TDocument(content: string): ParsedTranslationDocument {
         endLineNumber = index + 1;
         index += 1;
         if (targetLine.startsWith("●")) {
-          const unit: TranslationUnit = {
+            const unit = normalizeBlankSourceUnit({
             source,
             target: targets,
-          };
+            });
           units.push(unit);
           blocks.push({
             unit,
@@ -202,12 +205,28 @@ function parseM3TDocument(content: string): ParsedTranslationDocument {
             sourceLineNumber,
             targetLineNumbers,
           });
+            hasEmittedUnit = true;
           break;
         }
         continue;
       }
       break;
     }
+
+      if (!hasEmittedUnit && source.trim().length === 0) {
+        const unit = normalizeBlankSourceUnit({
+          source,
+          target: targets,
+        });
+        units.push(unit);
+        blocks.push({
+          unit,
+          startLineNumber,
+          endLineNumber,
+          sourceLineNumber,
+          targetLineNumbers,
+        });
+      }
   }
 
   return {

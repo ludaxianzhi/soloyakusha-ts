@@ -5,6 +5,7 @@
  */
 
 import type { TranslationFileHandler, TranslationFileHandlerResolver } from "../../file-handlers/base.ts";
+import { restoreBlankText } from "../../file-handlers/base.ts";
 import { TranslationFileHandlerFactory } from "../../file-handlers/factory.ts";
 import { Glossary, GlossaryPersisterFactory } from "../../glossary/index.ts";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -2145,8 +2146,8 @@ function buildPreviewUnit(index: number, unit: TranslationUnit) {
   const translatedText = unit.target.at(-1) ?? "";
   return {
     index,
-    sourceText: unit.source,
-    translatedText,
+    sourceText: restoreBlankText(unit.source),
+    translatedText: restoreBlankText(translatedText),
     hasTranslation: translatedText.trim().length > 0,
   };
 }

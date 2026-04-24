@@ -20,6 +20,7 @@ import {
   type ParsedTranslationDocument,
   type ParsedTranslationUnitBlock,
   TranslationFileHandler,
+  restoreBlankText,
   stripBom,
 } from "./base.ts";
 
@@ -69,7 +70,7 @@ export class PlainTextFileHandler extends TranslationFileHandler {
   }
 
   override formatTranslationUnits(units: TranslationUnit[]): string {
-    const lines = units.map((unit) => unit.target.at(-1) ?? unit.source);
+    const lines = units.map((unit) => restoreBlankText(unit.target.at(-1) ?? unit.source));
     return `${lines.join("\n")}\n`;
   }
 

@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PlainTextFileHandler } from "../../file-handlers/plain-text-file-handler.ts";
+import { NatureDialogFileHandler } from "../../file-handlers/nature-dialog-file-handler.ts";
+import { TranslationFileHandlerFactory } from "../../file-handlers/factory.ts";
 import {
   DefaultTextSplitter,
   TranslationDocumentManager,
@@ -19,6 +21,40 @@ afterEach(async () => {
 });
 
 describe("TranslationDocumentManager sliding window views", () => {
+  test("preserves blank source units through loading and export", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-blank-unit-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourcePath = join(workspaceDir, "chapter.txt");
+    await writeFile(sourcePath, "○ \n\n○ 正常\n● 翻译\n\n", "utf8");
+
+    const manager = new TranslationDocumentManager(workspaceDir, {
+      textSplitter: {
+        split(units) {
+          return units.map((unit) => [unit]);
+        },
+      },
+      fileHandlerResolver: TranslationFileHandlerFactory.createExtensionResolver({
+        ".txt": "naturedialog",
+      }),
+    });
+    await manager.loadChapters([{ chapterId: 1, filePath: sourcePath }]);
+
+    expect(manager.getSourceText(1, 0)).toBe("");
+    expect(manager.getTranslatedText(1, 0)).toBe("");
+    expect(manager.getChapterTranslationUnits(1)[0]).toMatchObject({
+      source: "<blank/>",
+      target: [
+        "<blank/>",
+      ],
+    });
+
+    const exportPath = join(workspaceDir, "export.txt");
+    await manager.exportChapter(1, exportPath, new NatureDialogFileHandler());
+
+    expect(await readFile(exportPath, "utf8")).toBe("○ \n● \n\n○ 正常\n● 翻译\n");
+  });
+
   test("derives chapter-bounded sliding windows from base fragments and backfills only the focus fragment", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-window-"));
     cleanupTargets.push(workspaceDir);

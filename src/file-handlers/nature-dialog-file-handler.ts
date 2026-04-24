@@ -27,6 +27,8 @@ import {
   type ParsedTranslationUnitBlock,
   TranslationFileHandler,
   extractBracketNameAndText,
+  normalizeBlankSourceUnit,
+  restoreBlankText,
   stripBom,
 } from "./base.ts";
 
@@ -168,10 +170,10 @@ function buildNatureDialogContent(units: TranslationUnit[]): string {
   const lines: string[] = [];
 
   for (const unit of units) {
-    lines.push(`○ ${unit.source}`);
+    lines.push(`○ ${restoreBlankText(unit.source)}`);
     for (const [index, targetText] of unit.target.entries()) {
       const prefix = index === unit.target.length - 1 ? "●" : "○";
-      lines.push(`${prefix} ${targetText}`);
+      lines.push(`${prefix} ${restoreBlankText(targetText)}`);
     }
     lines.push("");
   }
@@ -191,7 +193,10 @@ function parseNatureDialogDocument(content: string): ParsedTranslationDocument {
   let currentTargetLineNumbers: number[] = [];
 
   const flushCurrentUnit = (endLineNumber: number) => {
-    if (currentSource === undefined || currentTargets.length === 0) {
+    if (
+      currentSource === undefined ||
+      (currentTargets.length === 0 && currentSource.trim().length > 0)
+    ) {
       currentSource = undefined;
       currentTargets = [];
       currentStartLineNumber = undefined;
@@ -200,10 +205,10 @@ function parseNatureDialogDocument(content: string): ParsedTranslationDocument {
       return;
     }
 
-    const unit: TranslationUnit = {
+    const unit = normalizeBlankSourceUnit({
       source: currentSource,
       target: [...currentTargets],
-    };
+    });
     units.push(unit);
     blocks.push({
       unit,
