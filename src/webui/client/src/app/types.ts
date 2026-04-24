@@ -264,6 +264,7 @@ export interface ContextNetworkBuildResult {
   vectorStoreType: 'registered' | 'memory';
   fragmentCount: number;
   edgeCount: number;
+  minEdgeStrength: number;
 }
 
 export interface RepetitionPatternLocation {

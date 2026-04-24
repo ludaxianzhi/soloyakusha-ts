@@ -1010,12 +1010,15 @@ export function AppShell() {
   );
 
   const handleBuildContextNetwork = useCallback(
-    async (vectorStoreType: 'registered' | 'memory') => {
+    async (input: {
+      vectorStoreType: 'registered' | 'memory';
+      minEdgeStrength: number;
+    }) => {
       await runAction(async () => {
-        const result = await api.buildContextNetwork(vectorStoreType);
+        const result = await api.buildContextNetwork(input);
         await refreshProjectStatus();
         message.success(
-          `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边`,
+          `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边，最小连接数阈值 ${result.minEdgeStrength}`,
         );
       });
     },

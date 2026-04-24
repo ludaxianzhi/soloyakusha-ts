@@ -7,6 +7,7 @@ import {
   Col,
   Modal,
   Empty,
+  InputNumber,
   Popconfirm,
   Progress,
   Radio,
@@ -35,7 +36,10 @@ interface WorkspaceDashboardTabProps {
   pipelineStrategy?: 'default' | 'context-network';
   onRefreshProjectStatus: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
-  onBuildContextNetwork: (vectorStoreType: 'registered' | 'memory') => void | Promise<void>;
+  onBuildContextNetwork: (input: {
+    vectorStoreType: 'registered' | 'memory';
+    minEdgeStrength: number;
+  }) => void | Promise<void>;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
@@ -56,6 +60,7 @@ export function WorkspaceDashboardTab({
 }: WorkspaceDashboardTabProps) {
   const [contextNetworkModalOpen, setContextNetworkModalOpen] = useState(false);
   const [vectorStoreType, setVectorStoreType] = useState<'registered' | 'memory'>('registered');
+  const [minEdgeStrength, setMinEdgeStrength] = useState(3);
 
   usePollingTask({
     enabled: active && !sseConnected,
@@ -237,7 +242,7 @@ export function WorkspaceDashboardTab({
         confirmLoading={projectStatus?.isBusy === true}
         onCancel={() => setContextNetworkModalOpen(false)}
         onOk={async () => {
-          await onBuildContextNetwork(vectorStoreType);
+          await onBuildContextNetwork({ vectorStoreType, minEdgeStrength });
           setContextNetworkModalOpen(false);
         }}
       >
@@ -246,7 +251,7 @@ export function WorkspaceDashboardTab({
             type="info"
             showIcon
             message="请选择上下文网络构建使用的向量数据库"
-            description="内存向量数据库只支持最多 50K 条、256 维向量；不做预检，超限时会直接返回错误。"
+            description="内存向量数据库只支持最多 50K 条、256 维向量；不做预检，超限时会直接返回错误。最小连接数阈值会过滤掉连接数小于该值的边。"
           />
           <Radio.Group
             value={vectorStoreType}
@@ -257,6 +262,19 @@ export function WorkspaceDashboardTab({
               <Radio value="memory">使用内存向量数据库</Radio>
             </Space>
           </Radio.Group>
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Typography.Text>最小连接数阈值</Typography.Text>
+            <InputNumber
+              min={1}
+              precision={0}
+              style={{ width: '100%' }}
+              value={minEdgeStrength}
+              onChange={(value) => setMinEdgeStrength(value ?? 3)}
+            />
+            <Typography.Text type="secondary">
+              当前值为 {minEdgeStrength}，将只保留连接数大于等于 {minEdgeStrength} 的边。
+            </Typography.Text>
+          </Space>
         </Space>
       </Modal>
     </div>

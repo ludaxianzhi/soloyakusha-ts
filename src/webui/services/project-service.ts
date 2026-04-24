@@ -20,8 +20,11 @@ import {
   TranslationGlobalConfig,
   type TranslationProcessorConfig,
 } from '../../project/config.ts';
-import { buildContextNetworkData } from '../../project/context/context-network-builder.ts';
-import { collectSourceTextBlocks } from '../../project/pipeline/default-translation-pipeline.ts';
+import { buildContextNetworkDataFromSentenceGraph } from '../../project/context/context-network-builder.ts';
+import {
+  collectSourceTextBlocks,
+  collectSourceTextSentences,
+} from '../../project/pipeline/default-translation-pipeline.ts';
 import {
   PromptManager,
   type ChapterTranslationAssistantConversationTurn,
@@ -117,6 +120,7 @@ export interface ContextNetworkBuildResult {
   vectorStoreType: ContextNetworkVectorStoreType;
   fragmentCount: number;
   edgeCount: number;
+  minEdgeStrength: number;
 }
 
 export interface PlotSummaryProgress {
@@ -2169,6 +2173,7 @@ export class ProjectService {
 
   async buildContextNetwork(input: {
     vectorStoreType: ContextNetworkVectorStoreType;
+    minEdgeStrength?: number;
   }): Promise<ContextNetworkBuildResult> {
     if (this.isBusy) {
       throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
@@ -2185,6 +2190,12 @@ export class ProjectService {
 
     this.isBusy = true;
     this.log('info', '开始构建上下文网络...');
+
+    const minEdgeStrength = input.minEdgeStrength ?? 2;
+    if (!Number.isInteger(minEdgeStrength) || minEdgeStrength <= 0) {
+      this.isBusy = false;
+      throw new ProjectServiceUserInputError('最小连接数阈值必须是正整数');
+    }
 
     let provider: ReturnType<TranslationGlobalConfig['createProvider']> | undefined;
     try {
@@ -2205,10 +2216,18 @@ export class ProjectService {
         throw new ProjectServiceUserInputError('当前工作区没有可用于构建上下文网络的文本块');
       }
 
-      this.log('info', `正在生成文本块向量（${blocks.length} 个）...`);
+      const sentences = collectSourceTextSentences(
+        project.getDocumentManager(),
+        workspaceConfig.chapters,
+      );
+      if (sentences.length === 0) {
+        throw new ProjectServiceUserInputError('当前工作区没有可用于构建上下文网络的句子');
+      }
+
+      this.log('info', `正在生成句子向量（${sentences.length} 句，来自 ${blocks.length} 个文本块）...`);
       const embeddings = await provider
         .getEmbeddingClient(GLOBAL_EMBEDDING_CLIENT_NAME)
-        .getEmbeddings(blocks.map((block: { text: string }) => block.text));
+        .getEmbeddings(sentences.map((sentence) => sentence.text));
 
       const vectorStoreConfig = await resolveContextNetworkVectorStoreConfig(
         globalConfigManager,
@@ -2227,10 +2246,12 @@ export class ProjectService {
         { logger: this.createLogger() },
       );
 
-      const network = buildContextNetworkData({
+      const network = buildContextNetworkDataFromSentenceGraph({
         sourceRevision: workspaceConfig.dependencyTracking?.sourceRevision ?? 0,
         fragmentCount: blocks.length,
+        sentenceToFragmentIndices: sentences.map((sentence) => sentence.fragmentGlobalIndex),
         graph,
+        minEdgeStrength,
       });
 
       await project.clearContextNetwork();
@@ -2240,10 +2261,11 @@ export class ProjectService {
         vectorStoreType: input.vectorStoreType,
         fragmentCount: network.manifest.fragmentCount,
         edgeCount: network.manifest.edgeCount,
+        minEdgeStrength,
       };
       this.log(
         'success',
-        `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边`,
+        `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边，最小连接数阈值 ${result.minEdgeStrength}`,
       );
       return result;
     } catch (error) {

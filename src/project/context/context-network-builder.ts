@@ -4,6 +4,11 @@ import {
   type ContextNetworkData,
 } from "./context-network-types.ts";
 
+type OutgoingEdge = {
+  target: number;
+  strength: number;
+};
+
 export function buildContextNetworkData(params: {
   sourceRevision: number;
   fragmentCount: number;
@@ -18,15 +23,9 @@ export function buildContextNetworkData(params: {
       `chunk link graph 片段数量不匹配: blockCount=${graph.blockCount}, lineCount=${graph.lineCount}, fragmentCount=${fragmentCount}`,
     );
   }
-  if (
-    graph.blockPairSourceBlocks.length !== graph.blockPairCount ||
-    graph.blockPairTargetBlocks.length !== graph.blockPairCount ||
-    graph.blockPairStrengths.length !== graph.blockPairCount
-  ) {
-    throw new Error("chunk link graph block pair 数据长度不一致");
-  }
+  validateBlockPairLengths(graph);
 
-  const outgoing = new Map<number, Array<{ target: number; strength: number }>>();
+  const outgoing = new Map<number, OutgoingEdge[]>();
   for (let index = 0; index < graph.blockPairCount; index += 1) {
     const source = graph.blockPairSourceBlocks[index];
     const target = graph.blockPairTargetBlocks[index];
@@ -48,6 +47,135 @@ export function buildContextNetworkData(params: {
     outgoing.set(source, existing);
   }
 
+  return createContextNetworkData({
+    sourceRevision,
+    fragmentCount,
+    blockSize: graph.blockSize,
+    outgoing,
+  });
+}
+
+export function buildContextNetworkDataFromSentenceGraph(params: {
+  sourceRevision: number;
+  fragmentCount: number;
+  sentenceToFragmentIndices: ReadonlyArray<number>;
+  graph: ChunkLinkGraphResult;
+  minEdgeStrength?: number;
+}): ContextNetworkData {
+  const {
+    sourceRevision,
+    fragmentCount,
+    sentenceToFragmentIndices,
+    graph,
+    minEdgeStrength = 1,
+  } = params;
+  if (graph.blockSize !== 1) {
+    throw new Error(`仅支持 blockSize=1 的句子级 chunk link graph，当前为 ${graph.blockSize}`);
+  }
+  if (graph.blockCount !== graph.lineCount) {
+    throw new Error(
+      `句子级 chunk link graph 数据无效: blockCount=${graph.blockCount}, lineCount=${graph.lineCount}`,
+    );
+  }
+  if (sentenceToFragmentIndices.length !== graph.lineCount) {
+    throw new Error(
+      `句子映射长度不匹配: sentenceToFragmentIndices=${sentenceToFragmentIndices.length}, lineCount=${graph.lineCount}`,
+    );
+  }
+  if (!Number.isInteger(minEdgeStrength) || minEdgeStrength <= 0) {
+    throw new Error(`minEdgeStrength 必须是正整数，当前为 ${String(minEdgeStrength)}`);
+  }
+  validateBlockPairLengths(graph);
+
+  const pairStrengths = new Map<string, number>();
+  for (let sentenceIndex = 0; sentenceIndex < sentenceToFragmentIndices.length; sentenceIndex += 1) {
+    const fragmentIndex = sentenceToFragmentIndices[sentenceIndex];
+    if (
+      fragmentIndex === undefined ||
+      fragmentIndex < 0 ||
+      fragmentIndex >= fragmentCount
+    ) {
+      throw new Error(
+        `句子到片段映射越界: sentence=${sentenceIndex}, fragment=${String(fragmentIndex)}`,
+      );
+    }
+  }
+
+  for (let index = 0; index < graph.blockPairCount; index += 1) {
+    const sourceSentence = graph.blockPairSourceBlocks[index];
+    const targetSentence = graph.blockPairTargetBlocks[index];
+    const strength = graph.blockPairStrengths[index];
+    if (
+      sourceSentence === undefined ||
+      targetSentence === undefined ||
+      strength === undefined
+    ) {
+      continue;
+    }
+    if (
+      sourceSentence < 0 ||
+      sourceSentence >= graph.lineCount ||
+      targetSentence < 0 ||
+      targetSentence >= graph.lineCount
+    ) {
+      throw new Error(
+        `句子级 chunk link graph block pair 越界: source=${sourceSentence}, target=${targetSentence}`,
+      );
+    }
+
+    const sourceFragment = sentenceToFragmentIndices[sourceSentence]!;
+    const targetFragment = sentenceToFragmentIndices[targetSentence]!;
+    if (sourceFragment === targetFragment) {
+      continue;
+    }
+
+    const pairKey = `${sourceFragment}:${targetFragment}`;
+    pairStrengths.set(pairKey, (pairStrengths.get(pairKey) ?? 0) + strength);
+  }
+
+  const outgoing = new Map<number, OutgoingEdge[]>();
+  for (const [pairKey, strength] of pairStrengths) {
+    if (strength < minEdgeStrength) {
+      continue;
+    }
+
+    const [sourceText, targetText] = pairKey.split(":");
+    const source = Number.parseInt(sourceText ?? "", 10);
+    const target = Number.parseInt(targetText ?? "", 10);
+    if (!Number.isInteger(source) || !Number.isInteger(target)) {
+      throw new Error(`句子级片段聚合键无效: ${pairKey}`);
+    }
+
+    const existing = outgoing.get(source) ?? [];
+    existing.push({ target, strength });
+    outgoing.set(source, existing);
+  }
+
+  return createContextNetworkData({
+    sourceRevision,
+    fragmentCount,
+    blockSize: 1,
+    outgoing,
+  });
+}
+
+function validateBlockPairLengths(graph: ChunkLinkGraphResult): void {
+  if (
+    graph.blockPairSourceBlocks.length !== graph.blockPairCount ||
+    graph.blockPairTargetBlocks.length !== graph.blockPairCount ||
+    graph.blockPairStrengths.length !== graph.blockPairCount
+  ) {
+    throw new Error("chunk link graph block pair 数据长度不一致");
+  }
+}
+
+function createContextNetworkData(params: {
+  sourceRevision: number;
+  fragmentCount: number;
+  blockSize: number;
+  outgoing: ReadonlyMap<number, ReadonlyArray<OutgoingEdge>>;
+}): ContextNetworkData {
+  const { sourceRevision, fragmentCount, blockSize, outgoing } = params;
   const offsets = new Uint32Array(fragmentCount + 1);
   const targets: number[] = [];
   const strengths: number[] = [];
@@ -71,7 +199,7 @@ export function buildContextNetworkData(params: {
       schemaVersion: CONTEXT_NETWORK_SCHEMA_VERSION,
       sourceRevision,
       fragmentCount,
-      blockSize: graph.blockSize,
+      blockSize,
       edgeCount: targets.length,
       maxOutgoingPerNode,
       createdAt: new Date().toISOString(),

@@ -388,10 +388,13 @@ export const api = {
       method: 'PUT',
       body: patch,
     }),
-  buildContextNetwork: (vectorStoreType: 'registered' | 'memory') =>
+  buildContextNetwork: (payload: {
+    vectorStoreType: 'registered' | 'memory';
+    minEdgeStrength: number;
+  }) =>
     request<ContextNetworkBuildResult>('/api/project/context-network', {
       method: 'POST',
-      body: { vectorStoreType },
+      body: payload,
     }),
   resetProject: (payload: Record<string, unknown>) =>
     request('/api/project/reset', {

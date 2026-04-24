@@ -74,7 +74,10 @@ export interface WorkspaceViewProps {
   onRefreshWorkspaceConfig: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onBuildContextNetwork: (
-    vectorStoreType: 'registered' | 'memory',
+    input: {
+      vectorStoreType: 'registered' | 'memory';
+      minEdgeStrength: number;
+    },
   ) => void | Promise<void>;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;

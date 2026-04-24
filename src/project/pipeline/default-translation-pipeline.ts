@@ -294,3 +294,53 @@ export function collectSourceTextBlocks(
     })),
   );
 }
+
+export function collectSourceTextSentences(
+  documentManager: TranslationDocumentManager,
+  chapters: Chapter[],
+): Array<{
+  sentenceId: string;
+  text: string;
+  fragmentGlobalIndex: number;
+  chapterId: number;
+  fragmentIndex: number;
+  lineIndex: number;
+}> {
+  const chaptersById = new Map(documentManager.getAllChapters().map((chapter) => [chapter.id, chapter]));
+  const sentences: Array<{
+    sentenceId: string;
+    text: string;
+    fragmentGlobalIndex: number;
+    chapterId: number;
+    fragmentIndex: number;
+    lineIndex: number;
+  }> = [];
+
+  let fragmentGlobalIndex = 0;
+  for (const chapter of chapters) {
+    const chapterEntry = chaptersById.get(chapter.id);
+    if (!chapterEntry) {
+      continue;
+    }
+
+    chapterEntry.fragments.forEach((fragment, fragmentIndex) => {
+      fragment.source.lines.forEach((text, lineIndex) => {
+        if (text.trim().length === 0) {
+          return;
+        }
+
+        sentences.push({
+          sentenceId: `chapter:${chapter.id}:fragment:${fragmentIndex}:line:${lineIndex}`,
+          text,
+          fragmentGlobalIndex,
+          chapterId: chapter.id,
+          fragmentIndex,
+          lineIndex,
+        });
+      });
+      fragmentGlobalIndex += 1;
+    });
+  }
+
+  return sentences;
+}
