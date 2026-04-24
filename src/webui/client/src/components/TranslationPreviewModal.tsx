@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Empty,
+  Grid,
   Input,
   Modal,
   Segmented,
@@ -22,14 +23,18 @@ type PreviewViewMode = 'safe' | 'card';
 interface TranslationPreviewModalProps {
   open: boolean;
   chapters: WorkspaceChapterDescriptor[];
+  defaultChapterId?: number;
   onCancel: () => void;
 }
 
 export function TranslationPreviewModal({
   open,
   chapters,
+  defaultChapterId,
   onCancel,
 }: TranslationPreviewModalProps) {
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const [selectedChapterId, setSelectedChapterId] = useState<number>();
   const [preview, setPreview] = useState<TranslationPreviewChapter | null>(null);
   const [loading, setLoading] = useState(false);
@@ -53,10 +58,12 @@ export function TranslationPreviewModal({
     }
     const fallbackChapterId =
       chapters.find((chapter) => chapter.hasTranslationData)?.id ?? chapters[0]?.id;
-    setSelectedChapterId((current) =>
-      current && chapters.some((chapter) => chapter.id === current) ? current : fallbackChapterId,
-    );
-  }, [chapters, open]);
+    const preferredChapterId =
+      defaultChapterId && chapters.some((chapter) => chapter.id === defaultChapterId)
+        ? defaultChapterId
+        : fallbackChapterId;
+    setSelectedChapterId(preferredChapterId);
+  }, [chapters, defaultChapterId, open]);
 
   useEffect(() => {
     if (!open || selectedChapterId === undefined) {
@@ -110,7 +117,8 @@ export function TranslationPreviewModal({
     <Modal
       open={open}
       title="译文预览"
-      width={1040}
+      width={isMobile ? 'calc(100vw - 16px)' : 1040}
+      style={isMobile ? { top: 8 } : undefined}
       destroyOnClose={false}
       footer={<Button onClick={onCancel}>关闭</Button>}
       onCancel={onCancel}
@@ -122,7 +130,7 @@ export function TranslationPreviewModal({
           <Space wrap className="translation-preview-toolbar">
             <Select
               value={selectedChapterId}
-              style={{ minWidth: 320 }}
+              style={isMobile ? { width: '100%' } : { minWidth: 320 }}
               options={chapterOptions}
               onChange={(value) => setSelectedChapterId(value)}
             />
@@ -142,7 +150,7 @@ export function TranslationPreviewModal({
             <Input.Search
               allowClear
               placeholder="搜索原文或译文"
-              style={{ width: 240 }}
+              style={isMobile ? { width: '100%' } : { width: 240 }}
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
             />

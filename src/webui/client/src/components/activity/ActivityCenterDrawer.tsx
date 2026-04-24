@@ -33,16 +33,28 @@ const HISTORY_PAGE_SIZE = 20;
 interface ActivityCenterDrawerProps {
   open: boolean;
   onClose: () => void;
+  mobileMode?: boolean;
 }
 
-export function ActivityCenterDrawer({ open, onClose }: ActivityCenterDrawerProps) {
+export function ActivityCenterDrawer({
+  open,
+  onClose,
+  mobileMode = false,
+}: ActivityCenterDrawerProps) {
   const [activeTabKey, setActiveTabKey] = useState('runtime-logs');
+
+  useEffect(() => {
+    if (mobileMode && activeTabKey !== 'runtime-logs') {
+      setActiveTabKey('runtime-logs');
+    }
+  }, [activeTabKey, mobileMode]);
 
   return (
     <Drawer
-      title="活动中心"
-      placement="right"
-      width={960}
+      title={mobileMode ? '运行日志' : '活动中心'}
+      placement={mobileMode ? 'bottom' : 'right'}
+      width={mobileMode ? undefined : 960}
+      height={mobileMode ? '100%' : undefined}
       open={open}
       onClose={onClose}
       destroyOnClose={false}
@@ -67,7 +79,7 @@ export function ActivityCenterDrawer({ open, onClose }: ActivityCenterDrawerProp
             label: '使用统计',
             children: <UsageStatsPanel active={open && activeTabKey === 'usage-stats'} />,
           },
-        ]}
+        ].filter((item) => !mobileMode || item.key === 'runtime-logs')}
       />
     </Drawer>
   );

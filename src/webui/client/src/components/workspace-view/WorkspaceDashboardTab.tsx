@@ -34,6 +34,7 @@ interface WorkspaceDashboardTabProps {
   snapshot: TranslationProjectSnapshot;
   projectStatus: ProjectStatus | null;
   pipelineStrategy?: 'default' | 'context-network';
+  mobileMode?: boolean;
   onRefreshProjectStatus: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onBuildContextNetwork: (input: {
@@ -51,6 +52,7 @@ export function WorkspaceDashboardTab({
   snapshot,
   projectStatus,
   pipelineStrategy,
+  mobileMode = false,
   onRefreshProjectStatus,
   onProjectCommand,
   onBuildContextNetwork,
@@ -116,19 +118,23 @@ export function WorkspaceDashboardTab({
           >
             中止
           </Button>
-          <Button
-            disabled={projectStatus?.isBusy === true}
-            onClick={() => void onProjectCommand('scan')}
-          >
-            扫描术语
-          </Button>
-          <Button
-            disabled={projectStatus?.isBusy === true}
-            onClick={() => void onProjectCommand('plot')}
-          >
-            生成情节大纲
-          </Button>
-          {pipelineStrategy === 'context-network' ? (
+          {!mobileMode ? (
+            <>
+              <Button
+                disabled={projectStatus?.isBusy === true}
+                onClick={() => void onProjectCommand('scan')}
+              >
+                扫描术语
+              </Button>
+              <Button
+                disabled={projectStatus?.isBusy === true}
+                onClick={() => void onProjectCommand('plot')}
+              >
+                生成情节大纲
+              </Button>
+            </>
+          ) : null}
+          {!mobileMode && pipelineStrategy === 'context-network' ? (
             <Button
               disabled={projectStatus?.isBusy === true}
               onClick={() => setContextNetworkModalOpen(true)}
@@ -136,18 +142,22 @@ export function WorkspaceDashboardTab({
               构建上下文网络
             </Button>
           ) : null}
-          <Button onClick={() => void onProjectCommand('close')}>关闭工作区</Button>
-          <Popconfirm
-            title="确认删除当前工作区？"
-            onConfirm={() => void onProjectCommand('remove')}
-          >
-            <Button danger>移除工作区</Button>
-          </Popconfirm>
+          {!mobileMode ? (
+            <>
+              <Button onClick={() => void onProjectCommand('close')}>关闭工作区</Button>
+              <Popconfirm
+                title="确认删除当前工作区？"
+                onConfirm={() => void onProjectCommand('remove')}
+              >
+                <Button danger>移除工作区</Button>
+              </Popconfirm>
+            </>
+          ) : null}
         </Space>
       </Card>
 
       <Row gutter={12}>
-        <Col span={6}>
+        <Col xs={12} md={6}>
           <Card>
             <Statistic
               title="章节进度"
@@ -160,7 +170,7 @@ export function WorkspaceDashboardTab({
             </Typography.Text>
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} md={6}>
           <Card>
             <Statistic
               title="片段进度"
@@ -173,7 +183,7 @@ export function WorkspaceDashboardTab({
             </Typography.Text>
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} md={6}>
           <Card>
             <Statistic
               title="排队/运行"
@@ -181,7 +191,7 @@ export function WorkspaceDashboardTab({
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} md={6}>
           <Card>
             <Statistic title="术语表" value={snapshot.glossary?.totalTerms ?? 0} />
             <Typography.Text type="secondary">
@@ -193,12 +203,13 @@ export function WorkspaceDashboardTab({
 
       <TaskActivityPanels
         projectStatus={projectStatus}
+        tasks={mobileMode ? [] : undefined}
         onAbortTaskActivity={onAbortTaskActivity}
         onResumeTaskActivity={onResumeTaskActivity}
         onDismissTaskActivity={onDismissTaskActivity}
       />
 
-      <Card title="步骤队列">
+      <Card title={mobileMode ? '翻译队列' : '步骤队列'}>
         {snapshot.queueSnapshots.length === 0 ? (
           <Empty description="暂无步骤数据" />
         ) : (

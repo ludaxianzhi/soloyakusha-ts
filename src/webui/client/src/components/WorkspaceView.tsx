@@ -14,6 +14,7 @@ export function WorkspaceView({
   snapshot,
   projectStatus,
   pipelineStrategy,
+  mobileMode = false,
   sseConnected,
   dictionary,
   repeatedPatterns,
@@ -61,8 +62,11 @@ export function WorkspaceView({
   const [activeTabKey, setActiveTabKey] = useState('dashboard');
   const prefetchedWorkspaceKeyRef = useRef<string | null>(null);
   const availableTabKeys = useMemo(
-    () => ['dashboard', 'dictionary', 'chapters', 'workspace-config', 'consistency-analysis'],
-    [],
+    () =>
+      mobileMode
+        ? ['dashboard', 'chapters']
+        : ['dashboard', 'dictionary', 'chapters', 'workspace-config', 'consistency-analysis'],
+    [mobileMode],
   );
 
   useEffect(() => {
@@ -71,6 +75,12 @@ export function WorkspaceView({
       setActiveTabKey(tab);
     }
   }, [availableTabKeys, location.search]);
+
+  useEffect(() => {
+    if (!availableTabKeys.includes(activeTabKey)) {
+      setActiveTabKey(availableTabKeys[0] ?? 'dashboard');
+    }
+  }, [activeTabKey, availableTabKeys]);
 
   useEffect(() => {
     if (!snapshot) {
@@ -83,8 +93,8 @@ export function WorkspaceView({
     }
 
     prefetchedWorkspaceKeyRef.current = snapshot.projectName;
-    void Promise.all([onRefreshChapters(), onRefreshTopology()]);
-  }, [onRefreshChapters, onRefreshTopology, snapshot?.projectName]);
+    void Promise.all(mobileMode ? [onRefreshChapters()] : [onRefreshChapters(), onRefreshTopology()]);
+  }, [mobileMode, onRefreshChapters, onRefreshTopology, snapshot?.projectName]);
 
   if (!snapshot) {
     return (
@@ -92,7 +102,11 @@ export function WorkspaceView({
         type="info"
         showIcon
         message="当前没有打开的工作区"
-        description="请前往“创建工作区”或“最近工作区”页面创建 / 打开项目。"
+        description={
+          mobileMode
+            ? '移动端仅提供已打开工作区的进度查询、控制、日志与章节预览，请先在桌面端创建或打开项目。'
+            : '请前往“创建工作区”或“最近工作区”页面创建 / 打开项目。'
+        }
       />
     );
   }
@@ -114,6 +128,7 @@ export function WorkspaceView({
                 snapshot={snapshot}
                 projectStatus={projectStatus}
                 pipelineStrategy={pipelineStrategy}
+                mobileMode={mobileMode}
                 onRefreshProjectStatus={onRefreshProjectStatus}
                 onProjectCommand={onProjectCommand}
                 onBuildContextNetwork={onBuildContextNetwork}
@@ -145,10 +160,11 @@ export function WorkspaceView({
           },
           {
             key: 'chapters',
-            label: '章节管理',
+            label: mobileMode ? '章节预览' : '章节管理',
             children: (
               <WorkspaceChaptersTab
                 active={activeTabKey === 'chapters'}
+                mobileMode={mobileMode}
                 chapters={chapters}
                 topology={topology}
                 defaultImportFormat={defaultImportFormat}
@@ -202,7 +218,7 @@ export function WorkspaceView({
               />
             ),
           },
-        ]}
+        ].filter((item) => !mobileMode || ['dashboard', 'chapters'].includes(item.key))}
       />
     </div>
   );

@@ -1,5 +1,16 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { App as AntdApp, Button, Form, Layout, Menu, Space, Spin, Tag, Typography } from 'antd';
+import {
+  App as AntdApp,
+  Button,
+  Form,
+  Grid,
+  Layout,
+  Menu,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+} from 'antd';
 import {
   ProfileOutlined,
   ClockCircleOutlined,
@@ -97,6 +108,7 @@ function RouteLoadingFallback() {
 }
 
 const { Header, Sider, Content } = Layout;
+const { useBreakpoint } = Grid;
 
 type SettingsSection =
   | 'llmProfiles'
@@ -125,6 +137,8 @@ export function AppShell() {
   const { message, modal } = AntdApp.useApp();
   const location = useLocation();
   const navigate = useNavigate();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [workspaces, setWorkspaces] = useState<ManagedWorkspace[]>([]);
   const [projectStatus, setProjectStatus] = useState<ProjectStatus | null>(null);
   const [snapshot, setSnapshot] = useState<TranslationProjectSnapshot | null>(null);
@@ -620,6 +634,16 @@ export function AppShell() {
       void refreshSettings();
     }
   }, [location.pathname, refreshSettings]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      return;
+    }
+
+    if (location.pathname !== '/workspace/current') {
+      navigate('/workspace/current', { replace: true });
+    }
+  }, [isMobile, location.pathname, navigate]);
 
   useEffect(() => {
     resetWorkspaceDataCaches();
@@ -1565,36 +1589,50 @@ export function AppShell() {
   );
 
   const navigationItems = useMemo(
-    () => [
-      {
-        key: '/workspace/current',
-        icon: <FolderOpenOutlined />,
-        label: '当前工作区',
-      },
-      {
-        key: '/workspace/create',
-        icon: <PlusCircleOutlined />,
-        label: '创建工作区',
-      },
-      {
-        key: '/workspaces/recent',
-        icon: <ClockCircleOutlined />,
-        label: '最近工作区',
-      },
-      { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
-    ],
-    [],
+    () =>
+      isMobile
+        ? [
+            {
+              key: '/workspace/current',
+              icon: <FolderOpenOutlined />,
+              label: '当前工作区',
+            },
+          ]
+        : [
+            {
+              key: '/workspace/current',
+              icon: <FolderOpenOutlined />,
+              label: '当前工作区',
+            },
+            {
+              key: '/workspace/create',
+              icon: <PlusCircleOutlined />,
+              label: '创建工作区',
+            },
+            {
+              key: '/workspaces/recent',
+              icon: <ClockCircleOutlined />,
+              label: '最近工作区',
+            },
+            { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
+          ],
+    [isMobile],
   );
 
   const currentNavigationKey = useMemo(
     () =>
-      navigationItems.find((item) => item.key === location.pathname)?.key ??
-      '/workspace/current',
-    [location.pathname, navigationItems],
+      isMobile
+        ? '/workspace/current'
+        : navigationItems.find((item) => item.key === location.pathname)?.key ??
+          '/workspace/current',
+    [isMobile, location.pathname, navigationItems],
   );
 
   const currentSectionTitle = useMemo(
     () => {
+      if (isMobile) {
+        return snapshot?.projectName ? `移动工作台 · ${snapshot.projectName}` : '移动工作台';
+      }
       if (location.pathname.startsWith('/workspace/editor')) {
         return '章节文本编辑器';
       }
@@ -1602,50 +1640,67 @@ export function AppShell() {
         navigationItems.find((item) => item.key === currentNavigationKey)?.label ?? '当前工作区'
       );
     },
-    [currentNavigationKey, location.pathname, navigationItems],
+    [currentNavigationKey, isMobile, location.pathname, navigationItems, snapshot?.projectName],
   );
 
   return (
-      <>
-        <Layout className="app-shell">
-        <Sider width={208}>
-          <div style={{ padding: 16 }}>
-            <Typography.Title level={4} style={{ margin: 0, color: '#fff' }}>
-              SoloYakusha
-            </Typography.Title>
-            <Typography.Text type="secondary">Web 工作台</Typography.Text>
-          </div>
-          <Menu
-            theme="dark"
-            mode="inline"
-            selectedKeys={[currentNavigationKey]}
-            items={navigationItems}
-            onClick={(event) => navigate(event.key)}
-          />
-        </Sider>
+    <>
+      <Layout className="app-shell">
+        {!isMobile ? (
+          <Sider width={208}>
+            <div style={{ padding: 16 }}>
+              <Typography.Title level={4} style={{ margin: 0, color: '#fff' }}>
+                SoloYakusha
+              </Typography.Title>
+              <Typography.Text type="secondary">Web 工作台</Typography.Text>
+            </div>
+            <Menu
+              theme="dark"
+              mode="inline"
+              selectedKeys={[currentNavigationKey]}
+              items={navigationItems}
+              onClick={(event) => navigate(event.key)}
+            />
+          </Sider>
+        ) : null}
         <Layout>
           <Header
             style={{
               background: 'transparent',
               display: 'flex',
               alignItems: 'center',
-              padding: '0 16px',
+              padding: isMobile ? '0 12px' : '0 16px',
             }}
           >
-            <Space>
-              <Typography.Title level={5} style={{ margin: 0, color: '#fff' }}>
-                {currentSectionTitle}
-              </Typography.Title>
-              <Tag color={connected ? 'green' : 'red'}>
-                {connected ? 'SSE 已连接' : 'SSE 断开'}
-              </Tag>
-              {projectStatus?.isBusy && <Tag color="gold">正在执行操作</Tag>}
-              <Button icon={<ProfileOutlined />} onClick={() => setActivityCenterOpen(true)}>
-                活动中心
+            <div
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <Space wrap size={[8, 8]}>
+                <Typography.Title level={5} style={{ margin: 0, color: '#fff' }}>
+                  {currentSectionTitle}
+                </Typography.Title>
+                <Tag color={connected ? 'green' : 'red'}>
+                  {connected ? 'SSE 已连接' : 'SSE 断开'}
+                </Tag>
+                {projectStatus?.isBusy && <Tag color="gold">正在执行操作</Tag>}
+              </Space>
+              <Button
+                size={isMobile ? 'small' : 'middle'}
+                icon={<ProfileOutlined />}
+                onClick={() => setActivityCenterOpen(true)}
+              >
+                {isMobile ? '日志' : '活动中心'}
               </Button>
-            </Space>
+            </div>
           </Header>
-          <Content style={{ padding: 16 }}>
+          <Content style={{ padding: isMobile ? 12 : 16 }}>
             <Suspense fallback={<RouteLoadingFallback />}>
               <Routes>
                 <Route path="/" element={<Navigate replace to="/workspace/current" />} />
@@ -1709,77 +1764,92 @@ export function AppShell() {
                       onAbortTaskActivity={handleAbortTaskActivity}
                       onResumeTaskActivity={handleResumeTaskActivity}
                       onDismissTaskActivity={handleDismissTaskActivity}
+                      mobileMode={isMobile}
                     />
                   }
                 />
                 <Route
                   path="/workspace/editor/:chapterId?"
-                  element={<LazyChapterTranslationEditorPage />}
+                  element={
+                    isMobile ? <Navigate replace to="/workspace/current" /> : <LazyChapterTranslationEditorPage />
+                  }
                 />
                 <Route
                   path="/workspace/create"
                   element={
-                    <LazyWorkspaceCreatePage
-                      hasActiveWorkspace={Boolean(snapshot)}
-                      translatorOptions={translatorOptions}
-                      onRefreshBootData={refreshBootData}
-                      onRefreshProjectData={async () => undefined}
-                    />
+                    isMobile ? (
+                      <Navigate replace to="/workspace/current" />
+                    ) : (
+                      <LazyWorkspaceCreatePage
+                        hasActiveWorkspace={Boolean(snapshot)}
+                        translatorOptions={translatorOptions}
+                        onRefreshBootData={refreshBootData}
+                        onRefreshProjectData={async () => undefined}
+                      />
+                    )
                   }
                 />
                 <Route
                   path="/workspaces/recent"
                   element={
-                    <LazyRecentWorkspacesView
-                      workspaces={workspaces}
-                      onRefreshBootData={() => void refreshBootData()}
-                      onOpenWorkspace={handleOpenWorkspace}
-                      onDeleteWorkspace={handleDeleteWorkspace}
-                      onImportWorkspaceArchive={handleImportWorkspaceArchive}
-                      onExportWorkspaceArchive={handleExportWorkspaceArchive}
-                      importingArchive={importingWorkspaceArchive}
-                      exportingArchiveDir={exportingWorkspaceArchiveDir ?? undefined}
-                      openingWorkspaceDir={openingWorkspaceDir}
-                    />
+                    isMobile ? (
+                      <Navigate replace to="/workspace/current" />
+                    ) : (
+                      <LazyRecentWorkspacesView
+                        workspaces={workspaces}
+                        onRefreshBootData={() => void refreshBootData()}
+                        onOpenWorkspace={handleOpenWorkspace}
+                        onDeleteWorkspace={handleDeleteWorkspace}
+                        onImportWorkspaceArchive={handleImportWorkspaceArchive}
+                        onExportWorkspaceArchive={handleExportWorkspaceArchive}
+                        importingArchive={importingWorkspaceArchive}
+                        exportingArchiveDir={exportingWorkspaceArchiveDir ?? undefined}
+                        openingWorkspaceDir={openingWorkspaceDir}
+                      />
+                    )
                   }
                 />
                 <Route
                   path="/settings"
                   element={
-                    <LazySettingsView
-                      settingsLoading={settingsLoading}
-                      llmProfiles={llmProfiles}
-                      defaultLlmName={defaultLlmName}
-                      selectedLlmName={selectedLlmName}
-                      vectorConfig={vectorConfig}
-                      vectorConnectionStatus={vectorConnectionStatus}
-                      selectedTranslatorName={selectedTranslatorName}
-                      translators={translators}
-                      translatorWorkflows={translatorWorkflows}
-                      llmForm={llmForm}
-                      embeddingForm={embeddingForm}
-                      vectorForm={vectorForm}
-                      translatorForm={translatorForm}
-                      extractorForm={extractorForm}
-                      updaterForm={updaterForm}
-                      plotForm={plotForm}
-                      alignmentForm={alignmentForm}
-                      onCreateLlmProfile={handleCreateLlmProfile}
-                      onSelectLlmProfile={selectLlmProfile}
-                      onSaveLlmProfile={handleSaveLlmProfile}
-                      onSetDefaultLlmProfile={handleSetDefaultLlmProfile}
-                      onDeleteLlmProfile={handleDeleteLlmProfile}
-                      onSaveEmbedding={handleSaveEmbedding}
-                      onUploadEmbeddingPcaWeights={handleUploadEmbeddingPcaWeights}
-                      onSaveVectorStore={handleSaveVectorStore}
-                      onConnectVectorStore={handleConnectVectorStore}
-                      onDeleteVectorStore={handleDeleteVectorStore}
-                      onCreateTranslator={handleCreateTranslator}
-                      onSelectTranslator={selectTranslator}
-                      onSaveTranslator={handleSaveTranslator}
-                      onDeleteTranslator={handleDeleteTranslator}
-                      onSaveAuxiliaryConfig={handleSaveAuxiliaryConfig}
-                    />
+                    isMobile ? (
+                      <Navigate replace to="/workspace/current" />
+                    ) : (
+                      <LazySettingsView
+                        settingsLoading={settingsLoading}
+                        llmProfiles={llmProfiles}
+                        defaultLlmName={defaultLlmName}
+                        selectedLlmName={selectedLlmName}
+                        vectorConfig={vectorConfig}
+                        vectorConnectionStatus={vectorConnectionStatus}
+                        selectedTranslatorName={selectedTranslatorName}
+                        translators={translators}
+                        translatorWorkflows={translatorWorkflows}
+                        llmForm={llmForm}
+                        embeddingForm={embeddingForm}
+                        vectorForm={vectorForm}
+                        translatorForm={translatorForm}
+                        extractorForm={extractorForm}
+                        updaterForm={updaterForm}
+                        plotForm={plotForm}
+                        alignmentForm={alignmentForm}
+                        onCreateLlmProfile={handleCreateLlmProfile}
+                        onSelectLlmProfile={selectLlmProfile}
+                        onSaveLlmProfile={handleSaveLlmProfile}
+                        onSetDefaultLlmProfile={handleSetDefaultLlmProfile}
+                        onDeleteLlmProfile={handleDeleteLlmProfile}
+                        onSaveEmbedding={handleSaveEmbedding}
+                        onUploadEmbeddingPcaWeights={handleUploadEmbeddingPcaWeights}
+                        onSaveVectorStore={handleSaveVectorStore}
+                        onConnectVectorStore={handleConnectVectorStore}
+                        onDeleteVectorStore={handleDeleteVectorStore}
+                        onCreateTranslator={handleCreateTranslator}
+                        onSelectTranslator={selectTranslator}
+                        onSaveTranslator={handleSaveTranslator}
+                        onDeleteTranslator={handleDeleteTranslator}
+                        onSaveAuxiliaryConfig={handleSaveAuxiliaryConfig}
+                      />
+                    )
                   }
                 />
                 <Route path="*" element={<Navigate replace to="/workspace/current" />} />
@@ -1792,6 +1862,7 @@ export function AppShell() {
       <ActivityCenterDrawer
         open={activityCenterOpen}
         onClose={() => setActivityCenterOpen(false)}
+        mobileMode={isMobile}
       />
 
       <DictionaryEditorModal

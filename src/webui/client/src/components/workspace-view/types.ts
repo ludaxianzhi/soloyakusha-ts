@@ -31,6 +31,7 @@ export interface WorkspaceViewProps {
   snapshot: TranslationProjectSnapshot | null;
   projectStatus: ProjectStatus | null;
   pipelineStrategy?: 'default' | 'context-network';
+  mobileMode?: boolean;
   sseConnected: boolean;
   dictionary: GlossaryTerm[];
   repeatedPatterns: SavedRepetitionPatternAnalysisResult | null;

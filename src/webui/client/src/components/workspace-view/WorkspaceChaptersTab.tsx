@@ -31,6 +31,7 @@ import {
   IMPORT_FORMAT_OPTIONS,
 } from '../../app/ui-helpers.ts';
 import { usePollingTask } from '../../app/usePollingTask.ts';
+import { TranslationPreviewModal } from '../TranslationPreviewModal.tsx';
 import { ChapterKanbanBoard } from '../topology/ChapterKanbanBoard.tsx';
 import {
   buildChapterImportGroups,
@@ -40,6 +41,7 @@ import {
 
 interface WorkspaceChaptersTabProps {
   active: boolean;
+  mobileMode?: boolean;
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
   defaultImportFormat?: string;
@@ -92,6 +94,7 @@ type ImportArchiveFormValues = {
 
 export function WorkspaceChaptersTab({
   active,
+  mobileMode = false,
   chapters,
   topology,
   defaultImportFormat,
@@ -105,7 +108,13 @@ export function WorkspaceChaptersTab({
   onRemoveStoryRoute,
   onImportChapterArchive,
 }: WorkspaceChaptersTabProps) {
-  const [activeTabKey, setActiveTabKey] = useState('arrange');
+  const [activeTabKey, setActiveTabKey] = useState(mobileMode ? 'list' : 'arrange');
+
+  useEffect(() => {
+    if (mobileMode && activeTabKey !== 'list') {
+      setActiveTabKey('list');
+    }
+  }, [activeTabKey, mobileMode]);
 
   usePollingTask({
     enabled: active,
@@ -121,10 +130,10 @@ export function WorkspaceChaptersTab({
 
   return (
     <Card
-      title="章节管理"
+      title={mobileMode ? '章节预览' : '章节管理'}
       extra={
         <Space size={8}>
-          {branchCount > 0 ? (
+          {!mobileMode && branchCount > 0 ? (
             <Tag color="processing">{branchCount} 个分支路线</Tag>
           ) : null}
           <Tag>{chapters.length} 章节</Tag>
@@ -136,28 +145,33 @@ export function WorkspaceChaptersTab({
         activeKey={activeTabKey}
         onChange={setActiveTabKey}
         items={[
-          {
-            key: 'arrange',
-            label: '编排',
-            children: (
-              <ChapterKanbanBoard
-                topology={topology}
-                chapters={chapters}
-                onReorderRouteChapters={onReorderStoryRouteChapters}
-                onMoveChapterToRoute={onMoveChapterToRoute}
-                onCreateBranch={onCreateStoryBranch}
-                onClearChapterTranslations={onClearChapterTranslations}
-                onRemoveChapters={onRemoveChapters}
-                onRemoveRoute={onRemoveStoryRoute}
-                onUpdateRoute={onUpdateStoryRoute}
-              />
-            ),
-          },
+          ...(!mobileMode
+            ? [
+                {
+                  key: 'arrange',
+                  label: '编排',
+                  children: (
+                    <ChapterKanbanBoard
+                      topology={topology}
+                      chapters={chapters}
+                      onReorderRouteChapters={onReorderStoryRouteChapters}
+                      onMoveChapterToRoute={onMoveChapterToRoute}
+                      onCreateBranch={onCreateStoryBranch}
+                      onClearChapterTranslations={onClearChapterTranslations}
+                      onRemoveChapters={onRemoveChapters}
+                      onRemoveRoute={onRemoveStoryRoute}
+                      onUpdateRoute={onUpdateStoryRoute}
+                    />
+                  ),
+                },
+              ]
+            : []),
           {
             key: 'list',
-            label: '列表',
+            label: mobileMode ? '章节' : '列表',
             children: (
               <ChapterInfoTable
+                mobileMode={mobileMode}
                 chapters={chapters}
                 topology={topology}
                 defaultImportFormat={defaultImportFormat}
@@ -245,6 +259,7 @@ function resolveAttachableChapterIds(
 }
 
 function ChapterInfoTable({
+  mobileMode,
   chapters,
   topology,
   defaultImportFormat,
@@ -253,6 +268,7 @@ function ChapterInfoTable({
   onCreateStoryBranch,
   onImportChapterArchive,
 }: {
+  mobileMode?: boolean;
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
   defaultImportFormat?: string;
@@ -272,6 +288,8 @@ function ChapterInfoTable({
   const { message } = AntdApp.useApp();
   const navigate = useNavigate();
   const [selectedChapterIds, setSelectedChapterIds] = useState<number[]>([]);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewChapterId, setPreviewChapterId] = useState<number>();
   const [attachGroup, setAttachGroup] = useState<ChapterImportGroupDescriptor | null>(null);
   const [attachForm] = Form.useForm<AttachGroupBranchFormValues>();
   const [importArchiveOpen, setImportArchiveOpen] = useState(false);
@@ -426,6 +444,11 @@ function ChapterInfoTable({
     setSelectedChapterIds([]);
   };
 
+  const openPreview = (chapterId: number) => {
+    setPreviewChapterId(chapterId);
+    setPreviewOpen(true);
+  };
+
   const openImportArchiveModal = () => {
     setImportArchiveResult(null);
     setImportArchiveFiles([]);
@@ -483,6 +506,64 @@ function ChapterInfoTable({
       setImportArchiveSubmitting(false);
     }
   };
+
+  if (mobileMode) {
+    return (
+      <>
+        {chapters.length === 0 ? (
+          <Alert showIcon type="info" message="当前工作区还没有章节" />
+        ) : (
+          <div className="section-stack">
+            {chapters.map((chapter) => {
+              const total = chapter.sourceLineCount;
+              const done = chapter.translatedLineCount;
+              const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+              return (
+                <Card
+                  key={chapter.id}
+                  size="small"
+                  title={`Ch${chapter.id}`}
+                  extra={
+                    <Tag color={pct >= 100 && total > 0 ? 'success' : 'processing'}>{pct}%</Tag>
+                  }
+                >
+                  <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                    <Typography.Text>{chapter.filePath}</Typography.Text>
+                    <Space wrap size={[8, 8]}>
+                      <Tag color={chapter.routeId === 'main' ? 'blue' : 'purple'}>
+                        {chapter.routeName ?? '主线'}
+                      </Tag>
+                      <Tag>{`${done}/${total} 行`}</Tag>
+                      <Tag>{`${chapter.fragmentCount} 片段`}</Tag>
+                      {chapter.isForkPoint ? <Tag color="gold">分叉点</Tag> : null}
+                    </Space>
+                    <div className="chapter-info-progress">
+                      <div className="chapter-info-bar">
+                        <div
+                          className={`chapter-info-bar-fill${pct >= 100 && total > 0 ? ' complete' : ''}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                    <Button type="primary" onClick={() => openPreview(chapter.id)}>
+                      预览章节
+                    </Button>
+                  </Space>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
+        <TranslationPreviewModal
+          open={previewOpen}
+          chapters={chapters}
+          defaultChapterId={previewChapterId}
+          onCancel={() => setPreviewOpen(false)}
+        />
+      </>
+    );
+  }
 
   return (
     <>
@@ -559,6 +640,7 @@ function ChapterInfoTable({
         dataSource={chapters}
         pagination={false}
         size="small"
+        scroll={{ x: 1100 }}
         rowSelection={{
           selectedRowKeys: selectedChapterIds,
           onChange: (selectedRowKeys) => {
@@ -622,9 +704,12 @@ function ChapterInfoTable({
           },
           {
             title: '操作',
-            width: 260,
+            width: 320,
             render: (_, record: WorkspaceChapterDescriptor) => (
               <Space wrap size={[8, 8]}>
+                <Button size="small" onClick={() => openPreview(record.id)}>
+                  预览
+                </Button>
                 <Button
                   size="small"
                   type="primary"
@@ -801,6 +886,13 @@ function ChapterInfoTable({
           </Space>
         ) : null}
       </Modal>
+
+      <TranslationPreviewModal
+        open={previewOpen}
+        chapters={chapters}
+        defaultChapterId={previewChapterId}
+        onCancel={() => setPreviewOpen(false)}
+      />
     </>
   );
 }
