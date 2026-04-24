@@ -2,9 +2,10 @@
  * WebUI 入口：启动 Hono HTTP 服务器。
  */
 
-import { createWebUiServer, logWebUiServerStart } from './server.ts';
+import { createWebUiServer, logWebUiServerStart, resolveWebUiPort } from './server.ts';
 
-const server = createWebUiServer();
+const port = await resolveWebUiPort();
+const server = createWebUiServer({ port });
 
 logWebUiServerStart(server.port);
 

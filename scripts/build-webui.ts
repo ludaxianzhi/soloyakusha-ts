@@ -203,6 +203,7 @@ function buildStandaloneEntryModule(
   );
 
   return `import { createWebUiServer, logWebUiServerStart } from ${JSON.stringify(serverImport)};
+import { resolveWebUiPort } from ${JSON.stringify(serverImport)};
 import { embeddedStaticAssets } from ${JSON.stringify(assetsImport)};
 import { getDefaultPromptFilePath, registerEmbeddedPromptCatalog } from ${JSON.stringify(promptManagerImport)};
 import { getConsistencyPromptFilePath } from ${JSON.stringify(consistencyPromptManagerImport)};
@@ -216,8 +217,10 @@ registerEmbeddedPromptCatalog(
   ${JSON.stringify(consistencyPromptCatalogText)},
 );
 
+const port = await resolveWebUiPort();
 const server = createWebUiServer({
   staticAssets: embeddedStaticAssets,
+  port,
 });
 
 logWebUiServerStart(server.port);
