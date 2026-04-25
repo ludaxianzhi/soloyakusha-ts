@@ -65,4 +65,47 @@ prompts:
       }),
     ).rejects.toThrow("project.translationPipeline.en-zhCN");
   });
+
+  test("renders translation step prompts without schema id enums", async () => {
+    const manager = new PromptManager();
+
+    const rendered = await manager.renderTranslationStepPrompt({
+      sourceUnits: [
+        { id: "1", text: "第一行" },
+        { id: "2", text: "第二行" },
+      ],
+      dependencyTranslations: [],
+      plotSummaries: [],
+      translatedGlossaryTerms: [],
+      requirements: [],
+    });
+
+    expect(rendered.responseSchema).toEqual({
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        translations: {
+          type: "array",
+          minItems: 2,
+          maxItems: 2,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: {
+                type: "string",
+              },
+              translation: {
+                type: "string",
+                minLength: 1,
+              },
+            },
+            required: ["id", "translation"],
+          },
+        },
+      },
+      required: ["translations"],
+    });
+    expect(JSON.stringify(rendered.responseSchema)).not.toContain('"enum"');
+  });
 });

@@ -297,23 +297,20 @@ export class PromptManager {
 function buildTranslationStepResponseSchema(
   sourceUnits: ReadonlyArray<PromptTranslationUnit>,
 ): JsonObject {
-  const translationIds = sourceUnits.map((unit) => unit.id);
-
   return {
     type: "object",
     additionalProperties: false,
     properties: {
       translations: {
         type: "array",
-        minItems: translationIds.length,
-        maxItems: translationIds.length,
+        minItems: sourceUnits.length,
+        maxItems: sourceUnits.length,
         items: {
           type: "object",
           additionalProperties: false,
           properties: {
             id: {
               type: "string",
-              enum: translationIds,
             },
             translation: {
               type: "string",
