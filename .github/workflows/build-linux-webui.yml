@@ -1,0 +1,42 @@
+name: Build Linux WebUI Executable
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version number for this build
+        required: true
+        type: string
+
+jobs:
+  build-linux-webui:
+    name: Build Linux WebUI executable
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Linux executable
+        env:
+          BUILD_VERSION: ${{ inputs.version }}
+        run: |
+          bun run webui:build
+          mkdir -p dist/release
+          cp dist/soloyakusha-webui "dist/release/soloyakusha-webui-linux-${BUILD_VERSION}"
+          chmod +x "dist/release/soloyakusha-webui-linux-${BUILD_VERSION}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: soloyakusha-webui-linux-${{ inputs.version }}
+          path: dist/release/soloyakusha-webui-linux-${{ inputs.version }}
+          if-no-files-found: error
