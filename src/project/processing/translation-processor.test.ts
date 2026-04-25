@@ -385,9 +385,6 @@ describe("TranslationProcessor", () => {
     const client = new FakeChatClient([
       "分析结果",
       JSON.stringify({
-        translations: createSequentialTranslations(7),
-      }),
-      JSON.stringify({
         translations: createSequentialTranslations(7, {
           4: "T4\nEXTRA",
         }),
@@ -421,16 +418,12 @@ describe("TranslationProcessor", () => {
     expect(client.requests.map((entry) => entry.options?.meta?.label)).toEqual([
       "翻译-分析",
       "翻译-初步翻译",
-      "翻译-润色",
     ]);
   });
 
   test("multi-stage processor applies per-step request options", async () => {
     const client = new FakeChatClient([
       "分析结果",
-      JSON.stringify({
-        translations: createSequentialTranslations(7),
-      }),
       JSON.stringify({
         translations: createSequentialTranslations(7),
       }),
@@ -448,11 +441,6 @@ describe("TranslationProcessor", () => {
             maxTokens: 1024,
           },
         },
-        polisher: {
-          requestConfig: {
-            topP: 0.8,
-          },
-        },
       },
     });
 
@@ -462,7 +450,6 @@ describe("TranslationProcessor", () => {
 
     expect(client.requests[0]?.options?.requestConfig?.temperature).toBe(0.1);
     expect(client.requests[1]?.options?.requestConfig?.maxTokens).toBe(1024);
-    expect(client.requests[2]?.options?.requestConfig?.topP).toBe(0.8);
   });
 
   test("creates processor from user global config and merges processor/updater request parameters", async () => {

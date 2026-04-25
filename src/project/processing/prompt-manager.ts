@@ -41,14 +41,6 @@ export type MultiStageTranslatorPromptInput = {
   requirements: string[];
 };
 
-export type MultiStagePolisherPromptInput = {
-  sourceUnits: PromptTranslationUnit[];
-  currentTranslations: PromptTranslationUnit[];
-  referenceTranslations: string[];
-  translatedGlossaryTerms: ResolvedGlossaryTerm[];
-  requirements: string[];
-};
-
 export type MultiStageEditorPromptInput = {
   currentTranslations: PromptTranslationUnit[];
   referenceTranslations: string[];
@@ -119,8 +111,6 @@ const MULTI_STAGE_ANALYZER_PROMPT_NAME = "multi_stage_analyzer";
 const MULTI_STAGE_ANALYZER_PROMPT_ID = "project.multiStage.analyzer";
 const MULTI_STAGE_TRANSLATOR_PROMPT_NAME = "multi_stage_translation";
 const MULTI_STAGE_TRANSLATOR_PROMPT_ID = "project.multiStage.translator";
-const MULTI_STAGE_POLISHER_PROMPT_NAME = "multi_stage_polish";
-const MULTI_STAGE_POLISHER_PROMPT_ID = "project.multiStage.polisher";
 const MULTI_STAGE_EDITOR_PROMPT_NAME = "multi_stage_editor";
 const MULTI_STAGE_EDITOR_PROMPT_ID = "project.multiStage.editor";
 const MULTI_STAGE_PROOFREADER_PROMPT_NAME = "multi_stage_proofreader";
@@ -200,27 +190,6 @@ export class PromptManager {
 
     return {
       name: MULTI_STAGE_TRANSLATOR_PROMPT_NAME,
-      systemPrompt: renderedPrompt.systemPrompt,
-      userPrompt: renderedPrompt.userPrompt,
-      responseSchema,
-    };
-  }
-
-  async renderMultiStagePolisherPrompt(
-    input: MultiStagePolisherPromptInput,
-  ): Promise<RenderedPrompt> {
-    const responseSchema = buildTranslationStepResponseSchema(input.sourceUnits);
-    const renderedPrompt = await this.renderPrompt(MULTI_STAGE_POLISHER_PROMPT_ID, {
-      sourceUnits: input.sourceUnits,
-      currentTranslations: input.currentTranslations,
-      referenceTranslations: input.referenceTranslations,
-      translatedGlossaryTerms: input.translatedGlossaryTerms,
-      requirements: input.requirements,
-      responseSchemaJson: JSON.stringify(responseSchema, null, 2),
-    });
-
-    return {
-      name: MULTI_STAGE_POLISHER_PROMPT_NAME,
       systemPrompt: renderedPrompt.systemPrompt,
       userPrompt: renderedPrompt.userPrompt,
       responseSchema,

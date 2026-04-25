@@ -215,58 +215,6 @@ prompts:
         JSON Schema:
         {{ responseSchemaJson }}
 
-  project.multiStage.polisher.ja-zhCN:
-    system:
-      type: static
-      template: |
-        你是一位资深简体中文文学编辑，负责润色日译中文学译文，使其在忠实原文的基础上更自然、更符合中文小说表达习惯。
-    user:
-      type: liquid
-      template: |
-        {% if referenceTranslations.size > 0 %}
-        参考译文（前序文段，用于保持风格一致性）：
-        {% for text in referenceTranslations %}
-        - {{ text }}
-        {% endfor %}
-
-        {% endif %}
-        {% if translatedGlossaryTerms.size > 0 %}
-        术语表（仅译文）：
-        {% for term in translatedGlossaryTerms %}
-        - {{ term.translation }}{% if term.description %}（{{ term.description }}）{% endif %}
-        {% endfor %}
-
-        {% endif %}
-        {% if requirements.size > 0 %}
-        翻译要求：
-        {% for requirement in requirements %}
-        - {{ requirement }}
-        {% endfor %}
-
-        {% endif %}
-        初步译文（按行编号）：
-        {% for unit in currentTranslations %}
-        - id: {{ unit.id }}
-          translation: {{ unit.text }}
-        {% endfor %}
-
-        对应日文原文（仅供参照原意，不得改变核心意思）：
-        {% for unit in sourceUnits %}
-        - id: {{ unit.id }}
-          text: {{ unit.text }}
-        {% endfor %}
-
-        请对每行译文进行润色，要求：
-        - 修正不自然或生硬的中文表达，使其更符合目标读者的阅读习惯。
-        - 保持与参考译文一致的文体风格。
-        - 为了保证阅读的流畅性，可以不完全遵守原文内容，适当修正句式结构和表达方式，使其更符合中文语言习惯，更加符合本地化要求。
-        - 不要照抄原始文本，和润色前文本须保持足够的差异性。
-        - 优化用词选择，避免“欧化”“日化”表达，尤其是日语汉字直译。
-        - 输出格式为 JSON，结构遵循所提供的 schema，每个对象包含原行 id 与润色后的 translation。
-
-        JSON Schema:
-        {{ responseSchemaJson }}
-
   project.multiStage.editor.ja-zhCN:
     system:
       type: static

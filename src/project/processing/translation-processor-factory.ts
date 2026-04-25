@@ -176,7 +176,7 @@ export class TranslationProcessorFactory {
           workflow: "multi-stage",
           title: "日译简中多阶段评审",
           description:
-            "使用 ja -> zh-CN 专用提示词先分析再翻译，并在润色、校对与修订阶段循环评审。",
+            "使用 ja -> zh-CN 专用提示词先分析再翻译，并在编辑、校对与聚合阶段循环评审。",
           sourceLanguage: "ja",
           targetLanguage: "zh-CN",
           promptSet: "ja-zhCN",
@@ -300,13 +300,11 @@ function getMultiStageStepLabel(step: MultiStageStepName): string {
       return "分析器";
     case "translator":
       return "翻译器";
-    case "polisher":
-      return "润色器";
     case "editor":
       return "编辑器";
     case "proofreader":
       return "校对器";
     case "reviser":
-      return "修订器";
+      return "聚合器";
   }
 }

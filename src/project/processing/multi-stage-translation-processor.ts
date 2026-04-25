@@ -1,18 +1,17 @@
 /**
- * 多步骤文学翻译流程实现：分析 → 翻译 → 润色 → [编辑 + 校对 → 修改] × N 轮评审。
+ * 多步骤文学翻译流程实现：分析 → 翻译 → [编辑 + 校对 → 聚合] × N 轮评审。
  *
  * ## 流程概览
  *
  * **大步骤一**（顺序执行，Pipeline 中不同文本块可并行）：
  * 1. LLM1（分析器）：分析场景、视角、风格和翻译难点。注入：参考原文 + 参考译文 + 原文 + 术语表
  * 2. LLM2（翻译器）：初步翻译。注入：参考译文 + 原文 + 术语表 + LLM1 分析
- * 3. LLM3（润色师）：润色译文。注入：参考译文 + LLM2 译文 + 术语表（仅译文列）
- * 4. 术语表更新：调用术语表模块更新未翻译术语。
+ * 3. 术语表更新：调用术语表模块更新未翻译术语。
  *
  * **大步骤二**（重复 `reviewIterations` 次）：
- * 1. LLM4（中文编辑）[与 LLM5 并行]：指出表达问题及润色建议。注入：参考译文 + 当前译文 + 术语表（仅译文列）
- * 2. LLM5（校对专家）[与 LLM4 并行]：指出理解或细节错误（尊重文学性和本地化改造）。注入：LLM1 分析 + 参考原文 + 原文 + 当前译文 + 术语表
- * 3. LLM6（修改器）：根据 LLM4 + LLM5 建议修改译文。注入：参考原文 + 参考译文 + 原文 + 当前译文 + 术语表
+ * 1. LLM3（中文编辑）[与 LLM4 并行]：指出表达问题及润色建议。注入：参考译文 + 当前译文 + 术语表（仅译文列）
+ * 2. LLM4（校对专家）[与 LLM3 并行]：指出理解或细节错误（尊重文学性和本地化改造）。注入：LLM1 分析 + 参考原文 + 原文 + 当前译文 + 术语表
+ * 3. LLM5（聚合器）：根据 LLM3 + LLM4 建议聚合出最终译文。注入：参考原文 + 参考译文 + 原文 + 当前译文 + 术语表
  *
  * @module project/multi-stage-translation-processor
  */
@@ -57,7 +56,6 @@ import type { SlidingWindowOptions, SlidingWindowFragment } from "../types.ts";
 export const MULTI_STAGE_STEP_NAMES = [
   "analyzer",
   "translator",
-  "polisher",
   "editor",
   "proofreader",
   "reviser",
@@ -91,7 +89,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
 
   /**
    * 各步骤的 LLM 解析器。若未为某步骤显式提供，则回退至 defaultClientResolver。
-   * 顺序：analyzer, translator, polisher, editor, proofreader, reviser
+  * 顺序：analyzer, translator, editor, proofreader, reviser
    */
   constructor(
     private readonly defaultClientResolver: TranslationProcessorClientResolver,
@@ -227,45 +225,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       sourceUnits.map((u) => u.id),
     );
 
-    // Step 3: LLM3 润色
-    const polisherPrompt = await this.promptManager.renderMultiStagePolisherPrompt({
-      sourceUnits,
-      currentTranslations: toPromptUnits(currentTranslations),
-      referenceTranslations,
-      translatedGlossaryTerms,
-      requirements,
-    });
-    this.logger.info?.("LLM3 润色阶段", { processorName: this.processorName });
-    const polisherClient = this.resolveClient("polisher");
-    const polishedResponseText = await polisherClient.singleTurnRequest(
-      polisherPrompt.userPrompt,
-      withRequestMeta(
-        withOutputValidator(
-          buildJsonSchemaChatRequestOptions(
-            this.buildStepRequestOptions("polisher", request.requestOptions),
-            {
-              name: polisherPrompt.name,
-              systemPrompt: polisherPrompt.systemPrompt,
-              responseSchema: polisherPrompt.responseSchema,
-            },
-            polisherClient.supportsStructuredOutput,
-          ),
-          (candidateResponseText) => {
-            parseTranslationResponse(
-              candidateResponseText,
-              sourceUnits.map((unit) => unit.id),
-            );
-          },
-        ),
-        this.buildStepRequestMeta("polisher", request),
-      ),
-    );
-    currentTranslations = parseTranslationResponse(
-      polishedResponseText,
-      sourceUnits.map((u) => u.id),
-    );
-
-    // Step 4: 术语表更新（在评审阶段进行时异步执行）
+    // Step 3: 术语表更新（在评审阶段进行时异步执行）
     const glossaryUpdatePromise =
       request.glossary && untranslatedGlossaryTerms.length > 0
         ? this.glossaryUpdater.updateGlossary({
@@ -284,8 +244,8 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
 
     let lastEditorFeedback = "";
     let lastProofreaderFeedback = "";
-    let finalPromptName = polisherPrompt.name;
-    let finalResponseSchema = polisherPrompt.responseSchema;
+    let finalPromptName = translatorPrompt.name;
+    let finalResponseSchema = translatorPrompt.responseSchema;
     let lastReviserSystemPrompt = "";
     let lastReviserUserPrompt = "";
     let lastReviserResponseText = "";
@@ -419,11 +379,11 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       translations: currentTranslations,
       glossaryUpdates: glossaryUpdateResult?.updates ?? [],
       glossaryUpdateResult,
-      responseText: lastReviserResponseText || polishedResponseText,
+      responseText: lastReviserResponseText || initialResponseText,
       responseSchema: finalResponseSchema,
       promptName: finalPromptName,
-      systemPrompt: lastReviserSystemPrompt || polisherPrompt.systemPrompt,
-      userPrompt: lastReviserUserPrompt || polisherPrompt.userPrompt,
+      systemPrompt: lastReviserSystemPrompt || translatorPrompt.systemPrompt,
+      userPrompt: lastReviserUserPrompt || translatorPrompt.userPrompt,
       window,
     };
   }
@@ -584,8 +544,6 @@ function getMultiStageOperationLabel(step: MultiStageStepName): string {
       return "分析";
     case "translator":
       return "初步翻译";
-    case "polisher":
-      return "润色";
     case "editor":
       return "编辑建议";
     case "proofreader":
