@@ -155,7 +155,7 @@ export class TranslationContextView {
       return [];
     }
 
-    const maxEntries = this.options.maxPlotSummaryEntries ?? 20;
+    const maxEntries = this.options.maxPlotSummaryEntries ?? 8;
     return getPlotSummariesForPosition(
       entries,
       this.chapterId,

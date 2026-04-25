@@ -272,19 +272,18 @@ prompts:
     user:
       type: liquid
       template: |
-        {% if referenceSourceTexts.size > 0 %}
-        参考日文原文（前序文段）：
-        {% for text in referenceSourceTexts %}
-        - {{ text }}
-        {% endfor %}
-
         {% if plotSummaries.size > 0 %}
         历史总结（用于补充参考原文对应的大纲/前情）：
         {% for summary in plotSummaries %}
         - {{ summary }}
         {% endfor %}
 
-        {% endif %}
+        {% elsif referenceSourceTexts.size > 0 %}
+        参考日文原文（前序文段）：
+        {% for text in referenceSourceTexts %}
+        - {{ text }}
+        {% endfor %}
+
         {% endif %}
         {% if translatedGlossaryTerms.size > 0 %}
         术语表：

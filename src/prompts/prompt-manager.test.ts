@@ -214,6 +214,26 @@ prompts:
     expect(reviserPrompt.userPrompt).toContain("JSON Schema");
   });
 
+  test("renders proofreader prompt with plot summaries instead of reference source texts", async () => {
+    const manager = await getDefaultPromptManager();
+
+    const prompt = manager.renderPrompt("project.multiStage.proofreader.ja-zhCN", {
+      sourceUnits: [{ id: "1", text: "勇者が扉を開けた。" }],
+      currentTranslations: [{ id: "1", text: "勇者推开了门。" }],
+      referenceSourceTexts: ["扉の先には長い廊下があった。"],
+      referenceTranslations: ["门后是一条长廊。"],
+      plotSummaries: ["上一段：勇者已经潜入城堡。"],
+      translatedGlossaryTerms: [{ term: "勇者", translation: "勇者", status: "translated" }],
+      analysisText: "分析摘要",
+      requirements: ["保持文学语气"],
+    });
+
+    expect(prompt.userPrompt).toContain("历史总结（用于补充参考原文对应的大纲/前情）");
+    expect(prompt.userPrompt).toContain("上一段：勇者已经潜入城堡。");
+    expect(prompt.userPrompt).not.toContain("参考日文原文（前序文段）");
+    expect(prompt.userPrompt).not.toContain("扉の先には長い廊下があった。");
+  });
+
   test("renders ja-zhCN specialized translation prompts from default yaml", async () => {
     const manager = await getDefaultPromptManager();
 
