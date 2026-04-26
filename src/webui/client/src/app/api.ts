@@ -301,8 +301,12 @@ export const api = {
     }),
   abortProofread: () =>
     request('/api/project/proofread/abort', { method: 'POST' }),
+  forceAbortProofread: () =>
+    request('/api/project/proofread/force-abort', { method: 'POST' }),
   resumeProofread: () =>
     request('/api/project/proofread/resume', { method: 'POST' }),
+  removeProofreadTask: () =>
+    request('/api/project/proofread/remove', { method: 'POST' }),
   clearTaskProgress: (task: 'scan' | 'plot' | 'proofread' | 'all') =>
     request('/api/project/task-ui/clear', {
       method: 'POST',

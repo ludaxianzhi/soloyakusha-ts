@@ -1320,6 +1320,32 @@ export function AppShell() {
     [refreshProjectStatus, runAction],
   );
 
+  const handleForceAbortTaskActivity = useCallback(
+    async (task: TaskActivityKind) => {
+      await runAction(async () => {
+        if (task !== 'proofread') {
+          return;
+        }
+        await api.forceAbortProofread();
+        await refreshProjectStatus();
+      });
+    },
+    [refreshProjectStatus, runAction],
+  );
+
+  const handleRemoveTaskActivity = useCallback(
+    async (task: TaskActivityKind) => {
+      await runAction(async () => {
+        if (task !== 'proofread') {
+          return;
+        }
+        await api.removeProofreadTask();
+        await refreshProjectStatus();
+      });
+    },
+    [refreshProjectStatus, runAction],
+  );
+
   const handleResumeTaskActivity = useCallback(
     async (task: TaskActivityKind) => {
       await runAction(async () => {
@@ -1861,6 +1887,8 @@ export function AppShell() {
                       onDownloadExport={handleDownloadExport}
                       onResetProject={handleResetProject}
                       onAbortTaskActivity={handleAbortTaskActivity}
+                      onForceAbortTaskActivity={handleForceAbortTaskActivity}
+                      onRemoveTaskActivity={handleRemoveTaskActivity}
                       onResumeTaskActivity={handleResumeTaskActivity}
                       onDismissTaskActivity={handleDismissTaskActivity}
                       mobileMode={isMobile}

@@ -337,6 +337,7 @@ type ProofreadExecutionRuntime = {
 
 type ProjectServiceOptions = {
   createTranslationRuntime?: typeof createProcessorForProject;
+  createProofreadRuntime?: typeof createProofreadProcessorForProject;
 };
 
 const DEFAULT_TRANSLATION_MAX_CONCURRENT_WORK_ITEMS = 4;
@@ -1126,6 +1127,47 @@ export class ProjectService {
     this.log('warning', '已提交校对任务中止请求');
   }
 
+  async forceAbortProofread(): Promise<void> {
+    if (!this.project || this.proofreadTaskState?.status !== 'running') {
+      throw new ProjectServiceUserInputError('当前没有正在运行的校对任务');
+    }
+
+    this.processingToken += 1;
+    this.isBusy = false;
+    this.proofreadTaskState.status = 'paused';
+    this.proofreadTaskState.abortRequested = false;
+    this.proofreadTaskState.currentChapterId = undefined;
+    this.proofreadTaskState.errorMessage = undefined;
+    this.proofreadTaskState.updatedAt = new Date().toISOString();
+    await this.project.saveProofreadTaskState(this.proofreadTaskState);
+    this.syncProofreadProgress(this.proofreadTaskState);
+    this.broadcastProofreadProgress();
+    this.log('warning', '已强行中止校对任务，当前正在处理的片段结果将被丢弃');
+  }
+
+  async removeProofreadTask(): Promise<void> {
+    if (!this.project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    const task = this.proofreadTaskState ?? this.project.getProofreadTaskState();
+    if (!task) {
+      throw new ProjectServiceUserInputError('当前没有可移除的校对任务');
+    }
+
+    if (task.status === 'running') {
+      this.processingToken += 1;
+      this.isBusy = false;
+      this.log('warning', '已移除正在运行的校对任务，当前正在处理的片段结果将被丢弃');
+    } else {
+      this.log('info', '已移除校对任务');
+    }
+
+    this.proofreadTaskState = null;
+    await this.project.saveProofreadTaskState(undefined);
+    this.clearTaskProgressUi('proofread');
+  }
+
   private createProofreadTaskState(
     project: TranslationProject,
     chapterIds: number[],
@@ -1188,7 +1230,7 @@ export class ProjectService {
     let runtime: ProofreadExecutionRuntime | undefined;
 
     try {
-      runtime = await createProofreadProcessorForProject(
+      runtime = await (this.options.createProofreadRuntime ?? createProofreadProcessorForProject)(
         project,
         (level, msg) => this.log(level, msg),
         this.requestHistoryService,
@@ -1240,6 +1282,10 @@ export class ProjectService {
               stepId: 'proofread',
             },
           });
+
+          if (taskToken !== this.processingToken) {
+            return;
+          }
 
           await project.getDocumentManager().updateTranslation(
             chapter.chapterId,

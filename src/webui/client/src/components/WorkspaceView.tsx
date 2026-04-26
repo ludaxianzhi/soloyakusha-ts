@@ -56,6 +56,8 @@ export function WorkspaceView({
   onDownloadExport,
   onResetProject,
   onAbortTaskActivity,
+  onForceAbortTaskActivity,
+  onRemoveTaskActivity,
   onResumeTaskActivity,
   onDismissTaskActivity,
 }: WorkspaceViewProps) {
@@ -134,6 +136,8 @@ export function WorkspaceView({
                 onProjectCommand={onProjectCommand}
                 onBuildContextNetwork={onBuildContextNetwork}
                 onAbortTaskActivity={onAbortTaskActivity}
+                onForceAbortTaskActivity={onForceAbortTaskActivity}
+                onRemoveTaskActivity={onRemoveTaskActivity}
                 onResumeTaskActivity={onResumeTaskActivity}
                 onDismissTaskActivity={onDismissTaskActivity}
               />
@@ -151,6 +155,8 @@ export function WorkspaceView({
                 onRefreshDictionary={onRefreshDictionary}
                 onProjectCommand={onProjectCommand}
                 onAbortTaskActivity={onAbortTaskActivity}
+                onForceAbortTaskActivity={onForceAbortTaskActivity}
+                onRemoveTaskActivity={onRemoveTaskActivity}
                 onResumeTaskActivity={onResumeTaskActivity}
                 onOpenDictionaryEditor={onOpenDictionaryEditor}
                 onDeleteDictionary={onDeleteDictionary}

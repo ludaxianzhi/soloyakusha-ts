@@ -161,14 +161,142 @@ describe("ProjectService resumable batch tasks", () => {
       totalBatches: 2,
     });
   });
+
+  test("proofread can force abort without applying the in-flight fragment", async () => {
+    const firstFragment = deferred<{
+      outputText: string;
+      translations: [];
+      glossaryUpdates: [];
+      responseText: string;
+      responseSchema: { type: string };
+      promptName: string;
+      systemPrompt: string;
+      userPrompt: string;
+    }>();
+    const service = createService({
+      createProofreadRuntime: async () => ({
+        processor: {
+          process: async () => firstFragment.promise,
+        },
+        close: async () => undefined,
+      }),
+    });
+    const serviceAny = service as any;
+
+    const updates: Array<[number, number, string]> = [];
+    let persistedTask: any;
+    const project = {
+      getGlossary: () => new Glossary(),
+      getChapterDescriptors: () => [
+        { id: 1, sourceLineCount: 1, translatedLineCount: 1 },
+      ],
+      getOrderedFragments: () => [{ chapterId: 1 }],
+      getDocumentManager: () => ({
+        getChapterFragmentCount: () => 1,
+        updateTranslation: async (chapterId: number, fragmentIndex: number, text: string) => {
+          updates.push([chapterId, fragmentIndex, text]);
+        },
+      }),
+      buildProofreadFragmentInput: () => ({
+        sourceText: "原文",
+        currentTranslationText: "旧译文",
+        requirements: [],
+      }),
+      saveProofreadTaskState: async (task: unknown) => {
+        persistedTask = task;
+      },
+      getProofreadTaskState: () => persistedTask,
+      getProjectSnapshot: () => createProjectSnapshot(),
+      getStoryTopology: () => null,
+      hasPlotSummaries: () => false,
+    };
+
+    serviceAny.project = project;
+    serviceAny.refreshSnapshot = () => undefined;
+    serviceAny.markChaptersChanged = () => undefined;
+    serviceAny.markRepeatedPatternsChanged = () => undefined;
+
+    await service.startProofread({ chapterIds: [1], mode: "linear" });
+    await waitFor(() => service.getStatus().proofreadProgress?.status === "running");
+
+    await service.forceAbortProofread();
+    firstFragment.resolve({
+      outputText: "新译文",
+      translations: [],
+      glossaryUpdates: [],
+      responseText: "新译文",
+      responseSchema: { type: "object" },
+      promptName: "proofread",
+      systemPrompt: "",
+      userPrompt: "",
+    });
+
+    await waitFor(() => service.getStatus().proofreadProgress?.status === "paused");
+    expect(updates).toEqual([]);
+    expect(service.getStatus().proofreadProgress).toMatchObject({
+      status: "paused",
+      completedBatches: 0,
+      totalBatches: 1,
+    });
+  });
+
+  test("proofread task can be removed from persisted state", async () => {
+    const service = createService();
+    const serviceAny = service as any;
+
+    let persistedTask: any = {
+      taskId: "proofread-1",
+      mode: "linear",
+      status: "paused",
+      chapterIds: [1],
+      chapters: [{ chapterId: 1, fragmentCount: 1 }],
+      totalChapters: 1,
+      completedChapters: 0,
+      totalBatches: 1,
+      completedBatches: 0,
+      nextChapterIndex: 0,
+      nextFragmentIndex: 0,
+      warningCount: 0,
+      abortRequested: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const project = {
+      saveProofreadTaskState: async (task: unknown) => {
+        persistedTask = task;
+      },
+      getProofreadTaskState: () => persistedTask,
+    };
+
+    serviceAny.project = project;
+    serviceAny.proofreadTaskState = persistedTask;
+    serviceAny.proofreadProgress = {
+      status: "paused",
+      mode: "linear",
+      totalChapters: 1,
+      completedChapters: 0,
+      totalBatches: 1,
+      completedBatches: 0,
+      chapterIds: [1],
+      warningCount: 0,
+    };
+
+    await service.removeProofreadTask();
+
+    expect(persistedTask).toBeUndefined();
+    expect(service.getStatus().proofreadProgress).toBeNull();
+  });
 });
 
-function createService(): ProjectService {
+function createService(
+  options: ConstructorParameters<typeof ProjectService>[4] = {},
+): ProjectService {
   return new ProjectService(
     { emit: () => undefined, addLog: () => undefined } as any,
     { removeWorkspace: async () => undefined } as any,
     {} as any,
     {} as any,
+    options,
   );
 }
 

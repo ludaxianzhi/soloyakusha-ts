@@ -38,6 +38,8 @@ interface WorkspaceDictionaryTabProps {
     format: 'csv' | 'tsv',
   ) => Promise<DictionaryImportResult>;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onForceAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onRemoveTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }
@@ -53,6 +55,8 @@ export function WorkspaceDictionaryTab({
   onDeleteDictionary,
   onImportDictionaryFromContent,
   onAbortTaskActivity,
+  onForceAbortTaskActivity,
+  onRemoveTaskActivity,
   onResumeTaskActivity,
   onDismissTaskActivity,
 }: WorkspaceDictionaryTabProps) {
@@ -130,6 +134,8 @@ export function WorkspaceDictionaryTab({
           projectStatus={projectStatus}
           tasks={['scan']}
           onAbortTaskActivity={onAbortTaskActivity}
+          onForceAbortTaskActivity={onForceAbortTaskActivity}
+          onRemoveTaskActivity={onRemoveTaskActivity}
           onResumeTaskActivity={onResumeTaskActivity}
           onDismissTaskActivity={onDismissTaskActivity}
         />

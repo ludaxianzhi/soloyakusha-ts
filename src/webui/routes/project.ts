@@ -207,9 +207,33 @@ export function createProjectRoutes(
     }
   });
 
+  app.post('/proofread/force-abort', async (c) => {
+    try {
+      await projectService.forceAbortProofread();
+      return c.json({ ok: true, snapshot: projectService.getSnapshot() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
   app.post('/proofread/resume', async (c) => {
     try {
       await projectService.resumeProofread();
+      return c.json({ ok: true, snapshot: projectService.getSnapshot() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/proofread/remove', async (c) => {
+    try {
+      await projectService.removeProofreadTask();
       return c.json({ ok: true, snapshot: projectService.getSnapshot() });
     } catch (error) {
       if (error instanceof ProjectServiceUserInputError) {

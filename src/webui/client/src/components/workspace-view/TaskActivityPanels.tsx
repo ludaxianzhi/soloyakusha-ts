@@ -1,6 +1,12 @@
 import type { ReactNode } from 'react';
-import { Alert, Button, Card, Col, Progress, Row, Space, Tag } from 'antd';
-import { CloseOutlined, MinusCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Col, Popconfirm, Progress, Row, Space, Tag } from 'antd';
+import {
+  CloseOutlined,
+  DeleteOutlined,
+  MinusCircleOutlined,
+  PlayCircleOutlined,
+  StopOutlined,
+} from '@ant-design/icons';
 import type { ProjectStatus } from '../../app/types.ts';
 import type { TaskActivityKind } from './types.ts';
 
@@ -8,6 +14,8 @@ interface TaskActivityPanelsProps {
   projectStatus: ProjectStatus | null;
   tasks?: TaskActivityKind[];
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onForceAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onRemoveTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }
@@ -16,6 +24,8 @@ export function TaskActivityPanels({
   projectStatus,
   tasks = ['scan', 'plot', 'proofread'],
   onAbortTaskActivity,
+  onForceAbortTaskActivity,
+  onRemoveTaskActivity,
   onResumeTaskActivity,
   onDismissTaskActivity,
 }: TaskActivityPanelsProps) {
@@ -131,6 +141,16 @@ export function TaskActivityPanels({
             progress={task.progress}
             details={task.details}
             onAbort={() => void onAbortTaskActivity(task.key)}
+            onForceAbort={
+              task.key === 'proofread'
+                ? () => void onForceAbortTaskActivity(task.key)
+                : undefined
+            }
+            onRemove={
+              task.key === 'proofread'
+                ? () => void onRemoveTaskActivity(task.key)
+                : undefined
+            }
             onResume={() => void onResumeTaskActivity(task.key)}
             onDismiss={() => void onDismissTaskActivity(task.key)}
           />
@@ -146,6 +166,8 @@ function TaskActivityCard({
   progress,
   details,
   onAbort,
+  onForceAbort,
+  onRemove,
   onResume,
   onDismiss,
 }: {
@@ -157,12 +179,15 @@ function TaskActivityCard({
     | NonNullable<ProjectStatus['proofreadProgress']>;
   details: ReactNode;
   onAbort: () => void;
+  onForceAbort?: () => void;
+  onRemove?: () => void;
   onResume: () => void;
   onDismiss: () => void;
 }) {
   const isRunning = progress.status === 'running';
   const isDone = progress.status === 'done';
-  const isDismissable = progress.status !== 'running';
+  const isProofread = task === 'proofread';
+  const isDismissable = !isProofread && progress.status !== 'running';
 
   return (
     <Card
@@ -182,6 +207,23 @@ function TaskActivityCard({
               aria-label={`中止${task}任务`}
             />
           ) : null}
+          {isProofread && isRunning && onForceAbort ? (
+            <Popconfirm
+              title="确认强行中止校对任务？"
+              description="当前正在处理的片段结果会被丢弃，任务会保留为暂停状态，可稍后继续。"
+              okText="强行中止"
+              cancelText="取消"
+              onConfirm={onForceAbort}
+            >
+              <Button
+                danger
+                type="text"
+                size="small"
+                icon={<StopOutlined />}
+                aria-label="强行中止校对任务"
+              />
+            </Popconfirm>
+          ) : null}
           {!isRunning && !isDone ? (
             <Button
               type="text"
@@ -190,6 +232,27 @@ function TaskActivityCard({
               onClick={onResume}
               aria-label={`继续${task}任务`}
             />
+          ) : null}
+          {isProofread && onRemove ? (
+            <Popconfirm
+              title={isRunning ? '确认移除正在运行的校对任务？' : '确认移除校对任务？'}
+              description={
+                isRunning
+                  ? '当前正在处理的片段结果会被丢弃，且该校对任务会从项目状态中删除。'
+                  : '移除后将删除该校对任务的持久化状态与进度卡片。'
+              }
+              okText="移除任务"
+              cancelText="取消"
+              onConfirm={onRemove}
+            >
+              <Button
+                danger
+                type="text"
+                size="small"
+                icon={<DeleteOutlined />}
+                aria-label="移除校对任务"
+              />
+            </Popconfirm>
           ) : null}
           {isDismissable ? (
             <Button

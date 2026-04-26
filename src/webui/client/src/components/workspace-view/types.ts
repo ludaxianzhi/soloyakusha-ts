@@ -86,6 +86,8 @@ export interface WorkspaceViewProps {
     mode?: ProofreadTaskMode;
   }) => void | Promise<void>;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onForceAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onRemoveTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;

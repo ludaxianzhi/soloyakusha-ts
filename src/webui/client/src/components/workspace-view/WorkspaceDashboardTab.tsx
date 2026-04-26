@@ -42,6 +42,8 @@ interface WorkspaceDashboardTabProps {
     minEdgeStrength: number;
   }) => void | Promise<void>;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onForceAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
+  onRemoveTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onDismissTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
 }
@@ -57,6 +59,8 @@ export function WorkspaceDashboardTab({
   onProjectCommand,
   onBuildContextNetwork,
   onAbortTaskActivity,
+  onForceAbortTaskActivity,
+  onRemoveTaskActivity,
   onResumeTaskActivity,
   onDismissTaskActivity,
 }: WorkspaceDashboardTabProps) {
@@ -205,6 +209,8 @@ export function WorkspaceDashboardTab({
         projectStatus={projectStatus}
         tasks={mobileMode ? [] : undefined}
         onAbortTaskActivity={onAbortTaskActivity}
+        onForceAbortTaskActivity={onForceAbortTaskActivity}
+        onRemoveTaskActivity={onRemoveTaskActivity}
         onResumeTaskActivity={onResumeTaskActivity}
         onDismissTaskActivity={onDismissTaskActivity}
       />
