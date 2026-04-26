@@ -178,6 +178,7 @@ describe("ProjectService resumable batch tasks", () => {
         processor: {
           process: async () => firstFragment.promise,
         },
+        maxConcurrentWorkItems: 1,
         close: async () => undefined,
       }),
     });
@@ -237,6 +238,150 @@ describe("ProjectService resumable batch tasks", () => {
       status: "paused",
       completedBatches: 0,
       totalBatches: 1,
+    });
+  });
+
+  test("proofread simultaneous mode honors concurrency and flushes writeback incrementally", async () => {
+    const pendingByKey = new Map(
+      ["1:0", "2:0", "3:0"].map((key) => [
+        key,
+        deferred<{
+          outputText: string;
+          translations: [];
+          glossaryUpdates: [];
+          responseText: string;
+          responseSchema: { type: string };
+          promptName: string;
+          systemPrompt: string;
+          userPrompt: string;
+        }>(),
+      ]),
+    );
+    const startedKeys: string[] = [];
+    let activeCount = 0;
+    let maxActiveCount = 0;
+    const service = createService({
+      createProofreadRuntime: async () => ({
+        processor: {
+          process: async (input: { workItemRef?: { chapterId: number; fragmentIndex: number } }) => {
+            const key = `${input.workItemRef?.chapterId}:${input.workItemRef?.fragmentIndex}`;
+            startedKeys.push(key);
+            activeCount += 1;
+            maxActiveCount = Math.max(maxActiveCount, activeCount);
+            try {
+              return await pendingByKey.get(key)!.promise;
+            } finally {
+              activeCount -= 1;
+            }
+          },
+        },
+        maxConcurrentWorkItems: 2,
+        close: async () => undefined,
+      }),
+    });
+    const serviceAny = service as any;
+
+    const updates: Array<[number, number, string]> = [];
+    let persistedTask: any;
+    let chaptersChangedCount = 0;
+    let refreshSnapshotCount = 0;
+    const project = {
+      getGlossary: () => new Glossary(),
+      getChapterDescriptors: () => [
+        { id: 1, sourceLineCount: 1, translatedLineCount: 1 },
+        { id: 2, sourceLineCount: 1, translatedLineCount: 1 },
+        { id: 3, sourceLineCount: 1, translatedLineCount: 1 },
+      ],
+      getOrderedFragments: () => [{ chapterId: 1 }, { chapterId: 2 }, { chapterId: 3 }],
+      getDocumentManager: () => ({
+        getChapterFragmentCount: () => 1,
+        updateTranslation: async (chapterId: number, fragmentIndex: number, text: string) => {
+          updates.push([chapterId, fragmentIndex, text]);
+        },
+      }),
+      buildProofreadFragmentInput: (chapterId: number, fragmentIndex: number) => ({
+        sourceText: `原文-${chapterId}-${fragmentIndex}`,
+        currentTranslationText: `旧译文-${chapterId}-${fragmentIndex}`,
+        requirements: [],
+      }),
+      saveProofreadTaskState: async (task: unknown) => {
+        persistedTask = task;
+      },
+      getProofreadTaskState: () => persistedTask,
+      getProjectSnapshot: () => createProjectSnapshot(),
+      getStoryTopology: () => null,
+      hasPlotSummaries: () => false,
+    };
+
+    serviceAny.project = project;
+    serviceAny.refreshSnapshot = () => {
+      refreshSnapshotCount += 1;
+    };
+    serviceAny.markChaptersChanged = () => {
+      chaptersChangedCount += 1;
+    };
+    serviceAny.markRepeatedPatternsChanged = () => undefined;
+
+    await service.startProofread({ chapterIds: [1, 2, 3], mode: "simultaneous" });
+    await waitFor(() => maxActiveCount === 2);
+    expect(startedKeys).toEqual(["1:0", "2:0"]);
+
+    pendingByKey.get("1:0")!.resolve({
+      outputText: "新译文-1",
+      translations: [],
+      glossaryUpdates: [],
+      responseText: "新译文-1",
+      responseSchema: { type: "object" },
+      promptName: "proofread",
+      systemPrompt: "",
+      userPrompt: "",
+    });
+
+    await waitFor(() => service.getStatus().proofreadProgress?.completedBatches === 1);
+    expect(updates).toEqual([[1, 0, "新译文-1"]]);
+    expect(service.getStatus().proofreadProgress).toMatchObject({
+      completedBatches: 1,
+      completedChapters: 1,
+    });
+    expect(chaptersChangedCount).toBe(1);
+    expect(refreshSnapshotCount).toBe(1);
+
+    await waitFor(() => startedKeys.includes("3:0"));
+
+    pendingByKey.get("2:0")!.resolve({
+      outputText: "新译文-2",
+      translations: [],
+      glossaryUpdates: [],
+      responseText: "新译文-2",
+      responseSchema: { type: "object" },
+      promptName: "proofread",
+      systemPrompt: "",
+      userPrompt: "",
+    });
+    pendingByKey.get("3:0")!.resolve({
+      outputText: "新译文-3",
+      translations: [],
+      glossaryUpdates: [],
+      responseText: "新译文-3",
+      responseSchema: { type: "object" },
+      promptName: "proofread",
+      systemPrompt: "",
+      userPrompt: "",
+    });
+
+    await waitFor(() => service.getStatus().proofreadProgress?.status === "done");
+    expect(maxActiveCount).toBe(2);
+    expect(updates).toEqual([
+      [1, 0, "新译文-1"],
+      [2, 0, "新译文-2"],
+      [3, 0, "新译文-3"],
+    ]);
+    expect(service.getStatus().proofreadProgress).toMatchObject({
+      status: "done",
+      completedBatches: 3,
+      completedChapters: 3,
+      totalBatches: 3,
+      totalChapters: 3,
     });
   });
 

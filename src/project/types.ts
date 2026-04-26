@@ -184,6 +184,7 @@ export type ProofreadTaskStatus = "running" | "paused" | "done" | "error";
 export type ProofreadTaskChapterState = {
   chapterId: number;
   fragmentCount: number;
+  completedFragmentIndices?: number[];
 };
 
 export type ProofreadTaskState = {

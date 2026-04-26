@@ -303,7 +303,11 @@ describe("TranslationProcessor", () => {
         translations: [{ id: "1", translation: "勇者凝视着王都" }],
       }),
     ]);
-    const processor = new MultiStageProofreadProcessor(client, {}, { reviewIterations: 1 });
+    const logger = new MemoryLogger();
+    const processor = new MultiStageProofreadProcessor(client, {}, {
+      reviewIterations: 1,
+      logger,
+    });
 
     const result = await processor.process({
       sourceText: "勇者は王都を見つめていた",
@@ -317,6 +321,13 @@ describe("TranslationProcessor", () => {
     expect(client.requests[0]?.prompt).toContain("待审读译文");
     expect(client.requests[1]?.prompt).toContain("待校对译文");
     expect(client.requests[1]?.prompt).not.toContain("文本分析报告");
+    expect(
+      logger.entries.some(
+        (entry) =>
+          entry.message === "校对并发请求开始：同时进行 2 个任务" &&
+          entry.metadata?.concurrentTaskCount === 2,
+      ),
+    ).toBe(true);
     expect(client.requests[2]?.options?.meta).toMatchObject({
       label: "校对-校对修订",
       feature: "校对",

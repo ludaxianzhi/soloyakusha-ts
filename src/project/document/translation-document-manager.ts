@@ -820,29 +820,67 @@ function normalizePersistedProofreadTaskState(
     return undefined;
   }
 
+  const mode = state.mode === "simultaneous" ? "simultaneous" : "linear";
+  const rawChapterIds = Array.isArray(state.chapterIds)
+    ? state.chapterIds.map((value) => Number(value)).filter(Number.isFinite)
+    : [];
+  const normalizedNextChapterIndex = Math.max(0, Number(state.nextChapterIndex) || 0);
+  const normalizedNextFragmentIndex = Math.max(0, Number(state.nextFragmentIndex) || 0);
+  const normalizedChapters = Array.isArray(state.chapters)
+    ? state.chapters
+        .map((chapter, chapterIndex) => {
+          const chapterId = Number(chapter.chapterId);
+          const fragmentCount = Math.max(0, Number(chapter.fragmentCount) || 0);
+          const normalizedCompletedFragmentIndices = Array.isArray(chapter.completedFragmentIndices)
+            ? [...new Set(chapter.completedFragmentIndices.map((value) => Number(value)).filter(Number.isFinite))]
+                .filter((value) => value >= 0 && value < fragmentCount)
+                .sort((left, right) => left - right)
+            : buildLegacyProofreadCompletedFragmentIndices(
+                chapterIndex,
+                fragmentCount,
+                normalizedNextChapterIndex,
+                normalizedNextFragmentIndex,
+              );
+
+          if (!Number.isFinite(chapterId)) {
+            return undefined;
+          }
+
+          return {
+            chapterId,
+            fragmentCount,
+            completedFragmentIndices: normalizedCompletedFragmentIndices,
+          };
+        })
+        .filter((chapter): chapter is NonNullable<typeof chapter> => chapter !== undefined)
+    : [];
+
+  const derivedCompletedBatches = normalizedChapters.reduce(
+    (sum, chapter) => sum + chapter.completedFragmentIndices.length,
+    0,
+  );
+  const derivedCompletedChapters = normalizedChapters.filter(
+    (chapter) => chapter.completedFragmentIndices.length >= chapter.fragmentCount,
+  ).length;
+  const nextPendingPosition = findNextPendingProofreadPosition(normalizedChapters);
+
   return {
     taskId: state.taskId,
-    mode: state.mode === "simultaneous" ? "simultaneous" : "linear",
+    mode,
     status: state.status ?? "paused",
-    chapterIds: Array.isArray(state.chapterIds)
-      ? state.chapterIds.map((value) => Number(value)).filter(Number.isFinite)
-      : [],
-    chapters: Array.isArray(state.chapters)
-      ? state.chapters
-          .map((chapter) => ({
-            chapterId: Number(chapter.chapterId),
-            fragmentCount: Math.max(0, Number(chapter.fragmentCount) || 0),
-          }))
-          .filter((chapter) => Number.isFinite(chapter.chapterId))
-      : [],
-    totalChapters: Math.max(0, Number(state.totalChapters) || 0),
-    completedChapters: Math.max(0, Number(state.completedChapters) || 0),
-    totalBatches: Math.max(0, Number(state.totalBatches) || 0),
-    completedBatches: Math.max(0, Number(state.completedBatches) || 0),
-    nextChapterIndex: Math.max(0, Number(state.nextChapterIndex) || 0),
-    nextFragmentIndex: Math.max(0, Number(state.nextFragmentIndex) || 0),
+    chapterIds: rawChapterIds,
+    chapters: normalizedChapters,
+    totalChapters: Math.max(0, Number(state.totalChapters) || normalizedChapters.length),
+    completedChapters: derivedCompletedChapters,
+    totalBatches:
+      Math.max(0, Number(state.totalBatches) || 0) ||
+      normalizedChapters.reduce((sum, chapter) => sum + chapter.fragmentCount, 0),
+    completedBatches: derivedCompletedBatches,
+    nextChapterIndex: nextPendingPosition?.chapterIndex ?? normalizedChapters.length,
+    nextFragmentIndex: nextPendingPosition?.fragmentIndex ?? 0,
     currentChapterId:
-      state.currentChapterId !== undefined ? Number(state.currentChapterId) : undefined,
+      nextPendingPosition?.chapterId ??
+      (state.currentChapterId !== undefined ? Number(state.currentChapterId) : undefined),
     warningCount: Math.max(0, Number(state.warningCount) || 0),
     lastWarningMessage: state.lastWarningMessage,
     abortRequested: Boolean(state.abortRequested),
@@ -850,6 +888,48 @@ function normalizePersistedProofreadTaskState(
     createdAt: state.createdAt,
     updatedAt: state.updatedAt,
   };
+}
+
+function buildLegacyProofreadCompletedFragmentIndices(
+  chapterIndex: number,
+  fragmentCount: number,
+  nextChapterIndex: number,
+  nextFragmentIndex: number,
+): number[] {
+  if (chapterIndex < nextChapterIndex) {
+    return Array.from({ length: fragmentCount }, (_, index) => index);
+  }
+  if (chapterIndex > nextChapterIndex) {
+    return [];
+  }
+
+  return Array.from(
+    { length: Math.min(fragmentCount, Math.max(0, nextFragmentIndex)) },
+    (_, index) => index,
+  );
+}
+
+function findNextPendingProofreadPosition(
+  chapters: Array<{
+    chapterId: number;
+    fragmentCount: number;
+    completedFragmentIndices: number[];
+  }>,
+): { chapterIndex: number; chapterId: number; fragmentIndex: number } | undefined {
+  for (const [chapterIndex, chapter] of chapters.entries()) {
+    const completed = new Set(chapter.completedFragmentIndices);
+    for (let fragmentIndex = 0; fragmentIndex < chapter.fragmentCount; fragmentIndex += 1) {
+      if (!completed.has(fragmentIndex)) {
+        return {
+          chapterIndex,
+          chapterId: chapter.chapterId,
+          fragmentIndex,
+        };
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function mergeChapterTranslationUnits(chapter: ChapterEntry): TranslationUnit[] {

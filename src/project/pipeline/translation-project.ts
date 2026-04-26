@@ -2211,7 +2211,10 @@ function cloneProofreadTaskState(
   return {
     ...state,
     chapterIds: [...state.chapterIds],
-    chapters: state.chapters.map((chapter) => ({ ...chapter })),
+    chapters: state.chapters.map((chapter) => ({
+      ...chapter,
+      completedFragmentIndices: [...(chapter.completedFragmentIndices ?? [])],
+    })),
   };
 }
 

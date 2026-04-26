@@ -159,6 +159,15 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
         requirements,
       });
 
+      const concurrentTaskNames = ["editor", "proofreader"] as const;
+      this.logger.info?.(`校对并发请求开始：同时进行 ${concurrentTaskNames.length} 个任务`, {
+        processorName: this.processorName,
+        concurrentTaskCount: concurrentTaskNames.length,
+        concurrentTaskNames: [...concurrentTaskNames],
+        round: round + 1,
+        reviewIterations: this.reviewIterations,
+      });
+
       const [editorFeedback, proofreaderFeedback] = await Promise.all([
         this.resolveClient("editor").singleTurnRequest(
           editorPrompt.userPrompt,

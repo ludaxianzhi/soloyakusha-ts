@@ -332,6 +332,7 @@ type TranslationExecutionRuntime = {
 
 type ProofreadExecutionRuntime = {
   processor: ProofreadProcessor;
+  maxConcurrentWorkItems: number;
   close: () => Promise<void>;
 };
 
@@ -1198,6 +1199,7 @@ export class ProjectService {
     const chapters = orderedChapterIds.map((chapterId) => ({
       chapterId,
       fragmentCount: documentManager.getChapterFragmentCount(chapterId),
+      completedFragmentIndices: [],
     }));
     const totalBatches = chapters.reduce((sum, chapter) => sum + chapter.fragmentCount, 0);
     const now = new Date().toISOString();
@@ -1235,86 +1237,137 @@ export class ProjectService {
         (level, msg) => this.log(level, msg),
         this.requestHistoryService,
       );
+      const proofreadRuntime = runtime;
 
-      for (let chapterIndex = task.nextChapterIndex; chapterIndex < task.chapters.length; chapterIndex += 1) {
-        if (taskToken !== this.processingToken) {
-          return;
-        }
-        if (task.abortRequested) {
-          break;
-        }
+      const maxConcurrentWorkItems =
+        task.mode === 'simultaneous'
+          ? Math.max(1, Math.floor(proofreadRuntime.maxConcurrentWorkItems))
+          : 1;
+      const pendingWorkItems = this.buildProofreadPendingWorkItems(task);
+      const activeChapterCounts = new Map<number, number>();
+      let nextWorkItemIndex = 0;
+      let workerFailure: unknown;
+      let persistChain = Promise.resolve();
 
-        const chapter = task.chapters[chapterIndex]!;
-        const startFragmentIndex = chapterIndex === task.nextChapterIndex ? task.nextFragmentIndex : 0;
-        task.nextChapterIndex = chapterIndex;
-        task.nextFragmentIndex = startFragmentIndex;
-        task.currentChapterId = chapter.chapterId;
-        task.updatedAt = new Date().toISOString();
-        this.syncProofreadProgress(task);
-        this.broadcastProofreadProgress();
+      this.syncDerivedProofreadTaskState(task);
+      this.syncProofreadProgress(task);
+      this.broadcastProofreadProgress();
 
-        for (let fragmentIndex = startFragmentIndex; fragmentIndex < chapter.fragmentCount; fragmentIndex += 1) {
-          if (taskToken !== this.processingToken) {
-            return;
-          }
-          if (task.abortRequested) {
-            break;
-          }
+      if (task.mode === 'simultaneous') {
+        this.log(
+          'info',
+          `同时校对已启用，待处理 ${pendingWorkItems.length} 个片段，并发上限 ${maxConcurrentWorkItems}`,
+        );
+      }
 
-          const prepared = project.buildProofreadFragmentInput(chapter.chapterId, fragmentIndex);
-          if (prepared.blockedReason) {
-            this.appendProofreadWarning(
-              task,
-              `章节 ${chapter.chapterId} / 片段 ${fragmentIndex + 1} 的依赖上下文不可用（${prepared.blockedReason}），已忽略该上下文继续校对`,
-            );
-          }
-
-          const result = await runtime.processor.process({
-            sourceText: prepared.sourceText,
-            currentTranslationText: prepared.currentTranslationText,
-            contextView: prepared.contextView,
-            glossary: project.getGlossary(),
-            requirements: prepared.requirements,
-            documentManager: project.getDocumentManager(),
-            workItemRef: {
-              chapterId: chapter.chapterId,
-              fragmentIndex,
-              stepId: 'proofread',
-            },
-          });
-
-          if (taskToken !== this.processingToken) {
-            return;
-          }
-
-          await project.getDocumentManager().updateTranslation(
-            chapter.chapterId,
-            fragmentIndex,
-            result.outputText,
-          );
-          task.completedBatches += 1;
-          task.nextChapterIndex = chapterIndex;
-          task.nextFragmentIndex = fragmentIndex + 1;
-          task.currentChapterId = chapter.chapterId;
+      const flushTaskState = async (refreshChapters = false): Promise<void> => {
+        persistChain = persistChain.then(async () => {
           task.updatedAt = new Date().toISOString();
+          this.syncDerivedProofreadTaskState(task, activeChapterCounts.keys());
           await project.saveProofreadTaskState(task);
           this.syncProofreadProgress(task);
           this.broadcastProofreadProgress();
-        }
+          if (refreshChapters) {
+            this.refreshSnapshot();
+            this.markChaptersChanged();
+          }
+        });
+        await persistChain;
+      };
 
-        if (task.abortRequested) {
-          break;
-        }
-
-        task.completedChapters += 1;
-        task.nextChapterIndex = chapterIndex + 1;
-        task.nextFragmentIndex = 0;
-        task.currentChapterId = task.chapters[chapterIndex + 1]?.chapterId;
-        task.updatedAt = new Date().toISOString();
-        await project.saveProofreadTaskState(task);
+      const beginActiveChapter = (chapterId: number) => {
+        activeChapterCounts.set(chapterId, (activeChapterCounts.get(chapterId) ?? 0) + 1);
+        this.syncDerivedProofreadTaskState(task, activeChapterCounts.keys());
         this.syncProofreadProgress(task);
         this.broadcastProofreadProgress();
-        this.refreshSnapshot();
+      };
+
+      const endActiveChapter = (chapterId: number) => {
+        const nextCount = (activeChapterCounts.get(chapterId) ?? 0) - 1;
+        if (nextCount > 0) {
+          activeChapterCounts.set(chapterId, nextCount);
+        } else {
+          activeChapterCounts.delete(chapterId);
+        }
+        this.syncDerivedProofreadTaskState(task, activeChapterCounts.keys());
+        this.syncProofreadProgress(task);
+        this.broadcastProofreadProgress();
+      };
+
+      const takeNextWorkItem = () => {
+        const workItem = pendingWorkItems[nextWorkItemIndex];
+        if (!workItem) {
+          return undefined;
+        }
+        nextWorkItemIndex += 1;
+        return workItem;
+      };
+
+      const worker = async () => {
+        while (taskToken === this.processingToken && !task.abortRequested && !workerFailure) {
+          const workItem = takeNextWorkItem();
+          if (!workItem) {
+            return;
+          }
+
+          beginActiveChapter(workItem.chapterId);
+          try {
+            const prepared = project.buildProofreadFragmentInput(
+              workItem.chapterId,
+              workItem.fragmentIndex,
+            );
+            if (prepared.blockedReason) {
+              this.appendProofreadWarning(
+                task,
+                `章节 ${workItem.chapterId} / 片段 ${workItem.fragmentIndex + 1} 的依赖上下文不可用（${prepared.blockedReason}），已忽略该上下文继续校对`,
+              );
+              await flushTaskState(false);
+            }
+
+            const result = await proofreadRuntime.processor.process({
+              sourceText: prepared.sourceText,
+              currentTranslationText: prepared.currentTranslationText,
+              contextView: prepared.contextView,
+              glossary: project.getGlossary(),
+              requirements: prepared.requirements,
+              documentManager: project.getDocumentManager(),
+              workItemRef: {
+                chapterId: workItem.chapterId,
+                fragmentIndex: workItem.fragmentIndex,
+                stepId: 'proofread',
+              },
+            });
+
+            if (
+              taskToken !== this.processingToken ||
+              task.abortRequested ||
+              workerFailure !== undefined
+            ) {
+              return;
+            }
+
+            await project.getDocumentManager().updateTranslation(
+              workItem.chapterId,
+              workItem.fragmentIndex,
+              result.outputText,
+            );
+            this.markProofreadFragmentCompleted(task, workItem.chapterIndex, workItem.fragmentIndex);
+            await flushTaskState(true);
+          } catch (error) {
+            workerFailure ??= error;
+            return;
+          } finally {
+            endActiveChapter(workItem.chapterId);
+          }
+        }
+      };
+
+      const workerCount = Math.max(1, Math.min(maxConcurrentWorkItems, pendingWorkItems.length || 1));
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
+      await persistChain;
+
+      if (workerFailure !== undefined) {
+        throw workerFailure;
       }
 
       if (taskToken !== this.processingToken) {
@@ -1335,6 +1388,7 @@ export class ProjectService {
         return;
       }
 
+      this.syncDerivedProofreadTaskState(task);
       task.status = 'done';
       task.completedChapters = task.totalChapters;
       task.completedBatches = task.totalBatches;
@@ -1379,6 +1433,81 @@ export class ProjectService {
     task.lastWarningMessage = message;
     task.updatedAt = new Date().toISOString();
     this.log('warning', message);
+  }
+
+  private buildProofreadPendingWorkItems(task: ProofreadTaskState): Array<{
+    chapterIndex: number;
+    chapterId: number;
+    fragmentIndex: number;
+  }> {
+    const pendingWorkItems: Array<{
+      chapterIndex: number;
+      chapterId: number;
+      fragmentIndex: number;
+    }> = [];
+
+    for (const [chapterIndex, chapter] of task.chapters.entries()) {
+      const completedFragmentIndices = new Set(chapter.completedFragmentIndices ?? []);
+      for (let fragmentIndex = 0; fragmentIndex < chapter.fragmentCount; fragmentIndex += 1) {
+        if (!completedFragmentIndices.has(fragmentIndex)) {
+          pendingWorkItems.push({
+            chapterIndex,
+            chapterId: chapter.chapterId,
+            fragmentIndex,
+          });
+        }
+      }
+    }
+
+    return pendingWorkItems;
+  }
+
+  private markProofreadFragmentCompleted(
+    task: ProofreadTaskState,
+    chapterIndex: number,
+    fragmentIndex: number,
+  ): void {
+    const chapter = task.chapters[chapterIndex];
+    if (!chapter) {
+      return;
+    }
+
+    const nextCompletedFragmentIndices = new Set(chapter.completedFragmentIndices ?? []);
+    nextCompletedFragmentIndices.add(fragmentIndex);
+    chapter.completedFragmentIndices = [...nextCompletedFragmentIndices].sort((left, right) => left - right);
+    task.updatedAt = new Date().toISOString();
+  }
+
+  private syncDerivedProofreadTaskState(
+    task: ProofreadTaskState,
+    activeChapterIds?: Iterable<number>,
+  ): void {
+    task.totalChapters = task.chapters.length;
+    task.totalBatches = task.chapters.reduce((sum, chapter) => sum + chapter.fragmentCount, 0);
+    task.completedBatches = task.chapters.reduce(
+      (sum, chapter) => sum + (chapter.completedFragmentIndices?.length ?? 0),
+      0,
+    );
+    task.completedChapters = task.chapters.filter(
+      (chapter) => (chapter.completedFragmentIndices?.length ?? 0) >= chapter.fragmentCount,
+    ).length;
+
+    const normalizedActiveChapterIds = [...new Set(activeChapterIds ?? [])];
+    for (const [chapterIndex, chapter] of task.chapters.entries()) {
+      const completedFragmentIndices = new Set(chapter.completedFragmentIndices ?? []);
+      for (let fragmentIndex = 0; fragmentIndex < chapter.fragmentCount; fragmentIndex += 1) {
+        if (!completedFragmentIndices.has(fragmentIndex)) {
+          task.nextChapterIndex = chapterIndex;
+          task.nextFragmentIndex = fragmentIndex;
+          task.currentChapterId = normalizedActiveChapterIds[0] ?? chapter.chapterId;
+          return;
+        }
+      }
+    }
+
+    task.nextChapterIndex = task.chapters.length;
+    task.nextFragmentIndex = 0;
+    task.currentChapterId = normalizedActiveChapterIds[0];
   }
 
   // ─── Dictionary / Glossary ──────────────────────────
@@ -3928,6 +4057,7 @@ async function createProofreadProcessorForProject(
         translationPromptSet: promptSet,
       }),
     }),
+    maxConcurrentWorkItems: await resolveTranslatorMaxConcurrentWorkItems(manager, processorConfig),
     close: async () => {
       await provider.closeAll();
     },
