@@ -136,7 +136,7 @@ prompts:
     const rendered = await manager.renderProofreadProofreaderPrompt({
       sourceUnits: [{ id: "1", text: "原文" }],
       currentTranslations: [{ id: "1", text: "译文" }],
-      referenceSourceTexts: [],
+      referencePairs: [],
       plotSummaries: [],
       translatedGlossaryTerms: [],
       requirements: [],

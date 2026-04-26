@@ -16,6 +16,12 @@ export type PromptTranslationUnit = {
   text: string;
 };
 
+export type PromptReferenceUnit = {
+  id: string;
+  sourceText: string;
+  translation: string;
+};
+
 export type TranslationStepPromptInput = {
   sourceUnits: PromptTranslationUnit[];
   dependencyTranslations: string[];
@@ -26,8 +32,7 @@ export type TranslationStepPromptInput = {
 
 export type MultiStageAnalyzerPromptInput = {
   sourceUnits: PromptTranslationUnit[];
-  referenceSourceTexts: string[];
-  referenceTranslations: string[];
+  referencePairs: PromptReferenceUnit[];
   plotSummaries: string[];
   translatedGlossaryTerms: ResolvedGlossaryTerm[];
   requirements: string[];
@@ -51,7 +56,7 @@ export type MultiStageEditorPromptInput = {
 export type MultiStageProofreaderPromptInput = {
   sourceUnits: PromptTranslationUnit[];
   currentTranslations: PromptTranslationUnit[];
-  referenceSourceTexts: string[];
+  referencePairs: PromptReferenceUnit[];
   plotSummaries: string[];
   translatedGlossaryTerms: ResolvedGlossaryTerm[];
   analysisText: string;
@@ -61,7 +66,7 @@ export type MultiStageProofreaderPromptInput = {
 export type ProofreadProofreaderPromptInput = {
   sourceUnits: PromptTranslationUnit[];
   currentTranslations: PromptTranslationUnit[];
-  referenceSourceTexts: string[];
+  referencePairs: PromptReferenceUnit[];
   plotSummaries: string[];
   translatedGlossaryTerms: ResolvedGlossaryTerm[];
   requirements: string[];
@@ -172,8 +177,7 @@ export class PromptManager {
   ): Promise<RenderedTextPrompt> {
     const renderedPrompt = await this.renderPrompt(MULTI_STAGE_ANALYZER_PROMPT_ID, {
       sourceUnits: input.sourceUnits,
-      referenceSourceTexts: input.referenceSourceTexts,
-      referenceTranslations: input.referenceTranslations,
+      referencePairs: input.referencePairs,
       plotSummaries: input.plotSummaries,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
       requirements: input.requirements,
@@ -230,7 +234,7 @@ export class PromptManager {
     const renderedPrompt = await this.renderPrompt(MULTI_STAGE_PROOFREADER_PROMPT_ID, {
       sourceUnits: input.sourceUnits,
       currentTranslations: input.currentTranslations,
-      referenceSourceTexts: input.referenceSourceTexts,
+      referencePairs: input.referencePairs,
       plotSummaries: input.plotSummaries,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
       analysisText: input.analysisText,
@@ -250,7 +254,7 @@ export class PromptManager {
     const renderedPrompt = await this.renderPrompt(PROOFREAD_PROOFREADER_PROMPT_ID, {
       sourceUnits: input.sourceUnits,
       currentTranslations: input.currentTranslations,
-      referenceSourceTexts: input.referenceSourceTexts,
+      referencePairs: input.referencePairs,
       plotSummaries: input.plotSummaries,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
       requirements: input.requirements,

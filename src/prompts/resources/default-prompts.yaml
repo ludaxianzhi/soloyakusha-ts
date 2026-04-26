@@ -119,27 +119,23 @@ prompts:
         2. 应当采取什么样的文字表达风格。如果翻译要求中提及了特殊的风格要求，如何解读这种风格，将要求的风格应用到翻译中的具体策略。
         3. 有哪些需要注意的翻译难点，如视角转换，一词多义，隐喻，典故等并给出翻译方案。
         4. 是否存在谐音词或多文化交流方面涉及探讨语言本身的文本。你需要给出具体的翻译方案，使其尽量对读者更加亲和。如：使用本土化谐音替代，或进行括号标注等。
+        5. 当前文本中是否有与前文密切相关（如相同或高度相似的文本）的句子，需要着重提示译者保持一致性。
     user:
       type: liquid
       template: |
-        {% if referenceSourceTexts.size > 0 %}
-        参考日文原文（前序文段）：
-        {% for text in referenceSourceTexts %}
-        - {{ text }}
+        {% if referencePairs.size > 0 %}
+        全量参考（前序文段，原文与译文合并展示）：
+        {% for unit in referencePairs %}
+        - id: {{ unit.id }}
+          原文: {{ unit.sourceText }}
+          译文: {{ unit.translation }}
         {% endfor %}
 
+        {% endif %}
         {% if plotSummaries.size > 0 %}
         历史总结（用于补充参考原文对应的大纲/前情）：
         {% for summary in plotSummaries %}
         - {{ summary }}
-        {% endfor %}
-
-        {% endif %}
-        {% endif %}
-        {% if referenceTranslations.size > 0 %}
-        参考简体中文译文（前序文段对应译文）：
-        {% for text in referenceTranslations %}
-        - {{ text }}
         {% endfor %}
 
         {% endif %}
@@ -272,19 +268,24 @@ prompts:
         你是一位严谨的日译简中文学校对专家，擅长对照日文原文发现误译和细节错误。
         在指出错误时，你应当尊重译者为保持文学流畅性和本地化效果而进行的合理意译或改写；
         只有在意思出现明显偏差或重要细节被遗漏时，才提出更正意见。
+
+        另外：你很注重译文的一致性，如果当前的译文和历史译文中的翻译方式有出入，这会被视作重大错误。
     user:
       type: liquid
       template: |
+        {% if referencePairs.size > 0 %}
+        全量参考（前序文段，原文与译文合并展示）：
+        {% for unit in referencePairs %}
+        - id: {{ unit.id }}
+          原文: {{ unit.sourceText }}
+          译文: {{ unit.translation }}
+        {% endfor %}
+
+        {% endif %}
         {% if plotSummaries.size > 0 %}
         历史总结（用于补充参考原文对应的大纲/前情）：
         {% for summary in plotSummaries %}
         - {{ summary }}
-        {% endfor %}
-
-        {% elsif referenceSourceTexts.size > 0 %}
-        参考日文原文（前序文段）：
-        {% for text in referenceSourceTexts %}
-        - {{ text }}
         {% endfor %}
 
         {% endif %}
@@ -340,16 +341,19 @@ prompts:
     user:
       type: liquid
       template: |
+        {% if referencePairs.size > 0 %}
+        全量参考（前序文段，原文与译文合并展示）：
+        {% for unit in referencePairs %}
+        - id: {{ unit.id }}
+          原文: {{ unit.sourceText }}
+          译文: {{ unit.translation }}
+        {% endfor %}
+
+        {% endif %}
         {% if plotSummaries.size > 0 %}
         历史总结（用于补充参考原文对应的大纲/前情）：
         {% for summary in plotSummaries %}
         - {{ summary }}
-        {% endfor %}
-
-        {% elsif referenceSourceTexts.size > 0 %}
-        参考日文原文（前序文段）：
-        {% for text in referenceSourceTexts %}
-        - {{ text }}
         {% endfor %}
 
         {% endif %}

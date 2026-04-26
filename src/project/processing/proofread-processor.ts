@@ -13,6 +13,7 @@ import type {
 import { parseJsonResponseText } from "../../llm/utils.ts";
 import { NOOP_LOGGER, type Logger } from "../logger.ts";
 import { PromptManager, type PromptTranslationUnit } from "./prompt-manager.ts";
+import type { PromptReferenceUnit } from "./prompt-manager.ts";
 import type { TranslationContextView } from "../context/context-view.ts";
 import type { TranslationDocumentManager } from "../document/translation-document-manager.ts";
 import {
@@ -113,6 +114,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
     const requirements = [...(request.requirements ?? [])];
     const referenceContext =
       request.contextView?.getDependencyPromptContext() ?? {
+        referencePairs: [],
         referenceSourceTexts: [],
         referenceTranslations: [],
         plotSummaries: [],
@@ -153,7 +155,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
       const proofreaderPrompt = await this.promptManager.renderProofreadProofreaderPrompt({
         sourceUnits,
         currentTranslations: toPromptUnits(latestTranslations),
-        referenceSourceTexts: referenceContext.referenceSourceTexts,
+        referencePairs: toPromptReferenceUnits(referenceContext.referencePairs),
         plotSummaries: referenceContext.plotSummaries,
         translatedGlossaryTerms,
         requirements,
@@ -397,6 +399,16 @@ function toPromptUnits(
   return translations.map((translation) => ({
     id: translation.id,
     text: translation.translation,
+  }));
+}
+
+function toPromptReferenceUnits(
+  references: ReadonlyArray<{ sourceText: string; translatedText: string }>,
+): PromptReferenceUnit[] {
+  return references.map((reference, index) => ({
+    id: (index + 1).toString(),
+    sourceText: reference.sourceText,
+    translation: reference.translatedText,
   }));
 }
 

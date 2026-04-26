@@ -37,6 +37,7 @@ import type {
 import { parseJsonResponseText } from "../../llm/utils.ts";
 import { NOOP_LOGGER, type Logger } from "../logger.ts";
 import { PromptManager, type PromptTranslationUnit } from "./prompt-manager.ts";
+import type { PromptReferenceUnit } from "./prompt-manager.ts";
 import type { TranslationWorkItem } from "../pipeline/pipeline.ts";
 import type {
   TranslationProcessor,
@@ -159,7 +160,8 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
 
     const requirements = [...(request.requirements ?? [])];
     const referenceContext = resolveDependencyPromptContext(request);
-    const { referenceSourceTexts, referenceTranslations, plotSummaries } = referenceContext;
+    const { referencePairs, referenceSourceTexts, referenceTranslations, plotSummaries } =
+      referenceContext;
     const translatedGlossaryTerms = resolveTranslatedGlossaryTerms(request);
     const untranslatedGlossaryTerms = resolveUntranslatedGlossaryTerms(request);
 
@@ -168,8 +170,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
     // Step 1: LLM1 分析
     const analyzerPrompt = await this.promptManager.renderMultiStageAnalyzerPrompt({
       sourceUnits,
-      referenceSourceTexts,
-      referenceTranslations,
+      referencePairs: toPromptReferenceUnits(referencePairs),
       plotSummaries,
       translatedGlossaryTerms,
       requirements,
@@ -268,7 +269,7 @@ export class MultiStageTranslationProcessor implements TranslationProcessor {
       const proofreaderPrompt = await this.promptManager.renderMultiStageProofreaderPrompt({
         sourceUnits,
         currentTranslations: toPromptUnits(currentTranslations),
-        referenceSourceTexts,
+        referencePairs: toPromptReferenceUnits(referencePairs),
         plotSummaries,
         translatedGlossaryTerms,
         analysisText,
@@ -456,6 +457,16 @@ function toPromptUnits(
   }));
 }
 
+function toPromptReferenceUnits(
+  references: ReadonlyArray<{ sourceText: string; translatedText: string }>,
+): PromptReferenceUnit[] {
+  return references.map((reference, index) => ({
+    id: (index + 1).toString(),
+    sourceText: reference.sourceText,
+    translation: reference.translatedText,
+  }));
+}
+
 function splitSourceTextIntoUnits(sourceText: string): PromptTranslationUnit[] {
   return sourceText.split("\n").map((text, index) => ({
     id: (index + 1).toString(),
@@ -634,6 +645,7 @@ function resolveSlidingWindow(
 function resolveDependencyPromptContext(request: TranslationProcessorRequest) {
   return (
     request.contextView?.getDependencyPromptContext() ?? {
+      referencePairs: [],
       referenceSourceTexts: [],
       referenceTranslations: [],
       plotSummaries: [],

@@ -28,6 +28,7 @@ type OrderedFragmentRef = {
 };
 
 export type DependencyPromptContext = {
+  referencePairs: ContextPair[];
   referenceSourceTexts: string[];
   referenceTranslations: string[];
   plotSummaries: string[];
@@ -213,6 +214,7 @@ export class TranslationContextView {
       .filter((value) => value.length > 0);
 
     return {
+      referencePairs: pairs,
       referenceSourceTexts,
       referenceTranslations,
       plotSummaries:

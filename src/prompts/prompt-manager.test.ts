@@ -187,8 +187,13 @@ prompts:
 
     const analyzerPrompt = manager.renderPrompt("project.multiStage.analyzer.ja-zhCN", {
       sourceUnits: [{ id: "1", text: "勇者が扉を開けた。" }],
-      referenceSourceTexts: ["扉の先には長い廊下があった。"],
-      referenceTranslations: ["门后是一条长廊。"],
+      referencePairs: [
+        {
+          id: "1",
+          sourceText: "扉の先には長い廊下があった。",
+          translation: "门后是一条长廊。",
+        },
+      ],
       plotSummaries: ["上一段：勇者已经潜入城堡。"],
       translatedGlossaryTerms: [{ term: "勇者", translation: "勇者", status: "translated" }],
       requirements: ["保持文学语气"],
@@ -206,7 +211,9 @@ prompts:
       responseSchemaJson: '{"type":"object","properties":{"translations":{"type":"array"}}}',
     });
 
-    expect(analyzerPrompt.userPrompt).toContain("参考日文原文（前序文段）");
+    expect(analyzerPrompt.userPrompt).toContain("全量参考（前序文段，原文与译文合并展示）");
+    expect(analyzerPrompt.userPrompt).toContain("原文: 扉の先には長い廊下があった。");
+    expect(analyzerPrompt.userPrompt).toContain("译文: 门后是一条长廊。");
     expect(analyzerPrompt.userPrompt).toContain("历史总结");
     expect(analyzerPrompt.userPrompt).toContain("上一段：勇者已经潜入城堡。");
     expect(reviserPrompt.userPrompt).toContain("中文编辑反馈");
@@ -220,18 +227,24 @@ prompts:
     const prompt = manager.renderPrompt("project.multiStage.proofreader.ja-zhCN", {
       sourceUnits: [{ id: "1", text: "勇者が扉を開けた。" }],
       currentTranslations: [{ id: "1", text: "勇者推开了门。" }],
-      referenceSourceTexts: ["扉の先には長い廊下があった。"],
-      referenceTranslations: ["门后是一条长廊。"],
+      referencePairs: [
+        {
+          id: "1",
+          sourceText: "扉の先には長い廊下があった。",
+          translation: "门后是一条长廊。",
+        },
+      ],
       plotSummaries: ["上一段：勇者已经潜入城堡。"],
       translatedGlossaryTerms: [{ term: "勇者", translation: "勇者", status: "translated" }],
       analysisText: "分析摘要",
       requirements: ["保持文学语气"],
     });
 
+    expect(prompt.userPrompt).toContain("全量参考（前序文段，原文与译文合并展示）");
+    expect(prompt.userPrompt).toContain("原文: 扉の先には長い廊下があった。");
+    expect(prompt.userPrompt).toContain("译文: 门后是一条长廊。");
     expect(prompt.userPrompt).toContain("历史总结（用于补充参考原文对应的大纲/前情）");
     expect(prompt.userPrompt).toContain("上一段：勇者已经潜入城堡。");
-    expect(prompt.userPrompt).not.toContain("参考日文原文（前序文段）");
-    expect(prompt.userPrompt).not.toContain("扉の先には長い廊下があった。");
   });
 
   test("renders ja-zhCN specialized translation prompts from default yaml", async () => {
