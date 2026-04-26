@@ -58,7 +58,7 @@ type EditorGlossaryHint = {
   text: string;
 };
 
-export function ChapterTranslationEditorPage() {
+export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRevision?: number }) {
   const { message } = AntdApp.useApp();
   const navigate = useNavigate();
   const params = useParams<{ chapterId?: string }>();
@@ -208,6 +208,15 @@ export function ChapterTranslationEditorPage() {
   useEffect(() => {
     void loadDraft();
   }, [loadDraft]);
+
+  // 当后端章节内容被外部任务（如校对）更新时，自动重拉内容
+  useEffect(() => {
+    if (!chaptersRevision || dirty) {
+      return;
+    }
+    void loadDraft();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chaptersRevision]);
 
   useEffect(() => {
     if (!dirty || !draft || !selectedChapterId) {

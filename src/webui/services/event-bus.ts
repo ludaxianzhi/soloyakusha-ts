@@ -34,6 +34,7 @@ export type BusEventType =
   | 'scanProgress'
   | 'proofreadProgress'
   | 'plotProgress'
+  | 'chaptersChanged'
   | 'status';
 
 export interface BusEvent {

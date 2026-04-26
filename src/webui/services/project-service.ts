@@ -3028,6 +3028,14 @@ export class ProjectService {
 
   private markChaptersChanged(): void {
     this.resourceVersions.chaptersRevision += 1;
+    this.broadcastChaptersChanged();
+  }
+
+  private broadcastChaptersChanged(): void {
+    this.eventBus.emit({
+      type: 'chaptersChanged',
+      data: this.resourceVersions.chaptersRevision,
+    });
   }
 
   private markTopologyChanged(): void {

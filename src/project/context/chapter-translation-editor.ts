@@ -98,17 +98,27 @@ export function buildChapterTranslationEditorUnits(
   chapter: ChapterEntry,
 ): ChapterTranslationEditorUnit[] {
   return chapter.fragments.flatMap((fragment, fragmentIndex) =>
-    fragment.source.lines.map((sourceText, lineIndex, sourceLines) => ({
-      unitIndex:
-        chapter.fragments
-          .slice(0, fragmentIndex)
-          .reduce((sum, current) => sum + current.source.lines.length, 0) + lineIndex,
-      fragmentIndex,
-      lineIndex,
-      sourceText,
-      translatedText: fragment.translation.lines[lineIndex] ?? "",
-      targetCandidates: [...(fragment.meta?.targetGroups?.[lineIndex] ?? [])],
-    })),
+    fragment.source.lines.map((sourceText, lineIndex, sourceLines) => {
+      const translatedText = fragment.translation.lines[lineIndex] ?? "";
+      const targetCandidates = [...(fragment.meta?.targetGroups?.[lineIndex] ?? [])];
+      if (targetCandidates.length === 0) {
+        targetCandidates.push(translatedText);
+      } else {
+        targetCandidates[targetCandidates.length - 1] = translatedText;
+      }
+
+      return {
+        unitIndex:
+          chapter.fragments
+            .slice(0, fragmentIndex)
+            .reduce((sum, current) => sum + current.source.lines.length, 0) + lineIndex,
+        fragmentIndex,
+        lineIndex,
+        sourceText,
+        translatedText,
+        targetCandidates,
+      };
+    }),
   );
 }
 

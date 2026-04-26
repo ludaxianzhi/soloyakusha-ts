@@ -13,6 +13,7 @@ type EventHandlers = {
   onScanProgress?: (progress: ScanDictionaryProgress | null) => void;
   onProofreadProgress?: (progress: ProofreadProgress | null) => void;
   onPlotProgress?: (progress: PlotSummaryProgress | null) => void;
+  onChaptersChanged?: (revision: number) => void;
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
@@ -56,6 +57,11 @@ export function useEventStream(handlers: EventHandlers) {
         JSON.parse((event as MessageEvent<string>).data) as
           | PlotSummaryProgress
           | null,
+      );
+    });
+    source.addEventListener('chaptersChanged', (event) => {
+      handlers.onChaptersChanged?.(
+        JSON.parse((event as MessageEvent<string>).data) as number,
       );
     });
 

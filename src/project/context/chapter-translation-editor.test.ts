@@ -128,6 +128,27 @@ describe("chapter translation editor", () => {
     const preview = project.getChapterTranslationPreview(1);
     expect(preview.units.map((unit) => unit.translatedText)).toEqual(["【爱丽丝】Hello", "Narration"]);
   });
+
+  test("editor draft prefers latest fragment translation over imported target groups", () => {
+    const chapter = createChapterEntryForTest({
+      id: 1,
+      filePath: "chapter-1.txt",
+      lines: ["第一句"],
+      translations: ["校对后的新译文"],
+    });
+    chapter.fragments[0]!.meta!.targetGroups = [["导入时旧译文"]];
+
+    const draft = createChapterTranslationEditorDocument({
+      chapterId: 1,
+      format: "m3t",
+      units: buildChapterTranslationEditorUnits(chapter),
+    });
+
+    expect(draft.units[0]?.translatedText).toBe("校对后的新译文");
+    expect(draft.units[0]?.targetCandidates).toEqual(["校对后的新译文"]);
+    expect(draft.content).toContain("校对后的新译文");
+    expect(draft.content).not.toContain("导入时旧译文");
+  });
 });
 
 function createChapterEntryForTest(input: {

@@ -189,6 +189,7 @@ export function AppShell() {
   const [selectedLlmName, setSelectedLlmName] = useState<string>();
   const [selectedTranslatorName, setSelectedTranslatorName] = useState<string>();
   const [activityCenterOpen, setActivityCenterOpen] = useState(false);
+  const [chapterContentRevision, setChapterContentRevision] = useState(0);
   const workspaceResourceVersionsRef = useRef<ProjectResourceVersions>({
     dictionaryRevision: 0,
     chaptersRevision: 0,
@@ -659,8 +660,12 @@ export function AppShell() {
             void refreshProjectStatus().catch(() => undefined);
           }
         },
+      onChaptersChanged: (revision: number) => {
+        setChapterContentRevision(revision);
+        void refreshChapters().catch(() => undefined);
+      },
     }),
-    [refreshProjectStatus],
+    [refreshChapters, refreshProjectStatus],
   );
 
   const { connected } = useEventStream(eventHandlers);
@@ -1898,7 +1903,7 @@ export function AppShell() {
                 <Route
                   path="/workspace/editor/:chapterId?"
                   element={
-                    isMobile ? <Navigate replace to="/workspace/current" /> : <LazyChapterTranslationEditorPage />
+                    isMobile ? <Navigate replace to="/workspace/current" /> : <LazyChapterTranslationEditorPage chaptersRevision={chapterContentRevision} />
                   }
                 />
                 <Route
