@@ -22,6 +22,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import { api } from './api.ts';
 import {
   auxToForm,
+  buildTranslationProcessorConfigPayload,
   buildTranslatorPayload,
   formatTranslatorLanguagePair,
   normalizeModelChain,
@@ -31,6 +32,7 @@ import {
   parseYamlObject,
   profileToForm,
   splitLines,
+  translationProcessorConfigToForm,
   translatorToForm,
   toErrorMessage,
   vectorStoreToForm,
@@ -49,6 +51,7 @@ import type {
   RepetitionPatternAnalysisResult,
   SavedRepetitionPatternAnalysisResult,
   StoryTopologyDescriptor,
+  TranslationProcessorConfig,
   TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
   TranslatorEntry,
@@ -115,6 +118,7 @@ type SettingsSection =
   | 'embedding'
   | 'vector'
   | 'translator'
+  | 'proofread'
   | 'extractor'
   | 'updater'
   | 'plot'
@@ -127,6 +131,7 @@ const INITIAL_SETTINGS_LOADING: SettingsLoadingState = {
   embedding: false,
   vector: false,
   translator: false,
+  proofread: false,
   extractor: false,
   updater: false,
   plot: false,
@@ -168,6 +173,11 @@ export function AppShell() {
   const [translatorWorkflows, setTranslatorWorkflows] = useState<
     TranslationProcessorWorkflowMetadata[]
   >([]);
+  const [proofreadConfig, setProofreadConfig] =
+    useState<TranslationProcessorConfig | null>(null);
+  const [proofreadWorkflows, setProofreadWorkflows] = useState<
+    TranslationProcessorWorkflowMetadata[]
+  >([]);
   const [embeddingConfig, setEmbeddingConfig] = useState<LlmProfileConfig | null>(null);
   const [vectorConfig, setVectorConfig] = useState<VectorStoreConfig | null>(null);
   const [vectorConnectionStatus, setVectorConnectionStatus] =
@@ -193,6 +203,7 @@ export function AppShell() {
   const [embeddingForm] = Form.useForm<Record<string, unknown>>();
   const [vectorForm] = Form.useForm<Record<string, unknown>>();
   const [translatorForm] = Form.useForm<Record<string, unknown>>();
+  const [proofreadForm] = Form.useForm<Record<string, unknown>>();
   const [extractorForm] = Form.useForm<Record<string, unknown>>();
   const [updaterForm] = Form.useForm<Record<string, unknown>>();
   const [plotForm] = Form.useForm<Record<string, unknown>>();
@@ -211,6 +222,13 @@ export function AppShell() {
         translatorWorkflows.map((workflow) => [workflow.workflow, workflow] as const),
       ),
     [translatorWorkflows],
+  );
+  const proofreadWorkflowMap = useMemo(
+    () =>
+      new Map(
+        proofreadWorkflows.map((workflow) => [workflow.workflow, workflow] as const),
+      ),
+    [proofreadWorkflows],
   );
 
   const runAction = useCallback(
@@ -524,6 +542,8 @@ export function AppShell() {
         vectorRes,
         translatorsRes,
         workflowRes,
+        proofreadConfigRes,
+        proofreadWorkflowRes,
         extractorRes,
         updaterRes,
         plotRes,
@@ -534,6 +554,8 @@ export function AppShell() {
         api.getVectorStores(),
         api.getTranslators(),
         api.getTranslatorWorkflows(),
+        api.getProofreadProcessorConfig(),
+        api.getProofreadWorkflows(),
         api.getGlossaryExtractor(),
         api.getGlossaryUpdater(),
         api.getPlotSummaryConfig(),
@@ -547,6 +569,8 @@ export function AppShell() {
       setVectorConnectionStatus(vectorRes.status);
       setTranslators(translatorsRes.translators);
       setTranslatorWorkflows(workflowRes.workflows);
+      setProofreadConfig(proofreadConfigRes as TranslationProcessorConfig | null);
+      setProofreadWorkflows(proofreadWorkflowRes.workflows);
       setExtractorConfig(extractorRes as GlossaryExtractorConfig | null);
       setUpdaterConfig(updaterRes as GlossaryUpdaterConfig | null);
       setPlotConfig(plotRes as PlotSummaryConfig | null);
@@ -583,6 +607,7 @@ export function AppShell() {
                 plotSummaryReady: false,
                 plotSummaryProgress: null,
                 scanDictionaryProgress: null,
+                proofreadProgress: null,
                 snapshot: nextSnapshot,
               },
         );
@@ -595,6 +620,21 @@ export function AppShell() {
                   ...prev,
                   isBusy: progress?.status === 'running',
                   scanDictionaryProgress: progress,
+                }
+              : prev,
+          );
+          if (progress && progress.status !== 'running') {
+            void refreshProjectStatus().catch(() => undefined);
+          }
+        },
+      onProofreadProgress: (progress: ProjectStatus['proofreadProgress']) =>
+        {
+          setProjectStatus((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  isBusy: progress?.status === 'running',
+                  proofreadProgress: progress,
                 }
               : prev,
           );
@@ -720,6 +760,29 @@ export function AppShell() {
     translators,
     translatorWorkflows,
     workflowMap,
+  ]);
+
+  useEffect(() => {
+    if (location.pathname !== '/settings') {
+      return;
+    }
+
+    const workflow =
+      proofreadWorkflowMap.get(proofreadConfig?.workflow ?? '') ?? proofreadWorkflows[0];
+
+    proofreadForm.resetFields();
+    proofreadForm.setFieldsValue(
+      translationProcessorConfigToForm(proofreadConfig, workflow) as Record<
+        string,
+        {} | undefined
+      >,
+    );
+  }, [
+    location.pathname,
+    proofreadConfig,
+    proofreadForm,
+    proofreadWorkflowMap,
+    proofreadWorkflows,
   ]);
 
   useEffect(() => {
@@ -927,6 +990,17 @@ export function AppShell() {
       });
     },
     [message, navigate, refreshBootData, resetWorkspaceDataCaches, runAction],
+  );
+
+  const handleStartProofread = useCallback(
+    async (input: { chapterIds: number[]; mode?: 'linear' | 'simultaneous' }) => {
+      await runAction(async () => {
+        await api.startProofread(input);
+        await Promise.all([refreshProjectStatus(), refreshChapters()]);
+        message.success('已开始章节校对任务');
+      });
+    },
+    [message, refreshChapters, refreshProjectStatus, runAction],
   );
 
   const openDictionaryEditor = useCallback(
@@ -1235,6 +1309,8 @@ export function AppShell() {
       await runAction(async () => {
         if (task === 'scan') {
           await api.abortScanDictionary();
+        } else if (task === 'proofread') {
+          await api.abortProofread();
         } else {
           await api.abortPlotSummary();
         }
@@ -1249,6 +1325,8 @@ export function AppShell() {
       await runAction(async () => {
         if (task === 'scan') {
           await api.resumeScanDictionary();
+        } else if (task === 'proofread') {
+          await api.resumeProofread();
         } else {
           await api.resumePlotSummary();
         }
@@ -1533,6 +1611,26 @@ export function AppShell() {
     });
   }, [message, runAction, runSettingsAction, selectedTranslatorName, translators]);
 
+  const handleSaveProofreadProcessor = useCallback(
+    async (values: Record<string, unknown>) => {
+      await runAction(async () => {
+        const workflowName = optionalString(values.workflow) ?? proofreadWorkflows[0]?.workflow;
+        const workflow = workflowName ? proofreadWorkflowMap.get(workflowName) : undefined;
+        if (!workflow) {
+          throw new Error('未找到可用的校对工作流元数据');
+        }
+
+        const payload = buildTranslationProcessorConfigPayload(values, workflow);
+        await runSettingsAction(['proofread'], async () => {
+          await api.saveProofreadProcessorConfig(payload);
+          setProofreadConfig(payload);
+        });
+        message.success('校对器已保存');
+      });
+    },
+    [message, proofreadWorkflowMap, proofreadWorkflows, runAction, runSettingsAction],
+  );
+
   const handleSaveAuxiliaryConfig = useCallback(
     async (
       kind: 'extractor' | 'updater' | 'plot' | 'alignment',
@@ -1747,6 +1845,7 @@ export function AppShell() {
                       onRefreshWorkspaceConfig={refreshWorkspaceConfig}
                       onProjectCommand={handleProjectCommand}
                       onBuildContextNetwork={handleBuildContextNetwork}
+                      onStartProofread={handleStartProofread}
                       onOpenDictionaryEditor={openDictionaryEditor}
                       onDeleteDictionary={handleDeleteDictionary}
                       onImportDictionaryFromContent={handleImportDictionaryFromContent}
@@ -1825,10 +1924,13 @@ export function AppShell() {
                         selectedTranslatorName={selectedTranslatorName}
                         translators={translators}
                         translatorWorkflows={translatorWorkflows}
+                        proofreadProcessorConfig={proofreadConfig}
+                        proofreadWorkflows={proofreadWorkflows}
                         llmForm={llmForm}
                         embeddingForm={embeddingForm}
                         vectorForm={vectorForm}
                         translatorForm={translatorForm}
+                        proofreadForm={proofreadForm}
                         extractorForm={extractorForm}
                         updaterForm={updaterForm}
                         plotForm={plotForm}
@@ -1847,6 +1949,7 @@ export function AppShell() {
                         onSelectTranslator={selectTranslator}
                         onSaveTranslator={handleSaveTranslator}
                         onDeleteTranslator={handleDeleteTranslator}
+                        onSaveProofreadProcessor={handleSaveProofreadProcessor}
                         onSaveAuxiliaryConfig={handleSaveAuxiliaryConfig}
                       />
                     )

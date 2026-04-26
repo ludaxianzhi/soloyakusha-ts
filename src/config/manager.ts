@@ -107,6 +107,12 @@ export class GlobalConfigManager {
     );
   }
 
+  async getProofreadProcessorConfig(): Promise<TranslationProcessorConfig | undefined> {
+    return cloneTranslationProcessorConfig(
+      (await this.loadDocument()).translation?.proofreadProcessor,
+    );
+  }
+
   async setTranslationProcessorConfig(
     config?: TranslationProcessorConfig,
   ): Promise<TranslationProcessorConfig | undefined> {
@@ -118,6 +124,19 @@ export class GlobalConfigManager {
     document.translation = pruneEmptyTranslationConfig(translation);
     await this.persistDocument(document);
     return cloneTranslationProcessorConfig(document.translation?.translationProcessor);
+  }
+
+  async setProofreadProcessorConfig(
+    config?: TranslationProcessorConfig,
+  ): Promise<TranslationProcessorConfig | undefined> {
+    const document = await this.loadDocument();
+    const translation = document.translation ?? {};
+    translation.proofreadProcessor = config
+      ? normalizeTranslationProcessorConfig(config, "translation.proofreadProcessor")
+      : undefined;
+    document.translation = pruneEmptyTranslationConfig(translation);
+    await this.persistDocument(document);
+    return cloneTranslationProcessorConfig(document.translation?.proofreadProcessor);
   }
 
   async getGlossaryExtractorConfig(): Promise<GlossaryExtractorConfig | undefined> {

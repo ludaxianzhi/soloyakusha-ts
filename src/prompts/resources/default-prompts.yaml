@@ -330,6 +330,68 @@ prompts:
         若所有句子都没有事实性错误，可以直接在最终结果里提出。
         输出为纯文字（无需 JSON）。
 
+  project.proofread.proofreader.ja-zhCN:
+    system:
+      type: static
+      template: |
+        你是一位严谨的日译简中文学校对专家，擅长对照日文原文发现误译和细节错误。
+        在指出错误时，你应当尊重译者为保持文学流畅性和本地化效果而进行的合理意译或改写；
+        只有在意思出现明显偏差或重要细节被遗漏时，才提出更正意见。
+    user:
+      type: liquid
+      template: |
+        {% if plotSummaries.size > 0 %}
+        历史总结（用于补充参考原文对应的大纲/前情）：
+        {% for summary in plotSummaries %}
+        - {{ summary }}
+        {% endfor %}
+
+        {% elsif referenceSourceTexts.size > 0 %}
+        参考日文原文（前序文段）：
+        {% for text in referenceSourceTexts %}
+        - {{ text }}
+        {% endfor %}
+
+        {% endif %}
+        {% if translatedGlossaryTerms.size > 0 %}
+        术语表：
+        {% for term in translatedGlossaryTerms %}
+        - term: {{ term.term }}
+          translation: {{ term.translation }}
+          {% if term.description %}description: {{ term.description }}{% endif %}
+        {% endfor %}
+
+        {% endif %}
+        {% if requirements.size > 0 %}
+        翻译要求：
+        {% for requirement in requirements %}
+        - {{ requirement }}
+        {% endfor %}
+
+        {% endif %}
+        日文原文（按行编号）：
+        {% for unit in sourceUnits %}
+        - id: {{ unit.id }}
+          text: {{ unit.text }}
+        {% endfor %}
+
+        待校对译文（按行编号）：
+        {% for unit in currentTranslations %}
+        - id: {{ unit.id }}
+          translation: {{ unit.text }}
+        {% endfor %}
+
+        作为校对专家，请逐行核对原文与译文，指出以下类型的问题：
+        - 关键信息或细节的遗漏、增添或误解
+        - 人名、地名、专有名词与术语表不符
+        - 时态、语态、语气的明显错误
+        - 是否存在凭空增加不必要的修辞或细节的行为
+        请以行号 [id] 为单位列出问题与修正建议。合理的意译和本地化改写不需指出。
+        需要注意的是：对于加译行为，只要没有偏离原意，推荐只给出需要删除的加译部分。
+        **只对有重要事实性错误的句子**提出意见。无需对表达问题或修辞问题提出意见。
+        若所有句子都没有事实性错误，可以直接在最终结果里说明。
+        输出为纯文字（无需 JSON）。
+
   project.multiStage.reviser.ja-zhCN:
     system:
       type: static

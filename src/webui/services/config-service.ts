@@ -16,7 +16,9 @@ import type {
   GlossaryUpdaterConfig,
   PlotSummaryConfig,
   AlignmentRepairConfig,
+  TranslationProcessorConfig,
 } from '../../project/config.ts';
+import { ProofreadProcessorFactory } from '../../project/processing/proofread-processor-factory.ts';
 import {
   TranslationProcessorFactory,
   type TranslationProcessorWorkflowMetadata,
@@ -218,6 +220,20 @@ export class ConfigService {
 
   listTranslatorWorkflows(): TranslationProcessorWorkflowMetadata[] {
     return TranslationProcessorFactory.listWorkflowMetadata();
+  }
+
+  listProofreadProcessorWorkflows(): TranslationProcessorWorkflowMetadata[] {
+    return ProofreadProcessorFactory.listWorkflowMetadata();
+  }
+
+  async getProofreadProcessorConfig(): Promise<TranslationProcessorConfig | undefined> {
+    return this.manager.getProofreadProcessorConfig();
+  }
+
+  async setProofreadProcessorConfig(
+    config?: TranslationProcessorConfig,
+  ): Promise<void> {
+    await this.manager.setProofreadProcessorConfig(config);
   }
 
   // === Auxiliary Configs ===

@@ -56,12 +56,14 @@ import {
   type TranslationWorkQueueRuntime,
   type TranslationWorkResult,
 } from "./pipeline.ts";
+import type { TranslationContextView } from "../context/context-view.ts";
 import { TranslationDocumentManager } from "../document/translation-document-manager.ts";
 import type {
   Chapter,
   FragmentEntry,
   GlossaryImportResult,
   GlossaryProgressSnapshot,
+  ProofreadTaskState,
   StoryTopologyDescriptor,
   StoryTopologyRouteDescriptor,
   ProjectCursor,
@@ -396,6 +398,63 @@ export class TranslationProject
   getChapterDescriptor(chapterId: number): WorkspaceChapterDescriptor | undefined {
     this.ensureInitialized();
     return this.getChapterDescriptors().find((chapter) => chapter.id === chapterId);
+  }
+
+  getProofreadTaskState(): ProofreadTaskState | undefined {
+    this.ensureInitialized();
+    return cloneProofreadTaskState(this.projectState.proofreadTask);
+  }
+
+  async saveProofreadTaskState(task: ProofreadTaskState | undefined): Promise<void> {
+    this.ensureInitialized();
+    this.projectState = {
+      ...this.projectState,
+      proofreadTask: cloneProofreadTaskState(task),
+    };
+    await this.persistProjectState();
+  }
+
+  buildProofreadFragmentInput(chapterId: number, fragmentIndex: number): {
+    sourceText: string;
+    currentTranslationText: string;
+    contextView?: TranslationContextView;
+    requirements: string[];
+    blockedReason?: string;
+  } {
+    this.ensureInitialized();
+    const stepId = this.pipeline.finalStepId;
+    const step = this.pipeline.getStep(stepId);
+    const previousStepId = this.pipeline.getPreviousStepId(stepId);
+    const previousStepOutput = previousStepId
+      ? this.documentManager.getPipelineStepState(chapterId, fragmentIndex, previousStepId)?.output
+      : undefined;
+    const resolution =
+      step.resolveDependencies?.({
+        chapterId,
+        fragmentIndex,
+        stepId,
+        runtime: this,
+        previousStepId,
+      }) ?? { ready: true };
+    const metadata = resolution.ready ? (resolution.metadata ?? {}) : {};
+
+    return {
+      sourceText: step.buildInput({
+        chapterId,
+        fragmentIndex,
+        runtime: this,
+        previousStepOutput,
+      }),
+      currentTranslationText: this.documentManager.getTranslatedText(chapterId, fragmentIndex),
+      contextView: step.buildContextView?.({
+        chapterId,
+        fragmentIndex,
+        runtime: this,
+        metadata,
+      }),
+      requirements: [...this.getRequirements(), ...(step.requirements ?? [])],
+      blockedReason: resolution.ready ? undefined : resolution.reason,
+    };
   }
 
   getChapterTranslationPreview(chapterId: number): {
@@ -2140,6 +2199,20 @@ async function fileExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function cloneProofreadTaskState(
+  state: ProofreadTaskState | undefined,
+): ProofreadTaskState | undefined {
+  if (!state) {
+    return undefined;
+  }
+
+  return {
+    ...state,
+    chapterIds: [...state.chapterIds],
+    chapters: state.chapters.map((chapter) => ({ ...chapter })),
+  };
 }
 
 function buildPreviewUnit(index: number, unit: TranslationUnit) {

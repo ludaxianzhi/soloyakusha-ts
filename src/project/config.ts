@@ -13,6 +13,8 @@ import type { ChatRequestOptions, ClientHooks, LlmClientConfigInput } from "../l
 import { AlignmentRepairTool, DefaultTextAligner } from "../utils/index.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
 import type { MultiStageStepName } from "./processing/multi-stage-translation-processor.ts";
+import { ProofreadProcessorFactory } from "./processing/proofread-processor-factory.ts";
+import type { ProofreadProcessor } from "./processing/proofread-processor.ts";
 import { PromptManager } from "./processing/prompt-manager.ts";
 import { TranslationProcessorFactory } from "./processing/translation-processor-factory.ts";
 import type {
@@ -79,6 +81,7 @@ export type AlignmentRepairConfig = {
 
 export type TranslationRuntimeConfig = {
   translationProcessor?: TranslationProcessorConfig;
+  proofreadProcessor?: TranslationProcessorConfig;
   glossaryExtractor?: GlossaryExtractorConfig;
   glossaryUpdater?: GlossaryUpdaterConfig;
   plotSummary?: PlotSummaryConfig;
@@ -94,6 +97,7 @@ export type TranslationGlobalConfigInput = {
   llm?: TranslationGlobalLlmConfig | Record<string, LlmClientConfigInput>;
   translation?: TranslationRuntimeConfig;
   translationProcessor?: TranslationProcessorConfig;
+  proofreadProcessor?: TranslationProcessorConfig;
   glossaryExtractor?: GlossaryExtractorConfig;
   glossaryUpdater?: GlossaryUpdaterConfig;
   plotSummary?: PlotSummaryConfig;
@@ -108,6 +112,7 @@ export class TranslationGlobalConfig {
     this.llm = normalizeLlmConfigInput(input.llm);
     const translation = input.translation ?? {
       translationProcessor: input.translationProcessor,
+      proofreadProcessor: input.proofreadProcessor,
       glossaryExtractor: input.glossaryExtractor,
       glossaryUpdater: input.glossaryUpdater,
       plotSummary: input.plotSummary,
@@ -147,7 +152,16 @@ export class TranslationGlobalConfig {
       throw new Error("未配置 translationProcessor");
     }
 
-    return { ...config, modelNames: [...config.modelNames] };
+    return cloneProcessorConfig(config);
+  }
+
+  getProofreadProcessorConfig(): TranslationProcessorConfig {
+    const config = this.translation?.proofreadProcessor;
+    if (!config) {
+      throw new Error("未配置 proofreadProcessor");
+    }
+
+    return cloneProcessorConfig(config);
   }
 
   getGlossaryUpdaterConfig(): GlossaryUpdaterConfig | undefined {
@@ -238,6 +252,38 @@ export class TranslationGlobalConfig {
       outputRepairer,
     });
   }
+
+  createProofreadProcessor(options: {
+    provider?: LlmClientProvider;
+    hooks?: ClientHooks;
+    logger?: Logger;
+    promptManager?: PromptManager;
+  } = {}): ProofreadProcessor {
+    const config = this.getProofreadProcessorConfig();
+    const provider = options.provider ?? this.createProvider(options.hooks);
+    const logger = options.logger ?? NOOP_LOGGER;
+    const outputRepairer = createOutputRepairer(
+      provider,
+      this.getAlignmentRepairConfig(),
+      Boolean(this.llm.embedding),
+    );
+
+    return ProofreadProcessorFactory.createProcessor({
+      workflow: config.workflow,
+      clientResolver: provider.getChatClientWithFallback(config.modelNames),
+      additionalClientResolvers: buildStepClientResolvers(config.steps, provider),
+      stepRequestOptions: buildStepRequestOptions(config.steps),
+      workflowOptions:
+        config.reviewIterations !== undefined
+          ? { reviewIterations: config.reviewIterations }
+          : undefined,
+      promptManager: options.promptManager,
+      defaultRequestOptions: config.requestOptions,
+      defaultSlidingWindow: config.slidingWindow,
+      logger,
+      outputRepairer,
+    });
+  }
 }
 
 function resolveTranslationRuntimeConfig(
@@ -247,6 +293,9 @@ function resolveTranslationRuntimeConfig(
     ? {
         translationProcessor: isRecord(input.translation.translationProcessor)
           ? (input.translation.translationProcessor as TranslationProcessorConfig)
+          : undefined,
+        proofreadProcessor: isRecord(input.translation.proofreadProcessor)
+          ? (input.translation.proofreadProcessor as TranslationProcessorConfig)
           : undefined,
         glossaryExtractor: isRecord(input.translation.glossaryExtractor)
           ? (input.translation.glossaryExtractor as GlossaryExtractorConfig)
@@ -267,6 +316,9 @@ function resolveTranslationRuntimeConfig(
     translationProcessor: isRecord(input.translationProcessor)
       ? (input.translationProcessor as TranslationProcessorConfig)
       : undefined,
+    proofreadProcessor: isRecord(input.proofreadProcessor)
+      ? (input.proofreadProcessor as TranslationProcessorConfig)
+      : undefined,
     glossaryExtractor: isRecord(input.glossaryExtractor)
       ? (input.glossaryExtractor as GlossaryExtractorConfig)
       : undefined,
@@ -284,6 +336,8 @@ function resolveTranslationRuntimeConfig(
   return cloneTranslationRuntimeConfig({
     translationProcessor:
       nestedTranslation?.translationProcessor ?? topLevelTranslation.translationProcessor,
+    proofreadProcessor:
+      nestedTranslation?.proofreadProcessor ?? topLevelTranslation.proofreadProcessor,
     glossaryExtractor:
       nestedTranslation?.glossaryExtractor ?? topLevelTranslation.glossaryExtractor,
     glossaryUpdater: nestedTranslation?.glossaryUpdater ?? topLevelTranslation.glossaryUpdater,
@@ -300,7 +354,10 @@ function cloneTranslationRuntimeConfig(
   }
 
   const translationProcessor = input.translationProcessor
-    ? { ...input.translationProcessor, modelNames: [...input.translationProcessor.modelNames] }
+    ? cloneProcessorConfig(input.translationProcessor)
+    : undefined;
+  const proofreadProcessor = input.proofreadProcessor
+    ? cloneProcessorConfig(input.proofreadProcessor)
     : undefined;
   const glossaryExtractor = input.glossaryExtractor
     ? { ...input.glossaryExtractor, modelNames: [...input.glossaryExtractor.modelNames] }
@@ -316,6 +373,7 @@ function cloneTranslationRuntimeConfig(
     : undefined;
   if (
     !translationProcessor &&
+    !proofreadProcessor &&
     !glossaryExtractor &&
     !glossaryUpdater &&
     !plotSummary &&
@@ -326,10 +384,31 @@ function cloneTranslationRuntimeConfig(
 
   return {
     translationProcessor,
+    proofreadProcessor,
     glossaryExtractor,
     glossaryUpdater,
     plotSummary,
     alignmentRepair,
+  };
+}
+
+function cloneProcessorConfig(config: TranslationProcessorConfig): TranslationProcessorConfig {
+  return {
+    ...config,
+    modelNames: [...config.modelNames],
+    steps: config.steps
+      ? Object.fromEntries(
+          Object.entries(config.steps).map(([step, stepConfig]) => [
+            step,
+            stepConfig
+              ? {
+                  ...stepConfig,
+                  modelNames: [...stepConfig.modelNames],
+                }
+              : stepConfig,
+          ]),
+        )
+      : undefined,
   };
 }
 
@@ -421,10 +500,8 @@ function buildAdditionalClientResolvers(
   return result;
 }
 
-function buildStepClientResolvers(
-  steps: Partial<
-    Record<MultiStageStepName, TranslationProcessorStepConfig>
-  > | undefined,
+function buildStepClientResolvers<TStep extends string>(
+  steps: Partial<Record<TStep, TranslationProcessorStepConfig>> | undefined,
   provider: LlmClientProvider,
 ): Record<string, TranslationProcessorClientResolver> | undefined {
   if (!steps) {
@@ -432,7 +509,10 @@ function buildStepClientResolvers(
   }
 
   const result: Record<string, TranslationProcessorClientResolver> = {};
-  for (const [step, config] of Object.entries(steps)) {
+  for (const [step, config] of Object.entries(steps) as Array<[
+    TStep,
+    TranslationProcessorStepConfig | undefined,
+  ]>) {
     if (!config) {
       continue;
     }
@@ -443,22 +523,23 @@ function buildStepClientResolvers(
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-function buildStepRequestOptions(
-  steps: Partial<
-    Record<MultiStageStepName, TranslationProcessorStepConfig>
-  > | undefined,
-): Partial<Record<MultiStageStepName, ChatRequestOptions>> | undefined {
+function buildStepRequestOptions<TStep extends string>(
+  steps: Partial<Record<TStep, TranslationProcessorStepConfig>> | undefined,
+): Partial<Record<TStep, ChatRequestOptions>> | undefined {
   if (!steps) {
     return undefined;
   }
 
-  const result: Partial<Record<MultiStageStepName, ChatRequestOptions>> = {};
-  for (const [step, config] of Object.entries(steps)) {
+  const result: Partial<Record<TStep, ChatRequestOptions>> = {};
+  for (const [step, config] of Object.entries(steps) as Array<[
+    TStep,
+    TranslationProcessorStepConfig | undefined,
+  ]>) {
     if (!config?.requestOptions) {
       continue;
     }
 
-    result[step as MultiStageStepName] = config.requestOptions;
+    result[step as TStep] = config.requestOptions;
   }
 
   return Object.keys(result).length > 0 ? result : undefined;

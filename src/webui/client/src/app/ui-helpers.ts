@@ -5,6 +5,7 @@ import type {
   GlossaryUpdaterConfig,
   LlmProfileConfig,
   PlotSummaryConfig,
+  TranslationProcessorConfig,
   TranslationProcessorWorkflowFieldMetadata,
   TranslationProcessorWorkflowMetadata,
   TranslatorEntry,
@@ -342,6 +343,24 @@ export function translatorToForm(
   return values;
 }
 
+export function translationProcessorConfigToForm(
+  config: TranslationProcessorConfig | null,
+  workflow: TranslationProcessorWorkflowMetadata | undefined,
+): Record<string, string | string[] | number | undefined> {
+  const values: Record<string, string | string[] | number | undefined> = {
+    workflow: config?.workflow ?? workflow?.workflow,
+  };
+
+  for (const field of workflow?.fields ?? []) {
+    values[translatorFieldName(field.key)] = serializeWorkflowFieldValue(
+      field,
+      config ? getNestedValue(config, field.key) : undefined,
+    );
+  }
+
+  return values;
+}
+
 export function buildTranslatorPayload(
   values: Record<string, unknown>,
   workflow: TranslationProcessorWorkflowMetadata,
@@ -363,6 +382,25 @@ export function buildTranslatorPayload(
       description: metadataDescription,
     };
   }
+
+  for (const field of workflow.fields) {
+    const parsed = parseWorkflowFieldValue(values[translatorFieldName(field.key)], field);
+    if (parsed !== undefined) {
+      setNestedValue(payload, field.key, parsed);
+    }
+  }
+
+  return payload;
+}
+
+export function buildTranslationProcessorConfigPayload(
+  values: Record<string, unknown>,
+  workflow: TranslationProcessorWorkflowMetadata,
+): TranslationProcessorConfig {
+  const payload: TranslationProcessorConfig = {
+    workflow: workflow.workflow,
+    modelNames: resolveWorkflowModelNames(values, workflow),
+  };
 
   for (const field of workflow.fields) {
     const parsed = parseWorkflowFieldValue(values[translatorFieldName(field.key)], field);

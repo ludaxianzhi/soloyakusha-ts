@@ -7,6 +7,7 @@ import type {
   GlossaryUpdaterConfig,
   LlmProfileConfig,
   PlotSummaryConfig,
+  TranslationProcessorConfig,
   TranslationProcessorWorkflowMetadata,
   TranslatorEntry,
   VectorStoreConfig,
@@ -29,6 +30,7 @@ interface SettingsViewProps {
     embedding: boolean;
     vector: boolean;
     translator: boolean;
+    proofread: boolean;
     extractor: boolean;
     updater: boolean;
     plot: boolean;
@@ -42,10 +44,13 @@ interface SettingsViewProps {
   selectedTranslatorName?: string;
   translators: Record<string, TranslatorEntry>;
   translatorWorkflows: TranslationProcessorWorkflowMetadata[];
+  proofreadProcessorConfig: TranslationProcessorConfig | null;
+  proofreadWorkflows: TranslationProcessorWorkflowMetadata[];
   llmForm: FormInstance<Record<string, unknown>>;
   embeddingForm: FormInstance<Record<string, unknown>>;
   vectorForm: FormInstance<Record<string, unknown>>;
   translatorForm: FormInstance<Record<string, unknown>>;
+  proofreadForm: FormInstance<Record<string, unknown>>;
   extractorForm: FormInstance<Record<string, unknown>>;
   updaterForm: FormInstance<Record<string, unknown>>;
   plotForm: FormInstance<Record<string, unknown>>;
@@ -64,6 +69,7 @@ interface SettingsViewProps {
   onSelectTranslator: (name: string) => void;
   onSaveTranslator: (values: Record<string, unknown>) => void | Promise<void>;
   onDeleteTranslator: () => void | Promise<void>;
+  onSaveProofreadProcessor: (values: Record<string, unknown>) => void | Promise<void>;
   onSaveAuxiliaryConfig: (
     kind: 'extractor' | 'updater' | 'plot' | 'alignment',
     values: Record<string, unknown>,
@@ -80,10 +86,13 @@ export function SettingsView({
   selectedTranslatorName,
   translators,
   translatorWorkflows,
+  proofreadProcessorConfig,
+  proofreadWorkflows,
   llmForm,
   embeddingForm,
   vectorForm,
   translatorForm,
+  proofreadForm,
   extractorForm,
   updaterForm,
   plotForm,
@@ -102,6 +111,7 @@ export function SettingsView({
   onSelectTranslator,
   onSaveTranslator,
   onDeleteTranslator,
+  onSaveProofreadProcessor,
   onSaveAuxiliaryConfig,
 }: SettingsViewProps) {
   const [uploadingPcaWeights, setUploadingPcaWeights] = useState(false);
@@ -110,6 +120,10 @@ export function SettingsView({
   const embeddingPcaEnabled =
     (Form.useWatch('pcaEnabled', embeddingForm) as boolean | undefined) === true;
   const selectedWorkflowKey = (Form.useWatch('type', translatorForm) as string | undefined) ?? 'default';
+  const selectedProofreadWorkflowKey =
+    (Form.useWatch('workflow', proofreadForm) as string | undefined) ??
+    proofreadProcessorConfig?.workflow ??
+    proofreadWorkflows[0]?.workflow;
   const selectedVectorProvider =
     (Form.useWatch('provider', vectorForm) as VectorStoreConfig['provider'] | undefined) ??
     'qdrant';
@@ -120,11 +134,20 @@ export function SettingsView({
     translatorWorkflows.map((workflow) => [workflow.workflow, workflow] as const),
   );
   const selectedWorkflow = workflowMap.get(selectedWorkflowKey) ?? translatorWorkflows[0];
+  const proofreadWorkflowMap = new Map(
+    proofreadWorkflows.map((workflow) => [workflow.workflow, workflow] as const),
+  );
+  const selectedProofreadWorkflow =
+    proofreadWorkflowMap.get(selectedProofreadWorkflowKey ?? '') ?? proofreadWorkflows[0];
   const llmProfileOptions = llmNames.map((name) => ({
     label: name,
     value: name,
   }));
   const workflowOptions = translatorWorkflows.map((workflow) => ({
+    label: `${workflow.title} (${workflow.workflow})`,
+    value: workflow.workflow,
+  }));
+  const proofreadWorkflowOptions = proofreadWorkflows.map((workflow) => ({
     label: `${workflow.title} (${workflow.workflow})`,
     value: workflow.workflow,
   }));
@@ -634,6 +657,59 @@ export function SettingsView({
                           <Button danger>删除</Button>
                         </Popconfirm>
                       )}
+                    </Space>
+                  </Form>
+                </Card>
+              </Col>
+            </Row>
+          ),
+        },
+        {
+          key: 'proofread',
+          label: '校对器',
+          children: (
+            <Row gutter={16}>
+              <Col span={24}>
+                <Card title="编辑校对器" loading={settingsLoading.proofread}>
+                  <Form
+                    form={proofreadForm}
+                    layout="vertical"
+                    className="compact-form"
+                    onFinish={(values) => void onSaveProofreadProcessor(values)}
+                  >
+                    <Row gutter={16}>
+                      <Col span={12}>
+                        <Form.Item name="workflow" label="工作流" rules={[{ required: true }]}>
+                          <Select options={proofreadWorkflowOptions} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    {selectedProofreadWorkflow ? (
+                      <Card size="small" className="settings-meta-card">
+                        <Space direction="vertical" size={4}>
+                          <Space wrap>
+                            <strong>{selectedProofreadWorkflow.title}</strong>
+                            <Tag>{selectedProofreadWorkflow.workflow}</Tag>
+                          </Space>
+                          <Text type="secondary">
+                            语言对：
+                            {selectedProofreadWorkflow.sourceLanguage ?? 'ja'} → {selectedProofreadWorkflow.targetLanguage ?? 'zh-CN'}
+                            {' · '}Prompt 套件：{selectedProofreadWorkflow.promptSet ?? 'ja-zhCN'}
+                          </Text>
+                          {selectedProofreadWorkflow.description ? (
+                            <Text type="secondary">{selectedProofreadWorkflow.description}</Text>
+                          ) : null}
+                        </Space>
+                      </Card>
+                    ) : null}
+                    <DynamicTranslatorFields
+                      workflow={selectedProofreadWorkflow}
+                      llmProfileOptions={llmProfileOptions}
+                    />
+                    <Space>
+                      <Button type="primary" htmlType="submit">
+                        保存校对器
+                      </Button>
                     </Space>
                   </Form>
                 </Card>

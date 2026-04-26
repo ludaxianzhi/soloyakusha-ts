@@ -11,6 +11,7 @@ import { GlobalConfigManager } from "../../config/manager.ts";
 import { TranslationGlobalConfig } from "../config.ts";
 import { DefaultTranslationProcessor } from "./default-translation-processor.ts";
 import { MultiStageTranslationProcessor } from "./multi-stage-translation-processor.ts";
+import { MultiStageProofreadProcessor } from "./proofread-processor.ts";
 import { DefaultTextSplitter } from "../document/translation-document-manager.ts";
 import type { TranslationOutputRepairer } from "./translation-output-repair.ts";
 import type { Logger, LoggerMetadata } from "../logger.ts";
@@ -292,6 +293,37 @@ describe("TranslationProcessor", () => {
     expect(client.requests[0]?.options?.requestConfig?.maxTokens).toBe(321);
     expect(logger.entries.some((entry) => entry.message === "开始执行翻译处理")).toBe(true);
     expect(logger.entries.some((entry) => entry.message === "翻译处理完成")).toBe(true);
+  });
+
+  test("runs dedicated proofreading flow without analysis context", async () => {
+    const client = new FakeChatClient([
+      "[1] 表达稍显生硬，建议润色语气。",
+      "[1] 原意准确，无需事实性修正。",
+      JSON.stringify({
+        translations: [{ id: "1", translation: "勇者凝视着王都" }],
+      }),
+    ]);
+    const processor = new MultiStageProofreadProcessor(client, {}, { reviewIterations: 1 });
+
+    const result = await processor.process({
+      sourceText: "勇者は王都を見つめていた",
+      currentTranslationText: "勇者看着王都",
+      requirements: ["保持文学性"],
+    });
+
+    expect(result.outputText).toBe("勇者凝视着王都");
+    expect(result.glossaryUpdates).toEqual([]);
+    expect(client.requests).toHaveLength(3);
+    expect(client.requests[0]?.prompt).toContain("待审读译文");
+    expect(client.requests[1]?.prompt).toContain("待校对译文");
+    expect(client.requests[1]?.prompt).not.toContain("文本分析报告");
+    expect(client.requests[2]?.options?.meta).toMatchObject({
+      label: "校对-校对修订",
+      feature: "校对",
+      operation: "校对修订",
+      component: "MultiStageProofreadProcessor",
+      workflow: "proofread-multi-stage",
+    });
   });
 
   test("repairs minor output line mismatch using alignment repair from global config", async () => {

@@ -58,6 +58,15 @@ export type MultiStageProofreaderPromptInput = {
   requirements: string[];
 };
 
+export type ProofreadProofreaderPromptInput = {
+  sourceUnits: PromptTranslationUnit[];
+  currentTranslations: PromptTranslationUnit[];
+  referenceSourceTexts: string[];
+  plotSummaries: string[];
+  translatedGlossaryTerms: ResolvedGlossaryTerm[];
+  requirements: string[];
+};
+
 export type MultiStageReviserPromptInput = {
   sourceUnits: PromptTranslationUnit[];
   currentTranslations: PromptTranslationUnit[];
@@ -115,6 +124,8 @@ const MULTI_STAGE_EDITOR_PROMPT_NAME = "multi_stage_editor";
 const MULTI_STAGE_EDITOR_PROMPT_ID = "project.multiStage.editor";
 const MULTI_STAGE_PROOFREADER_PROMPT_NAME = "multi_stage_proofreader";
 const MULTI_STAGE_PROOFREADER_PROMPT_ID = "project.multiStage.proofreader";
+const PROOFREAD_PROOFREADER_PROMPT_NAME = "proofread_proofreader";
+const PROOFREAD_PROOFREADER_PROMPT_ID = "project.proofread.proofreader";
 const MULTI_STAGE_REVISER_PROMPT_NAME = "multi_stage_revision";
 const MULTI_STAGE_REVISER_PROMPT_ID = "project.multiStage.reviser";
 const CHAPTER_EDITOR_ASSISTANT_PROMPT_NAME = "chapter_editor_assistant";
@@ -228,6 +239,25 @@ export class PromptManager {
 
     return {
       name: MULTI_STAGE_PROOFREADER_PROMPT_NAME,
+      systemPrompt: renderedPrompt.systemPrompt,
+      userPrompt: renderedPrompt.userPrompt,
+    };
+  }
+
+  async renderProofreadProofreaderPrompt(
+    input: ProofreadProofreaderPromptInput,
+  ): Promise<RenderedTextPrompt> {
+    const renderedPrompt = await this.renderPrompt(PROOFREAD_PROOFREADER_PROMPT_ID, {
+      sourceUnits: input.sourceUnits,
+      currentTranslations: input.currentTranslations,
+      referenceSourceTexts: input.referenceSourceTexts,
+      plotSummaries: input.plotSummaries,
+      translatedGlossaryTerms: input.translatedGlossaryTerms,
+      requirements: input.requirements,
+    });
+
+    return {
+      name: PROOFREAD_PROOFREADER_PROMPT_NAME,
       systemPrompt: renderedPrompt.systemPrompt,
       userPrompt: renderedPrompt.userPrompt,
     };

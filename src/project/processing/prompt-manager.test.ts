@@ -108,4 +108,43 @@ prompts:
     });
     expect(JSON.stringify(rendered.responseSchema)).not.toContain('"enum"');
   });
+
+  test("renders proofread proofreader prompts without analysis context", async () => {
+    const shared = SharedPromptManager.fromYamlText(`
+version: 1
+prompts:
+  project.proofread.proofreader.ja-zhCN:
+    system:
+      type: static
+      template: proofread-system
+    user:
+      type: liquid
+      template: |
+        proofread-user
+        {% for unit in sourceUnits %}
+        - {{ unit.text }}
+        {% endfor %}
+        {% for unit in currentTranslations %}
+        - {{ unit.text }}
+        {% endfor %}
+`);
+
+    const manager = new PromptManager({
+      promptManager: shared,
+    });
+
+    const rendered = await manager.renderProofreadProofreaderPrompt({
+      sourceUnits: [{ id: "1", text: "原文" }],
+      currentTranslations: [{ id: "1", text: "译文" }],
+      referenceSourceTexts: [],
+      plotSummaries: [],
+      translatedGlossaryTerms: [],
+      requirements: [],
+    });
+
+    expect(rendered.systemPrompt).toBe("proofread-system");
+    expect(rendered.userPrompt).toContain("proofread-user");
+    expect(rendered.userPrompt).toContain("原文");
+    expect(rendered.userPrompt).toContain("译文");
+  });
 });

@@ -1,15 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  buildTranslationProcessorConfigPayload,
   buildTranslatorPayload,
   formatLlmRequestConfigYaml,
   formatModelChain,
   formatTranslatorModelSummary,
   parseLlmRequestConfigYaml,
   parseYamlObject,
+  translationProcessorConfigToForm,
   translatorFieldName,
   translatorToForm,
 } from './ui-helpers.ts';
 import type {
+  TranslationProcessorConfig,
   TranslatorEntry,
   TranslationProcessorWorkflowMetadata,
 } from './types.ts';
@@ -270,5 +273,86 @@ describe('WebUI LLM request config helpers', () => {
     expect(formatTranslatorModelSummary(payload, workflow)).toContain(
       '分析器模型链: analyzer-primary -> analyzer-fallback',
     );
+  });
+
+  test('serializes proofread processor workflow fields', () => {
+    const workflow = {
+      workflow: 'proofread-multi-stage',
+      title: 'Proofread',
+      fields: [
+        {
+          key: 'reviewIterations',
+          label: '校对轮数',
+          input: 'number' as const,
+        },
+        {
+          key: 'steps.editor.modelNames',
+          label: '编辑器模型链',
+          input: 'llm-profile' as const,
+          required: true,
+        },
+        {
+          key: 'steps.proofreader.modelNames',
+          label: '校对器模型链',
+          input: 'llm-profile' as const,
+          required: true,
+        },
+        {
+          key: 'steps.proofreader.requestOptions',
+          label: '校对器请求选项',
+          input: 'yaml' as const,
+          yamlShape: 'object' as const,
+        },
+      ],
+    } satisfies TranslationProcessorWorkflowMetadata;
+
+    const config = {
+      workflow: 'proofread-multi-stage',
+      modelNames: ['editor-primary'],
+      reviewIterations: 2,
+      steps: {
+        editor: {
+          modelNames: ['editor-primary', 'editor-fallback'],
+        },
+        proofreader: {
+          modelNames: ['proofreader-primary'],
+          requestOptions: {
+            requestConfig: {
+              temperature: 0.15,
+            },
+          },
+        },
+      },
+    } satisfies TranslationProcessorConfig;
+
+    const formValues = translationProcessorConfigToForm(config, workflow);
+    expect(formValues.workflow).toBe('proofread-multi-stage');
+    expect(formValues[translatorFieldName('steps.editor.modelNames')]).toEqual([
+      'editor-primary',
+      'editor-fallback',
+    ]);
+
+    const payload = buildTranslationProcessorConfigPayload(
+      formValues as Record<string, unknown>,
+      workflow,
+    );
+    expect(payload).toEqual({
+      workflow: 'proofread-multi-stage',
+      modelNames: ['editor-primary', 'editor-fallback'],
+      reviewIterations: 2,
+      steps: {
+        editor: {
+          modelNames: ['editor-primary', 'editor-fallback'],
+        },
+        proofreader: {
+          modelNames: ['proofreader-primary'],
+          requestOptions: {
+            requestConfig: {
+              temperature: 0.15,
+            },
+          },
+        },
+      },
+    });
   });
 });

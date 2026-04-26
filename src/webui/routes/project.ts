@@ -179,8 +179,48 @@ export function createProjectRoutes(
     }
   });
 
+  app.post('/proofread', async (c) => {
+    try {
+      const body = await c.req.json<{ chapterIds?: number[]; mode?: 'linear' | 'simultaneous' }>();
+      await projectService.startProofread({
+        chapterIds: Array.isArray(body.chapterIds) ? body.chapterIds.map((value) => Number(value)) : [],
+        mode: body.mode === 'simultaneous' ? 'simultaneous' : 'linear',
+      });
+      return c.json({ ok: true, snapshot: projectService.getSnapshot() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/proofread/abort', async (c) => {
+    try {
+      await projectService.abortProofread();
+      return c.json({ ok: true, snapshot: projectService.getSnapshot() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/proofread/resume', async (c) => {
+    try {
+      await projectService.resumeProofread();
+      return c.json({ ok: true, snapshot: projectService.getSnapshot() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
   app.post('/task-ui/clear', (c) => {
-    return c.req.json<{ task?: 'scan' | 'plot' | 'all' }>().then((body) => {
+    return c.req.json<{ task?: 'scan' | 'plot' | 'proofread' | 'all' }>().then((body) => {
       projectService.clearTaskProgressUi(body.task ?? 'all');
       return c.json({ ok: true });
     });

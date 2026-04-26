@@ -162,3 +162,50 @@ test('uploadEmbeddingPcaWeights stores json under user config directory', async 
     },
   });
 });
+
+test('proofread processor config can be listed and persisted', async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), 'soloyakusha-config-service-'));
+  tempDirs.push(rootDir);
+  const manager = new GlobalConfigManager({
+    filePath: join(rootDir, 'config.json'),
+  });
+  const service = new ConfigService({ manager });
+
+  expect(service.listProofreadProcessorWorkflows()).toContainEqual(
+    expect.objectContaining({ workflow: 'proofread-multi-stage' }),
+  );
+
+  await service.setProofreadProcessorConfig({
+    workflow: 'proofread-multi-stage',
+    modelNames: ['editor-primary'],
+    reviewIterations: 2,
+    steps: {
+      editor: {
+        modelNames: ['editor-primary'],
+      },
+      proofreader: {
+        modelNames: ['proofreader-primary'],
+      },
+      reviser: {
+        modelNames: ['reviser-primary'],
+      },
+    },
+  });
+
+  expect(await service.getProofreadProcessorConfig()).toEqual({
+    workflow: 'proofread-multi-stage',
+    modelNames: ['editor-primary'],
+    reviewIterations: 2,
+    steps: {
+      editor: {
+        modelNames: ['editor-primary'],
+      },
+      proofreader: {
+        modelNames: ['proofreader-primary'],
+      },
+      reviser: {
+        modelNames: ['reviser-primary'],
+      },
+    },
+  });
+});

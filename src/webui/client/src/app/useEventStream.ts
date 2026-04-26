@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type {
   LogEntry,
   PlotSummaryProgress,
+  ProofreadProgress,
   ScanDictionaryProgress,
   TranslationProjectSnapshot,
 } from './types.ts';
@@ -10,6 +11,7 @@ type EventHandlers = {
   onSnapshot?: (snapshot: TranslationProjectSnapshot | null) => void;
   onLog?: (entry: LogEntry) => void;
   onScanProgress?: (progress: ScanDictionaryProgress | null) => void;
+  onProofreadProgress?: (progress: ProofreadProgress | null) => void;
   onPlotProgress?: (progress: PlotSummaryProgress | null) => void;
 };
 
@@ -39,6 +41,13 @@ export function useEventStream(handlers: EventHandlers) {
       handlers.onScanProgress?.(
         JSON.parse((event as MessageEvent<string>).data) as
           | ScanDictionaryProgress
+          | null,
+      );
+    });
+    source.addEventListener('proofreadProgress', (event) => {
+      handlers.onProofreadProgress?.(
+        JSON.parse((event as MessageEvent<string>).data) as
+          | ProofreadProgress
           | null,
       );
     });

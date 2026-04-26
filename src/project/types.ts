@@ -177,6 +177,36 @@ export type TranslationProjectLifecycleState = {
   updatedAt?: string;
 };
 
+export type ProofreadTaskMode = "linear" | "simultaneous";
+
+export type ProofreadTaskStatus = "running" | "paused" | "done" | "error";
+
+export type ProofreadTaskChapterState = {
+  chapterId: number;
+  fragmentCount: number;
+};
+
+export type ProofreadTaskState = {
+  taskId: string;
+  mode: ProofreadTaskMode;
+  status: ProofreadTaskStatus;
+  chapterIds: number[];
+  chapters: ProofreadTaskChapterState[];
+  totalChapters: number;
+  completedChapters: number;
+  totalBatches: number;
+  completedBatches: number;
+  nextChapterIndex: number;
+  nextFragmentIndex: number;
+  currentChapterId?: number;
+  warningCount: number;
+  lastWarningMessage?: string;
+  abortRequested: boolean;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type TranslationProjectState = {
   schemaVersion: 1;
   pipeline: {
@@ -184,6 +214,7 @@ export type TranslationProjectState = {
     finalStepId: string;
   };
   lifecycle: TranslationProjectLifecycleState;
+  proofreadTask?: ProofreadTaskState;
 };
 
 export type TranslationProjectLifecycleSnapshot = TranslationProjectLifecycleState & {

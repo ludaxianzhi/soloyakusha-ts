@@ -14,7 +14,7 @@ interface TaskActivityPanelsProps {
 
 export function TaskActivityPanels({
   projectStatus,
-  tasks = ['scan', 'plot'],
+  tasks = ['scan', 'plot', 'proofread'],
   onAbortTaskActivity,
   onResumeTaskActivity,
   onDismissTaskActivity,
@@ -24,7 +24,8 @@ export function TaskActivityPanels({
     title: string;
     progress:
       | NonNullable<ProjectStatus['scanDictionaryProgress']>
-      | NonNullable<ProjectStatus['plotSummaryProgress']>;
+      | NonNullable<ProjectStatus['plotSummaryProgress']>
+      | NonNullable<ProjectStatus['proofreadProgress']>;
     details: ReactNode;
   }> = [];
 
@@ -75,6 +76,42 @@ export function TaskActivityPanels({
           </Space>
         ),
       });
+      continue;
+    }
+
+    if (task === 'proofread' && projectStatus?.proofreadProgress) {
+      const proofreadProgress = projectStatus.proofreadProgress;
+      visibleTasks.push({
+        key: 'proofread',
+        title: '章节校对',
+        progress: proofreadProgress,
+        details: (
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            <Progress
+              percent={toPercent(
+                proofreadProgress.completedChapters,
+                proofreadProgress.totalChapters,
+                proofreadProgress.status,
+              )}
+              status={toProgressStatus(proofreadProgress.status)}
+              format={() =>
+                `${proofreadProgress.completedChapters}/${proofreadProgress.totalChapters} 章节`
+              }
+            />
+            <Space wrap>
+              <Tag>{proofreadProgress.mode === 'linear' ? '线性校对' : '同时校对'}</Tag>
+              <Tag>{`选中 ${proofreadProgress.chapterIds.length} 章节`}</Tag>
+              <Tag>{`警告 ${proofreadProgress.warningCount}`}</Tag>
+              {proofreadProgress.currentChapterId != null ? (
+                <Tag color="processing">{`当前章节 ${proofreadProgress.currentChapterId}`}</Tag>
+              ) : null}
+            </Space>
+            {proofreadProgress.lastWarningMessage ? (
+              <Alert type="warning" showIcon message={proofreadProgress.lastWarningMessage} />
+            ) : null}
+          </Space>
+        ),
+      });
     }
   }
 
@@ -116,7 +153,8 @@ function TaskActivityCard({
   title: string;
   progress:
     | NonNullable<ProjectStatus['scanDictionaryProgress']>
-    | NonNullable<ProjectStatus['plotSummaryProgress']>;
+    | NonNullable<ProjectStatus['plotSummaryProgress']>
+    | NonNullable<ProjectStatus['proofreadProgress']>;
   details: ReactNode;
   onAbort: () => void;
   onResume: () => void;

@@ -558,6 +558,22 @@ describe("GlobalConfigManager", () => {
         },
       },
     });
+    await manager.setProofreadProcessorConfig({
+      workflow: "proofread-multi-stage",
+      modelNames: ["reviewer"],
+      reviewIterations: 1,
+      steps: {
+        editor: {
+          modelNames: ["reviewer"],
+        },
+        proofreader: {
+          modelNames: ["reviewer"],
+        },
+        reviser: {
+          modelNames: ["reviewer"],
+        },
+      },
+    });
     await manager.setGlossaryExtractorConfig({
       modelNames: ["glossary", "summary"],
       maxCharsPerBatch: 4096,
@@ -621,6 +637,29 @@ describe("GlobalConfigManager", () => {
         outputValidationContext: undefined,
       },
     });
+    expect(await reloaded.getProofreadProcessorConfig()).toEqual({
+      workflow: "proofread-multi-stage",
+      modelNames: ["reviewer"],
+      reviewIterations: 1,
+      steps: {
+        editor: {
+          modelNames: ["reviewer"],
+          requestOptions: undefined,
+        },
+        proofreader: {
+          modelNames: ["reviewer"],
+          requestOptions: undefined,
+        },
+        reviser: {
+          modelNames: ["reviewer"],
+          requestOptions: undefined,
+        },
+      },
+      slidingWindow: undefined,
+      requestOptions: undefined,
+      models: undefined,
+      maxConcurrentWorkItems: undefined,
+    });
     expect(await reloaded.getGlossaryExtractorConfig()).toEqual({
       modelNames: ["glossary", "summary"],
       maxCharsPerBatch: 4096,
@@ -648,6 +687,7 @@ describe("GlobalConfigManager", () => {
     const translationGlobalConfig = await reloaded.getTranslationGlobalConfig();
     expect(translationGlobalConfig).toBeInstanceOf(TranslationGlobalConfig);
     expect(translationGlobalConfig.getTranslationProcessorConfig().modelNames).toEqual(["translator"]);
+    expect(translationGlobalConfig.getProofreadProcessorConfig().modelNames).toEqual(["reviewer"]);
     expect(translationGlobalConfig.getEmbeddingConfig()?.modelName).toBe("text-embedding-3-small");
     expect(translationGlobalConfig.getGlossaryExtractorConfig()).toMatchObject({
       modelNames: ["glossary", "summary"],
@@ -672,6 +712,7 @@ describe("GlobalConfigManager", () => {
       };
       translation?: {
         translationProcessor?: { modelNames: string[] };
+        proofreadProcessor?: { modelNames: string[] };
         glossaryExtractor?: {
           modelNames: string[];
           occurrenceTopK?: number;
@@ -686,6 +727,7 @@ describe("GlobalConfigManager", () => {
     expect(saved.vector?.stores?.memory?.provider).toBe("qdrant");
     expect(saved.vector?.stores?.memory?.defaultCollection).toBe("chapters");
     expect(saved.translation?.translationProcessor?.modelNames).toEqual(["translator"]);
+    expect(saved.translation?.proofreadProcessor?.modelNames).toEqual(["reviewer"]);
     expect(saved.translation?.glossaryExtractor?.modelNames).toEqual(["glossary", "summary"]);
     expect(saved.translation?.glossaryExtractor?.occurrenceTopK).toBe(128);
     expect(saved.translation?.glossaryExtractor?.occurrenceTopP).toBe(0.25);
@@ -747,5 +789,41 @@ describe("GlobalConfigManager", () => {
         },
       },
     });
+  });
+
+  test("creates proofread processor from dedicated runtime config", () => {
+    const config = new TranslationGlobalConfig({
+      llm: {
+        profiles: {
+          reviewer: {
+            provider: "openai",
+            modelType: "chat",
+            apiKey: "test-key",
+            endpoint: "https://example.test/v1",
+            modelName: "reviewer-model",
+          },
+        },
+      },
+      translation: {
+        proofreadProcessor: {
+          workflow: "proofread-multi-stage",
+          modelNames: ["reviewer"],
+          reviewIterations: 1,
+          steps: {
+            editor: {
+              modelNames: ["reviewer"],
+            },
+            proofreader: {
+              modelNames: ["reviewer"],
+            },
+            reviser: {
+              modelNames: ["reviewer"],
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.createProofreadProcessor()).toBeDefined();
   });
 });

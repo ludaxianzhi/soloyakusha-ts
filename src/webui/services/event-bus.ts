@@ -32,6 +32,7 @@ export type BusEventType =
   | 'snapshot'
   | 'log'
   | 'scanProgress'
+  | 'proofreadProgress'
   | 'plotProgress'
   | 'status';
 

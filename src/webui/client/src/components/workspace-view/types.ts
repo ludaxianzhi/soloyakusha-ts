@@ -25,7 +25,8 @@ export type ProjectCommand =
   | 'close'
   | 'remove';
 
-export type TaskActivityKind = 'scan' | 'plot';
+export type TaskActivityKind = 'scan' | 'plot' | 'proofread';
+export type ProofreadTaskMode = 'linear' | 'simultaneous';
 
 export interface WorkspaceViewProps {
   snapshot: TranslationProjectSnapshot | null;
@@ -80,6 +81,10 @@ export interface WorkspaceViewProps {
       minEdgeStrength: number;
     },
   ) => void | Promise<void>;
+  onStartProofread: (input: {
+    chapterIds: number[];
+    mode?: ProofreadTaskMode;
+  }) => void | Promise<void>;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;

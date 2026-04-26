@@ -37,6 +37,7 @@ import type { TranslationWorkItem } from '../../project/pipeline/pipeline.ts';
 import { ContextNetworkOrderingStrategy } from '../../project/pipeline/context-network-ordering.ts';
 import { GlossaryDependencyOrderingStrategy } from '../../project/pipeline/glossary-dependency-ordering.ts';
 import { TranslationProcessorFactory } from '../../project/processing/translation-processor-factory.ts';
+import type { ProofreadProcessor } from '../../project/processing/proofread-processor.ts';
 import { TranslationProject } from '../../project/pipeline/translation-project.ts';
 import {
   DEFAULT_WORKSPACE_PIPELINE_STRATEGY,
@@ -77,6 +78,8 @@ import { computeChunkLinkGraph } from '../../vector/chunk-link-graph.ts';
 import { createVectorStoreConfig } from '../../vector/types.ts';
 import type {
   GlossaryImportResult,
+  ProofreadTaskMode,
+  ProofreadTaskState,
   ProjectExportResult,
   StoryTopologyDescriptor,
   TranslationProjectSnapshot,
@@ -140,6 +143,20 @@ export interface ScanDictionaryProgress {
   completedBatches: number;
   totalLines: number;
   currentBatchIndex?: number;
+  errorMessage?: string;
+}
+
+export interface ProofreadProgress {
+  status: 'running' | 'paused' | 'done' | 'error';
+  mode: ProofreadTaskMode;
+  totalChapters: number;
+  completedChapters: number;
+  totalBatches: number;
+  completedBatches: number;
+  currentChapterId?: number;
+  chapterIds: number[];
+  warningCount: number;
+  lastWarningMessage?: string;
   errorMessage?: string;
 }
 
@@ -228,6 +245,7 @@ export interface ProjectStatus {
   plotSummaryReady: boolean;
   plotSummaryProgress: PlotSummaryProgress | null;
   scanDictionaryProgress: ScanDictionaryProgress | null;
+  proofreadProgress: ProofreadProgress | null;
   snapshot: TranslationProjectProgressSnapshot | null;
 }
 
@@ -312,6 +330,11 @@ type TranslationExecutionRuntime = {
   close: () => Promise<void>;
 };
 
+type ProofreadExecutionRuntime = {
+  processor: ProofreadProcessor;
+  close: () => Promise<void>;
+};
+
 type ProjectServiceOptions = {
   createTranslationRuntime?: typeof createProcessorForProject;
 };
@@ -330,8 +353,10 @@ export class ProjectService {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private plotSummaryProgress: PlotSummaryProgress | null = null;
   private scanDictionaryProgress: ScanDictionaryProgress | null = null;
+  private proofreadProgress: ProofreadProgress | null = null;
   private scanTaskState: ScanDictionaryTaskState | null = null;
   private plotTaskState: PlotSummaryTaskState | null = null;
+  private proofreadTaskState: ProofreadTaskState | null = null;
   private repetitionPatternConsistencyFixProgress: RepetitionPatternConsistencyFixProgress | null =
     null;
   private plotSummaryReady = false;
@@ -360,6 +385,7 @@ export class ProjectService {
       plotSummaryReady: this.plotSummaryReady,
       plotSummaryProgress: this.plotSummaryProgress,
       scanDictionaryProgress: this.scanDictionaryProgress,
+      proofreadProgress: this.proofreadProgress,
       snapshot: this.snapshot,
     };
   }
@@ -940,6 +966,7 @@ export class ProjectService {
       this.topology = nextTopology;
       this.fullSnapshot = nextProject.getProjectSnapshot();
       this.snapshot = toProgressSnapshot(this.fullSnapshot);
+      await this.restoreProofreadTaskState(nextProject);
       this.resetResourceVersions(1);
       this.startPolling();
 
@@ -1016,6 +1043,296 @@ export class ProjectService {
       this.refreshSnapshot();
       this.log('warning', `翻译流程已中止，当前状态：${lifecycle.status}`);
     });
+  }
+
+  async startProofread(input: {
+    chapterIds: number[];
+    mode?: ProofreadTaskMode;
+  }): Promise<void> {
+    if (this.isBusy) {
+      this.log('warning', '正在执行其他操作，请稍候');
+      return;
+    }
+    if (!this.project) {
+      this.log('warning', '当前没有已初始化的项目');
+      return;
+    }
+    if (this.proofreadTaskState?.status === 'running') {
+      throw new ProjectServiceUserInputError('校对任务正在运行');
+    }
+
+    const project = this.project;
+    const task = this.createProofreadTaskState(project, input.chapterIds, input.mode ?? 'linear');
+    task.status = 'running';
+    task.abortRequested = false;
+    task.errorMessage = undefined;
+    task.updatedAt = new Date().toISOString();
+    this.clearTaskProgressUi('proofread');
+    this.proofreadTaskState = task;
+    await project.saveProofreadTaskState(task);
+
+    this.log(
+      'info',
+      `校对任务开始，共 ${task.totalChapters} 个章节，${task.totalBatches} 个片段，模式：${task.mode === 'linear' ? '线性校对' : '同时校对'}`,
+    );
+    this.isBusy = true;
+    this.syncProofreadProgress(task);
+    this.broadcastProofreadProgress();
+    void this.runProofreadTask(project, task);
+  }
+
+  async resumeProofread(): Promise<void> {
+    if (this.isBusy) {
+      this.log('warning', '正在执行其他操作，请稍候');
+      return;
+    }
+    if (!this.project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    const task = this.proofreadTaskState ?? this.project.getProofreadTaskState();
+    if (!task || task.status === 'done') {
+      throw new ProjectServiceUserInputError('当前没有可恢复的校对任务');
+    }
+    if (task.status === 'running') {
+      throw new ProjectServiceUserInputError('校对任务正在运行');
+    }
+
+    task.status = 'running';
+    task.abortRequested = false;
+    task.errorMessage = undefined;
+    task.updatedAt = new Date().toISOString();
+    this.proofreadTaskState = task;
+    await this.project.saveProofreadTaskState(task);
+
+    this.log(
+      'info',
+      `继续校对任务，已完成 ${task.completedBatches}/${task.totalBatches} 个片段`,
+    );
+    this.isBusy = true;
+    this.syncProofreadProgress(task);
+    this.broadcastProofreadProgress();
+    void this.runProofreadTask(this.project, task);
+  }
+
+  async abortProofread(): Promise<void> {
+    if (this.proofreadTaskState?.status !== 'running') {
+      throw new ProjectServiceUserInputError('当前没有正在运行的校对任务');
+    }
+
+    this.proofreadTaskState.abortRequested = true;
+    this.proofreadTaskState.updatedAt = new Date().toISOString();
+    await this.project?.saveProofreadTaskState(this.proofreadTaskState);
+    this.log('warning', '已提交校对任务中止请求');
+  }
+
+  private createProofreadTaskState(
+    project: TranslationProject,
+    chapterIds: number[],
+    mode: ProofreadTaskMode,
+  ): ProofreadTaskState {
+    const uniqueChapterIds = [...new Set(chapterIds)];
+    if (uniqueChapterIds.length === 0) {
+      throw new ProjectServiceUserInputError('请至少选择一个已翻译完成的章节来创建校对任务');
+    }
+
+    const chapterDescriptors = project.getChapterDescriptors();
+    const chapterById = new Map(chapterDescriptors.map((chapter) => [chapter.id, chapter] as const));
+    const invalidChapters = uniqueChapterIds.filter((chapterId) => {
+      const descriptor = chapterById.get(chapterId);
+      if (!descriptor) {
+        return true;
+      }
+      return descriptor.sourceLineCount > 0 && descriptor.translatedLineCount < descriptor.sourceLineCount;
+    });
+    if (invalidChapters.length > 0) {
+      throw new ProjectServiceUserInputError(
+        `以下章节尚未翻译完成，不能创建校对任务：${invalidChapters.join(', ')}`,
+      );
+    }
+
+    const orderedChapterIds = sortProofreadChapterIds(project, uniqueChapterIds, mode);
+    const documentManager = project.getDocumentManager();
+    const chapters = orderedChapterIds.map((chapterId) => ({
+      chapterId,
+      fragmentCount: documentManager.getChapterFragmentCount(chapterId),
+    }));
+    const totalBatches = chapters.reduce((sum, chapter) => sum + chapter.fragmentCount, 0);
+    const now = new Date().toISOString();
+
+    return {
+      taskId: `proofread-${Date.now()}`,
+      mode,
+      status: 'paused',
+      chapterIds: orderedChapterIds,
+      chapters,
+      totalChapters: chapters.length,
+      completedChapters: 0,
+      totalBatches,
+      completedBatches: 0,
+      nextChapterIndex: 0,
+      nextFragmentIndex: 0,
+      currentChapterId: chapters[0]?.chapterId,
+      warningCount: 0,
+      abortRequested: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  private async runProofreadTask(
+    project: TranslationProject,
+    task: ProofreadTaskState,
+  ): Promise<void> {
+    const taskToken = this.processingToken;
+    let runtime: ProofreadExecutionRuntime | undefined;
+
+    try {
+      runtime = await createProofreadProcessorForProject(
+        project,
+        (level, msg) => this.log(level, msg),
+        this.requestHistoryService,
+      );
+
+      for (let chapterIndex = task.nextChapterIndex; chapterIndex < task.chapters.length; chapterIndex += 1) {
+        if (taskToken !== this.processingToken) {
+          return;
+        }
+        if (task.abortRequested) {
+          break;
+        }
+
+        const chapter = task.chapters[chapterIndex]!;
+        const startFragmentIndex = chapterIndex === task.nextChapterIndex ? task.nextFragmentIndex : 0;
+        task.nextChapterIndex = chapterIndex;
+        task.nextFragmentIndex = startFragmentIndex;
+        task.currentChapterId = chapter.chapterId;
+        task.updatedAt = new Date().toISOString();
+        this.syncProofreadProgress(task);
+        this.broadcastProofreadProgress();
+
+        for (let fragmentIndex = startFragmentIndex; fragmentIndex < chapter.fragmentCount; fragmentIndex += 1) {
+          if (taskToken !== this.processingToken) {
+            return;
+          }
+          if (task.abortRequested) {
+            break;
+          }
+
+          const prepared = project.buildProofreadFragmentInput(chapter.chapterId, fragmentIndex);
+          if (prepared.blockedReason) {
+            this.appendProofreadWarning(
+              task,
+              `章节 ${chapter.chapterId} / 片段 ${fragmentIndex + 1} 的依赖上下文不可用（${prepared.blockedReason}），已忽略该上下文继续校对`,
+            );
+          }
+
+          const result = await runtime.processor.process({
+            sourceText: prepared.sourceText,
+            currentTranslationText: prepared.currentTranslationText,
+            contextView: prepared.contextView,
+            glossary: project.getGlossary(),
+            requirements: prepared.requirements,
+            documentManager: project.getDocumentManager(),
+            workItemRef: {
+              chapterId: chapter.chapterId,
+              fragmentIndex,
+              stepId: 'proofread',
+            },
+          });
+
+          await project.getDocumentManager().updateTranslation(
+            chapter.chapterId,
+            fragmentIndex,
+            result.outputText,
+          );
+          task.completedBatches += 1;
+          task.nextChapterIndex = chapterIndex;
+          task.nextFragmentIndex = fragmentIndex + 1;
+          task.currentChapterId = chapter.chapterId;
+          task.updatedAt = new Date().toISOString();
+          await project.saveProofreadTaskState(task);
+          this.syncProofreadProgress(task);
+          this.broadcastProofreadProgress();
+        }
+
+        if (task.abortRequested) {
+          break;
+        }
+
+        task.completedChapters += 1;
+        task.nextChapterIndex = chapterIndex + 1;
+        task.nextFragmentIndex = 0;
+        task.currentChapterId = task.chapters[chapterIndex + 1]?.chapterId;
+        task.updatedAt = new Date().toISOString();
+        await project.saveProofreadTaskState(task);
+        this.syncProofreadProgress(task);
+        this.broadcastProofreadProgress();
+        this.refreshSnapshot();
+      }
+
+      if (taskToken !== this.processingToken) {
+        return;
+      }
+
+      if (task.abortRequested) {
+        task.status = 'paused';
+        task.errorMessage = undefined;
+        task.updatedAt = new Date().toISOString();
+        await project.saveProofreadTaskState(task);
+        this.syncProofreadProgress(task);
+        this.broadcastProofreadProgress();
+        this.log(
+          'warning',
+          `校对任务已中止，已完成 ${task.completedBatches}/${task.totalBatches} 个片段`,
+        );
+        return;
+      }
+
+      task.status = 'done';
+      task.completedChapters = task.totalChapters;
+      task.completedBatches = task.totalBatches;
+      task.nextChapterIndex = task.totalChapters;
+      task.nextFragmentIndex = 0;
+      task.currentChapterId = undefined;
+      task.abortRequested = false;
+      task.errorMessage = undefined;
+      task.updatedAt = new Date().toISOString();
+      await project.saveProofreadTaskState(task);
+      this.refreshSnapshot();
+      this.markChaptersChanged();
+      this.markRepeatedPatternsChanged();
+      this.syncProofreadProgress(task);
+      this.broadcastProofreadProgress();
+      this.log(
+        'success',
+        `校对任务完成（${task.totalChapters} 章节，${task.totalBatches} 个片段）`,
+      );
+    } catch (error) {
+      if (taskToken !== this.processingToken) {
+        return;
+      }
+
+      task.status = 'error';
+      task.errorMessage = toMsg(error);
+      task.updatedAt = new Date().toISOString();
+      await project.saveProofreadTaskState(task);
+      this.syncProofreadProgress(task);
+      this.broadcastProofreadProgress();
+      this.log('error', `校对任务失败：${task.errorMessage}`);
+    } finally {
+      await runtime?.close().catch(() => undefined);
+      if (taskToken === this.processingToken) {
+        this.isBusy = false;
+      }
+    }
+  }
+
+  private appendProofreadWarning(task: ProofreadTaskState, message: string): void {
+    task.warningCount += 1;
+    task.lastWarningMessage = message;
+    task.updatedAt = new Date().toISOString();
+    this.log('warning', message);
   }
 
   // ─── Dictionary / Glossary ──────────────────────────
@@ -1822,7 +2139,23 @@ export class ProjectService {
     };
   }
 
-  clearTaskProgressUi(task: 'scan' | 'plot' | 'all' = 'all'): void {
+  private syncProofreadProgress(task: ProofreadTaskState): void {
+    this.proofreadProgress = {
+      status: task.status,
+      mode: task.mode,
+      totalChapters: task.totalChapters,
+      completedChapters: task.completedChapters,
+      totalBatches: task.totalBatches,
+      completedBatches: task.completedBatches,
+      currentChapterId: task.currentChapterId,
+      chapterIds: [...task.chapterIds],
+      warningCount: task.warningCount,
+      lastWarningMessage: task.lastWarningMessage,
+      errorMessage: task.errorMessage,
+    };
+  }
+
+  clearTaskProgressUi(task: 'scan' | 'plot' | 'proofread' | 'all' = 'all'): void {
     if (task === 'scan' || task === 'all') {
       this.scanDictionaryProgress = null;
       this.broadcastScanProgress();
@@ -1830,6 +2163,10 @@ export class ProjectService {
     if (task === 'plot' || task === 'all') {
       this.plotSummaryProgress = null;
       this.broadcastPlotProgress();
+    }
+    if (task === 'proofread' || task === 'all') {
+      this.proofreadProgress = null;
+      this.broadcastProofreadProgress();
     }
   }
 
@@ -2354,10 +2691,33 @@ export class ProjectService {
     this.topology = null;
     this.plotSummaryProgress = null;
     this.scanDictionaryProgress = null;
+    this.proofreadProgress = null;
     this.scanTaskState = null;
     this.plotTaskState = null;
+    this.proofreadTaskState = null;
     this.isBusy = false;
     this.resetResourceVersions(0);
+  }
+
+  private async restoreProofreadTaskState(project: TranslationProject): Promise<void> {
+    const persistedTask = project.getProofreadTaskState();
+    if (!persistedTask) {
+      this.proofreadTaskState = null;
+      this.proofreadProgress = null;
+      return;
+    }
+
+    if (persistedTask.status === 'running') {
+      persistedTask.status = 'paused';
+      persistedTask.abortRequested = false;
+      persistedTask.updatedAt = new Date().toISOString();
+      await project.saveProofreadTaskState(persistedTask);
+      this.log('warning', '检测到未完成的校对任务，已自动标记为暂停，可在 WebUI 中继续执行');
+    }
+
+    this.proofreadTaskState = persistedTask;
+    this.syncProofreadProgress(persistedTask);
+    this.broadcastProofreadProgress();
   }
 
   private startPolling(): void {
@@ -2467,6 +2827,13 @@ export class ProjectService {
     this.eventBus.emit({
       type: 'plotProgress',
       data: this.plotSummaryProgress,
+    });
+  }
+
+  private broadcastProofreadProgress(): void {
+    this.eventBus.emit({
+      type: 'proofreadProgress',
+      data: this.proofreadProgress,
     });
   }
 
@@ -3141,6 +3508,29 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function sortProofreadChapterIds(
+  project: TranslationProject,
+  chapterIds: number[],
+  mode: ProofreadTaskMode,
+): number[] {
+  if (mode !== 'linear') {
+    return [...chapterIds];
+  }
+
+  const orderByChapterId = new Map<number, number>();
+  for (const [index, fragment] of project.getOrderedFragments().entries()) {
+    if (!orderByChapterId.has(fragment.chapterId)) {
+      orderByChapterId.set(fragment.chapterId, index);
+    }
+  }
+
+  return [...chapterIds].sort(
+    (left, right) =>
+      (orderByChapterId.get(left) ?? Number.MAX_SAFE_INTEGER) -
+      (orderByChapterId.get(right) ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
 function normalizeOptionalString(value?: string): string | undefined {
   const normalized = value?.trim();
   return normalized ? normalized : undefined;
@@ -3406,6 +3796,92 @@ async function createProcessorForProject(
       manager,
       entry,
     ),
+    close: async () => {
+      await provider.closeAll();
+    },
+  };
+}
+
+async function createProofreadProcessorForProject(
+  project: TranslationProject,
+  log: (
+    level: 'error' | 'info' | 'warning' | 'success',
+    msg: string,
+  ) => void,
+  requestHistoryService: RequestHistoryService,
+): Promise<ProofreadExecutionRuntime> {
+  const manager = new GlobalConfigManager();
+  const globalConfig = await manager.getTranslationGlobalConfig();
+  const workspaceConfig = project.getWorkspaceConfig();
+  const translatorName = workspaceConfig.translator?.translatorName;
+
+  let processorConfig: TranslationProcessorConfig | undefined;
+  let promptSet = 'ja-zhCN';
+
+  try {
+    processorConfig = globalConfig.getProofreadProcessorConfig();
+  } catch {
+    processorConfig = undefined;
+  }
+
+  if (!processorConfig) {
+    if (!translatorName) {
+      throw new Error('当前工作区未配置翻译器，也未配置独立校对器。');
+    }
+
+    const entry = await manager.getTranslator(translatorName);
+    if (!entry) {
+      throw new Error(`未找到名为 "${translatorName}" 的翻译器`);
+    }
+
+    promptSet = entry.promptSet;
+    processorConfig = {
+      workflow: 'proofread-multi-stage',
+      modelNames: entry.modelNames,
+      slidingWindow: entry.slidingWindow,
+      requestOptions: entry.requestOptions,
+      reviewIterations: entry.reviewIterations,
+      steps: {
+        editor: entry.steps?.editor ?? { modelNames: [...entry.modelNames] },
+        proofreader: entry.steps?.proofreader ?? { modelNames: [...entry.modelNames] },
+        reviser: entry.steps?.reviser ?? { modelNames: [...entry.modelNames] },
+      },
+    };
+    log('warning', '未配置独立校对器，已临时复用当前翻译器的模型链执行校对流程');
+  }
+
+  const runtimeConfig = new TranslationGlobalConfig({
+    llm: globalConfig.llm,
+    translation: {
+      proofreadProcessor: processorConfig,
+      alignmentRepair: globalConfig.getAlignmentRepairConfig(),
+    },
+  });
+
+  const provider = runtimeConfig.createProvider();
+  const manifest = project.getWorkspaceFileManifest();
+  provider.setHistoryLogger(
+    requestHistoryService.createLogger('proofread_requests', {
+      projectName: project.getProjectSnapshot().projectName,
+      workspaceDir: manifest.projectDir,
+    }),
+  );
+
+  const logger: Logger = {
+    info: (msg: string) => log('info', msg),
+    warn: (msg: string) => log('warning', msg),
+    error: (msg: string) => log('error', msg),
+    debug: () => {},
+  };
+
+  return {
+    processor: runtimeConfig.createProofreadProcessor({
+      provider,
+      logger,
+      promptManager: new PromptManager({
+        translationPromptSet: promptSet,
+      }),
+    }),
     close: async () => {
       await provider.closeAll();
     },

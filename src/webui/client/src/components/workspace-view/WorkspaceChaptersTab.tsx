@@ -47,6 +47,10 @@ interface WorkspaceChaptersTabProps {
   defaultImportFormat?: string;
   onRefreshChapters: () => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onStartProofread: (input: {
+    chapterIds: number[];
+    mode?: 'linear' | 'simultaneous';
+  }) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
@@ -100,6 +104,7 @@ export function WorkspaceChaptersTab({
   defaultImportFormat,
   onRefreshChapters,
   onClearChapterTranslations,
+  onStartProofread,
   onRemoveChapters,
   onCreateStoryBranch,
   onUpdateStoryRoute,
@@ -176,6 +181,7 @@ export function WorkspaceChaptersTab({
                 topology={topology}
                 defaultImportFormat={defaultImportFormat}
                 onClearChapterTranslations={onClearChapterTranslations}
+                onStartProofread={onStartProofread}
                 onRemoveChapters={onRemoveChapters}
                 onCreateStoryBranch={onCreateStoryBranch}
                 onImportChapterArchive={onImportChapterArchive}
@@ -264,6 +270,7 @@ function ChapterInfoTable({
   topology,
   defaultImportFormat,
   onClearChapterTranslations,
+  onStartProofread,
   onRemoveChapters,
   onCreateStoryBranch,
   onImportChapterArchive,
@@ -273,6 +280,10 @@ function ChapterInfoTable({
   topology: StoryTopologyDescriptor | null;
   defaultImportFormat?: string;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onStartProofread: (input: {
+    chapterIds: number[];
+    mode?: 'linear' | 'simultaneous';
+  }) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
@@ -294,6 +305,8 @@ function ChapterInfoTable({
   const [attachForm] = Form.useForm<AttachGroupBranchFormValues>();
   const [importArchiveOpen, setImportArchiveOpen] = useState(false);
   const [importArchiveSubmitting, setImportArchiveSubmitting] = useState(false);
+  const [proofreadModalOpen, setProofreadModalOpen] = useState(false);
+  const [proofreadMode, setProofreadMode] = useState<'linear' | 'simultaneous'>('linear');
   const [importArchiveFiles, setImportArchiveFiles] = useState<UploadFile[]>([]);
   const [importArchiveResult, setImportArchiveResult] = useState<ImportArchiveResult | null>(null);
   const [importArchiveForm] = Form.useForm<ImportArchiveFormValues>();
@@ -309,6 +322,21 @@ function ChapterInfoTable({
     [chapters],
   );
   const chapterGroups = useMemo(() => buildChapterImportGroups(chapters), [chapters]);
+  const proofreadableChapterIds = useMemo(
+    () =>
+      selectedChapterIds.filter((chapterId) => {
+        const chapter = chapterById.get(chapterId);
+        return Boolean(
+          chapter &&
+            (chapter.sourceLineCount === 0 || chapter.translatedLineCount >= chapter.sourceLineCount),
+        );
+      }),
+    [chapterById, selectedChapterIds],
+  );
+  const unproofreadableChapterIds = useMemo(
+    () => selectedChapterIds.filter((chapterId) => !proofreadableChapterIds.includes(chapterId)),
+    [proofreadableChapterIds, selectedChapterIds],
+  );
   const routeCandidates = useMemo<RouteAttachCandidate[]>(() => {
     if (topology && topology.routes.length > 0) {
       return topology.routes.map((route) => ({
@@ -442,6 +470,31 @@ function ChapterInfoTable({
     }
     await onRemoveChapters(selectedChapterIds, { cascadeBranches: true });
     setSelectedChapterIds([]);
+  };
+
+  const handleOpenProofreadModal = () => {
+    if (selectedChapterIds.length === 0) {
+      message.warning('请先选择章节');
+      return;
+    }
+    if (proofreadableChapterIds.length === 0) {
+      message.error('所选章节尚未翻译完成，无法创建校对任务');
+      return;
+    }
+    setProofreadModalOpen(true);
+  };
+
+  const handleStartProofread = async () => {
+    if (proofreadableChapterIds.length === 0) {
+      message.error('没有可用于校对的章节');
+      return;
+    }
+
+    await onStartProofread({
+      chapterIds: proofreadableChapterIds,
+      mode: proofreadMode,
+    });
+    setProofreadModalOpen(false);
   };
 
   const openPreview = (chapterId: number) => {
@@ -612,6 +665,9 @@ function ChapterInfoTable({
           </Tag>
           <Button size="small" onClick={() => setSelectedChapterIds([])}>
             清空选择
+          </Button>
+          <Button size="small" type="primary" onClick={handleOpenProofreadModal}>
+            创建校对任务
           </Button>
           <Popconfirm
             title={`确认清空选中的 ${selectedChapterIds.length} 个章节译文？`}
@@ -893,6 +949,41 @@ function ChapterInfoTable({
         defaultChapterId={previewChapterId}
         onCancel={() => setPreviewOpen(false)}
       />
+
+      <Modal
+        title="创建校对任务"
+        open={proofreadModalOpen}
+        onOk={() => void handleStartProofread()}
+        onCancel={() => setProofreadModalOpen(false)}
+        okText="开始校对"
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Alert
+            type="info"
+            showIcon
+            message={`将对 ${proofreadableChapterIds.length} 个已翻译章节执行覆盖式校对写回`}
+          />
+          {unproofreadableChapterIds.length > 0 ? (
+            <Alert
+              type="warning"
+              showIcon
+              message={`已自动排除未翻译完成章节：${unproofreadableChapterIds.join(', ')}`}
+            />
+          ) : null}
+          <div>
+            <Typography.Text strong>校对模式</Typography.Text>
+            <Select
+              style={{ width: '100%', marginTop: 8 }}
+              value={proofreadMode}
+              onChange={(value) => setProofreadMode(value)}
+              options={[
+                { value: 'linear', label: '线性校对' },
+                { value: 'simultaneous', label: '同时校对' },
+              ]}
+            />
+          </div>
+        </Space>
+      </Modal>
     </>
   );
 }

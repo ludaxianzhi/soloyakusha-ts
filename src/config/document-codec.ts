@@ -646,6 +646,13 @@ export function normalizeOptionalTranslationConfig(
             value.translationProcessor,
             `${sourceLabel}.translationProcessor`,
           ),
+    proofreadProcessor:
+      value.proofreadProcessor === undefined
+        ? undefined
+        : normalizeTranslationProcessorConfig(
+            value.proofreadProcessor,
+            `${sourceLabel}.proofreadProcessor`,
+          ),
     glossaryExtractor:
       value.glossaryExtractor === undefined
         ? undefined
@@ -678,6 +685,7 @@ export function pruneEmptyTranslationConfig(
   if (
     !hasTranslators &&
     !config?.translationProcessor &&
+    !config?.proofreadProcessor &&
     !config?.glossaryExtractor &&
     !config?.glossaryUpdater &&
     !config?.plotSummary &&
@@ -689,6 +697,7 @@ export function pruneEmptyTranslationConfig(
   return {
     translators: cloneTranslators(config?.translators),
     translationProcessor: cloneTranslationProcessorConfig(config?.translationProcessor),
+    proofreadProcessor: cloneTranslationProcessorConfig(config?.proofreadProcessor),
     glossaryExtractor: cloneGlossaryExtractorConfig(config?.glossaryExtractor),
     glossaryUpdater: cloneGlossaryUpdaterConfig(config?.glossaryUpdater),
     plotSummary: clonePlotSummaryConfig(config?.plotSummary),
@@ -744,6 +753,7 @@ export function cloneTranslationConfig(
   return {
     translators: cloneTranslators(config.translators),
     translationProcessor: cloneTranslationProcessorConfig(config.translationProcessor),
+    proofreadProcessor: cloneTranslationProcessorConfig(config.proofreadProcessor),
     glossaryExtractor: cloneGlossaryExtractorConfig(config.glossaryExtractor),
     glossaryUpdater: cloneGlossaryUpdaterConfig(config.glossaryUpdater),
     plotSummary: clonePlotSummaryConfig(config.plotSummary),

@@ -40,6 +40,7 @@ export function WorkspaceView({
   onRefreshWorkspaceConfig,
   onProjectCommand,
   onBuildContextNetwork,
+  onStartProofread,
   onOpenDictionaryEditor,
   onDeleteDictionary,
   onImportDictionaryFromContent,
@@ -170,6 +171,7 @@ export function WorkspaceView({
                 defaultImportFormat={defaultImportFormat}
                 onRefreshChapters={onRefreshChapters}
                 onClearChapterTranslations={onClearChapterTranslations}
+                onStartProofread={onStartProofread}
                 onRemoveChapters={onRemoveChapters}
                 onCreateStoryBranch={onCreateStoryBranch}
                 onUpdateStoryRoute={onUpdateStoryRoute}

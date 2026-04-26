@@ -129,6 +129,7 @@ export type GlobalTranslationConfig = {
   translators?: Record<string, TranslatorEntry>;
   /** @deprecated 迁移前的单一翻译处理器配置，新代码请使用 translators。 */
   translationProcessor?: TranslationProcessorConfig;
+  proofreadProcessor?: TranslationProcessorConfig;
   glossaryExtractor?: GlossaryExtractorConfig;
   glossaryUpdater?: GlossaryUpdaterConfig;
   plotSummary?: PlotSummaryConfig;

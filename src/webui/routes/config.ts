@@ -113,6 +113,10 @@ export function createConfigRoutes(configService: ConfigService): Hono {
     return c.json({ workflows: configService.listTranslatorWorkflows() });
   });
 
+  app.get('/proofread-workflows', (c) => {
+    return c.json({ workflows: configService.listProofreadProcessorWorkflows() });
+  });
+
   app.get('/translators/:name', async (c) => {
     const translator = await configService.getTranslator(c.req.param('name'));
     if (!translator) return c.json({ error: '未找到' }, 404);
@@ -130,6 +134,16 @@ export function createConfigRoutes(configService: ConfigService): Hono {
       c.req.param('name'),
     );
     return c.json({ ok: removed });
+  });
+
+  app.get('/proofread-processor', async (c) => {
+    return c.json((await configService.getProofreadProcessorConfig()) ?? null);
+  });
+
+  app.put('/proofread-processor', async (c) => {
+    const body = await c.req.json();
+    await configService.setProofreadProcessorConfig(body);
+    return c.json({ ok: true });
   });
 
   // ─── Auxiliary ──────────────────────────────────

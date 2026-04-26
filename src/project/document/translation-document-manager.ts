@@ -33,6 +33,7 @@ import type {
   ChapterEntry,
   FragmentEntry,
   FragmentPipelineStepState,
+  ProofreadTaskState,
   SlidingWindowFragment,
   SlidingWindowFragmentLine,
   SlidingWindowOptions,
@@ -808,6 +809,46 @@ function normalizePersistedProjectState(
       lastSavedAt: state.lifecycle?.lastSavedAt,
       updatedAt: state.lifecycle?.updatedAt,
     },
+    proofreadTask: normalizePersistedProofreadTaskState(state.proofreadTask),
+  };
+}
+
+function normalizePersistedProofreadTaskState(
+  state: ProofreadTaskState | undefined,
+): ProofreadTaskState | undefined {
+  if (!state) {
+    return undefined;
+  }
+
+  return {
+    taskId: state.taskId,
+    mode: state.mode === "simultaneous" ? "simultaneous" : "linear",
+    status: state.status ?? "paused",
+    chapterIds: Array.isArray(state.chapterIds)
+      ? state.chapterIds.map((value) => Number(value)).filter(Number.isFinite)
+      : [],
+    chapters: Array.isArray(state.chapters)
+      ? state.chapters
+          .map((chapter) => ({
+            chapterId: Number(chapter.chapterId),
+            fragmentCount: Math.max(0, Number(chapter.fragmentCount) || 0),
+          }))
+          .filter((chapter) => Number.isFinite(chapter.chapterId))
+      : [],
+    totalChapters: Math.max(0, Number(state.totalChapters) || 0),
+    completedChapters: Math.max(0, Number(state.completedChapters) || 0),
+    totalBatches: Math.max(0, Number(state.totalBatches) || 0),
+    completedBatches: Math.max(0, Number(state.completedBatches) || 0),
+    nextChapterIndex: Math.max(0, Number(state.nextChapterIndex) || 0),
+    nextFragmentIndex: Math.max(0, Number(state.nextFragmentIndex) || 0),
+    currentChapterId:
+      state.currentChapterId !== undefined ? Number(state.currentChapterId) : undefined,
+    warningCount: Math.max(0, Number(state.warningCount) || 0),
+    lastWarningMessage: state.lastWarningMessage,
+    abortRequested: Boolean(state.abortRequested),
+    errorMessage: state.errorMessage,
+    createdAt: state.createdAt,
+    updatedAt: state.updatedAt,
   };
 }
 

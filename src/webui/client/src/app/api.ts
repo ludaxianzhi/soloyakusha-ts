@@ -31,6 +31,7 @@ import type {
   ContextNetworkBuildResult,
   StoryTopologyDescriptor,
   TranslationProcessorWorkflowMetadata,
+  TranslationProcessorConfig,
   TranslationProjectSnapshot,
   TranslationStepQueueEntryDetail,
   TranslatorEntry,
@@ -290,7 +291,19 @@ export const api = {
     request('/api/project/plot-summary/abort', { method: 'POST' }),
   resumePlotSummary: () =>
     request('/api/project/plot-summary/resume', { method: 'POST' }),
-  clearTaskProgress: (task: 'scan' | 'plot' | 'all') =>
+  startProofread: (payload: {
+    chapterIds: number[];
+    mode?: 'linear' | 'simultaneous';
+  }) =>
+    request('/api/project/proofread', {
+      method: 'POST',
+      body: payload,
+    }),
+  abortProofread: () =>
+    request('/api/project/proofread/abort', { method: 'POST' }),
+  resumeProofread: () =>
+    request('/api/project/proofread/resume', { method: 'POST' }),
+  clearTaskProgress: (task: 'scan' | 'plot' | 'proofread' | 'all') =>
     request('/api/project/task-ui/clear', {
       method: 'POST',
       body: { task },
@@ -511,6 +524,10 @@ export const api = {
     request<{ workflows: TranslationProcessorWorkflowMetadata[] }>(
       '/api/config/translator-workflows',
     ),
+  getProofreadWorkflows: () =>
+    request<{ workflows: TranslationProcessorWorkflowMetadata[] }>(
+      '/api/config/proofread-workflows',
+    ),
   saveTranslator: (name: string, config: TranslatorEntry) =>
     request(`/api/config/translators/${encodeURIComponent(name)}`, {
       method: 'PUT',
@@ -519,6 +536,13 @@ export const api = {
   deleteTranslator: (name: string) =>
     request(`/api/config/translators/${encodeURIComponent(name)}`, {
       method: 'DELETE',
+    }),
+  getProofreadProcessorConfig: () =>
+    request<TranslationProcessorConfig | null>('/api/config/proofread-processor'),
+  saveProofreadProcessorConfig: (config: TranslationProcessorConfig) =>
+    request('/api/config/proofread-processor', {
+      method: 'PUT',
+      body: config,
     }),
 
   getGlossaryExtractor: () =>

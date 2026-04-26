@@ -161,12 +161,27 @@ export interface ScanDictionaryProgress {
   errorMessage?: string;
 }
 
+export interface ProofreadProgress {
+  status: 'running' | 'paused' | 'done' | 'error';
+  mode: 'linear' | 'simultaneous';
+  totalChapters: number;
+  completedChapters: number;
+  totalBatches: number;
+  completedBatches: number;
+  currentChapterId?: number;
+  chapterIds: number[];
+  warningCount: number;
+  lastWarningMessage?: string;
+  errorMessage?: string;
+}
+
 export interface ProjectStatus {
   hasProject: boolean;
   isBusy: boolean;
   plotSummaryReady: boolean;
   plotSummaryProgress: PlotSummaryProgress | null;
   scanDictionaryProgress: ScanDictionaryProgress | null;
+  proofreadProgress: ProofreadProgress | null;
   snapshot: TranslationProjectSnapshot | null;
 }
 
@@ -647,6 +662,19 @@ export interface TranslatorEntry {
 export interface TranslatorStepConfig {
   modelNames: string[];
   requestOptions?: Record<string, unknown>;
+}
+
+export interface TranslationProcessorConfig {
+  workflow?: string;
+  modelNames: string[];
+  maxConcurrentWorkItems?: number;
+  slidingWindow?: {
+    overlapChars?: number;
+  };
+  requestOptions?: Record<string, unknown>;
+  steps?: Record<string, TranslatorStepConfig>;
+  models?: Record<string, string>;
+  reviewIterations?: number;
 }
 
 export interface TranslationProcessorWorkflowFieldMetadata {
