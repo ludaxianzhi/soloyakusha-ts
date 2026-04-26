@@ -127,8 +127,10 @@ prompts:
         全量参考（前序文段，原文与译文合并展示）：
         {% for unit in referencePairs %}
         - id: {{ unit.id }}
-          原文: {{ unit.sourceText }}
-          译文: {{ unit.translation }}
+          origin: | 
+            {{ unit.sourceText }}
+          translation: | 
+            {{ unit.translation }}
         {% endfor %}
 
         {% endif %}
@@ -277,8 +279,10 @@ prompts:
         全量参考（前序文段，原文与译文合并展示）：
         {% for unit in referencePairs %}
         - id: {{ unit.id }}
-          原文: {{ unit.sourceText }}
-          译文: {{ unit.translation }}
+          origin: | 
+            {{ unit.sourceText }}
+          translation: | 
+            {{ unit.translation }}
         {% endfor %}
 
         {% endif %}
@@ -338,6 +342,8 @@ prompts:
         你是一位严谨的日译简中文学校对专家，擅长对照日文原文发现误译和细节错误。
         在指出错误时，你应当尊重译者为保持文学流畅性和本地化效果而进行的合理意译或改写；
         只有在意思出现明显偏差或重要细节被遗漏时，才提出更正意见。
+
+        另外：你很注重译文的一致性，如果当前的译文和历史译文中的翻译方式有出入，这会被视作重大错误。
     user:
       type: liquid
       template: |
@@ -345,8 +351,10 @@ prompts:
         全量参考（前序文段，原文与译文合并展示）：
         {% for unit in referencePairs %}
         - id: {{ unit.id }}
-          原文: {{ unit.sourceText }}
-          译文: {{ unit.translation }}
+            origin: | 
+          {{ unit.sourceText }}
+          translation: | 
+            {{ unit.translation }}
         {% endfor %}
 
         {% endif %}
