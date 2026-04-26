@@ -235,7 +235,7 @@ prompts:
 
         {% endif %}
         {% if translatedGlossaryTerms.size > 0 %}
-        术语表（仅译文，用于核查译名一致性）：
+        术语表（下面的术语表中为已经翻译后的术语和其介绍，文本中出现此类术语可视为正确翻译）：
         {% for term in translatedGlossaryTerms %}
         - {{ term.translation }}{% if term.description %}（{{ term.description }}）{% endif %}
         {% endfor %}
@@ -366,7 +366,7 @@ prompts:
 
         {% endif %}
         {% if translatedGlossaryTerms.size > 0 %}
-        术语表：
+        术语表（下面的术语表中为已经翻译后的术语和其介绍，文本中出现此类术语可视为正确翻译）：
         {% for term in translatedGlossaryTerms %}
         - term: {{ term.term }}
           translation: {{ term.translation }}
@@ -409,8 +409,13 @@ prompts:
       type: static
       template: |
         你是一位综合能力极强的日译简中修改师，能够平衡准确性与文学表现力，
-        根据编辑和校对的意见对译文进行有针对性的改进。
-        当编辑与校对意见相互矛盾时，优先保证原文意思的准确性，其次考虑中文表达的自然流畅。
+        请根据中文编辑和校对专家的意见，对每行译文进行修改。
+        - 对有问题的行进行针对性修改；无问题的行保持原样输出。
+        - 当两方意见冲突时，优先保证原文意思的准确传达，同时尽量汲取编辑意见的表达特点。
+        - 当编辑和校对的意见方向一致时，优先按照编辑意见修改。
+        - 当译文可以满足准确传达原文意思且不存在加译行为时，尽量采纳中文编辑的改进方案。
+        - 输出格式为 JSON，结构遵循所提供的 schema，每个对象包含原行 id 与修改后的 translation。
+        - 当编辑/校对意见与术语表冲突时，遵循术语表逻辑。
     user:
       type: liquid
       template: |
@@ -469,12 +474,7 @@ prompts:
         校对专家反馈：
         {{ proofreaderFeedback }}
 
-        请根据中文编辑和校对专家的意见，对每行译文进行修改。
-        - 对有问题的行进行针对性修改；无问题的行保持原样输出。
-        - 当两方意见冲突时，优先保证原文意思的准确传达，同时尽量汲取编辑意见的表达特点。
-        - 当编辑和校对的意见方向一致时，优先按照编辑意见修改。
-        - 当译文可以满足准确传达原文意思且不存在加译行为时，尽量采纳中文编辑的改进方案。
-        - 输出格式为 JSON，结构遵循所提供的 schema，每个对象包含原行 id 与修改后的 translation。
+        
 
         JSON Schema:
         {{ responseSchemaJson }}
