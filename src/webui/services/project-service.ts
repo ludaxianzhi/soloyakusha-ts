@@ -1265,6 +1265,9 @@ export class ProjectService {
           task.updatedAt = new Date().toISOString();
           this.syncDerivedProofreadTaskState(task, activeChapterCounts.keys());
           await project.saveProofreadTaskState(task);
+          if (this.proofreadTaskState !== task) {
+            return;
+          }
           this.syncProofreadProgress(task);
           this.broadcastProofreadProgress();
           if (refreshChapters) {
@@ -2879,6 +2882,19 @@ export class ProjectService {
     if (!persistedTask) {
       this.proofreadTaskState = null;
       this.proofreadProgress = null;
+      return;
+    }
+
+    if (
+      !persistedTask.totalChapters ||
+      persistedTask.totalChapters <= 0 ||
+      !persistedTask.chapterIds?.length ||
+      !persistedTask.chapters?.length
+    ) {
+      this.log('warning', '检测到无效的持久化校对任务状态（章节数据缺失或为空），已自动清除');
+      this.proofreadTaskState = null;
+      this.proofreadProgress = null;
+      await project.saveProofreadTaskState(undefined);
       return;
     }
 

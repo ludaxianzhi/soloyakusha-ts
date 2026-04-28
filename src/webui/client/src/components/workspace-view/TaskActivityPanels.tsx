@@ -187,7 +187,7 @@ function TaskActivityCard({
   const isRunning = progress.status === 'running';
   const isDone = progress.status === 'done';
   const isProofread = task === 'proofread';
-  const isDismissable = !isProofread && progress.status !== 'running';
+  const isDismissable = progress.status !== 'running';
 
   return (
     <Card
