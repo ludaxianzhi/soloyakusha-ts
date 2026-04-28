@@ -12,6 +12,7 @@ import { TranslationGlobalConfig } from "../config.ts";
 import { DefaultTranslationProcessor } from "./default-translation-processor.ts";
 import { MultiStageTranslationProcessor } from "./multi-stage-translation-processor.ts";
 import { MultiStageProofreadProcessor } from "./proofread-processor.ts";
+import { StyleTransferTranslationProcessor } from "./style-transfer-translation-processor.ts";
 import { DefaultTextSplitter } from "../document/translation-document-manager.ts";
 import type { TranslationOutputRepairer } from "./translation-output-repair.ts";
 import type { Logger, LoggerMetadata } from "../logger.ts";
@@ -367,6 +368,35 @@ describe("TranslationProcessor", () => {
     expect(client.requests[2]?.options?.requestConfig?.systemPrompt).toContain(
       "避免使用半文言句式。",
     );
+  });
+
+  test("injects style requirements into the style-transfer step system prompt", async () => {
+    const client = new FakeChatClient([
+      "分析结果",
+      JSON.stringify({
+        translations: [{ id: "1", translation: "初稿译文" }],
+      }),
+      JSON.stringify({
+        translations: [{ id: "1", translation: "风格迁移终稿" }],
+      }),
+    ]);
+    const processor = new StyleTransferTranslationProcessor(client, {});
+
+    const result = await processor.process({
+      sourceText: "勇者は王都を見つめていた",
+      requirements: ["保持文学性"],
+      styleRequirementsText: "整体口语化，避免半文言句式。",
+    });
+
+    expect(result.outputText).toBe("风格迁移终稿");
+    expect(client.requests[2]?.options?.requestConfig?.systemPrompt).toContain(
+      "整体口语化，避免半文言句式。",
+    );
+    expect(client.requests.map((entry) => entry.options?.meta?.label)).toEqual([
+      "翻译-分析",
+      "翻译-初步翻译",
+      "翻译-风格迁移",
+    ]);
   });
 
   test("repairs minor output line mismatch using alignment repair from global config", async () => {

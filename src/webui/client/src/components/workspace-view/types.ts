@@ -10,6 +10,7 @@ import type {
   RepetitionPatternContextResult,
   SavedRepetitionPatternAnalysisResult,
   StoryTopologyDescriptor,
+  TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
   UpdateStoryRoutePayload,
   WorkspaceChapterDescriptor,
@@ -41,6 +42,7 @@ export interface WorkspaceViewProps {
   workspaceForm: FormInstance<Record<string, unknown>>;
   defaultImportFormat?: string;
   translatorOptions: Array<{ label: string; value: string }>;
+  selectedTranslatorWorkflow?: TranslationProcessorWorkflowMetadata;
   llmProfileOptions: Array<{ label: string; value: string }>;
   defaultLlmProfileName?: string;
   onRefreshProjectStatus: () => void | Promise<void>;

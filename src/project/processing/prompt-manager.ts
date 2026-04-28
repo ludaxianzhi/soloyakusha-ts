@@ -11,6 +11,7 @@ import {
   type PromptManager as SharedPromptManager,
 } from "../../prompts/index.ts";
 import { resolveEditorRequirementsText } from "./editor-requirements.ts";
+import { resolveStyleRequirementsText } from "./style-requirements.ts";
 
 export type PromptTranslationUnit = {
   id: string;
@@ -45,6 +46,16 @@ export type MultiStageTranslatorPromptInput = {
   translatedGlossaryTerms: ResolvedGlossaryTerm[];
   analysisText: string;
   requirements: string[];
+};
+
+export type StyleTransferPromptInput = {
+  sourceUnits: PromptTranslationUnit[];
+  currentTranslations: PromptTranslationUnit[];
+  referenceTranslations: string[];
+  translatedGlossaryTerms: ResolvedGlossaryTerm[];
+  analysisText: string;
+  requirements: string[];
+  styleRequirementsText?: string;
 };
 
 export type MultiStageEditorPromptInput = {
@@ -127,6 +138,8 @@ const MULTI_STAGE_ANALYZER_PROMPT_NAME = "multi_stage_analyzer";
 const MULTI_STAGE_ANALYZER_PROMPT_ID = "project.multiStage.analyzer";
 const MULTI_STAGE_TRANSLATOR_PROMPT_NAME = "multi_stage_translation";
 const MULTI_STAGE_TRANSLATOR_PROMPT_ID = "project.multiStage.translator";
+const STYLE_TRANSFER_PROMPT_NAME = "style_transfer_translation";
+const STYLE_TRANSFER_PROMPT_ID = "project.styleTransfer.transfer";
 const MULTI_STAGE_EDITOR_PROMPT_NAME = "multi_stage_editor";
 const MULTI_STAGE_EDITOR_PROMPT_ID = "project.multiStage.editor";
 const MULTI_STAGE_PROOFREADER_PROMPT_NAME = "multi_stage_proofreader";
@@ -207,6 +220,29 @@ export class PromptManager {
 
     return {
       name: MULTI_STAGE_TRANSLATOR_PROMPT_NAME,
+      systemPrompt: renderedPrompt.systemPrompt,
+      userPrompt: renderedPrompt.userPrompt,
+      responseSchema,
+    };
+  }
+
+  async renderStyleTransferPrompt(
+    input: StyleTransferPromptInput,
+  ): Promise<RenderedPrompt> {
+    const responseSchema = buildTranslationStepResponseSchema(input.sourceUnits);
+    const renderedPrompt = await this.renderPrompt(STYLE_TRANSFER_PROMPT_ID, {
+      sourceUnits: input.sourceUnits,
+      currentTranslations: input.currentTranslations,
+      referenceTranslations: input.referenceTranslations,
+      translatedGlossaryTerms: input.translatedGlossaryTerms,
+      analysisText: input.analysisText,
+      requirements: input.requirements,
+      styleRequirementsText: resolveStyleRequirementsText(input.styleRequirementsText),
+      responseSchemaJson: JSON.stringify(responseSchema, null, 2),
+    });
+
+    return {
+      name: STYLE_TRANSFER_PROMPT_NAME,
       systemPrompt: renderedPrompt.systemPrompt,
       userPrompt: renderedPrompt.userPrompt,
       responseSchema,

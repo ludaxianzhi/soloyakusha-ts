@@ -19,10 +19,10 @@ import type {
   GlossaryUpdaterConfig,
   GlossaryExtractorConfig,
   PlotSummaryConfig,
+  TranslationProcessorStepName,
   TranslationProcessorStepConfig,
   TranslationProcessorConfig,
 } from "../project/config.ts";
-import type { MultiStageStepName } from "../project/processing/multi-stage-translation-processor.ts";
 import type { SlidingWindowOptions } from "../project/types.ts";
 import type {
   VectorDistanceMetric,
@@ -114,7 +114,7 @@ export type TranslatorEntry = {
   /**
    * 各步骤的独立配置，供多步骤工作流使用。
    */
-  steps?: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>>;
+  steps?: Partial<Record<TranslationProcessorStepName, TranslationProcessorStepConfig>>;
   /** 旧版步骤模型覆盖，兼容已有配置。 */
   models?: TranslatorModelOverrides;
   /**

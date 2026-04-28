@@ -23,6 +23,7 @@ export function WorkspaceView({
   workspaceForm,
   defaultImportFormat,
   translatorOptions,
+  selectedTranslatorWorkflow,
   llmProfileOptions,
   defaultLlmProfileName,
   onRefreshProjectStatus,
@@ -196,6 +197,7 @@ export function WorkspaceView({
                 active={activeTabKey === 'workspace-config'}
                 workspaceForm={workspaceForm}
                 translatorOptions={translatorOptions}
+                selectedTranslatorWorkflow={selectedTranslatorWorkflow}
                 onRefreshWorkspaceConfig={onRefreshWorkspaceConfig}
                 onWorkspaceConfigSave={onWorkspaceConfigSave}
                 onDownloadExport={onDownloadExport}

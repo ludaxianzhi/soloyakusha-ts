@@ -12,7 +12,8 @@ import { createProviderFromConfigs, LlmClientProvider } from "../llm/provider.ts
 import type { ChatRequestOptions, ClientHooks, LlmClientConfigInput } from "../llm/types.ts";
 import { AlignmentRepairTool, DefaultTextAligner } from "../utils/index.ts";
 import { NOOP_LOGGER, type Logger } from "./logger.ts";
-import type { MultiStageStepName } from "./processing/multi-stage-translation-processor.ts";
+import type { ProofreadStepName } from "./processing/proofread-processor.ts";
+import type { StyleTransferStepName } from "./processing/style-transfer-translation-processor.ts";
 import { ProofreadProcessorFactory } from "./processing/proofread-processor-factory.ts";
 import type { ProofreadProcessor } from "./processing/proofread-processor.ts";
 import { PromptManager } from "./processing/prompt-manager.ts";
@@ -26,6 +27,8 @@ import type { SlidingWindowOptions } from "./types.ts";
 
 export const GLOBAL_EMBEDDING_CLIENT_NAME = "__global_embedding__";
 
+export type TranslationProcessorStepName = StyleTransferStepName | ProofreadStepName;
+
 export type TranslationProcessorConfig = {
   workflow?: string;
   modelNames: string[];
@@ -37,7 +40,7 @@ export type TranslationProcessorConfig = {
    * 各步骤的模型链与请求选项（供 multi-stage 等多步骤工作流使用）。
    * key 为步骤标识，value 为该步骤的独立配置。
    */
-  steps?: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>>;
+  steps?: Partial<Record<TranslationProcessorStepName, TranslationProcessorStepConfig>>;
   /**
    * 旧版步骤模型覆盖，兼容已有配置。
    * 新配置请使用 steps。

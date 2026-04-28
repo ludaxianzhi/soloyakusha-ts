@@ -12,8 +12,14 @@ import {
   Space,
 } from 'antd';
 import type { FormInstance } from 'antd';
-import { IMPORT_FORMAT_OPTIONS } from '../../app/ui-helpers.ts';
-import { WORKSPACE_PIPELINE_STRATEGY_OPTIONS } from '../../app/ui-helpers.ts';
+import type { TranslationProcessorWorkflowMetadata } from '../../app/types.ts';
+import {
+  getWorkspaceWorkflowFields,
+  IMPORT_FORMAT_OPTIONS,
+  WORKSPACE_PIPELINE_STRATEGY_OPTIONS,
+  workspaceFieldName,
+} from '../../app/ui-helpers.ts';
+import { WorkflowFieldSections } from '../WorkflowFieldSections.tsx';
 import { usePollingTask } from '../../app/usePollingTask.ts';
 
 const { TextArea } = Input;
@@ -27,6 +33,7 @@ interface WorkspaceConfigTabProps {
   active: boolean;
   workspaceForm: FormInstance<Record<string, unknown>>;
   translatorOptions: Array<{ label: string; value: string }>;
+  selectedTranslatorWorkflow?: TranslationProcessorWorkflowMetadata;
   onRefreshWorkspaceConfig: () => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
   onDownloadExport: (format: string) => void | Promise<void>;
@@ -40,6 +47,7 @@ export function WorkspaceConfigTab({
   active,
   workspaceForm,
   translatorOptions,
+  selectedTranslatorWorkflow,
   onRefreshWorkspaceConfig,
   onWorkspaceConfigSave,
   onDownloadExport,
@@ -59,6 +67,8 @@ export function WorkspaceConfigTab({
       await onRefreshWorkspaceConfig();
     },
   });
+
+  const workspaceFields = getWorkspaceWorkflowFields(selectedTranslatorWorkflow);
 
   return (
     <div className="section-stack">
@@ -124,6 +134,15 @@ export function WorkspaceConfigTab({
           <Form.Item name="customRequirements" label="自定义要求">
             <TextArea rows={6} placeholder="每行一条要求" />
           </Form.Item>
+          {workspaceFields.length > 0 ? (
+            <Card size="small" className="settings-meta-card" title="翻译器专属参数">
+              <WorkflowFieldSections
+                fields={workspaceFields}
+                llmProfileOptions={[]}
+                fieldNameForKey={workspaceFieldName}
+              />
+            </Card>
+          ) : null}
           <Form.Item name="editorRequirementsText" label="校对-编辑要求">
             <TextArea rows={5} placeholder={DEFAULT_EDITOR_REQUIREMENTS_PLACEHOLDER} />
           </Form.Item>

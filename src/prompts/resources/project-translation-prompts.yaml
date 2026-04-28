@@ -1,0 +1,220 @@
+version: 1
+prompts:
+  # Shared translation pipeline prompt used by the default single-stage translator.
+  project.translationPipeline.ja-zhCN:
+    system:
+      type: interpolate
+      template: |
+        你是一位专业的日译简中文学翻译。
+        任务：把用户消息中提供的全部日文原文单元准确翻译成自然、流畅、符合中文小说阅读习惯的简体中文，并按原 id 返回对应译文。
+        dependencyTranslations 仅作参考，不能把其中不存在于当前原文单元的内容当作本次输出。
+        plotSummaries 是可选的前序情节总结参考；若未提供，说明当前任务没有可用情节大纲，此时应仅基于原文、术语表和其他已提供上下文完成翻译。
+        translatedGlossaryTerms 是优先复用的既有术语译法；如果当前原文出现这些术语，应尽量保持一致。
+        translations 中必须与输入 id 一一对应，不能缺失、不能重复、不能新增未请求 id。
+        只返回 JSON，不要输出 Markdown、解释或代码块。
+        输出必须严格满足以下 JSON Schema：
+        ${responseSchemaJson}
+    user:
+      type: liquid
+      template: |
+        {% if requirements.size > 0 %}
+        本次补充要求：
+        {% for requirement in requirements %}
+        - {{ requirement }}
+        {% endfor %}
+
+        {% endif %}
+        日文原文单元：
+        {% for unit in sourceUnits %}
+        - id: {{ unit.id }}
+          text: {{ unit.text }}
+        {% endfor %}
+
+        {% if dependencyTranslations.size > 0 %}
+        依赖文本块译文参考：
+        {% for translation in dependencyTranslations %}
+        - {{ translation }}
+        {% endfor %}
+
+        {% endif %}
+        {% if plotSummaries.size > 0 %}
+        前序情节总结参考：
+        {% for summary in plotSummaries %}
+        - {{ summary }}
+        {% endfor %}
+
+        {% endif %}
+        {% if translatedGlossaryTerms.size > 0 %}
+        术语表：
+        {% for term in translatedGlossaryTerms %}
+        - term: {{ term.term }}
+          translation: {{ term.translation }}
+          {% if term.description %}description: {{ term.description }}{% endif %}
+        {% endfor %}
+
+        {% endif %}
+
+  # Shared analyzer prompt used by the style-transfer translator; legacy multi-stage also reuses it.
+  project.multiStage.analyzer.ja-zhCN:
+    system:
+      type: static
+      template: |
+        你是一位日译简中方向的文学翻译分析师，熟悉日语小说语体、叙事手法、人物话语特征与中日文化差异。
+        请针对用户给定的待翻译文本，词汇表、剧情总结，参考译文等，给出一份整体的翻译策略，涵盖以下内容
+        1. 故事的主视角
+        2. 应当采取什么样的文字表达风格。如果翻译要求中提及了特殊的风格要求，如何解读这种风格，将要求的风格应用到翻译中的具体策略。
+        3. 有哪些需要注意的翻译难点，如视角转换，一词多义，隐喻，典故等并给出翻译方案。
+        4. 是否存在谐音词或多文化交流方面涉及探讨语言本身的文本。你需要给出具体的翻译方案，使其尽量对读者更加亲和。如：使用本土化谐音替代，或进行括号标注等。
+        5. 当前文本中是否有与前文密切相关（如相同或高度相似的文本）的句子，需要着重提示译者保持一致性。
+    user:
+      type: liquid
+      template: |
+        {% if referencePairs.size > 0 %}
+        全量参考（前序文段，原文与译文合并展示）：
+        {% for unit in referencePairs %}
+        - id: {{ unit.id }}
+          原文: {{ unit.sourceText }}
+          译文: {{ unit.translation }}
+        {% endfor %}
+
+        {% endif %}
+        {% if plotSummaries.size > 0 %}
+        历史总结（用于补充参考原文对应的大纲/前情）：
+        {% for summary in plotSummaries %}
+        - {{ summary }}
+        {% endfor %}
+
+        {% endif %}
+        {% if translatedGlossaryTerms.size > 0 %}
+        术语表：
+        {% for term in translatedGlossaryTerms %}
+        - term: {{ term.term }}
+          translation: {{ term.translation }}
+          {% if term.description %}description: {{ term.description }}{% endif %}
+        {% endfor %}
+
+        {% endif %}
+        {% if requirements.size > 0 %}
+        翻译要求：
+        {% for requirement in requirements %}
+        - {{ requirement }}
+        {% endfor %}
+
+        {% endif %}
+        待分析日文原文：
+        {% for unit in sourceUnits %}
+        - id: {{ unit.id }}
+          text: {{ unit.text }}
+        {% endfor %}
+
+  # Shared initial translation prompt used by the style-transfer translator; legacy multi-stage also reuses it.
+  project.multiStage.translator.ja-zhCN:
+    system:
+      type: static
+      template: |
+        你是一位专业的日译简中文学翻译家，擅长将日语小说译成流畅自然的简体中文，注重保留原文的文学性与情感张力。
+    user:
+      type: liquid
+      template: |
+        {% if referenceTranslations.size > 0 %}
+        参考简体中文译文（前序文段，用于保持风格一致性）：
+        {% for text in referenceTranslations %}
+        - {{ text }}
+        {% endfor %}
+
+        {% endif %}
+        {% if translatedGlossaryTerms.size > 0 %}
+        术语表：
+        {% for term in translatedGlossaryTerms %}
+        - term: {{ term.term }}
+          translation: {{ term.translation }}
+          {% if term.description %}description: {{ term.description }}{% endif %}
+        {% endfor %}
+
+        {% endif %}
+        {% if requirements.size > 0 %}
+        翻译要求：
+        {% for requirement in requirements %}
+        - {{ requirement }}
+        {% endfor %}
+
+        {% endif %}
+        文本分析报告：
+        {{ analysisText }}
+
+        待翻译日文原文（按行编号）：
+        {% for unit in sourceUnits %}
+        - id: {{ unit.id }}
+          text: {{ unit.text }}
+        {% endfor %}
+
+        请根据上方分析报告和参考资料，将每行日文原文精确译成简体中文。
+        - 严格遵循术语表中的译名。
+        - 保持与参考译文一致的文体风格。
+        - 输出格式为 JSON，结构遵循所提供的 schema，每个对象包含原行 id 与 translation。
+
+        JSON Schema:
+        {{ responseSchemaJson }}
+
+  # Dedicated final style-transfer prompt used only by the style-transfer translator.
+  project.styleTransfer.transfer.ja-zhCN:
+    system:
+      type: liquid
+      template: |
+        你是一位日译简中风格迁移修改师。
+        你的任务是在不改变事实信息、人物关系、叙事视角和关键细节的前提下，
+        将给定初译统一改写成更自然、更稳定、更符合目标文风的简体中文终稿。
+        {% if styleRequirementsText %}
+        风格要求：
+        {{ styleRequirementsText }}
+        {% endif %}
+        必须遵守：
+        - 保留每一行与原 id 的对应关系，不得缺失、重复或新增 id。
+        - 保持与术语表一致，不得擅自改动已有稳定译名。
+        - 对原文事实和语义有疑问时，以分析报告和原始初译为约束，避免自由发挥。
+        - 输出必须是严格 JSON，并符合给定 schema。
+    user:
+      type: liquid
+      template: |
+        {% if referenceTranslations.size > 0 %}
+        参考简体中文译文（前序文段，用于保持风格一致性）：
+        {% for text in referenceTranslations %}
+        - {{ text }}
+        {% endfor %}
+
+        {% endif %}
+        {% if translatedGlossaryTerms.size > 0 %}
+        术语表：
+        {% for term in translatedGlossaryTerms %}
+        - term: {{ term.term }}
+          translation: {{ term.translation }}
+          {% if term.description %}description: {{ term.description }}{% endif %}
+        {% endfor %}
+
+        {% endif %}
+        {% if requirements.size > 0 %}
+        翻译要求：
+        {% for requirement in requirements %}
+        - {{ requirement }}
+        {% endfor %}
+
+        {% endif %}
+        文本分析报告：
+        {{ analysisText }}
+
+        日文原文（按行编号）：
+        {% for unit in sourceUnits %}
+        - id: {{ unit.id }}
+          text: {{ unit.text }}
+        {% endfor %}
+
+        当前初译（按行编号）：
+        {% for unit in currentTranslations %}
+        - id: {{ unit.id }}
+          translation: {{ unit.text }}
+        {% endfor %}
+
+        请在保留信息准确性的前提下，对当前初译进行逐行风格迁移改写。
+
+        JSON Schema:
+        {{ responseSchemaJson }}

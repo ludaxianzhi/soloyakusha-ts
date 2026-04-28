@@ -16,8 +16,10 @@ import type {
 import {
   formatTranslatorModelSummary,
   formatTranslatorLanguagePair,
+  getTranslatorWorkflowFields,
   translatorFieldName,
 } from '../app/ui-helpers.ts';
+import { WorkflowFieldSections } from './WorkflowFieldSections.tsx';
 import { YamlCodeEditor } from './YamlCodeEditor.tsx';
 type YamlCodeEditorProps = Parameters<typeof YamlCodeEditor>[0];
 
@@ -641,9 +643,10 @@ export function SettingsView({
                         </Space>
                       </Card>
                     ) : null}
-                    <DynamicTranslatorFields
-                      workflow={selectedWorkflow}
+                    <WorkflowFieldSections
+                      fields={getTranslatorWorkflowFields(selectedWorkflow)}
                       llmProfileOptions={llmProfileOptions}
+                      fieldNameForKey={translatorFieldName}
                     />
                     <Space>
                       <Button type="primary" htmlType="submit">
@@ -702,9 +705,10 @@ export function SettingsView({
                         </Space>
                       </Card>
                     ) : null}
-                    <DynamicTranslatorFields
-                      workflow={selectedProofreadWorkflow}
+                    <WorkflowFieldSections
+                      fields={getTranslatorWorkflowFields(selectedProofreadWorkflow)}
                       llmProfileOptions={llmProfileOptions}
+                      fieldNameForKey={translatorFieldName}
                     />
                     <Space>
                       <Button type="primary" htmlType="submit">
@@ -883,134 +887,6 @@ export function SettingsView({
                 </Col>
               </Row>
             </div>
-          ),
-        },
-      ]}
-    />
-  );
-}
-
-function DynamicTranslatorFields({
-  workflow,
-  llmProfileOptions,
-}: {
-  workflow?: TranslationProcessorWorkflowMetadata;
-  llmProfileOptions: Array<{ label: string; value: string }>;
-}) {
-  if (!workflow) {
-    return null;
-  }
-
-  const basicFields = workflow.fields.filter((field) => field.section !== 'advanced');
-  const advancedFields = workflow.fields.filter((field) => field.section === 'advanced');
-
-  return (
-    <>
-      <TranslatorFieldSection title="基础配置" fields={basicFields} llmProfileOptions={llmProfileOptions} />
-      {advancedFields.length > 0 ? (
-        <TranslatorFieldSection
-          title="高级配置"
-          fields={advancedFields}
-          llmProfileOptions={llmProfileOptions}
-        />
-      ) : null}
-    </>
-  );
-}
-
-function TranslatorFieldSection({
-  title,
-  fields,
-  llmProfileOptions,
-}: {
-  title: string;
-  fields: TranslationProcessorWorkflowMetadata['fields'];
-  llmProfileOptions: Array<{ label: string; value: string }>;
-}) {
-  if (fields.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="section-stack">
-      <Text strong>{title}</Text>
-      <Row gutter={16}>
-        {fields.map((field) => (
-          <Col span={field.input === 'yaml' ? 24 : 12} key={field.key}>
-            <Form.Item
-              name={translatorFieldName(field.key)}
-              label={field.label}
-              tooltip={field.description}
-              extra={
-                field.input === 'llm-profile'
-                  ? '按选择顺序执行；后面的模型会作为前面的 Fallback。'
-                  : undefined
-              }
-              rules={
-                field.required
-                  ? [
-                      field.input === 'llm-profile'
-                        ? buildModelChainRule(field.label)
-                        : { required: true, message: `请填写${field.label}` },
-                    ]
-                  : undefined
-              }
-            >
-              {renderTranslatorField(field, llmProfileOptions)}
-            </Form.Item>
-          </Col>
-        ))}
-      </Row>
-    </div>
-  );
-}
-
-function renderTranslatorField(
-  field: TranslationProcessorWorkflowMetadata['fields'][number],
-  llmProfileOptions: Array<{ label: string; value: string }>,
-) {
-  if (field.input === 'llm-profile') {
-    return (
-      <Select
-        mode="multiple"
-        showSearch
-        options={llmProfileOptions}
-        placeholder="按顺序选择 LLM Profile"
-      />
-    );
-  }
-
-  if (field.input === 'number') {
-    return <Input type="number" min={field.min} placeholder={field.description} />;
-  }
-
-  if (field.key.endsWith('requestOptions')) {
-    return <CollapsibleRequestOptionsEditor placeholder={field.placeholder} />;
-  }
-
-  return <YamlCodeEditor height={200} placeholder={field.placeholder} />;
-}
-
-function CollapsibleRequestOptionsEditor({
-  value,
-  onChange,
-  placeholder,
-}: YamlCodeEditorProps) {
-  return (
-    <Collapse
-      size="small"
-      ghost
-      items={[
-        {
-          key: 'requestOptions',
-          label: '请求配置',
-          children: (
-            <YamlCodeEditor
-              height={180}
-              value={value}
-              onChange={onChange}
-              placeholder={placeholder}
-            />
           ),
         },
       ]}

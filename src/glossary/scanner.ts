@@ -86,6 +86,7 @@ export type FullTextGlossaryScanResult = {
 type RawScannedEntity = {
   term: string;
   category?: GlossaryTermCategory;
+  description?: string;
 };
 
 export class FullTextGlossaryScanner {
@@ -396,10 +397,12 @@ function parseScanResponse(responseText: string): RawScannedEntity[] {
     }
 
     const category = normalizeCategory(item.category);
+    const description = normalizeOptionalString(item.description);
     return [
       {
         term,
         category,
+        description,
       },
     ];
   });
@@ -442,6 +445,7 @@ function mergeScannedTerm(
       term: scanned.term,
       translation: "",
       category: scanned.category,
+      description: scanned.description,
     };
   }
 
@@ -451,8 +455,22 @@ function mergeScannedTerm(
     category: existing.category ?? scanned.category,
     totalOccurrenceCount: existing.totalOccurrenceCount,
     textBlockOccurrenceCount: existing.textBlockOccurrenceCount,
-    description: existing.description,
+    description: mergeScannedDescription(existing.description, scanned.description),
   };
+}
+
+function mergeScannedDescription(
+  existing: string | undefined,
+  incoming: string | undefined,
+): string | undefined {
+  if (!existing) {
+    return incoming;
+  }
+  if (!incoming || incoming === existing) {
+    return existing;
+  }
+
+  return `${existing} / ${incoming}`;
 }
 
 function normalizeCategory(value: unknown): GlossaryTermCategory | undefined {

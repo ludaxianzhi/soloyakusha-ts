@@ -3606,7 +3606,7 @@ export class ProjectService {
               processResult = await processor.processWorkItem(item, {
                 glossary: currentProject.getGlossary(),
                 documentManager: currentProject.getDocumentManager(),
-                editorRequirementsText: currentProject.getEditorRequirementsText(),
+                styleRequirementsText: currentProject.getStyleRequirementsText(),
               });
             } catch (error) {
               processError = error;

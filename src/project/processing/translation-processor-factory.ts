@@ -10,6 +10,11 @@ import type { Logger } from "../logger.ts";
 import type { PromptManager } from "./prompt-manager.ts";
 import { DefaultTranslationProcessor } from "./default-translation-processor.ts";
 import {
+  StyleTransferTranslationProcessor,
+  STYLE_TRANSFER_STEP_NAMES,
+  type StyleTransferStepName,
+} from "./style-transfer-translation-processor.ts";
+import {
   MultiStageTranslationProcessor,
   MULTI_STAGE_STEP_NAMES,
   type MultiStageStepName,
@@ -32,7 +37,7 @@ export type TranslationProcessorFactoryCreateOptions = {
   /**
    * 多步骤工作流各步骤的请求选项覆盖。
    */
-  stepRequestOptions?: Partial<Record<MultiStageStepName, ChatRequestOptions>>;
+  stepRequestOptions?: Partial<Record<StyleTransferStepName, ChatRequestOptions>>;
   /**
    * 工作流专用选项，供特定工作流读取（如 multi-stage 的 reviewIterations）。
    */
@@ -49,6 +54,8 @@ export type TranslationProcessorFactoryCreateOptions = {
 export type TranslationProcessorWorkflowFieldInput =
   | "llm-profile"
   | "number"
+  | "text"
+  | "textarea"
   | "yaml";
 
 export type TranslationProcessorWorkflowFieldMetadata = {
@@ -70,7 +77,10 @@ export type TranslationProcessorWorkflowMetadata = {
   sourceLanguage?: string;
   targetLanguage?: string;
   promptSet?: string;
-  fields: TranslationProcessorWorkflowFieldMetadata[];
+  translatorFields: TranslationProcessorWorkflowFieldMetadata[];
+  workspaceFields?: TranslationProcessorWorkflowFieldMetadata[];
+  /** @deprecated 兼容旧前端；等迁移完成后可移除。 */
+  fields?: TranslationProcessorWorkflowFieldMetadata[];
 };
 
 type TranslationProcessorBuilder = (
@@ -80,6 +90,7 @@ type TranslationProcessorBuilder = (
 type TranslationProcessorWorkflowDefinition = {
   builder: TranslationProcessorBuilder;
   metadata: TranslationProcessorWorkflowMetadata;
+  listed?: boolean;
 };
 
 export class TranslationProcessorFactory {
@@ -104,7 +115,7 @@ export class TranslationProcessorFactory {
           sourceLanguage: "ja",
           targetLanguage: "zh-CN",
           promptSet: "ja-zhCN",
-          fields: [
+          translatorFields: [
             {
               key: "modelNames",
               label: "默认模型链",
@@ -139,28 +150,24 @@ export class TranslationProcessorFactory {
               section: "advanced",
             },
           ],
+          workspaceFields: [],
         },
       },
     ],
     [
-      "multi-stage",
+      "style-transfer",
       {
         builder: (options) => {
-          const stepResolvers: Partial<Record<MultiStageStepName, TranslationProcessorClientResolver>> =
+          const stepResolvers: Partial<Record<StyleTransferStepName, TranslationProcessorClientResolver>> =
             {};
           const additionalResolvers = options.additionalClientResolvers ?? {};
-          for (const step of MULTI_STAGE_STEP_NAMES) {
+          for (const step of STYLE_TRANSFER_STEP_NAMES) {
             if (additionalResolvers[step]) {
               stepResolvers[step] = additionalResolvers[step];
             }
           }
 
-          const reviewIterations =
-            typeof options.workflowOptions?.reviewIterations === "number"
-              ? options.workflowOptions.reviewIterations
-              : undefined;
-
-          return new MultiStageTranslationProcessor(options.clientResolver, stepResolvers, {
+          return new StyleTransferTranslationProcessor(options.clientResolver, stepResolvers, {
             promptManager: options.promptManager,
             defaultRequestOptions: options.defaultRequestOptions,
             defaultSlidingWindow: options.defaultSlidingWindow,
@@ -168,27 +175,18 @@ export class TranslationProcessorFactory {
             processorName: options.processorName,
             glossaryUpdater: options.glossaryUpdater,
             outputRepairer: options.outputRepairer,
-            reviewIterations,
             stepRequestOptions: options.stepRequestOptions,
           });
         },
         metadata: {
-          workflow: "multi-stage",
-          title: "日译简中多阶段评审",
+          workflow: "style-transfer",
+          title: "风格迁移翻译器",
           description:
-            "使用 ja -> zh-CN 专用提示词先分析再翻译，并在编辑、校对与聚合阶段循环评审。",
+            "先分析再初译，最后执行风格迁移润色的三步式日译简中工作流。",
           sourceLanguage: "ja",
           targetLanguage: "zh-CN",
           promptSet: "ja-zhCN",
-          fields: [
-            {
-              key: "reviewIterations",
-              label: "评审轮数",
-              description: "多阶段工作流的回合数；未填写时使用工作流默认值。",
-              input: "number",
-              min: 0,
-              section: "basic",
-            },
+          translatorFields: [
             {
               key: "maxConcurrentWorkItems",
               label: "文本块并发数",
@@ -197,7 +195,7 @@ export class TranslationProcessorFactory {
               min: 1,
               section: "basic",
             },
-            ...buildMultiStageStepFields(),
+            ...buildStyleTransferStepFields(),
             {
               key: "slidingWindow.overlapChars",
               label: "滑窗重叠字符数",
@@ -207,7 +205,44 @@ export class TranslationProcessorFactory {
               section: "advanced",
             },
           ],
+          workspaceFields: [
+            {
+              key: "styleRequirementsText",
+              label: "风格要求",
+              description: "仅对风格迁移阶段生效，会被注入系统提示词以约束最终译文风格。",
+              input: "textarea",
+              placeholder: "例如：整体口语化，避免半文言句式，角色对话保留轻小说感。",
+              section: "basic",
+            },
+          ],
         },
+      },
+    ],
+    [
+      "multi-stage",
+      {
+        builder: (options) =>
+          new MultiStageTranslationProcessor(options.clientResolver, {}, {
+            promptManager: options.promptManager,
+            defaultRequestOptions: options.defaultRequestOptions,
+            defaultSlidingWindow: options.defaultSlidingWindow,
+            logger: options.logger,
+            processorName: options.processorName,
+            glossaryUpdater: options.glossaryUpdater,
+            outputRepairer: options.outputRepairer,
+            stepRequestOptions: options.stepRequestOptions,
+          }),
+        metadata: {
+          workflow: "multi-stage",
+          title: "兼容旧多阶段翻译器",
+          description: "仅用于兼容旧配置；新建翻译器请使用 style-transfer。",
+          sourceLanguage: "ja",
+          targetLanguage: "zh-CN",
+          promptSet: "ja-zhCN",
+          translatorFields: buildMultiStageLegacyFields(),
+          workspaceFields: [],
+        },
+        listed: false,
       },
     ],
   ]);
@@ -226,7 +261,9 @@ export class TranslationProcessorFactory {
   }
 
   static listWorkflowMetadata(): TranslationProcessorWorkflowMetadata[] {
-    return Array.from(this.workflows.values()).map((definition) =>
+    return Array.from(this.workflows.values())
+      .filter((definition) => definition.listed !== false)
+      .map((definition) =>
       cloneWorkflowMetadata(definition.metadata),
     );
   }
@@ -249,8 +286,13 @@ export class TranslationProcessorFactory {
         workflow,
         title: metadata.title,
         description: metadata.description,
-        fields: metadata.fields.map((field) => ({ ...field })),
+        sourceLanguage: metadata.sourceLanguage,
+        targetLanguage: metadata.targetLanguage,
+        promptSet: metadata.promptSet,
+        translatorFields: metadata.translatorFields.map((field) => ({ ...field })),
+        workspaceFields: metadata.workspaceFields?.map((field) => ({ ...field })) ?? [],
       },
+      listed: true,
     });
   }
 }
@@ -258,6 +300,9 @@ export class TranslationProcessorFactory {
 function cloneWorkflowMetadata(
   metadata: TranslationProcessorWorkflowMetadata,
 ): TranslationProcessorWorkflowMetadata {
+  const translatorFields = metadata.translatorFields.map((field) => ({ ...field }));
+  const workspaceFields = metadata.workspaceFields?.map((field) => ({ ...field })) ?? [];
+
   return {
     workflow: metadata.workflow,
     title: metadata.title,
@@ -265,7 +310,9 @@ function cloneWorkflowMetadata(
     sourceLanguage: metadata.sourceLanguage,
     targetLanguage: metadata.targetLanguage,
     promptSet: metadata.promptSet,
-    fields: metadata.fields.map((field) => ({ ...field })),
+    translatorFields,
+    workspaceFields,
+    fields: translatorFields.map((field) => ({ ...field })),
   };
 }
 
@@ -292,6 +339,72 @@ function buildMultiStageStepFields(): TranslationProcessorWorkflowFieldMetadata[
       },
     ];
   });
+}
+
+function buildStyleTransferStepFields(): TranslationProcessorWorkflowFieldMetadata[] {
+  return STYLE_TRANSFER_STEP_NAMES.flatMap((step) => {
+    const stepLabel = getStyleTransferStepLabel(step);
+    return [
+      {
+        key: `steps.${step}.modelNames`,
+        label: `${stepLabel}模型链`,
+        description: `${stepLabel}阶段按顺序选择的 LLM Profile，后面的模型会作为前面的回退。`,
+        input: "llm-profile",
+        required: true,
+        section: "basic",
+      },
+      {
+        key: `steps.${step}.requestOptions`,
+        label: `${stepLabel}请求选项`,
+        description: `${stepLabel}阶段专用的附加请求参数，例如 temperature、topP 等。`,
+        input: "yaml",
+        yamlShape: "object",
+        placeholder: "temperature: 0.2\nmaxTokens: 4096",
+        section: "advanced",
+      },
+    ];
+  });
+}
+
+function buildMultiStageLegacyFields(): TranslationProcessorWorkflowFieldMetadata[] {
+  return [
+    {
+      key: "reviewIterations",
+      label: "评审轮数",
+      description: "旧多阶段工作流兼容字段。",
+      input: "number",
+      min: 0,
+      section: "basic",
+    },
+    {
+      key: "maxConcurrentWorkItems",
+      label: "文本块并发数",
+      description: "同时处理多少个文本块；未填写时会根据相关 LLM Profile 的并发上限自动推断。",
+      input: "number",
+      min: 1,
+      section: "basic",
+    },
+    ...buildMultiStageStepFields(),
+    {
+      key: "slidingWindow.overlapChars",
+      label: "滑窗重叠字符数",
+      description: "长文本分段时保留的重叠上下文字符数。",
+      input: "number",
+      min: 0,
+      section: "advanced",
+    },
+  ];
+}
+
+function getStyleTransferStepLabel(step: StyleTransferStepName): string {
+  switch (step) {
+    case "analyzer":
+      return "分析器";
+    case "translator":
+      return "翻译器";
+    case "styleTransfer":
+      return "风格迁移器";
+  }
 }
 
 function getMultiStageStepLabel(step: MultiStageStepName): string {

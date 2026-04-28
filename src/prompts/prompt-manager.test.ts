@@ -17,9 +17,12 @@ describe("PromptManager", () => {
     expect(promptIds).toContain("project.translationPipeline.ja-zhCN");
     expect(promptIds).toContain("project.multiStage.analyzer.ja-zhCN");
     expect(promptIds).toContain("project.multiStage.translator.ja-zhCN");
+    expect(promptIds).toContain("project.styleTransfer.transfer.ja-zhCN");
     expect(promptIds).toContain("project.multiStage.editor.ja-zhCN");
     expect(promptIds).toContain("project.multiStage.proofreader.ja-zhCN");
     expect(promptIds).toContain("project.multiStage.reviser.ja-zhCN");
+    expect(promptIds).toContain("project.chapterEditorAssistant.ja-zhCN");
+    expect(promptIds).toContain("project.plotSummary");
     expect(promptIds).toContain("utils.alignmentRepair");
     expect(promptIds).not.toContain("project.translationPipeline");
     expect(promptIds).not.toContain("project.multiStage.analyzer");

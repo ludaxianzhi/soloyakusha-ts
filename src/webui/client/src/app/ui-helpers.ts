@@ -10,6 +10,7 @@ import type {
   TranslationProcessorWorkflowMetadata,
   TranslatorEntry,
   VectorStoreConfig,
+  WorkspaceConfig,
 } from './types.ts';
 
 export const IMPORT_FORMAT_OPTIONS = [
@@ -303,8 +304,28 @@ function getAliasedRequestConfigValue(
   };
 }
 
+function workflowFieldName(prefix: 'translatorField' | 'workspaceField', key: string): string {
+  return `${prefix}__${key.replaceAll('.', '__')}`;
+}
+
 export function translatorFieldName(key: string): string {
-  return `translatorField__${key.replaceAll('.', '__')}`;
+  return workflowFieldName('translatorField', key);
+}
+
+export function workspaceFieldName(key: string): string {
+  return workflowFieldName('workspaceField', key);
+}
+
+export function getTranslatorWorkflowFields(
+  workflow: TranslationProcessorWorkflowMetadata | undefined,
+): TranslationProcessorWorkflowFieldMetadata[] {
+  return workflow?.translatorFields ?? workflow?.fields ?? [];
+}
+
+export function getWorkspaceWorkflowFields(
+  workflow: TranslationProcessorWorkflowMetadata | undefined,
+): TranslationProcessorWorkflowFieldMetadata[] {
+  return workflow?.workspaceFields ?? [];
 }
 
 export function translatorToForm(
@@ -333,7 +354,7 @@ export function translatorToForm(
     metadataDescription: translator.metadata?.description,
   };
 
-  for (const field of workflow?.fields ?? []) {
+  for (const field of getTranslatorWorkflowFields(workflow)) {
     values[translatorFieldName(field.key)] = serializeWorkflowFieldValue(
       field,
       getNestedValue(translator, field.key),
@@ -351,7 +372,7 @@ export function translationProcessorConfigToForm(
     workflow: config?.workflow ?? workflow?.workflow,
   };
 
-  for (const field of workflow?.fields ?? []) {
+  for (const field of getTranslatorWorkflowFields(workflow)) {
     values[translatorFieldName(field.key)] = serializeWorkflowFieldValue(
       field,
       config ? getNestedValue(config, field.key) : undefined,
@@ -383,7 +404,7 @@ export function buildTranslatorPayload(
     };
   }
 
-  for (const field of workflow.fields) {
+  for (const field of getTranslatorWorkflowFields(workflow)) {
     const parsed = parseWorkflowFieldValue(values[translatorFieldName(field.key)], field);
     if (parsed !== undefined) {
       setNestedValue(payload, field.key, parsed);
@@ -402,10 +423,56 @@ export function buildTranslationProcessorConfigPayload(
     modelNames: resolveWorkflowModelNames(values, workflow),
   };
 
-  for (const field of workflow.fields) {
+  for (const field of getTranslatorWorkflowFields(workflow)) {
     const parsed = parseWorkflowFieldValue(values[translatorFieldName(field.key)], field);
     if (parsed !== undefined) {
       setNestedValue(payload, field.key, parsed);
+    }
+  }
+
+  return payload;
+}
+
+export function workspaceWorkflowToForm(
+  config: WorkspaceConfig | null,
+  workflow: TranslationProcessorWorkflowMetadata | undefined,
+): Record<string, string | string[] | number | undefined> {
+  const values: Record<string, string | string[] | number | undefined> = {};
+
+  for (const field of getWorkspaceWorkflowFields(workflow)) {
+    values[workspaceFieldName(field.key)] = serializeWorkflowFieldValue(
+      field,
+      config ? getNestedValue(config, field.key) : undefined,
+    );
+  }
+
+  return values;
+}
+
+export function buildWorkspaceWorkflowPatch(
+  values: Record<string, unknown>,
+  workflow: TranslationProcessorWorkflowMetadata | undefined,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+
+  for (const field of getWorkspaceWorkflowFields(workflow)) {
+    const parsed = parseWorkflowFieldValue(values[workspaceFieldName(field.key)], field);
+    setNestedValue(payload, field.key, parsed ?? null);
+  }
+
+  return payload;
+}
+
+export function buildClearedWorkspaceWorkflowPatch(
+  previousWorkflow: TranslationProcessorWorkflowMetadata | undefined,
+  nextWorkflow: TranslationProcessorWorkflowMetadata | undefined,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  const nextKeys = new Set(getWorkspaceWorkflowFields(nextWorkflow).map((field) => field.key));
+
+  for (const field of getWorkspaceWorkflowFields(previousWorkflow)) {
+    if (!nextKeys.has(field.key)) {
+      setNestedValue(payload, field.key, null);
     }
   }
 
@@ -430,9 +497,11 @@ export function formatTranslatorModelSummary(
     return '-';
   }
 
-  const llmProfileFields = workflow?.fields.filter((field) => field.input === 'llm-profile') ?? [];
+  const llmProfileFields = getTranslatorWorkflowFields(workflow).filter(
+    (field) => field.input === 'llm-profile',
+  );
   const shouldShowPerStepSummary =
-    workflow?.workflow === 'multi-stage' || llmProfileFields.length > 1;
+    workflow?.workflow === 'multi-stage' || workflow?.workflow === 'style-transfer' || llmProfileFields.length > 1;
   const stepSummary = shouldShowPerStepSummary
     ? llmProfileFields
         .map((field) => {
@@ -486,7 +555,9 @@ function resolveWorkflowModelNames(
   values: Record<string, unknown>,
   workflow: TranslationProcessorWorkflowMetadata,
 ): string[] {
-  const representativeField = workflow.fields.find((field) => field.input === 'llm-profile');
+  const representativeField = getTranslatorWorkflowFields(workflow).find(
+    (field) => field.input === 'llm-profile',
+  );
   if (representativeField) {
     const modelNames = normalizeModelChain(values[translatorFieldName(representativeField.key)]);
     if (modelNames.length > 0) {

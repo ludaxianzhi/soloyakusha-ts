@@ -22,9 +22,12 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import { api } from './api.ts';
 import {
   auxToForm,
+  buildClearedWorkspaceWorkflowPatch,
   buildTranslationProcessorConfigPayload,
   buildTranslatorPayload,
+  buildWorkspaceWorkflowPatch,
   formatTranslatorLanguagePair,
+  getTranslatorWorkflowFields,
   normalizeModelChain,
   parseLlmRequestConfigYaml,
   optionalNumber,
@@ -36,6 +39,7 @@ import {
   translatorToForm,
   toErrorMessage,
   vectorStoreToForm,
+  workspaceWorkflowToForm,
 } from './ui-helpers.ts';
 import type {
   AlignmentRepairConfig,
@@ -199,6 +203,7 @@ export function AppShell() {
   });
 
   const [workspaceForm] = Form.useForm<Record<string, unknown>>();
+  const [workspaceConfigFormRevision, setWorkspaceConfigFormRevision] = useState(0);
   const [dictionaryForm] = Form.useForm<Record<string, unknown>>();
   const [llmForm] = Form.useForm<Record<string, unknown>>();
   const [embeddingForm] = Form.useForm<Record<string, unknown>>();
@@ -210,6 +215,9 @@ export function AppShell() {
   const [plotForm] = Form.useForm<Record<string, unknown>>();
   const [alignmentForm] = Form.useForm<Record<string, unknown>>();
   const defaultImportFormat = Form.useWatch('defaultImportFormat', workspaceForm);
+  const selectedWorkspaceTranslatorName = Form.useWatch('translatorName', workspaceForm) as
+    | string
+    | undefined;
   const pipelineStrategy = Form.useWatch('pipelineStrategy', workspaceForm) as
     | 'default'
     | 'context-network'
@@ -231,6 +239,16 @@ export function AppShell() {
       ),
     [proofreadWorkflows],
   );
+  const selectedWorkspaceWorkflow = useMemo(() => {
+    const translator = selectedWorkspaceTranslatorName
+      ? translators[selectedWorkspaceTranslatorName]
+      : undefined;
+    return (
+      workflowMap.get(translator?.type ?? 'default') ??
+      workflowMap.get('default') ??
+      translatorWorkflows[0]
+    );
+  }, [selectedWorkspaceTranslatorName, translators, translatorWorkflows, workflowMap]);
 
   const runAction = useCallback(
     async (action: () => Promise<void>) => {
@@ -518,12 +536,23 @@ export function AppShell() {
     });
     setWorkspacePipelineStrategy(configRes.pipelineStrategy ?? 'default');
     workspaceConfigRef.current = configRes;
+    setWorkspaceConfigFormRevision((current) => current + 1);
     workspaceResourceVersionsRef.current = {
       ...workspaceResourceVersionsRef.current,
       workspaceConfigRevision:
         nextRevision ?? workspaceResourceVersionsRef.current.workspaceConfigRevision + 1,
     };
   }, [workspaceForm]);
+
+  useEffect(() => {
+    if (!workspaceConfigRef.current) {
+      return;
+    }
+
+    workspaceForm.setFieldsValue(
+      workspaceWorkflowToForm(workspaceConfigRef.current, selectedWorkspaceWorkflow),
+    );
+  }, [selectedWorkspaceWorkflow, workspaceConfigFormRevision, workspaceForm]);
 
   const selectLlmProfile = useCallback((name: string) => {
     setSelectedLlmName(name);
@@ -1094,6 +1123,20 @@ export function AppShell() {
       }
 
       await runAction(async () => {
+        const nextTranslatorName = String(values.translatorName ?? '').trim();
+        const nextTranslator = nextTranslatorName ? translators[nextTranslatorName] : undefined;
+        const nextWorkflow =
+          workflowMap.get(nextTranslator?.type ?? 'default') ??
+          workflowMap.get('default') ??
+          translatorWorkflows[0];
+        const previousTranslatorName = workspaceConfigRef.current?.translator.translatorName;
+        const previousTranslator = previousTranslatorName
+          ? translators[previousTranslatorName]
+          : undefined;
+        const previousWorkflow =
+          workflowMap.get(previousTranslator?.type ?? 'default') ??
+          workflowMap.get('default') ??
+          translatorWorkflows[0];
         await api.updateWorkspaceConfig({
           projectName: String(values.projectName ?? ''),
           pipelineStrategy: nextPipelineStrategy,
@@ -1101,12 +1144,14 @@ export function AppShell() {
             path: String(values.glossaryPath ?? '').trim() || undefined,
           },
           translator: {
-            translatorName: String(values.translatorName ?? '').trim(),
+            translatorName: nextTranslatorName,
           },
           defaultImportFormat: String(values.defaultImportFormat ?? '') || null,
           defaultExportFormat: String(values.defaultExportFormat ?? '') || null,
           customRequirements: splitLines(String(values.customRequirements ?? '')),
           editorRequirementsText: String(values.editorRequirementsText ?? '').trim() || null,
+          ...buildClearedWorkspaceWorkflowPatch(previousWorkflow, nextWorkflow),
+          ...buildWorkspaceWorkflowPatch(values, nextWorkflow),
         });
         await Promise.all([
           refreshWorkspaceConfig(),
@@ -1123,6 +1168,9 @@ export function AppShell() {
       refreshProjectStatus,
       refreshWorkspaceConfig,
       runAction,
+      translatorWorkflows,
+      translators,
+      workflowMap,
       workspaceForm,
     ],
   );
@@ -1855,6 +1903,7 @@ export function AppShell() {
                           : undefined
                       }
                       translatorOptions={translatorOptions}
+                      selectedTranslatorWorkflow={selectedWorkspaceWorkflow}
                       llmProfileOptions={llmProfileOptions}
                       defaultLlmProfileName={defaultLlmName}
                       onRefreshProjectStatus={refreshProjectStatus}

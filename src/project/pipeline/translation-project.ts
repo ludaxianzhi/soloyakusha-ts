@@ -352,6 +352,7 @@ export class TranslationProject
         textSplitMaxChars: workspaceConfig.textSplitMaxChars,
         customRequirements: workspaceConfig.customRequirements,
         editorRequirementsText: workspaceConfig.editorRequirementsText,
+        styleRequirementsText: workspaceConfig.styleRequirementsText,
       },
       {
         ...options,
@@ -1645,6 +1646,10 @@ export class TranslationProject
 
   getEditorRequirementsText(): string | undefined {
     return this.workspaceManager.getWorkspaceConfig().editorRequirementsText;
+  }
+
+  getStyleRequirementsText(): string | undefined {
+    return this.workspaceManager.getWorkspaceConfig().styleRequirementsText;
   }
 
   async reconcileImportedTranslations(

@@ -596,6 +596,7 @@ export interface WorkspaceConfig {
   };
   customRequirements: string[];
   editorRequirementsText?: string;
+  styleRequirementsText?: string;
   defaultImportFormat?: string;
   defaultExportFormat?: string;
 }
@@ -682,7 +683,7 @@ export interface TranslationProcessorWorkflowFieldMetadata {
   key: string;
   label: string;
   description?: string;
-  input: 'llm-profile' | 'number' | 'yaml';
+  input: 'llm-profile' | 'number' | 'text' | 'textarea' | 'yaml';
   yamlShape?: 'object' | 'string-map';
   required?: boolean;
   min?: number;
@@ -697,7 +698,9 @@ export interface TranslationProcessorWorkflowMetadata {
   sourceLanguage?: string;
   targetLanguage?: string;
   promptSet?: string;
-  fields: TranslationProcessorWorkflowFieldMetadata[];
+  translatorFields?: TranslationProcessorWorkflowFieldMetadata[];
+  workspaceFields?: TranslationProcessorWorkflowFieldMetadata[];
+  fields?: TranslationProcessorWorkflowFieldMetadata[];
 }
 
 export interface GlossaryExtractorConfig {

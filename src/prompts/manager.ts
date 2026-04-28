@@ -44,20 +44,50 @@ export class PromptManager {
     return PromptManager.fromYamlText(yamlText, filePath);
   }
 
+  static async fromYamlFiles(filePaths: ReadonlyArray<string>): Promise<PromptManager> {
+    const documents = await Promise.all(
+      filePaths.map(async (filePath) => ({
+        filePath,
+        yamlText: await readPromptCatalogText(filePath),
+      })),
+    );
+
+    return PromptManager.fromCatalogs(
+      documents.map((document) => ({
+        sourceLabel: document.filePath,
+        document: parseYaml(document.yamlText),
+      })),
+      filePaths.join(", "),
+    );
+  }
+
   static fromYamlText(yamlText: string, sourceLabel = "<memory>"): PromptManager {
     const parsed = parseYaml(yamlText);
     return PromptManager.fromDocument(parsed, sourceLabel);
   }
 
   static fromDocument(document: unknown, sourceLabel = "<memory>"): PromptManager {
-    const catalog = validatePromptCatalogDocument(document, sourceLabel);
+    return PromptManager.fromCatalogs([{ sourceLabel, document }], sourceLabel);
+  }
+
+  static fromCatalogs(
+    catalogs: ReadonlyArray<{ sourceLabel: string; document: unknown }>,
+    sourceLabel = "<memory>",
+  ): PromptManager {
     const manager = new PromptManager(sourceLabel);
 
-    for (const [promptId, definition] of Object.entries(catalog.prompts)) {
-      manager.prompts.set(promptId, {
-        system: createPromptTemplate(definition.system),
-        user: createPromptTemplate(definition.user),
-      });
+    for (const catalogInput of catalogs) {
+      const catalog = validatePromptCatalogDocument(
+        catalogInput.document,
+        catalogInput.sourceLabel,
+      );
+
+      for (const [promptId, definition] of Object.entries(catalog.prompts)) {
+        manager.prompts.set(promptId, {
+          system: createPromptTemplate(definition.system),
+          user: createPromptTemplate(definition.user),
+        });
+      }
     }
 
     return manager;
@@ -87,6 +117,12 @@ export class PromptManager {
 const DEFAULT_PROMPT_FILE_PATH = fileURLToPath(
   new URL("./resources/default-prompts.yaml", import.meta.url),
 );
+const DEFAULT_PROMPT_FILE_PATHS = [
+  DEFAULT_PROMPT_FILE_PATH,
+  fileURLToPath(new URL("./resources/project-translation-prompts.yaml", import.meta.url)),
+  fileURLToPath(new URL("./resources/project-proofread-prompts.yaml", import.meta.url)),
+  fileURLToPath(new URL("./resources/project-editor-prompts.yaml", import.meta.url)),
+] as const;
 
 let defaultPromptManagerPromise: Promise<PromptManager> | undefined;
 
@@ -105,7 +141,7 @@ export function getDefaultPromptFilePath(): string {
  * 首次调用时会读取内置 YAML 资源并完成校验，后续调用复用同一个 Promise。
  */
 export function getDefaultPromptManager(): Promise<PromptManager> {
-  defaultPromptManagerPromise ??= PromptManager.fromYamlFile(DEFAULT_PROMPT_FILE_PATH);
+  defaultPromptManagerPromise ??= PromptManager.fromYamlFiles(DEFAULT_PROMPT_FILE_PATHS);
   return defaultPromptManagerPromise;
 }
 

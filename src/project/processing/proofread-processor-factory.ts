@@ -77,7 +77,7 @@ export class ProofreadProcessorFactory {
           sourceLanguage: "ja",
           targetLanguage: "zh-CN",
           promptSet: "ja-zhCN",
-          fields: [
+          translatorFields: [
             {
               key: "reviewIterations",
               label: "校对轮数",
@@ -96,6 +96,7 @@ export class ProofreadProcessorFactory {
               section: "advanced",
             },
           ],
+          workspaceFields: [],
         },
       },
     ],
@@ -117,7 +118,9 @@ export class ProofreadProcessorFactory {
   static listWorkflowMetadata(): TranslationProcessorWorkflowMetadata[] {
     return Array.from(this.workflows.values()).map((definition) => ({
       ...definition.metadata,
-      fields: definition.metadata.fields.map((field) => ({ ...field })),
+      translatorFields: definition.metadata.translatorFields.map((field) => ({ ...field })),
+      workspaceFields: definition.metadata.workspaceFields?.map((field) => ({ ...field })) ?? [],
+      fields: definition.metadata.translatorFields.map((field) => ({ ...field })),
     }));
   }
 }

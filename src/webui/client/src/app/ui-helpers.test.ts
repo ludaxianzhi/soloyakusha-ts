@@ -1,10 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  buildClearedWorkspaceWorkflowPatch,
   buildTranslationProcessorConfigPayload,
   buildTranslatorPayload,
+  buildWorkspaceWorkflowPatch,
   formatLlmRequestConfigYaml,
   formatModelChain,
   formatTranslatorModelSummary,
+  workspaceFieldName,
+  workspaceWorkflowToForm,
   parseLlmRequestConfigYaml,
   parseYamlObject,
   translationProcessorConfigToForm,
@@ -15,6 +19,7 @@ import type {
   TranslationProcessorConfig,
   TranslatorEntry,
   TranslationProcessorWorkflowMetadata,
+  WorkspaceConfig,
 } from './types.ts';
 
 describe('WebUI LLM request config helpers', () => {
@@ -353,6 +358,46 @@ describe('WebUI LLM request config helpers', () => {
           },
         },
       },
+    });
+  });
+
+  test('serializes workspace workflow fields and clears removed fields', () => {
+    const previousWorkflow = {
+      workflow: 'style-transfer',
+      title: 'Style Transfer',
+      workspaceFields: [
+        {
+          key: 'styleRequirementsText',
+          label: '风格要求',
+          input: 'textarea' as const,
+        },
+      ],
+    } satisfies TranslationProcessorWorkflowMetadata;
+    const nextWorkflow = {
+      workflow: 'default',
+      title: 'Default',
+      workspaceFields: [],
+    } satisfies TranslationProcessorWorkflowMetadata;
+    const config = {
+      projectName: 'demo',
+      glossary: {},
+      translator: {
+        translatorName: 'style-demo',
+      },
+      customRequirements: [],
+      styleRequirementsText: '整体口语化',
+    } satisfies WorkspaceConfig;
+
+    const formValues = workspaceWorkflowToForm(config, previousWorkflow);
+    expect(formValues[workspaceFieldName('styleRequirementsText')]).toBe('整体口语化');
+
+    const patch = buildWorkspaceWorkflowPatch(formValues as Record<string, unknown>, previousWorkflow);
+    expect(patch).toEqual({
+      styleRequirementsText: '整体口语化',
+    });
+
+    expect(buildClearedWorkspaceWorkflowPatch(previousWorkflow, nextWorkflow)).toEqual({
+      styleRequirementsText: null,
     });
   });
 });

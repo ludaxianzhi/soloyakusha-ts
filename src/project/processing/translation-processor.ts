@@ -20,6 +20,7 @@ export type TranslationProcessorRequest = {
   glossary?: Glossary;
   requirements?: ReadonlyArray<string>;
   editorRequirementsText?: string;
+  styleRequirementsText?: string;
   requestOptions?: ChatRequestOptions;
   documentManager?: TranslationDocumentManager;
   slidingWindow?: SlidingWindowOptions;
@@ -60,7 +61,12 @@ export interface TranslationProcessor {
     workItem: TranslationWorkItem,
     options?: Pick<
       TranslationProcessorRequest,
-      "glossary" | "requestOptions" | "documentManager" | "slidingWindow" | "editorRequirementsText"
+      | "glossary"
+      | "requestOptions"
+      | "documentManager"
+      | "slidingWindow"
+      | "editorRequirementsText"
+      | "styleRequirementsText"
     >,
   ): Promise<TranslationProcessorResult>;
 

@@ -248,6 +248,53 @@ describe("GlobalConfigManager", () => {
     });
   });
 
+  test("migrates legacy multi-stage workflow and reviser step to style-transfer", () => {
+    const normalized = normalizeTranslationProcessorConfig(
+      {
+        workflow: "multi-stage",
+        modelNames: ["fallback-chat"],
+        steps: {
+          analyzer: {
+            modelNames: ["analysis-chat"],
+          },
+          translator: {
+            modelNames: ["translator-chat"],
+          },
+          reviser: {
+            modelNames: ["style-chat"],
+            requestOptions: {
+              requestConfig: {
+                system_prompt: "keep style",
+              },
+            },
+          },
+        },
+      },
+      "translation.translationProcessor",
+    );
+
+    expect(normalized.workflow).toBe("style-transfer");
+    expect(normalized.steps).toEqual({
+      analyzer: {
+        modelNames: ["analysis-chat"],
+        requestOptions: undefined,
+      },
+      translator: {
+        modelNames: ["translator-chat"],
+        requestOptions: undefined,
+      },
+      styleTransfer: {
+        modelNames: ["style-chat"],
+        requestOptions: {
+          requestConfig: {
+            systemPrompt: "keep style",
+          },
+          outputValidationContext: undefined,
+        },
+      },
+    });
+  });
+
   test("accepts legacy single modelName fields when reading existing translation config", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-legacy-"));
     cleanupTargets.push(rootDir);
@@ -375,7 +422,7 @@ describe("GlobalConfigManager", () => {
           },
         },
       },
-      proofreader: {
+      styleTransfer: {
         modelNames: ["shared-chat"],
         requestOptions: {
           requestConfig: {

@@ -1,0 +1,87 @@
+version: 1
+prompts:
+  # In-editor assistant prompt used by the chapter editor UI.
+  project.chapterEditorAssistant.ja-zhCN:
+    system:
+      type: liquid
+      template: |
+        你是章节翻译编辑器里的 AI 辅助助手，当前工作模式是 {{ mode }}。
+        {% if mode == 'question' %}
+        你要基于选中的翻译单元回答用户问题，回答时要结合原文、译文和上下文提示，给出明确、可执行的说明。
+        {% elsif mode == 'modify' %}
+        你要根据用户要求改写选中的译文，输出可直接替换的译文草稿。
+        你必须保持与输入单元一致的顺序和行数，每个输入单元对应输出一行，不要输出编号、项目符号或解释。
+        {% elsif mode == 'polish' %}
+        你要仅润色选中的译文，保持原意不变。
+        你必须保持与输入单元一致的顺序和行数，每个输入单元对应输出一行，不要输出编号、项目符号或解释。
+        {% endif %}
+        除了润色模式外，允许并优先利用术语提示和重复 Pattern 提示来保持一致性。
+        不要输出 Markdown 代码块。
+    user:
+      type: liquid
+      template: |
+        {% if conversationTurns.size > 0 %}
+        历史对话：
+        {% for turn in conversationTurns %}
+        - {{ turn.role }}: {{ turn.content }}
+        {% endfor %}
+
+        {% endif %}
+        {% if mode != 'polish' and glossaryHints.size > 0 %}
+        术语提示：
+        {% for hint in glossaryHints %}
+        - {{ hint }}
+        {% endfor %}
+
+        {% endif %}
+        {% if mode != 'polish' and repetitionHints.size > 0 %}
+        重复 Pattern 提示：
+        {% for hint in repetitionHints %}
+        - {{ hint }}
+        {% endfor %}
+
+        {% endif %}
+        选中的翻译单元：
+        {% for unit in selectedUnits %}
+        - id: {{ unit.id }}
+          {% if mode == 'polish' %}
+          translatedText: {{ unit.translatedText }}
+          {% else %}
+          sourceText: {{ unit.sourceText }}
+          translatedText: {{ unit.translatedText }}
+          {% endif %}
+        {% endfor %}
+
+        当前用户要求：
+        {{ instruction }}
+
+  # Plot summary prompt used by the project plot summarizer.
+  project.plotSummary:
+    system:
+      type: interpolate
+      template: |
+        你是一个小说/剧情文本情节总结助手。
+        任务：根据用户消息中提供的原文文本块，使用原文所用语言对情节内容进行简洁而全面的总结。
+        如果用户提供了已有总结作为上下文，请结合这些上下文理解当前段落的情节走向，但总结内容只针对本次提供的文本块。
+        输出总结文本时，**必须使用源语言的文本**，例如，源语言是日语时，必须使用日语输出总结。
+        mainEvents：描述本段落的主要情节事件，用原文语言简洁陈述。
+        keyCharacters：列出本段落中涉及的关键人物，用原文语言表述。
+        setting：描述本段落的主要场景和背景，用原文语言表述。
+        notes：记录其他值得关注的细节、伏笔或情节转折；如无则返回空字符串。
+        只返回 JSON，不要输出 Markdown、解释或代码块。
+        输出必须严格满足以下 JSON Schema：
+        ${responseSchemaJson}
+    user:
+      type: liquid
+      template: |
+        {% if contextSummaries.size > 0 %}
+        已有情节总结（最近 {{ contextSummaries.size }} 条，仅供参考）：
+        {% for item in contextSummaries %}
+        {{ item }}
+        {% endfor %}
+        {% endif %}
+        待总结原文文本块（共 {{ sourceBlocks.size }} 块）：
+        {% for block in sourceBlocks %}
+        --- 文本块 ---
+        {{ block }}
+        {% endfor %}

@@ -436,6 +436,7 @@ export function buildInitialWorkspaceConfig(
     textSplitMaxChars: config.textSplitMaxChars,
     customRequirements: [...(config.customRequirements ?? [])],
     editorRequirementsText: config.editorRequirementsText?.trim() || undefined,
+    styleRequirementsText: config.styleRequirementsText?.trim() || undefined,
   };
 }
 
@@ -471,6 +472,8 @@ export function mergePersistedWorkspaceConfig(
     customRequirements: [...(persisted.customRequirements ?? current.customRequirements)],
     editorRequirementsText:
       persisted.editorRequirementsText?.trim() || current.editorRequirementsText,
+    styleRequirementsText:
+      persisted.styleRequirementsText?.trim() || current.styleRequirementsText,
     defaultImportFormat: persisted.defaultImportFormat ?? current.defaultImportFormat,
     defaultExportFormat: persisted.defaultExportFormat ?? current.defaultExportFormat,
   };
@@ -514,6 +517,10 @@ export function applyWorkspaceConfigPatch(
       patch.editorRequirementsText === null
         ? undefined
         : ((patch.editorRequirementsText ?? config.editorRequirementsText)?.trim() || undefined),
+    styleRequirementsText:
+      patch.styleRequirementsText === null
+        ? undefined
+        : ((patch.styleRequirementsText ?? config.styleRequirementsText)?.trim() || undefined),
     defaultImportFormat:
       patch.defaultImportFormat === null
         ? undefined
@@ -536,6 +543,7 @@ export function cloneWorkspaceConfig(config: WorkspaceConfig): WorkspaceConfig {
     slidingWindow: { ...config.slidingWindow },
     customRequirements: [...config.customRequirements],
     editorRequirementsText: config.editorRequirementsText,
+    styleRequirementsText: config.styleRequirementsText,
   };
 }
 

@@ -11,13 +11,18 @@ import type {
   GlossaryExtractorConfig,
   GlossaryUpdaterConfig,
   PlotSummaryConfig,
+  TranslationProcessorStepName,
   TranslationProcessorStepConfig,
   TranslationProcessorConfig,
 } from "../project/config.ts";
 import {
-  MULTI_STAGE_STEP_NAMES,
-  type MultiStageStepName,
-} from "../project/processing/multi-stage-translation-processor.ts";
+  PROOFREAD_STEP_NAMES,
+  type ProofreadStepName,
+} from "../project/processing/proofread-processor.ts";
+import {
+  STYLE_TRANSFER_STEP_NAMES,
+  type StyleTransferStepName,
+} from "../project/processing/style-transfer-translation-processor.ts";
 import type { SlidingWindowOptions } from "../project/types.ts";
 import type {
   GlobalConfigDocument,
@@ -220,8 +225,11 @@ export function normalizeTranslationProcessorConfig(
     throw new Error(`翻译器配置必须是对象: ${sourceLabel}`);
   }
 
+  const workflow = normalizeTranslationWorkflowType(
+    readOptionalString(value.workflow, `${sourceLabel}.workflow`),
+  );
   const result: TranslationProcessorConfig = {
-    workflow: readOptionalString(value.workflow, `${sourceLabel}.workflow`),
+    workflow,
     modelNames: readRequiredModelNames(value, sourceLabel),
     maxConcurrentWorkItems: readOptionalPositiveInteger(
       value.maxConcurrentWorkItems,
@@ -242,7 +250,12 @@ export function normalizeTranslationProcessorConfig(
     ),
   };
 
-  const steps = normalizeTranslationProcessorStepConfigs(value.steps, `${sourceLabel}.steps`);
+  const steps = normalizeTranslationProcessorStepConfigs(
+    value.steps,
+    `${sourceLabel}.steps`,
+    workflow,
+    sourceLabel,
+  );
   if (steps) {
     result.steps = steps;
   }
@@ -258,7 +271,15 @@ export function normalizeTranslatorEntry(
     throw new Error(`翻译器条目必须是对象: ${sourceLabel}`);
   }
 
-  const steps = normalizeTranslationProcessorStepConfigs(value.steps, `${sourceLabel}.steps`);
+  const workflowType = normalizeTranslationWorkflowType(
+    readOptionalString(value.type, `${sourceLabel}.type`),
+  );
+  const steps = normalizeTranslationProcessorStepConfigs(
+    value.steps,
+    `${sourceLabel}.steps`,
+    workflowType,
+    sourceLabel,
+  );
   const models = normalizeTranslatorModelOverrides(value.models, `${sourceLabel}.models`);
   const requestOptions =
     value.requestOptions === undefined
@@ -269,10 +290,9 @@ export function normalizeTranslatorEntry(
     `${sourceLabel}.reviewIterations`,
   );
   const baseModelNames = readRequiredModelNames(value, sourceLabel);
-  const workflowType = readOptionalString(value.type, `${sourceLabel}.type`);
   const effectiveSteps =
     steps ??
-    (workflowType === "multi-stage" || models !== undefined
+    (workflowType === "style-transfer" || models !== undefined
       ? buildLegacyTranslatorStepConfigs(baseModelNames, models, requestOptions)
       : undefined);
 
@@ -335,7 +355,9 @@ function normalizeTranslatorModelOverrides(
 function normalizeTranslationProcessorStepConfigs(
   value: unknown,
   sourceLabel: string,
-): Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> | undefined {
+  workflowType: string | undefined,
+  ownerLabel: string,
+): Partial<Record<TranslationProcessorStepName, TranslationProcessorStepConfig>> | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -344,16 +366,21 @@ function normalizeTranslationProcessorStepConfigs(
     throw new Error(`步骤配置必须是对象: ${sourceLabel}`);
   }
 
-  const result: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> = {};
+  const result: Partial<Record<TranslationProcessorStepName, TranslationProcessorStepConfig>> = {};
+  const proofreadMode = isProofreadStepConfigContext(workflowType, ownerLabel);
+  let legacyStyleTransferConfig: TranslationProcessorStepConfig | undefined;
   for (const [stepName, stepValue] of Object.entries(value)) {
-    if (!MULTI_STAGE_STEP_NAMES.includes(stepName as MultiStageStepName)) {
+    if (
+      !STYLE_TRANSFER_STEP_NAMES.includes(stepName as StyleTransferStepName) &&
+      !PROOFREAD_STEP_NAMES.includes(stepName as ProofreadStepName)
+    ) {
       throw new Error(`${sourceLabel}.${stepName} 不是受支持的步骤`);
     }
     if (!isRecord(stepValue)) {
       throw new Error(`${sourceLabel}.${stepName} 必须是对象`);
     }
 
-    result[stepName as MultiStageStepName] = {
+    const normalizedStepConfig = {
       modelNames: readRequiredModelNames(stepValue, `${sourceLabel}.${stepName}`),
       requestOptions:
         stepValue.requestOptions === undefined
@@ -363,6 +390,26 @@ function normalizeTranslationProcessorStepConfigs(
               `${sourceLabel}.${stepName}.requestOptions`,
             ),
     };
+
+    if (STYLE_TRANSFER_STEP_NAMES.includes(stepName as StyleTransferStepName)) {
+      result[stepName as TranslationProcessorStepName] = normalizedStepConfig;
+      continue;
+    }
+
+    if (proofreadMode) {
+      result[stepName as TranslationProcessorStepName] = normalizedStepConfig;
+      continue;
+    }
+
+    if (stepName === "reviser") {
+      legacyStyleTransferConfig = normalizedStepConfig;
+    } else if (!legacyStyleTransferConfig) {
+      legacyStyleTransferConfig = normalizedStepConfig;
+    }
+  }
+
+  if (legacyStyleTransferConfig && !result.styleTransfer) {
+    result.styleTransfer = legacyStyleTransferConfig;
   }
 
   return Object.keys(result).length > 0 ? result : undefined;
@@ -372,11 +419,12 @@ function buildLegacyTranslatorStepConfigs(
   baseModelNames: string[],
   models: Record<string, string> | undefined,
   requestOptions: ChatRequestOptions | undefined,
-): Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> | undefined {
-  const result: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> = {};
-  for (const stepName of MULTI_STAGE_STEP_NAMES) {
+): Partial<Record<StyleTransferStepName, TranslationProcessorStepConfig>> | undefined {
+  const result: Partial<Record<StyleTransferStepName, TranslationProcessorStepConfig>> = {};
+  for (const stepName of STYLE_TRANSFER_STEP_NAMES) {
+    const modelName = resolveLegacyStepModelName(models, stepName);
     result[stepName] = {
-      modelNames: models?.[stepName] ? [models[stepName]] : [...baseModelNames],
+      modelNames: modelName ? [modelName] : [...baseModelNames],
       requestOptions: requestOptions ? clonePersistedChatRequestOptions(requestOptions) : undefined,
     };
   }
@@ -385,19 +433,19 @@ function buildLegacyTranslatorStepConfigs(
 }
 
 function cloneTranslationProcessorStepConfigs(
-  steps: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> | undefined,
-): Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> | undefined {
+  steps: Partial<Record<TranslationProcessorStepName, TranslationProcessorStepConfig>> | undefined,
+): Partial<Record<TranslationProcessorStepName, TranslationProcessorStepConfig>> | undefined {
   if (!steps) {
     return undefined;
   }
 
-  const result: Partial<Record<MultiStageStepName, TranslationProcessorStepConfig>> = {};
+  const result: Partial<Record<TranslationProcessorStepName, TranslationProcessorStepConfig>> = {};
   for (const [stepName, stepConfig] of Object.entries(steps)) {
     if (!stepConfig) {
       continue;
     }
 
-    result[stepName as MultiStageStepName] = {
+    result[stepName as TranslationProcessorStepName] = {
       modelNames: [...stepConfig.modelNames],
       requestOptions: stepConfig.requestOptions
         ? clonePersistedChatRequestOptions(stepConfig.requestOptions)
@@ -406,6 +454,34 @@ function cloneTranslationProcessorStepConfigs(
   }
 
   return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function normalizeTranslationWorkflowType(
+  workflowType: string | undefined,
+): string | undefined {
+  return workflowType === "multi-stage" ? "style-transfer" : workflowType;
+}
+
+function resolveLegacyStepModelName(
+  models: Record<string, string> | undefined,
+  stepName: StyleTransferStepName,
+): string | undefined {
+  if (!models) {
+    return undefined;
+  }
+
+  if (stepName === "styleTransfer") {
+    return models.styleTransfer ?? models.reviser ?? models.proofreader ?? models.editor;
+  }
+
+  return models[stepName];
+}
+
+function isProofreadStepConfigContext(
+  workflowType: string | undefined,
+  sourceLabel: string,
+): boolean {
+  return workflowType === "proofread-multi-stage" || sourceLabel.includes("proofread");
 }
 
 export function normalizePersistedVectorStoreConfig(
