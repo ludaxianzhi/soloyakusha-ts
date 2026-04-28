@@ -37,6 +37,7 @@ export type ProofreadProcessorRequest = {
   currentTranslationText: string;
   contextView?: TranslationContextView;
   requirements?: ReadonlyArray<string>;
+  editorRequirementsText?: string;
   glossary?: {
     getTranslatedTermsForText(text: string): ResolvedGlossaryTerm[];
   };
@@ -150,6 +151,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
         referenceTranslations: referenceContext.referenceTranslations,
         translatedGlossaryTerms,
         requirements,
+        editorRequirementsText: request.editorRequirementsText,
       });
 
       const proofreaderPrompt = await this.promptManager.renderProofreadProofreaderPrompt({

@@ -84,6 +84,7 @@ export type TranslationProjectConfig = {
   glossary?: GlossarySettings;
   textSplitMaxChars?: number;
   customRequirements?: string[];
+  editorRequirementsText?: string;
 };
 
 export type TranslationUnitParser = (content: string) => TranslationUnit[];
@@ -406,6 +407,7 @@ export type WorkspaceConfig = {
   textSplitMaxChars?: number;
   contextSize?: number;
   customRequirements: string[];
+  editorRequirementsText?: string;
   defaultImportFormat?: string;
   defaultExportFormat?: string;
 };
@@ -424,6 +426,7 @@ export type WorkspaceConfigPatch = {
   textSplitMaxChars?: number | null;
   contextSize?: number | null;
   customRequirements?: string[];
+  editorRequirementsText?: string | null;
   defaultImportFormat?: string | null;
   defaultExportFormat?: string | null;
 };

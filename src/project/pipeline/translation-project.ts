@@ -351,6 +351,7 @@ export class TranslationProject
         glossary: workspaceConfig.glossary,
         textSplitMaxChars: workspaceConfig.textSplitMaxChars,
         customRequirements: workspaceConfig.customRequirements,
+        editorRequirementsText: workspaceConfig.editorRequirementsText,
       },
       {
         ...options,
@@ -419,6 +420,7 @@ export class TranslationProject
     currentTranslationText: string;
     contextView?: TranslationContextView;
     requirements: string[];
+    editorRequirementsText?: string;
     blockedReason?: string;
   } {
     this.ensureInitialized();
@@ -453,6 +455,7 @@ export class TranslationProject
         metadata,
       }),
       requirements: [...this.getRequirements(), ...(step.requirements ?? [])],
+      editorRequirementsText: this.getEditorRequirementsText(),
       blockedReason: resolution.ready ? undefined : resolution.reason,
     };
   }
@@ -1637,7 +1640,11 @@ export class TranslationProject
   }
 
   getRequirements(): string[] {
-    return [...(this.config.customRequirements ?? [])];
+    return [...(this.workspaceManager.getWorkspaceConfig().customRequirements ?? [])];
+  }
+
+  getEditorRequirementsText(): string | undefined {
+    return this.workspaceManager.getWorkspaceConfig().editorRequirementsText;
   }
 
   async reconcileImportedTranslations(

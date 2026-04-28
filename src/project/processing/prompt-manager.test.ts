@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { PromptManager as SharedPromptManager } from "../../prompts/index.ts";
 import { PromptManager } from "./prompt-manager.ts";
+import { DEFAULT_EDITOR_REQUIREMENTS_TEXT } from "./editor-requirements.ts";
 
 describe("project PromptManager", () => {
   test("defaults to ja-zhCN scoped translation prompt ids", async () => {
@@ -146,5 +147,42 @@ prompts:
     expect(rendered.userPrompt).toContain("proofread-user");
     expect(rendered.userPrompt).toContain("原文");
     expect(rendered.userPrompt).toContain("译文");
+  });
+
+  test("renders multi-stage editor prompt with default and custom editor requirements", async () => {
+    const shared = SharedPromptManager.fromYamlText(`
+version: 1
+prompts:
+  project.multiStage.editor.ja-zhCN:
+    system:
+      type: liquid
+      template: |
+        editor-system
+        {{ editorRequirementsText }}
+    user:
+      type: static
+      template: editor-user
+`);
+
+    const manager = new PromptManager({
+      promptManager: shared,
+    });
+
+    const renderedWithDefault = await manager.renderMultiStageEditorPrompt({
+      currentTranslations: [{ id: "1", text: "译文" }],
+      referenceTranslations: [],
+      translatedGlossaryTerms: [],
+      requirements: [],
+    });
+    const renderedWithCustom = await manager.renderMultiStageEditorPrompt({
+      currentTranslations: [{ id: "1", text: "译文" }],
+      referenceTranslations: [],
+      translatedGlossaryTerms: [],
+      requirements: [],
+      editorRequirementsText: "避免文白夹杂。",
+    });
+
+    expect(renderedWithDefault.systemPrompt).toContain(DEFAULT_EDITOR_REQUIREMENTS_TEXT);
+    expect(renderedWithCustom.systemPrompt).toContain("避免文白夹杂。");
   });
 });

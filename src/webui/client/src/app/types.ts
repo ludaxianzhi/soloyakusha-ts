@@ -595,6 +595,7 @@ export interface WorkspaceConfig {
     translatorName?: string;
   };
   customRequirements: string[];
+  editorRequirementsText?: string;
   defaultImportFormat?: string;
   defaultExportFormat?: string;
 }

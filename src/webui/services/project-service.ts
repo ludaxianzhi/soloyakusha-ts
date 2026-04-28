@@ -1333,6 +1333,7 @@ export class ProjectService {
               contextView: prepared.contextView,
               glossary: project.getGlossary(),
               requirements: prepared.requirements,
+              editorRequirementsText: prepared.editorRequirementsText,
               documentManager: project.getDocumentManager(),
               workItemRef: {
                 chapterId: workItem.chapterId,
@@ -3605,6 +3606,7 @@ export class ProjectService {
               processResult = await processor.processWorkItem(item, {
                 glossary: currentProject.getGlossary(),
                 documentManager: currentProject.getDocumentManager(),
+                editorRequirementsText: currentProject.getEditorRequirementsText(),
               });
             } catch (error) {
               processError = error;

@@ -514,6 +514,7 @@ export function AppShell() {
       defaultImportFormat: configRes.defaultImportFormat,
       defaultExportFormat: configRes.defaultExportFormat,
       customRequirements: configRes.customRequirements.join('\n'),
+      editorRequirementsText: configRes.editorRequirementsText,
     });
     setWorkspacePipelineStrategy(configRes.pipelineStrategy ?? 'default');
     workspaceConfigRef.current = configRes;
@@ -1105,6 +1106,7 @@ export function AppShell() {
           defaultImportFormat: String(values.defaultImportFormat ?? '') || null,
           defaultExportFormat: String(values.defaultExportFormat ?? '') || null,
           customRequirements: splitLines(String(values.customRequirements ?? '')),
+          editorRequirementsText: String(values.editorRequirementsText ?? '').trim() || null,
         });
         await Promise.all([
           refreshWorkspaceConfig(),

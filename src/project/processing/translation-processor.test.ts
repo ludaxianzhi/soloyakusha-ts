@@ -313,12 +313,16 @@ describe("TranslationProcessor", () => {
       sourceText: "勇者は王都を見つめていた",
       currentTranslationText: "勇者看着王都",
       requirements: ["保持文学性"],
+      editorRequirementsText: "避免欧化长句。",
     });
 
     expect(result.outputText).toBe("勇者凝视着王都");
     expect(result.glossaryUpdates).toEqual([]);
     expect(client.requests).toHaveLength(3);
     expect(client.requests[0]?.prompt).toContain("待审读译文");
+    expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain(
+      "避免欧化长句。",
+    );
     expect(client.requests[1]?.prompt).toContain("待校对译文");
     expect(client.requests[1]?.prompt).not.toContain("文本分析报告");
     expect(
@@ -335,6 +339,34 @@ describe("TranslationProcessor", () => {
       component: "MultiStageProofreadProcessor",
       workflow: "proofread-multi-stage",
     });
+  });
+
+  test("injects custom editor requirements into the multi-stage editor step", async () => {
+    const client = new FakeChatClient([
+      "分析结果",
+      JSON.stringify({
+        translations: [{ id: "1", translation: "初稿译文" }],
+      }),
+      "[1] 建议收紧句式。",
+      "[1] 无事实错误。",
+      JSON.stringify({
+        translations: [{ id: "1", translation: "终稿译文" }],
+      }),
+    ]);
+    const processor = new MultiStageTranslationProcessor(client, {}, {
+      reviewIterations: 1,
+    });
+
+    const result = await processor.process({
+      sourceText: "勇者は王都を見つめていた",
+      requirements: ["保持文学性"],
+      editorRequirementsText: "避免使用半文言句式。",
+    });
+
+    expect(result.outputText).toBe("终稿译文");
+    expect(client.requests[2]?.options?.requestConfig?.systemPrompt).toContain(
+      "避免使用半文言句式。",
+    );
   });
 
   test("repairs minor output line mismatch using alignment repair from global config", async () => {

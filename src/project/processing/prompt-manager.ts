@@ -10,6 +10,7 @@ import {
   getDefaultPromptManager,
   type PromptManager as SharedPromptManager,
 } from "../../prompts/index.ts";
+import { resolveEditorRequirementsText } from "./editor-requirements.ts";
 
 export type PromptTranslationUnit = {
   id: string;
@@ -51,6 +52,7 @@ export type MultiStageEditorPromptInput = {
   referenceTranslations: string[];
   translatedGlossaryTerms: ResolvedGlossaryTerm[];
   requirements: string[];
+  editorRequirementsText?: string;
 };
 
 export type MultiStageProofreaderPromptInput = {
@@ -219,6 +221,7 @@ export class PromptManager {
       referenceTranslations: input.referenceTranslations,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
       requirements: input.requirements,
+      editorRequirementsText: resolveEditorRequirementsText(input.editorRequirementsText),
     });
 
     return {

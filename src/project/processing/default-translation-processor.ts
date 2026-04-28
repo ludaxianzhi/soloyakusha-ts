@@ -87,7 +87,7 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
     workItem: TranslationWorkItem,
     options: Pick<
       TranslationProcessorRequest,
-      "glossary" | "requestOptions" | "documentManager" | "slidingWindow"
+      "glossary" | "requestOptions" | "documentManager" | "slidingWindow" | "editorRequirementsText"
     > = {},
   ): Promise<TranslationProcessorResult> {
     return this.process({
@@ -95,6 +95,7 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
       contextView: workItem.contextView,
       glossary: options.glossary,
       requirements: workItem.requirements,
+      editorRequirementsText: options.editorRequirementsText,
       requestOptions: options.requestOptions,
       documentManager: options.documentManager,
       slidingWindow: options.slidingWindow,
