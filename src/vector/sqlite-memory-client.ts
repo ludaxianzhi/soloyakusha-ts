@@ -2,6 +2,7 @@
 import workerEntry from "./sqlite-memory-worker.ts" with { type: "file" };
 import { VectorStoreClient } from "./base.ts";
 import type {
+  VectorCollectionInfo,
   VectorCollectionConfig,
   VectorSearchResult,
   VectorStoreCollectionDeleteParams,
@@ -23,6 +24,7 @@ type DeleteRequestParams = Extract<SqliteMemoryWorkerRequest, { type: "delete" }
 type ClientWorkerRequest =
   | { type: "init"; databasePath: string }
   | { type: "probe" }
+  | { type: "listCollections" }
   | { type: "ensureCollection"; collection: VectorCollectionConfig }
   | { type: "deleteCollection"; params: VectorStoreCollectionDeleteParams }
   | { type: "upsert"; params: UpsertRequestParams }
@@ -77,6 +79,25 @@ export class SqliteMemoryVectorStoreClient extends VectorStoreClient {
     try {
       await this.ensureInitialized(handle);
       await this.postRequest(handle, { type: "probe" });
+    } finally {
+      await this.disposeWorkerHandle(handle);
+    }
+  }
+
+  override async listCollections(): Promise<VectorCollectionInfo[]> {
+    const handle = this.createWorkerHandle("__listCollections__");
+    try {
+      await this.ensureInitialized(handle);
+      const collections = await this.postRequest<VectorCollectionInfo[]>(handle, {
+        type: "listCollections",
+      });
+      return collections.map((collection) => ({
+        name: collection.name,
+        dimension: collection.dimension,
+        distance: collection.distance,
+        metadata: collection.metadata ? { ...collection.metadata } : undefined,
+        options: collection.options ? { ...collection.options } : undefined,
+      }));
     } finally {
       await this.disposeWorkerHandle(handle);
     }

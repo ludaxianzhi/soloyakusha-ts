@@ -30,5 +30,6 @@ export type {
   RenderedPrompt as ProjectRenderedPrompt,
 } from "./src/project/processing/prompt-manager.ts";
 export * from "./src/project/types.ts";
+export * from "./src/style-library/index.ts";
 export * from "./src/utils/index.ts";
 export * from "./src/vector/index.ts";

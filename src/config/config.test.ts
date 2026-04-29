@@ -476,6 +476,113 @@ describe("GlobalConfigManager", () => {
     delete process.env.SOLOYAKUSHA_VECTOR_TEST_KEY;
   });
 
+  test("persists style library registry and reloads it", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-"));
+    cleanupTargets.push(rootDir);
+
+    const filePath = join(rootDir, "settings.json");
+    const manager = new GlobalConfigManager({ filePath });
+
+    await manager.setVectorStore("memory", {
+      provider: "sqlite-memory",
+      endpoint: join(rootDir, "vector.sqlite"),
+      distance: "cosine",
+      timeoutMs: 30_000,
+      retries: 1,
+    });
+
+    await manager.setStyleLibrary("jp-narration", {
+      displayName: "日文叙事风格",
+      vectorStoreName: "memory",
+      collectionName: "stylelib__jp_narration",
+      targetLanguage: "zh-CN",
+      chunkLength: 400,
+      embeddingFingerprint: "openai:text-embedding-3-small",
+      discoveryMode: "managed",
+      managedByApp: true,
+      createdAt: "2026-04-29T00:00:00.000Z",
+      updatedAt: "2026-04-29T00:00:00.000Z",
+      metadata: {
+        resourceType: "style-library",
+      },
+      sourceSummary: {
+        fileCount: 2,
+        chunkCount: 18,
+      },
+    });
+
+    const reloaded = new GlobalConfigManager({ filePath });
+    expect(await reloaded.listStyleLibraryNames()).toEqual(["jp-narration"]);
+    expect(await reloaded.getStyleLibrary("jp-narration")).toEqual({
+      displayName: "日文叙事风格",
+      vectorStoreName: "memory",
+      collectionName: "stylelib__jp_narration",
+      targetLanguage: "zh-CN",
+      chunkLength: 400,
+      embeddingFingerprint: "openai:text-embedding-3-small",
+      discoveryMode: "managed",
+      managedByApp: true,
+      createdAt: "2026-04-29T00:00:00.000Z",
+      updatedAt: "2026-04-29T00:00:00.000Z",
+      metadata: {
+        resourceType: "style-library",
+      },
+      sourceSummary: {
+        fileCount: 2,
+        chunkCount: 18,
+        characterCount: undefined,
+      },
+    });
+
+    const saved = JSON.parse(await readFile(filePath, "utf8")) as {
+      styleLibraries?: {
+        libraries?: {
+          [key: string]: {
+            vectorStoreName?: string;
+            chunkLength?: number;
+          };
+        };
+      };
+    };
+    expect(saved.styleLibraries?.libraries?.["jp-narration"]?.vectorStoreName).toBe("memory");
+    expect(saved.styleLibraries?.libraries?.["jp-narration"]?.chunkLength).toBe(400);
+  });
+
+  test("prunes empty style library registry after removal", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-"));
+    cleanupTargets.push(rootDir);
+
+    const filePath = join(rootDir, "settings.json");
+    const manager = new GlobalConfigManager({ filePath });
+
+    await manager.setVectorStore("memory", {
+      provider: "sqlite-memory",
+      endpoint: join(rootDir, "vector.sqlite"),
+      distance: "cosine",
+      timeoutMs: 30_000,
+      retries: 1,
+    });
+    await manager.setStyleLibrary("temp", {
+      vectorStoreName: "memory",
+      collectionName: "stylelib__temp",
+      targetLanguage: "zh-CN",
+      chunkLength: 256,
+      embeddingFingerprint: "test-fingerprint",
+      discoveryMode: "managed",
+      managedByApp: true,
+      createdAt: "2026-04-29T00:00:00.000Z",
+      updatedAt: "2026-04-29T00:00:00.000Z",
+    });
+
+    expect(await manager.removeStyleLibrary("temp")).toBe(true);
+    expect(await manager.getStyleLibraryConfig()).toBeUndefined();
+
+    const saved = JSON.parse(await readFile(filePath, "utf8")) as {
+      styleLibraries?: unknown;
+    };
+    expect(saved.styleLibraries).toBeUndefined();
+  });
+
   test("persists embedding PCA config", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "soloyakusha-global-config-"));
     cleanupTargets.push(rootDir);

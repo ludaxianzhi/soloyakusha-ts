@@ -27,11 +27,15 @@ import type { SlidingWindowOptions } from "../project/types.ts";
 import type {
   GlobalConfigDocument,
   GlobalLlmConfig,
+  GlobalStyleLibraryConfig,
   GlobalTranslationConfig,
   GlobalVectorConfig,
   PersistedLlmClientConfig,
   PersistedLlmRequestConfig,
+  PersistedStyleLibraryConfig,
   PersistedVectorStoreConfig,
+  StyleLibraryDiscoveryMode,
+  StyleLibrarySourceSummary,
   TranslatorMetadata,
   TranslatorEntry,
   WorkspaceEntry,
@@ -110,6 +114,11 @@ export function normalizeGlobalConfigDocument(
       ? undefined
       : normalizeVectorConfig(value.vector, `${sourceLabel}:vector`);
 
+  const styleLibraries =
+    value.styleLibraries === undefined
+      ? undefined
+      : normalizeStyleLibraryConfig(value.styleLibraries, `${sourceLabel}:styleLibraries`);
+
   const translation = normalizeOptionalTranslationConfig(
     value.translation,
     `${sourceLabel}:translation`,
@@ -128,6 +137,7 @@ export function normalizeGlobalConfigDocument(
       embedding,
     },
     vector,
+    styleLibraries,
     translation,
     recentWorkspaces,
   };
@@ -566,6 +576,66 @@ export function normalizeVectorConfig(
   };
 }
 
+export function normalizePersistedStyleLibraryConfig(
+  value: unknown,
+  sourceLabel: string,
+): PersistedStyleLibraryConfig {
+  if (!isRecord(value)) {
+    throw new Error(`样式库配置必须是对象: ${sourceLabel}`);
+  }
+
+  return {
+    displayName: readOptionalStringAllowEmpty(value.displayName, `${sourceLabel}.displayName`)?.trim() || undefined,
+    vectorStoreName: readRequiredString(value.vectorStoreName, `${sourceLabel}.vectorStoreName`),
+    collectionName: readRequiredString(value.collectionName, `${sourceLabel}.collectionName`),
+    targetLanguage: readRequiredString(value.targetLanguage, `${sourceLabel}.targetLanguage`),
+    chunkLength: readPositiveInteger(value.chunkLength, `${sourceLabel}.chunkLength`),
+    embeddingFingerprint: readRequiredString(
+      value.embeddingFingerprint,
+      `${sourceLabel}.embeddingFingerprint`,
+    ),
+    discoveryMode: normalizeStyleLibraryDiscoveryMode(
+      value.discoveryMode,
+      `${sourceLabel}.discoveryMode`,
+    ),
+    managedByApp: readOptionalBoolean(value.managedByApp, `${sourceLabel}.managedByApp`) ?? true,
+    createdAt: normalizeIsoDateString(value.createdAt, `${sourceLabel}.createdAt`),
+    updatedAt: normalizeIsoDateString(value.updatedAt, `${sourceLabel}.updatedAt`),
+    metadata: normalizeOptionalJsonObject(value.metadata, `${sourceLabel}.metadata`),
+    sourceSummary: normalizeOptionalStyleLibrarySourceSummary(
+      value.sourceSummary,
+      `${sourceLabel}.sourceSummary`,
+    ),
+  };
+}
+
+export function normalizeStyleLibraryConfig(
+  value: unknown,
+  sourceLabel: string,
+): GlobalStyleLibraryConfig {
+  if (!isRecord(value)) {
+    throw new Error(`全局配置的 styleLibraries 字段必须是对象: ${sourceLabel}`);
+  }
+
+  const librariesValue = value.libraries ?? {};
+  if (!isRecord(librariesValue)) {
+    throw new Error(`全局配置的 styleLibraries.libraries 字段必须是对象: ${sourceLabel}`);
+  }
+
+  const libraries: Record<string, PersistedStyleLibraryConfig> = {};
+  for (const [libraryName, libraryValue] of Object.entries(librariesValue)) {
+    validateProfileName(libraryName);
+    libraries[libraryName] = normalizePersistedStyleLibraryConfig(
+      libraryValue,
+      `${sourceLabel}.libraries.${libraryName}`,
+    );
+  }
+
+  return {
+    libraries,
+  };
+}
+
 export function normalizeTranslators(
   value: unknown,
   sourceLabel: string,
@@ -786,6 +856,7 @@ export function cloneDocument(document: GlobalConfigDocument): GlobalConfigDocum
     version: document.version,
     llm: cloneLlmConfig(document.llm),
     vector: cloneVectorConfig(document.vector),
+    styleLibraries: cloneStyleLibraryConfig(document.styleLibraries),
     translation: cloneTranslationConfig(document.translation),
     recentWorkspaces: document.recentWorkspaces
       ? [...document.recentWorkspaces.map(cloneWorkspaceEntry)]
@@ -834,6 +905,23 @@ export function cloneTranslationConfig(
     glossaryUpdater: cloneGlossaryUpdaterConfig(config.glossaryUpdater),
     plotSummary: clonePlotSummaryConfig(config.plotSummary),
     alignmentRepair: cloneAlignmentRepairConfig(config.alignmentRepair),
+  };
+}
+
+export function cloneStyleLibraryConfig(
+  config: GlobalStyleLibraryConfig | undefined,
+): GlobalStyleLibraryConfig | undefined {
+  if (!config) {
+    return undefined;
+  }
+
+  const libraries: Record<string, PersistedStyleLibraryConfig> = {};
+  for (const [name, library] of Object.entries(config.libraries)) {
+    libraries[name] = clonePersistedStyleLibraryConfig(library);
+  }
+
+  return {
+    libraries,
   };
 }
 
@@ -1025,6 +1113,25 @@ export function clonePersistedVectorStoreConfig(
     retries: config.retries,
     extraHeaders: config.extraHeaders ? { ...config.extraHeaders } : undefined,
     options: config.options ? cloneJsonObject(config.options) : undefined,
+  };
+}
+
+export function clonePersistedStyleLibraryConfig(
+  config: PersistedStyleLibraryConfig,
+): PersistedStyleLibraryConfig {
+  return {
+    displayName: config.displayName,
+    vectorStoreName: config.vectorStoreName,
+    collectionName: config.collectionName,
+    targetLanguage: config.targetLanguage,
+    chunkLength: config.chunkLength,
+    embeddingFingerprint: config.embeddingFingerprint,
+    discoveryMode: config.discoveryMode,
+    managedByApp: config.managedByApp,
+    createdAt: config.createdAt,
+    updatedAt: config.updatedAt,
+    metadata: config.metadata ? cloneJsonObject(config.metadata) : undefined,
+    sourceSummary: config.sourceSummary ? { ...config.sourceSummary } : undefined,
   };
 }
 
@@ -1278,7 +1385,7 @@ function normalizeVectorStoreProvider(
   value: unknown,
   sourceLabel: string,
 ): PersistedVectorStoreConfig["provider"] {
-  if (value === "qdrant" || value === "chroma") {
+  if (value === "qdrant" || value === "chroma" || value === "sqlite-memory") {
     return value;
   }
 
@@ -1384,10 +1491,29 @@ export function pruneEmptyVectorConfig(
   return cloneVectorConfig(config);
 }
 
+export function pruneEmptyStyleLibraryConfig(
+  config: GlobalStyleLibraryConfig | undefined,
+): GlobalStyleLibraryConfig | undefined {
+  if (!config || Object.keys(config.libraries).length === 0) {
+    return undefined;
+  }
+
+  return cloneStyleLibraryConfig(config);
+}
+
 function readRequiredString(value: unknown, sourceLabel: string): string {
   const result = readOptionalString(value, sourceLabel);
   if (!result) {
     throw new Error(`必须配置非空字符串: ${sourceLabel}`);
+  }
+
+  return result;
+}
+
+function readPositiveInteger(value: unknown, sourceLabel: string): number {
+  const result = readOptionalPositiveInteger(value, sourceLabel);
+  if (result === undefined) {
+    throw new Error(`必须配置正整数: ${sourceLabel}`);
   }
 
   return result;
@@ -1466,6 +1592,59 @@ function readOptionalBoolean(value: unknown, sourceLabel: string): boolean | und
   }
 
   return value;
+}
+
+function normalizeStyleLibraryDiscoveryMode(
+  value: unknown,
+  sourceLabel: string,
+): StyleLibraryDiscoveryMode {
+  if (value === undefined) {
+    return "managed";
+  }
+
+  if (value === "managed" || value === "discovered") {
+    return value;
+  }
+
+  throw new Error(`style library discoveryMode 非法: ${sourceLabel}`);
+}
+
+function normalizeOptionalStyleLibrarySourceSummary(
+  value: unknown,
+  sourceLabel: string,
+): StyleLibrarySourceSummary | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`样式库来源摘要必须是对象: ${sourceLabel}`);
+  }
+
+  const summary: StyleLibrarySourceSummary = {
+    fileCount: readOptionalNonNegativeInteger(value.fileCount, `${sourceLabel}.fileCount`),
+    chunkCount: readOptionalNonNegativeInteger(value.chunkCount, `${sourceLabel}.chunkCount`),
+    characterCount: readOptionalNonNegativeInteger(value.characterCount, `${sourceLabel}.characterCount`),
+  };
+
+  if (
+    summary.fileCount === undefined &&
+    summary.chunkCount === undefined &&
+    summary.characterCount === undefined
+  ) {
+    return undefined;
+  }
+
+  return summary;
+}
+
+function normalizeIsoDateString(value: unknown, sourceLabel: string): string {
+  const text = readRequiredString(value, sourceLabel);
+  if (Number.isNaN(Date.parse(text))) {
+    throw new Error(`字段必须是合法时间字符串: ${sourceLabel}`);
+  }
+
+  return text;
 }
 
 function readOptionalFiniteNumber(value: unknown, sourceLabel: string): number | undefined {

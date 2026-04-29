@@ -12,6 +12,7 @@ import {
   Typography,
 } from 'antd';
 import {
+  BgColorsOutlined,
   ProfileOutlined,
   ClockCircleOutlined,
   FolderOpenOutlined,
@@ -92,6 +93,11 @@ const LazyRecentWorkspacesView = lazy(async () => {
 const LazySettingsView = lazy(async () => {
   const { SettingsView } = await import('../components/SettingsView.tsx');
   return { default: SettingsView };
+});
+
+const LazyStyleLibraryView = lazy(async () => {
+  const { StyleLibraryView } = await import('../components/StyleLibraryView.tsx');
+  return { default: StyleLibraryView };
 });
 
 const LazyWorkspaceView = lazy(async () => {
@@ -1793,6 +1799,11 @@ export function AppShell() {
               icon: <ClockCircleOutlined />,
               label: '最近工作区',
             },
+            {
+              key: '/style-libraries',
+              icon: <BgColorsOutlined />,
+              label: '风格库',
+            },
             { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
           ],
     [isMobile],
@@ -1990,6 +2001,12 @@ export function AppShell() {
                         openingWorkspaceDir={openingWorkspaceDir}
                       />
                     )
+                  }
+                />
+                <Route
+                  path="/style-libraries"
+                  element={
+                    isMobile ? <Navigate replace to="/workspace/current" /> : <LazyStyleLibraryView />
                   }
                 />
                 <Route

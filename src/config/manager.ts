@@ -28,9 +28,11 @@ import type {
   GlobalConfigDocument,
   GlobalConfigManagerOptions,
   GlobalLlmConfig,
+  GlobalStyleLibraryConfig,
   GlobalTranslationConfig,
   GlobalVectorConfig,
   PersistedLlmClientConfig,
+  PersistedStyleLibraryConfig,
   PersistedVectorStoreConfig,
   TranslatorEntry,
   WorkspaceEntry,
@@ -45,10 +47,12 @@ import {
   cloneGlossaryUpdaterConfig,
   cloneLlmConfig,
   clonePersistedLlmClientConfig,
+  clonePersistedStyleLibraryConfig,
   clonePersistedVectorStoreConfig,
   clonePlotSummaryConfig,
   cloneAlignmentRepairConfig,
   cloneProfiles,
+  cloneStyleLibraryConfig,
   cloneTranslationConfig,
   cloneTranslationProcessorConfig,
   cloneTranslatorEntry,
@@ -58,11 +62,13 @@ import {
   normalizeGlossaryUpdaterConfig,
   normalizeGlobalConfigDocument,
   normalizePersistedLlmClientConfig,
+  normalizePersistedStyleLibraryConfig,
   normalizePersistedVectorStoreConfig,
   normalizePlotSummaryConfig,
   normalizeAlignmentRepairConfig,
   normalizeTranslationProcessorConfig,
   normalizeTranslatorEntry,
+  pruneEmptyStyleLibraryConfig,
   pruneEmptyTranslationConfig,
   pruneEmptyVectorConfig,
 } from "./document-codec.ts";
@@ -95,6 +101,10 @@ export class GlobalConfigManager {
 
   async getVectorConfig(): Promise<GlobalVectorConfig | undefined> {
     return cloneVectorConfig((await this.loadDocument()).vector);
+  }
+
+  async getStyleLibraryConfig(): Promise<GlobalStyleLibraryConfig | undefined> {
+    return cloneStyleLibraryConfig((await this.loadDocument()).styleLibraries);
   }
 
   async getTranslationConfig(): Promise<GlobalTranslationConfig | undefined> {
@@ -485,6 +495,62 @@ export class GlobalConfigManager {
     return true;
   }
 
+  async listStyleLibraryNames(): Promise<string[]> {
+    return Object.keys((await this.loadDocument()).styleLibraries?.libraries ?? {}).sort();
+  }
+
+  async getStyleLibrary(
+    libraryName: string,
+  ): Promise<PersistedStyleLibraryConfig | undefined> {
+    const library = (await this.loadDocument()).styleLibraries?.libraries[libraryName];
+    return library ? clonePersistedStyleLibraryConfig(library) : undefined;
+  }
+
+  async getRequiredStyleLibrary(libraryName: string): Promise<PersistedStyleLibraryConfig> {
+    const library = await this.getStyleLibrary(libraryName);
+    if (!library) {
+      throw new Error(`未找到名为 '${libraryName}' 的样式库配置`);
+    }
+
+    return library;
+  }
+
+  async setStyleLibrary(
+    libraryName: string,
+    config: PersistedStyleLibraryConfig,
+  ): Promise<PersistedStyleLibraryConfig> {
+    validateStyleLibraryName(libraryName);
+    const document = await this.loadDocument();
+    const vectorStores = document.vector?.stores ?? {};
+    if (!vectorStores[config.vectorStoreName]) {
+      throw new Error(`样式库引用了不存在的向量数据库配置: ${config.vectorStoreName}`);
+    }
+
+    const styleLibraries = document.styleLibraries ?? { libraries: {} };
+    const normalized = normalizePersistedStyleLibraryConfig(
+      config,
+      `styleLibraries.libraries.${libraryName}`,
+    );
+    styleLibraries.libraries[libraryName] = normalized;
+    document.styleLibraries = pruneEmptyStyleLibraryConfig(styleLibraries);
+    await this.persistDocument(document);
+    return clonePersistedStyleLibraryConfig(normalized);
+  }
+
+  async removeStyleLibrary(libraryName: string): Promise<boolean> {
+    validateStyleLibraryName(libraryName);
+    const document = await this.loadDocument();
+    const styleLibraries = document.styleLibraries;
+    if (!styleLibraries?.libraries[libraryName]) {
+      return false;
+    }
+
+    delete styleLibraries.libraries[libraryName];
+    document.styleLibraries = pruneEmptyStyleLibraryConfig(styleLibraries);
+    await this.persistDocument(document);
+    return true;
+  }
+
   async getRecentWorkspaces(): Promise<WorkspaceEntry[]> {
     const document = await this.loadDocument();
     return document.recentWorkspaces ? [...document.recentWorkspaces] : [];
@@ -563,6 +629,12 @@ function validateTranslatorName(name: string): void {
 function validateVectorStoreName(name: string): void {
   if (name.trim().length === 0) {
     throw new Error("向量数据库配置名称不能为空字符串");
+  }
+}
+
+function validateStyleLibraryName(name: string): void {
+  if (name.trim().length === 0) {
+    throw new Error("样式库名称不能为空字符串");
   }
 }
 

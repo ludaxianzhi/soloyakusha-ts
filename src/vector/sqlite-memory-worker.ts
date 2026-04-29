@@ -3,7 +3,11 @@ import { Database } from "bun:sqlite";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { JsonObject, JsonValue } from "../llm/types.ts";
-import type { VectorCollectionConfig, VectorDistanceMetric } from "./types.ts";
+import type {
+  VectorCollectionConfig,
+  VectorCollectionInfo,
+  VectorDistanceMetric,
+} from "./types.ts";
 import {
   SQLITE_MEMORY_MAX_DIMENSION,
   SQLITE_MEMORY_MAX_RECORDS,
@@ -50,6 +54,8 @@ async function handleRequest(request: SqliteMemoryWorkerRequest): Promise<void> 
       case "probe":
         requireDatabase().query("SELECT 1").get();
         return postSuccess(request.id);
+      case "listCollections":
+        return postSuccess(request.id, await listCollections());
       case "ensureCollection": {
         const collection = await ensureCollectionLoaded(request.collection);
         validateCollectionBounds(collection.dimension, collection.records.length);
@@ -592,7 +598,11 @@ function closeDatabase(): void {
   databasePath = undefined;
 }
 
-function postSuccess(id: number, result?: SqliteMemoryQueryResult[], transfer: Transferable[] = []): void {
+function postSuccess(
+  id: number,
+  result?: SqliteMemoryQueryResult[] | VectorCollectionInfo[],
+  transfer: Transferable[] = [],
+): void {
   const response: SqliteMemoryWorkerResponse = result
     ? { id, ok: true, result }
     : { id, ok: true };
@@ -613,4 +623,21 @@ function postError(id: number, error: unknown): void {
     },
   };
   globalThis.postMessage(response);
+}
+
+async function listCollections(): Promise<VectorCollectionInfo[]> {
+  const db = requireDatabase();
+  const rows = db.query(
+    `SELECT name, dimension, distance, metadata_json, options_json
+       FROM vector_collections
+      ORDER BY name ASC`,
+  ).all() as LoadedCollectionRow[];
+
+  return rows.map((row) => ({
+    name: row.name,
+    dimension: row.dimension,
+    distance: row.distance,
+    metadata: parseJsonObject(row.metadata_json),
+    options: parseJsonObject(row.options_json),
+  } satisfies VectorCollectionInfo));
 }

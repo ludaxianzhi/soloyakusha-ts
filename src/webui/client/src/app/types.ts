@@ -620,7 +620,7 @@ export interface LlmProfileConfig {
 }
 
 export interface VectorStoreConfig {
-  provider: 'qdrant' | 'chroma';
+  provider: 'qdrant' | 'chroma' | 'sqlite-memory';
   endpoint: string;
   apiKey?: string;
   apiKeyEnv?: string;
@@ -637,6 +637,77 @@ export interface VectorStoreConnectionStatus {
   checkedAt?: string;
   error?: string;
   trigger?: 'startup' | 'save' | 'manual' | 'set-default';
+}
+
+export interface StyleLibrarySummary {
+  name: string;
+  displayName?: string;
+  vectorStoreName: string;
+  collectionName: string;
+  targetLanguage?: string;
+  chunkLength?: number;
+  embeddingFingerprint?: string;
+  embeddingState: 'compatible' | 'invalid' | 'unknown';
+  invalidationReason?: string;
+  source: 'registered' | 'discovered';
+  discoveryMode: 'managed' | 'discovered';
+  managedByApp: boolean;
+  existsInVectorStore: boolean;
+  metadata?: Record<string, unknown>;
+  sourceSummary?: {
+    fileCount?: number;
+    chunkCount?: number;
+    characterCount?: number;
+  };
+}
+
+export interface StyleLibraryCatalog {
+  libraries: StyleLibrarySummary[];
+  discoveryErrors: Record<string, string>;
+}
+
+export interface CreateStyleLibraryInput {
+  displayName?: string;
+  vectorStoreName: string;
+  collectionName?: string;
+  targetLanguage: string;
+  chunkLength: number;
+  managedByApp?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface StyleLibraryImportResult {
+  libraryName: string;
+  collectionName: string;
+  importedFiles: string[];
+  skippedFiles: string[];
+  chunkCount: number;
+  characterCount: number;
+}
+
+export interface StyleLibraryChunkMatch {
+  id: string;
+  score: number;
+  rawScore?: number;
+  payload?: Record<string, unknown>;
+  document?: string;
+  vector?: number[];
+  chunkIndex: number;
+  queryText: string;
+}
+
+export interface StyleLibraryQueryChunkResult {
+  chunkIndex: number;
+  text: string;
+  charCount: number;
+  matches: StyleLibraryChunkMatch[];
+}
+
+export interface StyleLibraryQueryResult {
+  libraryName: string;
+  collectionName: string;
+  chunks: StyleLibraryQueryChunkResult[];
+  matches: StyleLibraryChunkMatch[];
 }
 
 export interface TranslatorMetadata {

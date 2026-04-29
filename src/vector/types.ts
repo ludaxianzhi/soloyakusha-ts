@@ -37,6 +37,14 @@ export type VectorCollectionConfig = {
   options?: JsonObject;
 };
 
+export type VectorCollectionInfo = {
+  name: string;
+  dimension?: number;
+  distance?: VectorDistanceMetric;
+  metadata?: JsonObject;
+  options?: JsonObject;
+};
+
 export type VectorRecord = {
   id: string;
   vector: number[];

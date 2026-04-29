@@ -81,6 +81,33 @@ export type GlobalVectorConfig = {
   stores: Record<string, PersistedVectorStoreConfig>;
 };
 
+export type StyleLibrarySourceSummary = {
+  fileCount?: number;
+  chunkCount?: number;
+  characterCount?: number;
+};
+
+export type StyleLibraryDiscoveryMode = "managed" | "discovered";
+
+export type PersistedStyleLibraryConfig = {
+  displayName?: string;
+  vectorStoreName: string;
+  collectionName: string;
+  targetLanguage: string;
+  chunkLength: number;
+  embeddingFingerprint: string;
+  discoveryMode: StyleLibraryDiscoveryMode;
+  managedByApp: boolean;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: JsonObject;
+  sourceSummary?: StyleLibrarySourceSummary;
+};
+
+export type GlobalStyleLibraryConfig = {
+  libraries: Record<string, PersistedStyleLibraryConfig>;
+};
+
 /** 旧版多步骤工作流的步骤模型覆盖（兼容字段）。 */
 export type TranslatorModelOverrides = Record<string, string>;
 
@@ -140,6 +167,7 @@ export type GlobalConfigDocument = {
   version: typeof GLOBAL_CONFIG_VERSION;
   llm: GlobalLlmConfig;
   vector?: GlobalVectorConfig;
+  styleLibraries?: GlobalStyleLibraryConfig;
   translation?: GlobalTranslationConfig;
   recentWorkspaces?: WorkspaceEntry[];
 };

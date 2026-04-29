@@ -16,11 +16,13 @@ import { ProjectService } from './services/project-service.ts';
 import { ConfigService } from './services/config-service.ts';
 import { RequestHistoryService } from './services/request-history-service.ts';
 import { UsageStatsService } from './services/usage-stats-service.ts';
+import { StyleLibraryService } from './services/style-library-service.ts';
 import { createActivityRoutes } from './routes/activity.ts';
 import { createWorkspaceRoutes } from './routes/workspace.ts';
 import { createProjectRoutes } from './routes/project.ts';
 import { createConfigRoutes } from './routes/config.ts';
 import { createEventsRoute } from './routes/events.ts';
+import { createStyleLibraryRoutes } from './routes/style-library.ts';
 
 export interface CreateAppOptions {
   staticAssets?: StaticAssetMap;
@@ -41,6 +43,7 @@ export function createApp(options: CreateAppOptions = {}) {
     usageStatsService,
   );
   const configService = new ConfigService();
+  const styleLibraryService = new StyleLibraryService();
   void configService.initializeVectorStoreConnections().catch((error) => {
     console.error(
       '初始化向量数据库连接状态失败:',
@@ -58,6 +61,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.route('/api/project', createProjectRoutes(projectService, requestHistoryService));
   app.route('/api/activity', createActivityRoutes(requestHistoryService, usageStatsService));
   app.route('/api/config', createConfigRoutes(configService));
+  app.route('/api/style-libraries', createStyleLibraryRoutes(styleLibraryService));
   app.route('/api/events', createEventsRoute(eventBus));
 
   const clientDistDir = options.clientDistDir ?? join(process.cwd(), 'dist', 'webui');

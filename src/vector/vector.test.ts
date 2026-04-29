@@ -14,6 +14,7 @@ import {
   VectorStoreClientProvider,
 } from "./index.ts";
 import type {
+  VectorCollectionInfo,
   VectorCollectionConfig,
   VectorSearchResult,
   VectorStoreCollectionDeleteParams,
@@ -272,6 +273,85 @@ describe("QdrantVectorStoreClient", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test("lists collections with detail lookups", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      const url = String(input);
+      if (url.endsWith("/collections")) {
+        return Response.json({
+          result: {
+            collections: [
+              { name: "stylelib__alpha" },
+              { name: "stylelib__beta" },
+            ],
+          },
+        });
+      }
+      if (url.endsWith("/collections/stylelib__alpha")) {
+        return Response.json({
+          result: {
+            config: {
+              params: { vectors: { size: 1536, distance: "Cosine" } },
+              on_disk_payload: true,
+            },
+          },
+        });
+      }
+      if (url.endsWith("/collections/stylelib__beta")) {
+        return Response.json({
+          result: {
+            config: {
+              params: { vectors: { size: 768, distance: "Dot" } },
+            },
+          },
+        });
+      }
+      return Response.json({ result: { status: "ok" } });
+    }) as typeof fetch;
+
+    try {
+      const client = new QdrantVectorStoreClient(
+        createVectorStoreConfig({
+          provider: "qdrant",
+          endpoint: "http://localhost:6333",
+          apiKey: "secret",
+        }),
+      );
+
+      await expect(client.listCollections()).resolves.toEqual([
+        {
+          name: "stylelib__alpha",
+          dimension: 1536,
+          distance: "cosine",
+          metadata: undefined,
+          options: {
+            params: { vectors: { size: 1536, distance: "Cosine" } },
+            on_disk_payload: true,
+          },
+        },
+        {
+          name: "stylelib__beta",
+          dimension: 768,
+          distance: "dot",
+          metadata: undefined,
+          options: {
+            params: { vectors: { size: 768, distance: "Dot" } },
+          },
+        },
+      ] satisfies VectorCollectionInfo[]);
+
+      expect(requests.map((request) => request.url)).toEqual([
+        "http://localhost:6333/collections",
+        "http://localhost:6333/collections/stylelib__alpha",
+        "http://localhost:6333/collections/stylelib__beta",
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("ChromaVectorStoreClient", () => {
@@ -388,6 +468,54 @@ describe("ChromaVectorStoreClient", () => {
           vector: undefined,
         },
       ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("lists collections with metadata", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      return Response.json([
+        {
+          name: "stylelib__alpha",
+          metadata: {
+            resourceType: "style-library",
+            chunkLength: 400,
+          },
+          configuration_json: {
+            hnsw: { M: 16 },
+          },
+        },
+      ]);
+    }) as typeof fetch;
+
+    try {
+      const client = new ChromaVectorStoreClient(
+        createVectorStoreConfig({
+          provider: "chroma",
+          endpoint: "http://localhost:8000",
+          apiKey: "secret",
+        }),
+      );
+
+      await expect(client.listCollections()).resolves.toEqual([
+        {
+          name: "stylelib__alpha",
+          metadata: {
+            resourceType: "style-library",
+            chunkLength: 400,
+          },
+          options: {
+            hnsw: { M: 16 },
+          },
+        },
+      ] satisfies VectorCollectionInfo[]);
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.url).toBe("http://localhost:8000/api/v1/collections");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -520,6 +648,53 @@ describe("SqliteMemoryVectorStoreClient", () => {
         vector: [1, 0],
         topK: 1,
       })).rejects.toThrow("未找到向量集合: temp-links");
+
+      await client.close();
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  test("lists persisted collections", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-vector-"));
+    const databasePath = join(workspaceDir, "vector.sqlite");
+
+    try {
+      const client = new SqliteMemoryVectorStoreClient(
+        createVectorStoreConfig({
+          provider: "sqlite-memory",
+          endpoint: databasePath,
+          distance: "cosine",
+        }),
+      );
+
+      await client.ensureCollection({
+        name: "stylelib__alpha",
+        dimension: 4,
+        distance: "cosine",
+        metadata: {
+          resourceType: "style-library",
+          targetLanguage: "zh-CN",
+        },
+        options: {
+          chunkLength: 400,
+        },
+      });
+
+      await expect(client.listCollections()).resolves.toEqual([
+        {
+          name: "stylelib__alpha",
+          dimension: 4,
+          distance: "cosine",
+          metadata: {
+            resourceType: "style-library",
+            targetLanguage: "zh-CN",
+          },
+          options: {
+            chunkLength: 400,
+          },
+        },
+      ] satisfies VectorCollectionInfo[]);
 
       await client.close();
     } finally {
@@ -739,6 +914,7 @@ function createStubEmbeddingConfig(): LlmClientConfig {
 }
 
 class FakeVectorStoreClient extends VectorStoreClient {
+  collections: VectorCollectionInfo[] = [];
   lastCollection?: VectorCollectionConfig;
   lastDeletedCollection?: VectorStoreCollectionDeleteParams;
   lastUpsert?: VectorStoreUpsertParams;
@@ -756,6 +932,10 @@ class FakeVectorStoreClient extends VectorStoreClient {
   }
 
   override async probeConnection(): Promise<void> {}
+
+  override async listCollections(): Promise<VectorCollectionInfo[]> {
+    return this.collections.map((collection) => ({ ...collection }));
+  }
 
   override async ensureCollection(collection: VectorCollectionConfig): Promise<void> {
     this.lastCollection = collection;

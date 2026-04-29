@@ -1,5 +1,6 @@
 import type { JsonObject } from "../llm/types.ts";
 import type {
+  VectorCollectionInfo,
   VectorCollectionConfig,
   VectorDistanceMetric,
   VectorStoreCollectionDeleteParams,
@@ -20,6 +21,11 @@ export type SqliteMemoryInitRequest = {
 export type SqliteMemoryProbeRequest = {
   id: number;
   type: "probe";
+};
+
+export type SqliteMemoryListCollectionsRequest = {
+  id: number;
+  type: "listCollections";
 };
 
 export type SqliteMemoryEnsureCollectionRequest = {
@@ -71,6 +77,7 @@ export type SqliteMemoryCloseRequest = {
 export type SqliteMemoryWorkerRequest =
   | SqliteMemoryInitRequest
   | SqliteMemoryProbeRequest
+  | SqliteMemoryListCollectionsRequest
   | SqliteMemoryEnsureCollectionRequest
   | SqliteMemoryUpsertRequest
   | SqliteMemoryQueryRequest
@@ -94,6 +101,11 @@ export type SqliteMemoryWorkerResponse =
     id: number;
     ok: true;
     result?: undefined;
+  }
+  | {
+    id: number;
+    ok: true;
+    result: VectorCollectionInfo[];
   }
   | {
     id: number;

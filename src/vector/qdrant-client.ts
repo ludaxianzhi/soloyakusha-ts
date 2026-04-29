@@ -3,6 +3,7 @@ import { VectorStoreClient } from "./base.ts";
 import { requestJson } from "./http.ts";
 import type {
   VectorCollectionConfig,
+  VectorCollectionInfo,
   VectorDistanceMetric,
   VectorSearchResult,
   VectorStoreCollectionDeleteParams,
@@ -21,6 +22,32 @@ type QdrantSearchResponse = {
   }>;
 };
 
+type QdrantCollectionsResponse = {
+  result?: {
+    collections?: Array<{
+      name?: string;
+    }>;
+  };
+};
+
+type QdrantCollectionDetailResponse = {
+  result?: {
+    config?: {
+      params?: {
+        vectors?: {
+          size?: number;
+          distance?: string;
+        };
+      };
+      hnsw_config?: Record<string, unknown>;
+      optimizers_config?: Record<string, unknown>;
+      wal_config?: Record<string, unknown>;
+      quantization_config?: Record<string, unknown>;
+      on_disk_payload?: boolean;
+    };
+  };
+};
+
 export class QdrantVectorStoreClient extends VectorStoreClient {
   constructor(config: VectorStoreConfig) {
     super(config);
@@ -36,6 +63,45 @@ export class QdrantVectorStoreClient extends VectorStoreClient {
       errorPrefix: "Qdrant 连接检查失败",
       headers: this.buildHeaders(),
     });
+  }
+
+  override async listCollections(): Promise<VectorCollectionInfo[]> {
+    const response = await requestJson<QdrantCollectionsResponse>({
+      endpoint: this.config.endpoint,
+      path: "collections",
+      method: "GET",
+      timeoutMs: this.config.timeoutMs,
+      retries: this.config.retries,
+      errorPrefix: "Qdrant collection 列表获取失败",
+      headers: this.buildHeaders(),
+    });
+
+    const collections = response.result?.collections ?? [];
+    const result: VectorCollectionInfo[] = [];
+    for (const collection of collections) {
+      if (typeof collection.name !== "string" || collection.name.length === 0) {
+        continue;
+      }
+
+      const detail = await requestJson<QdrantCollectionDetailResponse>({
+        endpoint: this.config.endpoint,
+        path: `collections/${encodeURIComponent(collection.name)}`,
+        method: "GET",
+        timeoutMs: this.config.timeoutMs,
+        retries: this.config.retries,
+        errorPrefix: `Qdrant collection 详情获取失败: ${collection.name}`,
+        headers: this.buildHeaders(),
+      });
+      const vectorConfig = detail.result?.config?.params?.vectors;
+      result.push({
+        name: collection.name,
+        dimension: typeof vectorConfig?.size === "number" ? vectorConfig.size : undefined,
+        distance: mapQdrantDistanceFromResponse(vectorConfig?.distance),
+        options: normalizeConfigObject(detail.result?.config),
+      });
+    }
+
+    return result;
   }
 
   override async ensureCollection(collection: VectorCollectionConfig): Promise<void> {
@@ -159,6 +225,21 @@ function mapQdrantDistance(metric: VectorDistanceMetric): string {
   }
 }
 
+function mapQdrantDistanceFromResponse(metric: string | undefined): VectorDistanceMetric | undefined {
+  switch (metric) {
+    case "Cosine":
+      return "cosine";
+    case "Dot":
+      return "dot";
+    case "Euclid":
+      return "euclid";
+    case "Manhattan":
+      return "manhattan";
+    default:
+      return undefined;
+  }
+}
+
 function mapQdrantFilter(filter: JsonObject): {
   must: Array<{
     key: string;
@@ -213,4 +294,14 @@ function normalizePayload(payload: Record<string, unknown> | undefined): JsonObj
   }
 
   return payload as JsonObject;
+}
+
+function normalizeConfigObject(
+  value: Record<string, unknown> | undefined,
+): JsonObject | undefined {
+  if (!value || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as JsonObject;
 }

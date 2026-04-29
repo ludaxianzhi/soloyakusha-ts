@@ -2,6 +2,7 @@ import type { JsonObject } from "../llm/types.ts";
 import { VectorStoreClient } from "./base.ts";
 import { requestJson } from "./http.ts";
 import type {
+  VectorCollectionInfo,
   VectorCollectionConfig,
   VectorDistanceMetric,
   VectorSearchResult,
@@ -20,6 +21,12 @@ type ChromaQueryResponse = {
   embeddings?: Array<Array<number[] | null>>;
 };
 
+type ChromaCollectionResponse = {
+  name?: string;
+  metadata?: Record<string, unknown> | null;
+  configuration_json?: Record<string, unknown> | null;
+};
+
 export class ChromaVectorStoreClient extends VectorStoreClient {
   constructor(config: VectorStoreConfig) {
     super(config);
@@ -35,6 +42,38 @@ export class ChromaVectorStoreClient extends VectorStoreClient {
       errorPrefix: "Chroma 连接检查失败",
       headers: this.buildHeaders(),
     });
+  }
+
+  override async listCollections(): Promise<VectorCollectionInfo[]> {
+    const response = await requestJson<ChromaCollectionResponse[] | { collections?: ChromaCollectionResponse[] }>({
+      endpoint: this.config.endpoint,
+      path: buildChromaPath(this.config.endpoint, "collections"),
+      method: "GET",
+      timeoutMs: this.config.timeoutMs,
+      retries: this.config.retries,
+      errorPrefix: "Chroma collection 列表获取失败",
+      headers: this.buildHeaders(),
+    });
+
+    const collections = Array.isArray(response)
+      ? response
+      : Array.isArray(response.collections)
+        ? response.collections
+        : [];
+    const result: VectorCollectionInfo[] = [];
+    for (const collection of collections) {
+      if (typeof collection?.name !== "string" || collection.name.length === 0) {
+        continue;
+      }
+
+      result.push({
+        name: collection.name,
+        metadata: normalizePayload(collection.metadata ?? undefined),
+        options: normalizePayload(collection.configuration_json ?? undefined),
+      });
+    }
+
+    return result;
   }
 
   override async ensureCollection(collection: VectorCollectionConfig): Promise<void> {

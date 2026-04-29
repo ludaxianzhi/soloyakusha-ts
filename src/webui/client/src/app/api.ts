@@ -40,6 +40,10 @@ import type {
   VectorStoreConnectionStatus,
   TranslationPreviewChapter,
   UpdateStoryRoutePayload,
+  CreateStyleLibraryInput,
+  StyleLibraryCatalog,
+  StyleLibraryImportResult,
+  StyleLibraryQueryResult,
   WorkspaceArchiveManifest,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
@@ -516,6 +520,56 @@ export const api = {
       '/api/config/vector/connect',
       {
         method: 'POST',
+        body: input,
+      },
+    ),
+  getStyleLibraries: () =>
+    request<StyleLibraryCatalog>('/api/style-libraries'),
+  getStyleLibraryVectorStores: () =>
+    request<{ names: string[] }>('/api/style-libraries/vector-stores'),
+  saveStyleLibrary: (name: string, input: CreateStyleLibraryInput) =>
+    request('/api/style-libraries/' + encodeURIComponent(name), {
+      method: 'PUT',
+      body: input,
+    }),
+  importStyleLibrary: (name: string, input: { file: File; formatName?: string }) => {
+    const formData = new FormData();
+    formData.set('file', input.file);
+    if (input.formatName) {
+      formData.set('formatName', input.formatName);
+    }
+    return request<StyleLibraryImportResult>(
+      '/api/style-libraries/' + encodeURIComponent(name) + '/import',
+      {
+        method: 'POST',
+        body: formData,
+      },
+    );
+  },
+  queryStyleLibrary: (name: string, text: string) =>
+    request<StyleLibraryQueryResult>(
+      '/api/style-libraries/' + encodeURIComponent(name) + '/query',
+      {
+        method: 'POST',
+        body: { text },
+      },
+    ),
+  deleteStyleLibrary: (name: string, deleteCollection = true) =>
+    request<{ removedRegistry: boolean; removedCollection: boolean }>(
+      '/api/style-libraries/' + encodeURIComponent(name) + buildQueryString({ deleteCollection: deleteCollection ? 1 : 0 }),
+      {
+        method: 'DELETE',
+      },
+    ),
+  deleteExternalStyleLibrary: (input: {
+    vectorStoreName: string;
+    collectionName: string;
+    deleteCollection?: boolean;
+  }) =>
+    request<{ removedRegistry: boolean; removedCollection: boolean }>(
+      '/api/style-libraries/external',
+      {
+        method: 'DELETE',
         body: input,
       },
     ),
