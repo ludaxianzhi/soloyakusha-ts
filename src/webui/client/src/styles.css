@@ -62,7 +62,6 @@ html,
 body,
 #root {
   height: 100%;
-  overflow: hidden;
   font-family: var(--font-family);
 }
 
@@ -76,6 +75,15 @@ body {
 .app-shell {
   height: 100vh;
   overflow: hidden;
+}
+
+.app-shell > .ant-layout {
+  overflow: hidden;
+}
+
+.app-shell .ant-layout-content {
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .app-shell,
