@@ -747,7 +747,7 @@ function KanbanCardContent({
         </Typography.Text>
         <Typography.Text
           ellipsis
-          style={{ fontSize: 12, flex: 1, marginLeft: 4, color: 'rgba(255,255,255,0.75)' }}
+          style={{ fontSize: 12, flex: 1, marginLeft: 4, color: 'var(--text-secondary)' }}
           title={chapter.filePath}
         >
           {fileName}

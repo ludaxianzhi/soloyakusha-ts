@@ -119,6 +119,55 @@ body {
   gap: 12px;
 }
 
+.workspace-tabs-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-tabs-wrapper > .ant-tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.workspace-tabs-wrapper > .ant-tabs > .ant-tabs-nav {
+  margin-bottom: 4px;
+}
+
+.workspace-tabs-wrapper > .ant-tabs > .ant-tabs-content-holder {
+  flex: 1;
+  overflow: hidden;
+}
+
+.workspace-tabs-wrapper > .ant-tabs > .ant-tabs-content-holder > .ant-tabs-content {
+  height: 100%;
+}
+
+.workspace-tabs-wrapper > .ant-tabs > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.workspace-tab-pane-chapters {
+  overflow-y: hidden !important;
+}
+
+.chapters-scroll-area {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.chapters-scroll-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 .settings-tabs-wrapper {
   height: 100%;
   display: flex;
@@ -520,13 +569,14 @@ body {
   gap: 12px;
   overflow-x: auto;
   padding: 8px 0 16px;
-  min-height: 420px;
-  align-items: flex-start;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
 }
 
 .kanban-column {
   flex: 0 0 280px;
-  max-height: calc(100vh - 320px);
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   border-radius: 10px;
@@ -718,4 +768,5 @@ body {
 
 .chapter-batch-toolbar {
   margin-bottom: 12px;
+  flex-shrink: 0;
 }

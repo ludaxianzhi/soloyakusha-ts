@@ -117,7 +117,7 @@ export function WorkspaceView({
   }
 
   return (
-    <div className="section-stack">
+    <div className="workspace-tabs-wrapper">
       <Tabs
         size="small"
         activeKey={activeTabKey}
@@ -170,7 +170,9 @@ export function WorkspaceView({
           {
             key: 'chapters',
             label: mobileMode ? '章节预览' : '章节管理',
+            className: 'workspace-tab-pane-chapters',
             children: (
+              <div style={{ height: '100%', overflow: 'hidden' }}>
               <WorkspaceChaptersTab
                 active={activeTabKey === 'chapters'}
                 mobileMode={mobileMode}
@@ -189,6 +191,7 @@ export function WorkspaceView({
                 onImportChapterArchive={onImportChapterArchive}
                 onDownloadChapters={onDownloadChapters}
               />
+              </div>
             ),
           },
           {

@@ -117,7 +117,7 @@ export function WorkspaceChaptersTab({
   onImportChapterArchive,
   onDownloadChapters,
 }: WorkspaceChaptersTabProps) {
-  const [activeTabKey, setActiveTabKey] = useState(mobileMode ? 'list' : 'arrange');
+  const [activeTabKey, setActiveTabKey] = useState(mobileMode ? 'list' : 'list');
 
   useEffect(() => {
     if (mobileMode && activeTabKey !== 'list') {
@@ -140,8 +140,28 @@ export function WorkspaceChaptersTab({
   return (
     <Card
       title={mobileMode ? '章节预览' : '章节管理'}
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+      styles={{ body: mobileMode ? {} : { display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1, minHeight: 0 } }}
       extra={
         <Space size={8}>
+          {!mobileMode ? (
+            <Tabs
+              size="small"
+              activeKey={activeTabKey}
+              onChange={setActiveTabKey}
+              style={{ marginBottom: -14 }}
+              items={[
+                {
+                  key: 'arrange',
+                  label: '编排',
+                },
+                {
+                  key: 'list',
+                  label: '列表',
+                },
+              ]}
+            />
+          ) : null}
           {!mobileMode && branchCount > 0 ? (
             <Tag color="processing">{branchCount} 个分支路线</Tag>
           ) : null}
@@ -149,53 +169,33 @@ export function WorkspaceChaptersTab({
         </Space>
       }
     >
-      <Tabs
-        size="small"
-        activeKey={activeTabKey}
-        onChange={setActiveTabKey}
-        items={[
-          ...(!mobileMode
-            ? [
-                {
-                  key: 'arrange',
-                  label: '编排',
-                  children: (
-                    <ChapterKanbanBoard
-                      topology={topology}
-                      chapters={chapters}
-                      onReorderRouteChapters={onReorderStoryRouteChapters}
-                      onMoveChapterToRoute={onMoveChapterToRoute}
-                      onCreateBranch={onCreateStoryBranch}
-                      onClearChapterTranslations={onClearChapterTranslations}
-                      onRemoveChapters={onRemoveChapters}
-                      onRemoveRoute={onRemoveStoryRoute}
-                      onUpdateRoute={onUpdateStoryRoute}
-                      onDownloadChapters={onDownloadChapters}
-                    />
-                  ),
-                },
-              ]
-            : []),
-          {
-            key: 'list',
-            label: mobileMode ? '章节' : '列表',
-            children: (
-              <ChapterInfoTable
-                mobileMode={mobileMode}
-                chapters={chapters}
-                topology={topology}
-                defaultImportFormat={defaultImportFormat}
-                onClearChapterTranslations={onClearChapterTranslations}
-                onStartProofread={onStartProofread}
-                onRemoveChapters={onRemoveChapters}
-                onCreateStoryBranch={onCreateStoryBranch}
-                onImportChapterArchive={onImportChapterArchive}
-                onDownloadChapters={onDownloadChapters}
-              />
-            ),
-          },
-        ]}
-      />
+      {!mobileMode && activeTabKey === 'arrange' ? (
+        <ChapterKanbanBoard
+          topology={topology}
+          chapters={chapters}
+          onReorderRouteChapters={onReorderStoryRouteChapters}
+          onMoveChapterToRoute={onMoveChapterToRoute}
+          onCreateBranch={onCreateStoryBranch}
+          onClearChapterTranslations={onClearChapterTranslations}
+          onRemoveChapters={onRemoveChapters}
+          onRemoveRoute={onRemoveStoryRoute}
+          onUpdateRoute={onUpdateStoryRoute}
+          onDownloadChapters={onDownloadChapters}
+        />
+      ) : (
+        <ChapterInfoTable
+          mobileMode={mobileMode}
+          chapters={chapters}
+          topology={topology}
+          defaultImportFormat={defaultImportFormat}
+          onClearChapterTranslations={onClearChapterTranslations}
+          onStartProofread={onStartProofread}
+          onRemoveChapters={onRemoveChapters}
+          onCreateStoryBranch={onCreateStoryBranch}
+          onImportChapterArchive={onImportChapterArchive}
+          onDownloadChapters={onDownloadChapters}
+        />
+      )}
     </Card>
   );
 }
@@ -320,7 +320,7 @@ function ChapterInfoTable({
   const [importArchiveFiles, setImportArchiveFiles] = useState<UploadFile[]>([]);
   const [importArchiveResult, setImportArchiveResult] = useState<ImportArchiveResult | null>(null);
   const [importArchiveForm] = Form.useForm<ImportArchiveFormValues>();
-  const [importGroupsCollapsed, setImportGroupsCollapsed] = useState(false);
+  const [importGroupsModalOpen, setImportGroupsModalOpen] = useState(false);
   const selectedParentRouteId = Form.useWatch('parentRouteId', attachForm);
   const selectedForkAfterChapterId = Form.useWatch('forkAfterChapterId', attachForm);
 
@@ -645,64 +645,13 @@ function ChapterInfoTable({
 
   return (
     <>
-      <Card
-        size="small"
-        title={
-          <Space>
-            <Typography.Text>导入分组</Typography.Text>
-            <Button
-              type="link"
-              size="small"
-              onClick={() => setImportGroupsCollapsed((prev) => !prev)}
-            >
-              {importGroupsCollapsed ? '展开' : '收起'}
-            </Button>
-          </Space>
-        }
-        style={{ marginBottom: 12 }}
-      >
-        {!importGroupsCollapsed ? (
-          <>
-            {chapterGroups.length === 0 ? (
-              <Typography.Text type="secondary">当前没有可用的目录分组。</Typography.Text>
-            ) : (
-              <div className="chapter-import-group-list">
-                {chapterGroups.map((group) => (
-                  <div
-                    key={group.id}
-                    className="chapter-import-group-item"
-                    style={{ paddingLeft: group.depth * 16 }}
-                  >
-                    <Space wrap size={[8, 8]}>
-                      <Typography.Text strong>{group.name}</Typography.Text>
-                      <Typography.Text type="secondary">
-                        {group.path === '.' ? '(根目录)' : group.path}
-                      </Typography.Text>
-                      <Tag>{group.chapterIds.length} 章节</Tag>
-                      <Button size="small" onClick={() => handleSelectGroupChapters(group)}>
-                        选中章节
-                      </Button>
-                      <Button
-                        size="small"
-                        type="dashed"
-                        onClick={() => openAttachGroupModal(group)}
-                        disabled={group.chapterIds.length === 0}
-                      >
-                        挂接为分支
-                      </Button>
-                    </Space>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        ) : null}
-      </Card>
-
       <div className="chapter-batch-toolbar">
         <Space wrap size={[8, 8]}>
           <Button type="primary" size="small" onClick={openImportArchiveModal}>
             追加压缩包
+          </Button>
+          <Button size="small" onClick={() => setImportGroupsModalOpen(true)}>
+            导入分组
           </Button>
           <Tag color={selectedChapterIds.length > 0 ? 'processing' : undefined}>
             已选 {selectedChapterIds.length} 章节
@@ -738,6 +687,7 @@ function ChapterInfoTable({
         </Space>
       </div>
 
+      <div className="chapters-scroll-body" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
       <Table
         rowKey="id"
         dataSource={chapters}
@@ -872,6 +822,7 @@ function ChapterInfoTable({
           },
         ]}
       />
+      </div>
 
       <Modal
         title="追加压缩包为新章节"
@@ -1060,6 +1011,47 @@ function ChapterInfoTable({
             />
           </div>
         </Space>
+      </Modal>
+
+      <Modal
+        title="导入分组"
+        open={importGroupsModalOpen}
+        footer={null}
+        width={640}
+        onCancel={() => setImportGroupsModalOpen(false)}
+      >
+        {chapterGroups.length === 0 ? (
+          <Typography.Text type="secondary">当前没有可用的目录分组。</Typography.Text>
+        ) : (
+          <div className="chapter-import-group-list">
+            {chapterGroups.map((group) => (
+              <div
+                key={group.id}
+                className="chapter-import-group-item"
+                style={{ paddingLeft: group.depth * 16 }}
+              >
+                <Space wrap size={[8, 8]}>
+                  <Typography.Text strong>{group.name}</Typography.Text>
+                  <Typography.Text type="secondary">
+                    {group.path === '.' ? '(根目录)' : group.path}
+                  </Typography.Text>
+                  <Tag>{group.chapterIds.length} 章节</Tag>
+                  <Button size="small" onClick={() => { handleSelectGroupChapters(group); setImportGroupsModalOpen(false); }}>
+                    选中章节
+                  </Button>
+                  <Button
+                    size="small"
+                    type="dashed"
+                    onClick={() => { openAttachGroupModal(group); setImportGroupsModalOpen(false); }}
+                    disabled={group.chapterIds.length === 0}
+                  >
+                    挂接为分支
+                  </Button>
+                </Space>
+              </div>
+            ))}
+          </div>
+        )}
       </Modal>
 
       <Modal
