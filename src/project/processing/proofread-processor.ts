@@ -26,11 +26,25 @@ import type {
   TranslationProcessorTranslation,
 } from "./translation-processor.ts";
 import type { ChatClient } from "../../llm/base.ts";
-import type { SlidingWindowFragment, SlidingWindowOptions } from "../types.ts";
+import type { SlidingWindowFragment, SlidingWindowOptions, FragmentAuxData, FragmentAuxDataContract } from "../types.ts";
 
 export const PROOFREAD_STEP_NAMES = ["editor", "proofreader", "reviser"] as const;
 
 export type ProofreadStepName = (typeof PROOFREAD_STEP_NAMES)[number];
+
+/**
+ * 独立校对处理器的辅助数据契约。
+ * 消费风格迁移流程分析阶段产出的分析报告，注入校对者提示词以提升校对质量。
+ */
+export const PROOFREAD_AUX_DATA_CONTRACT: FragmentAuxDataContract = {
+  consumes: [
+    {
+      key: "styleTransfer.analysis.v1",
+      description: "风格迁移分析结果，供校对者参考",
+      required: false,
+    },
+  ],
+};
 
 export type ProofreadProcessorRequest = {
   sourceText: string;
@@ -49,6 +63,8 @@ export type ProofreadProcessorRequest = {
     fragmentIndex: number;
     stepId?: string;
   };
+  /** 该文本块当前已持久化的辅助数据，供消费方按需读取。 */
+  fragmentAuxData?: FragmentAuxData;
 };
 
 export interface ProofreadProcessor {
@@ -161,6 +177,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
         plotSummaries: referenceContext.plotSummaries,
         translatedGlossaryTerms,
         requirements,
+        analysisText: request.fragmentAuxData?.["styleTransfer.analysis.v1"] as string | undefined,
       });
 
       const concurrentTaskNames = ["editor", "proofreader"] as const;

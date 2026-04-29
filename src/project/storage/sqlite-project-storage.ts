@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import type { SavedRepetitionPatternAnalysisResult } from "../analysis/repetition-pattern-analysis.ts";
 import type {
   ChapterEntry,
+  FragmentAuxData,
   FragmentEntry,
   FragmentPipelineStepState,
   TranslationDependencyGraph,
@@ -22,6 +23,7 @@ type FragmentRow = {
   source_json: string;
   metadata_json: string;
   target_groups_json: string;
+  aux_data_json: string;
 };
 
 type FragmentLineRow = {
@@ -113,7 +115,7 @@ export class SqliteProjectStorage {
 
       const fragmentRows = db
         .query(
-          `SELECT chapter_id, fragment_index, hash, source_json, metadata_json, target_groups_json
+          `SELECT chapter_id, fragment_index, hash, source_json, metadata_json, target_groups_json, aux_data_json
              FROM fragments
             WHERE chapter_id = ?1
             ORDER BY fragment_index`,
@@ -269,6 +271,59 @@ export class SqliteProjectStorage {
     });
   }
 
+  async updateFragmentAuxData(
+    chapterId: number,
+    fragmentIndex: number,
+    auxData: FragmentAuxData,
+  ): Promise<void> {
+    await this.enqueueWrite(async (db) => {
+      db.query(
+        `UPDATE fragments
+            SET aux_data_json = ?3
+          WHERE chapter_id = ?1
+            AND fragment_index = ?2`,
+      ).run(chapterId, fragmentIndex, JSON.stringify(auxData));
+    });
+  }
+
+  async saveStepStateAndFragmentAuxData(
+    chapterId: number,
+    fragmentIndex: number,
+    stepId: string,
+    state: FragmentPipelineStepState,
+    auxData: FragmentAuxData,
+  ): Promise<void> {
+    await this.enqueueWrite(async (db) => {
+      this.upsertPipelineStepState(db, chapterId, fragmentIndex, stepId, state);
+      db.query(
+        `UPDATE fragments
+            SET aux_data_json = ?3
+          WHERE chapter_id = ?1
+            AND fragment_index = ?2`,
+      ).run(chapterId, fragmentIndex, JSON.stringify(auxData));
+    });
+  }
+
+  async saveStepStateTranslationAndAuxData(
+    chapterId: number,
+    fragmentIndex: number,
+    stepId: string,
+    state: FragmentPipelineStepState,
+    translation: TextFragment,
+    auxData: FragmentAuxData,
+  ): Promise<void> {
+    await this.enqueueWrite(async (db) => {
+      this.upsertPipelineStepState(db, chapterId, fragmentIndex, stepId, state);
+      this.replaceFragmentTranslations(db, chapterId, fragmentIndex, translation.lines);
+      db.query(
+        `UPDATE fragments
+            SET aux_data_json = ?3
+          WHERE chapter_id = ?1
+            AND fragment_index = ?2`,
+      ).run(chapterId, fragmentIndex, JSON.stringify(auxData));
+    });
+  }
+
   private async readMetadata<T>(key: string): Promise<T | undefined> {
     const db = this.openDatabase();
     try {
@@ -354,6 +409,7 @@ export class SqliteProjectStorage {
         source_json TEXT NOT NULL,
         metadata_json TEXT NOT NULL,
         target_groups_json TEXT NOT NULL,
+        aux_data_json TEXT NOT NULL DEFAULT '{}',
         PRIMARY KEY (chapter_id, fragment_index),
         FOREIGN KEY (chapter_id) REFERENCES chapters(chapter_id) ON DELETE CASCADE
       );
@@ -378,6 +434,16 @@ export class SqliteProjectStorage {
           REFERENCES fragments(chapter_id, fragment_index) ON DELETE CASCADE
       );
 
+      -- 迁移：为旧数据库补充 aux_data_json 列（幂等，列已存在时 PRAGMA table_info 不会抛错）
+      -- 无法在 CREATE TABLE 中直接加，需要显式 ALTER TABLE 处理旧 schema
+    `);
+    const hasAuxDataCol = (db.query(
+      `SELECT 1 FROM pragma_table_info('fragments') WHERE name = 'aux_data_json'`,
+    ).get() as { 1: number } | null) !== null;
+    if (!hasAuxDataCol) {
+      db.exec(`ALTER TABLE fragments ADD COLUMN aux_data_json TEXT NOT NULL DEFAULT '{}'`);
+    }
+    db.exec(`
       CREATE INDEX IF NOT EXISTS idx_fragments_hash ON fragments(hash);
       CREATE INDEX IF NOT EXISTS idx_fragment_lines_lookup
         ON fragment_lines(chapter_id, fragment_index, line_index);
@@ -404,9 +470,10 @@ export class SqliteProjectStorage {
             hash,
             source_json,
             metadata_json,
-            target_groups_json
+            target_groups_json,
+            aux_data_json
           )
-          VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
       ).run(
         chapter.id,
         fragmentIndex,
@@ -414,6 +481,7 @@ export class SqliteProjectStorage {
         JSON.stringify(fragment.source.lines),
         JSON.stringify(fragment.meta?.metadataList ?? []),
         JSON.stringify(fragment.meta?.targetGroups ?? []),
+        JSON.stringify(fragment.meta?.auxData ?? {}),
       );
 
       for (const [lineIndex, line] of fragment.translation.lines.entries()) {
@@ -500,6 +568,7 @@ function hydrateFragment(
   const sourceLines = JSON.parse(row.source_json) as string[];
   const metadataList = JSON.parse(row.metadata_json) as TranslationUnitMetadata[];
   const targetGroups = JSON.parse(row.target_groups_json) as string[][];
+  const auxData = JSON.parse(row.aux_data_json ?? '{}') as FragmentAuxData;
   const translationLines = linesByFragment.get(row.fragment_index) ?? sourceLines.map(() => "");
 
   return {
@@ -509,6 +578,7 @@ function hydrateFragment(
     meta: {
       metadataList,
       targetGroups,
+      auxData: Object.keys(auxData).length > 0 ? auxData : undefined,
     },
     hash: row.hash,
   };

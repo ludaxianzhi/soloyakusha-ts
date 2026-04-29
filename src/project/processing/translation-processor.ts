@@ -12,7 +12,7 @@ import type { ChatRequestOptions, JsonObject } from "../../llm/types.ts";
 import type { TranslationContextView } from "../context/context-view.ts";
 import type { TranslationWorkItem } from "../pipeline/pipeline.ts";
 import type { TranslationDocumentManager } from "../document/translation-document-manager.ts";
-import type { SlidingWindowOptions, SlidingWindowFragment } from "../types.ts";
+import type { FragmentAuxData, FragmentAuxDataPatch, SlidingWindowOptions, SlidingWindowFragment } from "../types.ts";
 
 export type TranslationProcessorRequest = {
   sourceText: string;
@@ -29,6 +29,8 @@ export type TranslationProcessorRequest = {
     fragmentIndex: number;
     stepId?: string;
   };
+  /** 该文本块当前已持久化的辅助数据，供消费方按需读取。 */
+  fragmentAuxData?: FragmentAuxData;
 };
 
 export type TranslationProcessorTranslation = {
@@ -47,6 +49,8 @@ export type TranslationProcessorResult = {
   systemPrompt: string;
   userPrompt: string;
   window?: SlidingWindowFragment;
+  /** 处理器希望写入此文本块辅助数据的增量补丁；undefined 表示不修改辅助数据。 */
+  fragmentAuxDataPatch?: FragmentAuxDataPatch;
 };
 
 export type TranslationProcessorClientResolver =

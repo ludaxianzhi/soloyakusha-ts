@@ -83,6 +83,8 @@ export type ProofreadProofreaderPromptInput = {
   plotSummaries: string[];
   translatedGlossaryTerms: ResolvedGlossaryTerm[];
   requirements: string[];
+  /** 风格迁移分析阶段产出的文本分析报告，供校对者参考；不存在时不注入提示词。 */
+  analysisText?: string;
 };
 
 export type MultiStageReviserPromptInput = {
@@ -297,6 +299,7 @@ export class PromptManager {
       plotSummaries: input.plotSummaries,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
       requirements: input.requirements,
+      analysisText: input.analysisText,
     });
 
     return {

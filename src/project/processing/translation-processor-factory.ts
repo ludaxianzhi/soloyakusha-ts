@@ -12,6 +12,7 @@ import { DefaultTranslationProcessor } from "./default-translation-processor.ts"
 import {
   StyleTransferTranslationProcessor,
   STYLE_TRANSFER_STEP_NAMES,
+  STYLE_TRANSFER_AUX_DATA_CONTRACT,
   type StyleTransferStepName,
 } from "./style-transfer-translation-processor.ts";
 import {
@@ -81,6 +82,8 @@ export type TranslationProcessorWorkflowMetadata = {
   workspaceFields?: TranslationProcessorWorkflowFieldMetadata[];
   /** @deprecated 兼容旧前端；等迁移完成后可移除。 */
   fields?: TranslationProcessorWorkflowFieldMetadata[];
+  /** 该工作流对文本块辅助数据的提供/消费契约声明。 */
+  fragmentAuxDataContract?: import("../types.ts").FragmentAuxDataContract;
 };
 
 type TranslationProcessorBuilder = (
@@ -186,6 +189,7 @@ export class TranslationProcessorFactory {
           sourceLanguage: "ja",
           targetLanguage: "zh-CN",
           promptSet: "ja-zhCN",
+          fragmentAuxDataContract: STYLE_TRANSFER_AUX_DATA_CONTRACT,
           translatorFields: [
             {
               key: "maxConcurrentWorkItems",

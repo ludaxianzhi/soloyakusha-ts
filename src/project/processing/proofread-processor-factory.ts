@@ -5,6 +5,7 @@ import type { SlidingWindowOptions } from "../types.ts";
 import {
   MultiStageProofreadProcessor,
   PROOFREAD_STEP_NAMES,
+  PROOFREAD_AUX_DATA_CONTRACT,
   type ProofreadProcessor,
   type ProofreadStepName,
 } from "./proofread-processor.ts";
@@ -77,6 +78,7 @@ export class ProofreadProcessorFactory {
           sourceLanguage: "ja",
           targetLanguage: "zh-CN",
           promptSet: "ja-zhCN",
+          fragmentAuxDataContract: PROOFREAD_AUX_DATA_CONTRACT,
           translatorFields: [
             {
               key: "reviewIterations",

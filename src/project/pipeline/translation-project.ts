@@ -423,6 +423,7 @@ export class TranslationProject
     requirements: string[];
     editorRequirementsText?: string;
     blockedReason?: string;
+    fragmentAuxData?: import("../types.ts").FragmentAuxData;
   } {
     this.ensureInitialized();
     const stepId = this.pipeline.finalStepId;
@@ -458,6 +459,7 @@ export class TranslationProject
       requirements: [...this.getRequirements(), ...(step.requirements ?? [])],
       editorRequirementsText: this.getEditorRequirementsText(),
       blockedReason: resolution.ready ? undefined : resolution.reason,
+      fragmentAuxData: this.documentManager.getFragmentAuxData(chapterId, fragmentIndex),
     };
   }
 
@@ -1171,20 +1173,45 @@ export class TranslationProject
 
     if (result.stepId === this.pipeline.finalStepId) {
       // 原子写入：步骤状态与译文在同一次落盘，避免崩溃导致步骤已完成但译文丢失
-      await this.documentManager.updateStepStateAndTranslation(
-        result.chapterId,
-        result.fragmentIndex,
-        result.stepId,
-        completedStepState,
-        output,
-      );
+      const hasPatch =
+        result.fragmentAuxDataPatch != null &&
+        Object.keys(result.fragmentAuxDataPatch).length > 0;
+      if (hasPatch) {
+        await this.documentManager.updateStepStateTranslationAndAuxDataPatch(
+          result.chapterId,
+          result.fragmentIndex,
+          result.stepId,
+          completedStepState,
+          output,
+          result.fragmentAuxDataPatch!,
+        );
+      } else {
+        await this.documentManager.updateStepStateAndTranslation(
+          result.chapterId,
+          result.fragmentIndex,
+          result.stepId,
+          completedStepState,
+          output,
+        );
+      }
     } else {
+      // 非最终步骤：不有译文落盘，单独处理步骤状态和可能的 aux data patch
       await this.documentManager.updatePipelineStepState(
         result.chapterId,
         result.fragmentIndex,
         result.stepId,
         completedStepState,
       );
+      if (
+        result.fragmentAuxDataPatch != null &&
+        Object.keys(result.fragmentAuxDataPatch).length > 0
+      ) {
+        await this.documentManager.mergeFragmentAuxData(
+          result.chapterId,
+          result.fragmentIndex,
+          result.fragmentAuxDataPatch,
+        );
+      }
     }
 
     const nextStepId = this.pipeline.getNextStepId(result.stepId);

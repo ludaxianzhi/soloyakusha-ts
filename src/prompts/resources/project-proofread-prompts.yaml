@@ -242,6 +242,11 @@ prompts:
         {% endfor %}
 
         {% endif %}
+        {% if analysisText %}
+        文本分析报告（由翻译阶段产出，供参考）：
+        {{ analysisText }}
+
+        {% endif %}
         日文原文（按行编号）：
         {% for unit in sourceUnits %}
         - id: {{ unit.id }}

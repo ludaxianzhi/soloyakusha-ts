@@ -15,6 +15,7 @@
 import type { TranslationContextView } from "../context/context-view.ts";
 import type { Glossary } from "../../glossary/glossary.ts";
 import type {
+  FragmentAuxDataPatch,
   FragmentEntry,
   PipelineStepStatus,
   ProjectCursor,
@@ -98,6 +99,8 @@ export type TranslationWorkResult = {
   outputText?: string;
   success?: boolean;
   errorMessage?: string;
+  /** 处理器返回的辅助数据补丁，将合并到文本块的 aux_data_json。 */
+  fragmentAuxDataPatch?: FragmentAuxDataPatch;
 };
 
 export type TranslationWorkQueueRuntime = {

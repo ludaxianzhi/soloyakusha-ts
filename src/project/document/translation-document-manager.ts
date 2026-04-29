@@ -31,6 +31,8 @@ import {
 import type { SavedRepetitionPatternAnalysisResult } from "../analysis/repetition-pattern-analysis.ts";
 import type {
   ChapterEntry,
+  FragmentAuxData,
+  FragmentAuxDataPatch,
   FragmentEntry,
   FragmentPipelineStepState,
   ProofreadTaskState,
@@ -285,6 +287,93 @@ export class TranslationDocumentManager {
       state,
       translation,
     );
+  }
+
+  /**
+   * 原子更新步骤状态、译文及辅助数据补丁，三者在同一次写入中落盘。
+   */
+  async updateStepStateTranslationAndAuxDataPatch(
+    chapterId: number,
+    fragmentIndex: number,
+    stepId: string,
+    state: FragmentPipelineStepState,
+    translation: TextFragment,
+    patch: FragmentAuxDataPatch,
+  ): Promise<void> {
+    const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
+    fragment.pipelineStates[stepId] = state;
+    fragment.translation = translation;
+    const merged = applyAuxDataPatch(fragment.meta?.auxData, patch);
+    if (fragment.meta) {
+      fragment.meta.auxData = Object.keys(merged).length > 0 ? merged : undefined;
+    } else {
+      fragment.meta = { metadataList: [], auxData: Object.keys(merged).length > 0 ? merged : undefined };
+    }
+    await this.storage.saveStepStateTranslationAndAuxData(
+      chapterId,
+      fragmentIndex,
+      stepId,
+      state,
+      translation,
+      merged,
+    );
+  }
+
+  /**
+   * 获取文本块当前辅助数据（只读副本）。
+   */
+  getFragmentAuxData(chapterId: number, fragmentIndex: number): FragmentAuxData {
+    const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
+    return { ...(fragment.meta?.auxData ?? {}) };
+  }
+
+  /**
+   * 将辅助数据补丁合并进文本块：undefined 值删除键，其他值写入/覆盖键。
+   */
+  async mergeFragmentAuxData(
+    chapterId: number,
+    fragmentIndex: number,
+    patch: FragmentAuxDataPatch,
+  ): Promise<void> {
+    const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
+    const merged = applyAuxDataPatch(fragment.meta?.auxData, patch);
+    if (fragment.meta) {
+      fragment.meta.auxData = Object.keys(merged).length > 0 ? merged : undefined;
+    } else {
+      fragment.meta = { metadataList: [], auxData: Object.keys(merged).length > 0 ? merged : undefined };
+    }
+    await this.storage.updateFragmentAuxData(chapterId, fragmentIndex, merged);
+  }
+
+  /**
+   * 全量替换文本块辅助数据（丢弃旧值）。
+   */
+  async replaceFragmentAuxData(
+    chapterId: number,
+    fragmentIndex: number,
+    auxData: FragmentAuxData,
+  ): Promise<void> {
+    const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
+    const copy = { ...auxData };
+    if (fragment.meta) {
+      fragment.meta.auxData = Object.keys(copy).length > 0 ? copy : undefined;
+    } else {
+      fragment.meta = { metadataList: [], auxData: Object.keys(copy).length > 0 ? copy : undefined };
+    }
+    await this.storage.updateFragmentAuxData(chapterId, fragmentIndex, copy);
+  }
+
+  /**
+   * 从文本块辅助数据中删除指定键集合。
+   */
+  async removeFragmentAuxDataKeys(
+    chapterId: number,
+    fragmentIndex: number,
+    keys: string[],
+  ): Promise<void> {
+    if (keys.length === 0) return;
+    const patch: FragmentAuxDataPatch = Object.fromEntries(keys.map((k) => [k, undefined]));
+    await this.mergeFragmentAuxData(chapterId, fragmentIndex, patch);
   }
 
   async updatePipelineStepState(
@@ -771,6 +860,7 @@ function normalizePersistedChapter(chapter: ChapterEntry): ChapterEntry {
         meta: {
           metadataList: fragment.meta?.metadataList ?? [],
           targetGroups: (fragment.meta?.targetGroups ?? []).map((group) => [...group]),
+          auxData: fragment.meta?.auxData ? { ...fragment.meta.auxData } : undefined,
         },
         hash: fragment.hash,
       };
@@ -1042,6 +1132,26 @@ function createCompletedPipelineStates(
       } satisfies FragmentPipelineStepState,
     ]),
   );
+}
+
+/**
+ * 将辅助数据补丁（patch）合并到现有辅助数据对象上，返回新对象。
+ * - 值为 undefined 的键会被删除；
+ * - 其他键新增或覆盖。
+ */
+function applyAuxDataPatch(
+  current: FragmentAuxData | undefined,
+  patch: FragmentAuxDataPatch,
+): FragmentAuxData {
+  const result: FragmentAuxData = { ...(current ?? {}) };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) {
+      delete result[key];
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 function hasTranslatedLine(line: string | undefined): line is string {

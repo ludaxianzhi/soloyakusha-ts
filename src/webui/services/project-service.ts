@@ -1340,6 +1340,7 @@ export class ProjectService {
                 fragmentIndex: workItem.fragmentIndex,
                 stepId: 'proofread',
               },
+              fragmentAuxData: prepared.fragmentAuxData,
             });
 
             if (
@@ -3453,6 +3454,7 @@ export class ProjectService {
             chapterId: item.chapterId,
             fragmentIndex: item.fragmentIndex,
             outputText: result.outputText,
+            fragmentAuxDataPatch: result.fragmentAuxDataPatch,
           });
           scheduleProgressPersist(result);
           void this.usageStatsService

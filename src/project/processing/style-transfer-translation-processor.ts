@@ -39,10 +39,24 @@ import {
   type TranslationOutputRepairer,
 } from "./translation-output-repair.ts";
 import type { SlidingWindowOptions, SlidingWindowFragment } from "../types.ts";
+import type { FragmentAuxDataContract } from "../types.ts";
 
 export const STYLE_TRANSFER_STEP_NAMES = ["analyzer", "translator", "styleTransfer"] as const;
 
 export type StyleTransferStepName = (typeof STYLE_TRANSFER_STEP_NAMES)[number];
+
+/**
+ * 风格迁移处理器的辅助数据契约。
+ * 提供分析阶段的输出文本，共下游流程（如独立校对）复用。
+ */
+export const STYLE_TRANSFER_AUX_DATA_CONTRACT: FragmentAuxDataContract = {
+  provides: [
+    {
+      key: "styleTransfer.analysis.v1",
+      description: "分析阶段输出的文本分析报告，包含场景、视角、风格和翻译难点分析",
+    },
+  ],
+};
 
 export type StyleTransferTranslationProcessorOptions = {
   promptManager?: PromptManager;
@@ -281,6 +295,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       systemPrompt: styleTransferPrompt.systemPrompt,
       userPrompt: styleTransferPrompt.userPrompt,
       window,
+      fragmentAuxDataPatch: { "styleTransfer.analysis.v1": analysisText },
     };
   }
 

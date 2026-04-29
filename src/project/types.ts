@@ -6,7 +6,10 @@
  * - Pipeline 步骤状态
  * - 章节与项目的配置接口
  * - 上下文与进度统计类
+ * - 文本块级 JSON 辅助数据（aux data）契约类型
  */
+
+import type { JsonObject, JsonValue } from "../llm/types.ts";
 
 export type TranslationUnitMetadata = Record<string, string> | string | null;
 
@@ -27,6 +30,47 @@ export type WorkItemMetadata = Record<string, WorkItemMetadataValue>;
 export type FragmentMeta = {
   metadataList: TranslationUnitMetadata[];
   targetGroups?: string[][];
+  /** 文本块级 JSON 辅助数据，供提供者/消费者跨流程传递任意结构化数据。 */
+  auxData?: FragmentAuxData;
+};
+
+/**
+ * 文本块级辅助数据包：一个以字段键为顶层属性的 JSON 对象。
+ *
+ * 字段键建议遵循 `providerNamespace.semanticName.vN` 命名规范，
+ * 例如 `styleTransfer.analysis.v1`，避免不同提供者撞键。
+ */
+export type FragmentAuxData = JsonObject;
+
+/**
+ * 辅助数据补丁（patch）：用于增量写入/删除字段。
+ * - 值为 `undefined` 表示删除该字段；
+ * - 其他值表示新增或覆盖该字段；
+ * - 未出现的键保持不变。
+ */
+export type FragmentAuxDataPatch = Record<string, JsonValue | undefined>;
+
+/**
+ * 辅助数据字段描述符，供契约声明使用。
+ */
+export type FragmentAuxDataFieldDescriptor = {
+  /** 字段键，建议带命名空间和版本，例如 `styleTransfer.analysis.v1`。 */
+  key: string;
+  /** 字段说明，用于调试和可视化。 */
+  description?: string;
+  /** 是否必需（消费方声明时使用）。 */
+  required?: boolean;
+};
+
+/**
+ * 辅助数据契约：由每个处理器文件各自导出，声明自己提供和消费的字段集合。
+ * 不存在集中注册表；工厂层只负责转发各处理器导出的契约常量。
+ */
+export type FragmentAuxDataContract = {
+  /** 该处理器向文本块辅助数据写入的字段。 */
+  provides?: FragmentAuxDataFieldDescriptor[];
+  /** 该处理器从文本块辅助数据读取的字段。 */
+  consumes?: FragmentAuxDataFieldDescriptor[];
 };
 
 export type PipelineStepStatus = "queued" | "running" | "completed";
