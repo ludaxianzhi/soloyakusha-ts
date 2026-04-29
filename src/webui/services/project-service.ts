@@ -2393,9 +2393,8 @@ export class ProjectService {
         const chapter = this.project!.getChapterDescriptor(chapterId);
         if (!chapter) continue;
 
-        const base = basename(chapter.filePath, extname(chapter.filePath));
-        const ext = extname(chapter.filePath) || '.txt';
-        const outputPath = join(exportRootDir, `${base}${ext}`);
+        const outputPath = join(exportRootDir, chapter.filePath);
+        await mkdir(dirname(outputPath), { recursive: true });
         await this.project!.exportChapter(chapterId, outputPath, { fileHandler: handler });
         results.push({ chapterId, outputPath, unitCount: chapter.fragmentCount });
       }

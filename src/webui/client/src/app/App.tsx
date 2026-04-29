@@ -1338,7 +1338,9 @@ export function AppShell() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         if (chapterIds.length === 1) {
-          link.download = `chapter-${chapterIds[0]}-${format}`;
+          const chapter = chapters.find((c) => c.id === chapterIds[0]);
+          const originalName = chapter?.filePath.split('/').pop();
+          link.download = originalName ?? `chapter-${chapterIds[0]}-${format}`;
         } else {
           link.download = `${snapshot?.projectName ?? 'soloyakusha'}-chapters-${format}.zip`;
         }
@@ -1350,7 +1352,7 @@ export function AppShell() {
         message.success('章节下载已开始');
       });
     },
-    [message, runAction, snapshot?.projectName],
+    [message, runAction, snapshot?.projectName, chapters],
   );
 
   const handleResetProject = useCallback(
