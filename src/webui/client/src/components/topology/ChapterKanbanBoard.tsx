@@ -22,6 +22,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   BranchesOutlined,
   DeleteOutlined,
+  DownloadOutlined,
   EditOutlined,
   HolderOutlined,
   LockOutlined,
@@ -57,6 +58,7 @@ interface ChapterKanbanBoardProps {
   ) => void | Promise<void>;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
   onUpdateRoute: (routeId: string, payload: UpdateStoryRoutePayload) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
 }
 
 type ColumnItems = Record<string, number[]>;
@@ -73,6 +75,7 @@ export function ChapterKanbanBoard({
   onRemoveChapters,
   onRemoveRoute,
   onUpdateRoute,
+  onDownloadChapters,
 }: ChapterKanbanBoardProps) {
   const chapterMap = useMemo(
     () => new Map(chapters.map((c) => [c.id, c] as const)),
@@ -364,6 +367,7 @@ export function ChapterKanbanBoard({
               onRemoveChapters={onRemoveChapters}
               onEditRoute={handleEditRoute}
               onRemoveRoute={onRemoveRoute}
+              onDownloadChapters={onDownloadChapters}
             />
           ))}
         </div>
@@ -446,6 +450,7 @@ interface KanbanColumnProps {
   ) => void | Promise<void>;
   onEditRoute: (route: StoryTopologyRouteDescriptor) => void;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
 }
 
 function KanbanColumn({
@@ -460,6 +465,7 @@ function KanbanColumn({
   onRemoveChapters,
   onEditRoute,
   onRemoveRoute,
+  onDownloadChapters,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: route.id });
 
@@ -551,6 +557,7 @@ function KanbanColumn({
                   onCreateBranch={onCreateBranch}
                   onClearChapterTranslations={onClearChapterTranslations}
                   onRemoveChapters={onRemoveChapters}
+                  onDownloadChapters={onDownloadChapters}
                 />
               );
             })
@@ -576,6 +583,7 @@ interface KanbanCardProps {
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
   ) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
 }
 
 function KanbanCard({
@@ -588,6 +596,7 @@ function KanbanCard({
   onCreateBranch,
   onClearChapterTranslations,
   onRemoveChapters,
+  onDownloadChapters,
 }: KanbanCardProps) {
   const navigate = useNavigate();
   const {
@@ -610,6 +619,17 @@ function KanbanCard({
       key: 'edit',
       label: '在线编辑',
       onClick: () => navigate(`/workspace/editor/${chapterId}`),
+    },
+    {
+      key: 'download',
+      icon: <DownloadOutlined />,
+      label: '下载章节',
+      children: [
+        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([chapterId], 'plain_text') },
+        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([chapterId], 'naturedialog') },
+        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([chapterId], 'm3t') },
+        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([chapterId], 'galtransl_json') },
+      ],
     },
     {
       key: 'clear',

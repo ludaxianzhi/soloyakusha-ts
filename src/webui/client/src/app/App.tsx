@@ -1331,6 +1331,28 @@ export function AppShell() {
     [message, runAction, snapshot?.projectName],
   );
 
+  const handleDownloadChapters = useCallback(
+    async (chapterIds: number[], format: string) => {
+      await runAction(async () => {
+        const blob = await api.downloadChaptersExport(chapterIds, format);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        if (chapterIds.length === 1) {
+          link.download = `chapter-${chapterIds[0]}-${format}`;
+        } else {
+          link.download = `${snapshot?.projectName ?? 'soloyakusha'}-chapters-${format}.zip`;
+        }
+        link.href = url;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        message.success('章节下载已开始');
+      });
+    },
+    [message, runAction, snapshot?.projectName],
+  );
+
   const handleResetProject = useCallback(
     async (payload: Record<string, unknown>, successText: string) => {
       await runAction(async () => {
@@ -1952,6 +1974,7 @@ export function AppShell() {
                       onRemoveStoryRoute={handleRemoveStoryRoute}
                       onImportChapterArchive={handleImportChapterArchive}
                       onDownloadExport={handleDownloadExport}
+                      onDownloadChapters={handleDownloadChapters}
                       onResetProject={handleResetProject}
                       onAbortTaskActivity={handleAbortTaskActivity}
                       onForceAbortTaskActivity={handleForceAbortTaskActivity}

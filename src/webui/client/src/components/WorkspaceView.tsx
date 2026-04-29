@@ -55,6 +55,7 @@ export function WorkspaceView({
   onRemoveStoryRoute,
   onImportChapterArchive,
   onDownloadExport,
+  onDownloadChapters,
   onResetProject,
   onAbortTaskActivity,
   onForceAbortTaskActivity,
@@ -186,6 +187,7 @@ export function WorkspaceView({
                 onMoveChapterToRoute={onMoveChapterToRoute}
                 onRemoveStoryRoute={onRemoveStoryRoute}
                 onImportChapterArchive={onImportChapterArchive}
+                onDownloadChapters={onDownloadChapters}
               />
             ),
           },

@@ -518,6 +518,48 @@ export function createProjectRoutes(
     return c.json({ ok: true });
   });
 
+  app.post('/chapters/export', async (c) => {
+    const body = await c.req.json<{ chapterIds: number[]; format: string }>();
+    if (!Array.isArray(body.chapterIds) || body.chapterIds.length === 0) {
+      return c.json({ error: '请提供至少一个章节 ID' }, 400);
+    }
+    const format = String(body.format ?? 'plain_text').trim();
+    if (!format) {
+      return c.json({ error: '请提供导出格式' }, 400);
+    }
+
+    const result = await projectService.exportChapters(body.chapterIds, format);
+    if (!result) {
+      return c.json({ error: '导出失败' }, 400);
+    }
+
+    const snapshot = projectService.getSnapshot();
+    const projectName = snapshot?.projectName ?? 'soloyakusha';
+
+    if (result.totalChapters === 1 && result.routes[0]?.chapters[0]) {
+      const single = result.routes[0].chapters[0];
+      const file = Bun.file(single.outputPath);
+      const buffer = await file.arrayBuffer();
+      const fileName = basename(single.outputPath);
+      return new Response(new Blob([buffer]), {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+        },
+      });
+    }
+
+    const archive = await buildExportArchive(result.exportDir);
+    const archiveBuffer = Uint8Array.from(archive).buffer;
+    const fileName = `${projectName}-chapters-${format}.zip`;
+    return new Response(new Blob([archiveBuffer]), {
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+      },
+    });
+  });
+
   app.post('/chapters/import-archive', async (c) => {
     const formData = await c.req.formData();
     const file = formData.get('file') as File | null;

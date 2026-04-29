@@ -4,6 +4,7 @@ import {
   App as AntdApp,
   Button,
   Card,
+  Dropdown,
   Form,
   Input,
   Modal,
@@ -18,6 +19,7 @@ import {
   Upload,
 } from 'antd';
 import type { UploadFile } from 'antd';
+import { DownloadOutlined, MoreOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type {
   CreateStoryBranchPayload,
@@ -76,6 +78,7 @@ interface WorkspaceChaptersTabProps {
     importPattern?: string;
     importTranslation?: boolean;
   }) => Promise<ImportArchiveResult>;
+  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
 }
 
 type RouteAttachCandidate = {
@@ -112,6 +115,7 @@ export function WorkspaceChaptersTab({
   onMoveChapterToRoute,
   onRemoveStoryRoute,
   onImportChapterArchive,
+  onDownloadChapters,
 }: WorkspaceChaptersTabProps) {
   const [activeTabKey, setActiveTabKey] = useState(mobileMode ? 'list' : 'arrange');
 
@@ -166,6 +170,7 @@ export function WorkspaceChaptersTab({
                       onRemoveChapters={onRemoveChapters}
                       onRemoveRoute={onRemoveStoryRoute}
                       onUpdateRoute={onUpdateStoryRoute}
+                      onDownloadChapters={onDownloadChapters}
                     />
                   ),
                 },
@@ -185,6 +190,7 @@ export function WorkspaceChaptersTab({
                 onRemoveChapters={onRemoveChapters}
                 onCreateStoryBranch={onCreateStoryBranch}
                 onImportChapterArchive={onImportChapterArchive}
+                onDownloadChapters={onDownloadChapters}
               />
             ),
           },
@@ -274,6 +280,7 @@ function ChapterInfoTable({
   onRemoveChapters,
   onCreateStoryBranch,
   onImportChapterArchive,
+  onDownloadChapters,
 }: {
   mobileMode?: boolean;
   chapters: WorkspaceChapterDescriptor[];
@@ -295,6 +302,7 @@ function ChapterInfoTable({
     importPattern?: string;
     importTranslation?: boolean;
   }) => Promise<ImportArchiveResult>;
+  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
 }) {
   const { message } = AntdApp.useApp();
   const navigate = useNavigate();
@@ -307,9 +315,12 @@ function ChapterInfoTable({
   const [importArchiveSubmitting, setImportArchiveSubmitting] = useState(false);
   const [proofreadModalOpen, setProofreadModalOpen] = useState(false);
   const [proofreadMode, setProofreadMode] = useState<'linear' | 'simultaneous'>('linear');
+  const [batchDownloadModalOpen, setBatchDownloadModalOpen] = useState(false);
+  const [batchDownloadFormat, setBatchDownloadFormat] = useState('plain_text');
   const [importArchiveFiles, setImportArchiveFiles] = useState<UploadFile[]>([]);
   const [importArchiveResult, setImportArchiveResult] = useState<ImportArchiveResult | null>(null);
   const [importArchiveForm] = Form.useForm<ImportArchiveFormValues>();
+  const [importGroupsCollapsed, setImportGroupsCollapsed] = useState(false);
   const selectedParentRouteId = Form.useWatch('parentRouteId', attachForm);
   const selectedForkAfterChapterId = Form.useWatch('forkAfterChapterId', attachForm);
 
@@ -497,6 +508,20 @@ function ChapterInfoTable({
     setProofreadModalOpen(false);
   };
 
+  const handleBatchDownload = () => {
+    if (selectedChapterIds.length === 0) {
+      message.warning('请先选择章节');
+      return;
+    }
+    setBatchDownloadFormat('plain_text');
+    setBatchDownloadModalOpen(true);
+  };
+
+  const handleConfirmBatchDownload = () => {
+    void onDownloadChapters(selectedChapterIds, batchDownloadFormat);
+    setBatchDownloadModalOpen(false);
+  };
+
   const openPreview = (chapterId: number) => {
     setPreviewChapterId(chapterId);
     setPreviewOpen(true);
@@ -620,39 +645,58 @@ function ChapterInfoTable({
 
   return (
     <>
-      <Card size="small" title="导入分组" style={{ marginBottom: 12 }}>
-        {chapterGroups.length === 0 ? (
-          <Typography.Text type="secondary">当前没有可用的目录分组。</Typography.Text>
-        ) : (
-          <div className="chapter-import-group-list">
-            {chapterGroups.map((group) => (
-              <div
-                key={group.id}
-                className="chapter-import-group-item"
-                style={{ paddingLeft: group.depth * 16 }}
-              >
-                <Space wrap size={[8, 8]}>
-                  <Typography.Text strong>{group.name}</Typography.Text>
-                  <Typography.Text type="secondary">
-                    {group.path === '.' ? '(根目录)' : group.path}
-                  </Typography.Text>
-                  <Tag>{group.chapterIds.length} 章节</Tag>
-                  <Button size="small" onClick={() => handleSelectGroupChapters(group)}>
-                    选中章节
-                  </Button>
-                  <Button
-                    size="small"
-                    type="dashed"
-                    onClick={() => openAttachGroupModal(group)}
-                    disabled={group.chapterIds.length === 0}
+      <Card
+        size="small"
+        title={
+          <Space>
+            <Typography.Text>导入分组</Typography.Text>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => setImportGroupsCollapsed((prev) => !prev)}
+            >
+              {importGroupsCollapsed ? '展开' : '收起'}
+            </Button>
+          </Space>
+        }
+        style={{ marginBottom: 12 }}
+      >
+        {!importGroupsCollapsed ? (
+          <>
+            {chapterGroups.length === 0 ? (
+              <Typography.Text type="secondary">当前没有可用的目录分组。</Typography.Text>
+            ) : (
+              <div className="chapter-import-group-list">
+                {chapterGroups.map((group) => (
+                  <div
+                    key={group.id}
+                    className="chapter-import-group-item"
+                    style={{ paddingLeft: group.depth * 16 }}
                   >
-                    挂接为分支
-                  </Button>
-                </Space>
+                    <Space wrap size={[8, 8]}>
+                      <Typography.Text strong>{group.name}</Typography.Text>
+                      <Typography.Text type="secondary">
+                        {group.path === '.' ? '(根目录)' : group.path}
+                      </Typography.Text>
+                      <Tag>{group.chapterIds.length} 章节</Tag>
+                      <Button size="small" onClick={() => handleSelectGroupChapters(group)}>
+                        选中章节
+                      </Button>
+                      <Button
+                        size="small"
+                        type="dashed"
+                        onClick={() => openAttachGroupModal(group)}
+                        disabled={group.chapterIds.length === 0}
+                      >
+                        挂接为分支
+                      </Button>
+                    </Space>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
+          </>
+        ) : null}
       </Card>
 
       <div className="chapter-batch-toolbar">
@@ -668,6 +712,9 @@ function ChapterInfoTable({
           </Button>
           <Button size="small" type="primary" onClick={handleOpenProofreadModal}>
             创建校对任务
+          </Button>
+          <Button size="small" icon={<DownloadOutlined />} onClick={handleBatchDownload}>
+            下载选中章节
           </Button>
           <Popconfirm
             title={`确认清空选中的 ${selectedChapterIds.length} 个章节译文？`}
@@ -774,22 +821,52 @@ function ChapterInfoTable({
                 >
                   在线编辑
                 </Button>
-                <Popconfirm
-                  title="确认清空该章节的译文？"
-                  onConfirm={() => void onClearChapterTranslations([record.id])}
+                <Dropdown
+                  menu={{
+                    items: [
+                      {
+                        key: 'download',
+                        icon: <DownloadOutlined />,
+                        label: '下载章节',
+                        children: [
+                          { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([record.id], 'plain_text') },
+                          { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([record.id], 'naturedialog') },
+                          { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([record.id], 'm3t') },
+                          { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([record.id], 'galtransl_json') },
+                        ],
+                        },
+                        { type: 'divider' as const },
+                      {
+                        key: 'clear',
+                        label: '清空译文',
+                        onClick: () => {
+                          Modal.confirm({
+                            title: '确认清空该章节的译文？',
+                            okText: '清空',
+                            cancelText: '取消',
+                            onOk: () => onClearChapterTranslations([record.id]),
+                          });
+                        },
+                      },
+                      {
+                        key: 'remove',
+                        label: <span style={{ color: '#ff7875' }}>移除</span>,
+                        onClick: () => {
+                          Modal.confirm({
+                            title: '确认移除该章节？',
+                            okText: '移除',
+                            cancelText: '取消',
+                            okButtonProps: { danger: true },
+                            onOk: () => onRemoveChapters([record.id], { cascadeBranches: false }),
+                          });
+                        },
+                      },
+                    ],
+                  }}
+                  trigger={['click']}
                 >
-                  <Button size="small">清空译文</Button>
-                </Popconfirm>
-                <Popconfirm
-                  title="确认移除该章节？"
-                  onConfirm={() =>
-                    void onRemoveChapters([record.id], { cascadeBranches: false })
-                  }
-                >
-                  <Button size="small" danger>
-                    移除
-                  </Button>
-                </Popconfirm>
+                  <Button size="small" icon={<MoreOutlined />} />
+                </Dropdown>
               </Space>
             ),
           },
@@ -982,6 +1059,34 @@ function ChapterInfoTable({
               ]}
             />
           </div>
+        </Space>
+      </Modal>
+
+      <Modal
+        title="下载选中章节"
+        open={batchDownloadModalOpen}
+        okText="下载"
+        cancelText="取消"
+        onCancel={() => setBatchDownloadModalOpen(false)}
+        onOk={() => void handleConfirmBatchDownload()}
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Alert
+            type="info"
+            showIcon
+            message={`将下载 ${selectedChapterIds.length} 个选中章节的导出压缩包`}
+          />
+          <Select
+            style={{ width: '100%' }}
+            value={batchDownloadFormat}
+            onChange={(value) => setBatchDownloadFormat(value)}
+            options={[
+              { value: 'plain_text', label: '纯文本' },
+              { value: 'naturedialog', label: 'Nature Dialog' },
+              { value: 'm3t', label: 'M3T' },
+              { value: 'galtransl_json', label: 'GalTransl JSON' },
+            ]}
+          />
         </Space>
       </Modal>
     </>

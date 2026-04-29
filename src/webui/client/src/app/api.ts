@@ -459,6 +459,12 @@ export const api = {
       body: { format },
     }),
 
+  downloadChaptersExport: (chapterIds: number[], format: string) =>
+    requestBlob('/api/project/chapters/export', {
+      method: 'POST',
+      body: { chapterIds, format },
+    }),
+
   downloadWorkspaceArchive: (dir: string) =>
     requestBlob('/api/workspaces/export', {
       method: 'POST',

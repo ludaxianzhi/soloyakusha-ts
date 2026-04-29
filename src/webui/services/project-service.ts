@@ -82,6 +82,7 @@ import type {
   ProofreadTaskState,
   ProjectExportResult,
   StoryTopologyDescriptor,
+  TranslationExportResult,
   TranslationProjectSnapshot,
   TranslationStepQueueEntrySnapshot,
   TranslationStepQueueSnapshot,
@@ -2367,6 +2368,56 @@ export class ProjectService {
       this.log(
         'success',
         `导出完成：${exported.totalChapters} 章节，${exported.totalUnits} 翻译单元 → ${exported.exportDir}`,
+      );
+    });
+    return result;
+  }
+
+  async exportChapters(
+    chapterIds: number[],
+    formatName: string,
+  ): Promise<ProjectExportResult | null> {
+    if (!this.project) {
+      this.log('warning', '当前没有已初始化的项目');
+      return null;
+    }
+
+    let result: ProjectExportResult | null = null;
+    await this.runAction('导出章节', async () => {
+      const handler = TranslationFileHandlerFactory.getHandler(formatName);
+      const exportRootDir = `${this.project!.getWorkspaceFileManifest().projectDir}/export`;
+      await mkdir(exportRootDir, { recursive: true });
+
+      const results: TranslationExportResult[] = [];
+      for (const chapterId of chapterIds) {
+        const chapter = this.project!.getChapterDescriptor(chapterId);
+        if (!chapter) continue;
+
+        const base = basename(chapter.filePath, extname(chapter.filePath));
+        const ext = extname(chapter.filePath) || '.txt';
+        const outputPath = join(exportRootDir, `${base}${ext}`);
+        await this.project!.exportChapter(chapterId, outputPath, { fileHandler: handler });
+        results.push({ chapterId, outputPath, unitCount: chapter.fragmentCount });
+      }
+
+      const totalChapters = results.length;
+      const totalUnits = results.reduce((sum, r) => sum + r.unitCount, 0);
+
+      result = {
+        exportDir: exportRootDir,
+        routes: [{
+          routeId: 'export',
+          routeName: '导出',
+          exportDir: exportRootDir,
+          chapters: results,
+        }],
+        totalChapters,
+        totalUnits,
+      };
+
+      this.log(
+        'success',
+        `章节导出完成：${totalChapters} 章节，${totalUnits} 翻译单元 → ${exportRootDir}`,
       );
     });
     return result;
