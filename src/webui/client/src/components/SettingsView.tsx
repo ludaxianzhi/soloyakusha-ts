@@ -178,17 +178,18 @@ export function SettingsView({
   };
 
   return (
-    <Tabs
-      size="small"
-      defaultActiveKey="llm"
-      items={[
-        {
-          key: 'llm',
-          label: 'LLM Profiles',
-          children: (
-            <Row gutter={12}>
-              <Col span={7}>
-                    <Card
+    <div className="settings-tabs-wrapper">
+      <Tabs
+        size="small"
+        defaultActiveKey="llm"
+        items={[
+          {
+            key: 'llm',
+            label: 'LLM Profiles',
+            children: (
+              <Row gutter={12} className="settings-split-row">
+                <Col span={7} className="settings-split-panel">
+                  <Card
                       size="small"
                       title="Chat Profiles"
                       loading={settingsLoading.llmProfiles}
@@ -212,7 +213,7 @@ export function SettingsView({
                   </Space>
                 </Card>
               </Col>
-              <Col span={17}>
+              <Col span={17} className="settings-split-panel">
                 <Card size="small" title="编辑 Profile" loading={settingsLoading.llmProfiles}>
                   <Form
                     form={llmForm}
@@ -551,8 +552,8 @@ export function SettingsView({
           key: 'translator',
           label: '翻译器',
           children: (
-            <Row gutter={16}>
-              <Col span={7}>
+            <Row gutter={16} className="settings-split-row">
+              <Col span={7} className="settings-split-panel">
                 <Card
                   title="翻译器列表"
                   loading={settingsLoading.translator}
@@ -590,7 +591,7 @@ export function SettingsView({
                   </Space>
                 </Card>
               </Col>
-              <Col span={17}>
+              <Col span={17} className="settings-split-panel">
                 <Card title="编辑翻译器" loading={settingsLoading.translator}>
                   <Form
                     form={translatorForm}
@@ -891,6 +892,7 @@ export function SettingsView({
         },
       ]}
     />
+    </div>
   );
 }
 

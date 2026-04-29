@@ -61,7 +61,8 @@ html[data-color-scheme='dark'] {
 html,
 body,
 #root {
-  min-height: 100%;
+  height: 100%;
+  overflow: hidden;
   font-family: var(--font-family);
 }
 
@@ -73,7 +74,8 @@ body {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .app-shell,
@@ -85,6 +87,44 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.settings-tabs-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-tabs-wrapper > .ant-tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-tabs-wrapper > .ant-tabs > .ant-tabs-content-holder {
+  flex: 1;
+  overflow: hidden;
+}
+
+.settings-tabs-wrapper > .ant-tabs > .ant-tabs-content-holder > .ant-tabs-content {
+  height: 100%;
+}
+
+.settings-tabs-wrapper > .ant-tabs > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.settings-split-row {
+  height: 100%;
+}
+
+.settings-split-panel {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .app-shell .ant-card .ant-card-head {

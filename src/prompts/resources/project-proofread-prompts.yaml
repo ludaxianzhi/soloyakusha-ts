@@ -234,12 +234,7 @@ prompts:
           {% if term.description %}description: {{ term.description }}{% endif %}
         {% endfor %}
 
-        {% endif %}
-        {% if requirements.size > 0 %}
-        翻译要求：
-        {% for requirement in requirements %}
-        - {{ requirement }}
-        {% endfor %}
+
 
         {% endif %}
         {% if analysisText %}
@@ -269,3 +264,9 @@ prompts:
         **只对有重要事实性错误的句子**提出意见。无需对表达问题或修辞问题提出意见。
         若所有句子都没有事实性错误，可以直接在最终结果里说明。
         输出为纯文字（无需 JSON）。
+# {% endif %}
+# {% if requirements.size > 0 %}
+# 翻译要求：
+# {% for requirement in requirements %}
+# - {{ requirement }}
+# {% endfor %}
