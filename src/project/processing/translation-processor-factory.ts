@@ -16,11 +16,6 @@ import {
   STYLE_TRANSFER_AUX_DATA_CONTRACT,
   type StyleTransferStepName,
 } from "./style-transfer-translation-processor.ts";
-import {
-  MultiStageTranslationProcessor,
-  MULTI_STAGE_STEP_NAMES,
-  type MultiStageStepName,
-} from "./multi-stage-translation-processor.ts";
 import type {
   TranslationProcessor,
   TranslationProcessorClientResolver,
@@ -32,7 +27,7 @@ export type TranslationProcessorFactoryCreateOptions = {
   workflow?: string;
   clientResolver: TranslationProcessorClientResolver;
   /**
-   * 各步骤的 LLM 解析器覆盖，供多步骤工作流（如 multi-stage）使用。
+  * 各步骤的 LLM 解析器覆盖，供多步骤翻译工作流（如 style-transfer）使用。
    * key 为步骤标识（如 "analyzer"、"translator" 等），value 为对应的 client resolver。
    */
   additionalClientResolvers?: Record<string, TranslationProcessorClientResolver>;
@@ -41,7 +36,7 @@ export type TranslationProcessorFactoryCreateOptions = {
    */
   stepRequestOptions?: Partial<Record<StyleTransferStepName, ChatRequestOptions>>;
   /**
-   * 工作流专用选项，供特定工作流读取（如 multi-stage 的 reviewIterations）。
+  * 工作流专用选项，供特定工作流读取。
    */
   workflowOptions?: Record<string, unknown>;
   promptManager?: PromptManager;
@@ -289,33 +284,6 @@ export class TranslationProcessorFactory {
         },
       },
     ],
-    [
-      "multi-stage",
-      {
-        builder: (options) =>
-          new MultiStageTranslationProcessor(options.clientResolver, {}, {
-            promptManager: options.promptManager,
-            defaultRequestOptions: options.defaultRequestOptions,
-            defaultSlidingWindow: options.defaultSlidingWindow,
-            logger: options.logger,
-            processorName: options.processorName,
-            glossaryUpdater: options.glossaryUpdater,
-            outputRepairer: options.outputRepairer,
-            stepRequestOptions: options.stepRequestOptions,
-          }),
-        metadata: {
-          workflow: "multi-stage",
-          title: "兼容旧多阶段翻译器",
-          description: "仅用于兼容旧配置；新建翻译器请使用 style-transfer。",
-          sourceLanguage: "ja",
-          targetLanguage: "zh-CN",
-          promptSet: "ja-zhCN",
-          translatorFields: buildMultiStageLegacyFields(),
-          workspaceFields: [],
-        },
-        listed: false,
-      },
-    ],
   ]);
 
   static createProcessor(
@@ -398,31 +366,6 @@ function cloneWorkflowFieldMetadata(
   };
 }
 
-function buildMultiStageStepFields(): TranslationProcessorWorkflowFieldMetadata[] {
-  return MULTI_STAGE_STEP_NAMES.flatMap((step) => {
-    const stepLabel = getMultiStageStepLabel(step);
-    return [
-      {
-        key: `steps.${step}.modelNames`,
-        label: `${stepLabel}模型链`,
-        description: `${stepLabel}阶段按顺序选择的 LLM Profile，后面的模型会作为前面的回退。`,
-        input: "llm-profile" as const,
-        required: true,
-        section: "basic" as const,
-      },
-      {
-        key: `steps.${step}.requestOptions`,
-        label: `${stepLabel}请求选项`,
-        description: `${stepLabel}阶段专用的附加请求参数，例如 temperature、topP 等。`,
-        input: "yaml" as const,
-        yamlShape: "object" as const,
-        placeholder: "temperature: 0.2\nmaxTokens: 4096",
-        section: "advanced" as const,
-      },
-    ];
-  });
-}
-
 function buildStyleTransferStepFields(): TranslationProcessorWorkflowFieldMetadata[] {
   return STYLE_TRANSFER_STEP_NAMES.flatMap((step) => {
     const stepLabel = getStyleTransferStepLabel(step);
@@ -448,36 +391,6 @@ function buildStyleTransferStepFields(): TranslationProcessorWorkflowFieldMetada
   });
 }
 
-function buildMultiStageLegacyFields(): TranslationProcessorWorkflowFieldMetadata[] {
-  return [
-    {
-      key: "reviewIterations",
-      label: "评审轮数",
-      description: "旧多阶段工作流兼容字段。",
-      input: "number",
-      min: 0,
-      section: "basic",
-    },
-    {
-      key: "maxConcurrentWorkItems",
-      label: "文本块并发数",
-      description: "同时处理多少个文本块；未填写时会根据相关 LLM Profile 的并发上限自动推断。",
-      input: "number",
-      min: 1,
-      section: "basic",
-    },
-    ...buildMultiStageStepFields(),
-    {
-      key: "slidingWindow.overlapChars",
-      label: "滑窗重叠字符数",
-      description: "长文本分段时保留的重叠上下文字符数。",
-      input: "number",
-      min: 0,
-      section: "advanced",
-    },
-  ];
-}
-
 function getStyleTransferStepLabel(step: StyleTransferStepName): string {
   switch (step) {
     case "analyzer":
@@ -489,17 +402,3 @@ function getStyleTransferStepLabel(step: StyleTransferStepName): string {
   }
 }
 
-function getMultiStageStepLabel(step: MultiStageStepName): string {
-  switch (step) {
-    case "analyzer":
-      return "分析器";
-    case "translator":
-      return "翻译器";
-    case "editor":
-      return "编辑器";
-    case "proofreader":
-      return "校对器";
-    case "reviser":
-      return "聚合器";
-  }
-}

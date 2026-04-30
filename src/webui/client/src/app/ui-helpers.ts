@@ -535,8 +535,7 @@ export function formatTranslatorModelSummary(
   const llmProfileFields = getTranslatorWorkflowFields(workflow).filter(
     (field) => field.input === 'llm-profile',
   );
-  const shouldShowPerStepSummary =
-    workflow?.workflow === 'multi-stage' || workflow?.workflow === 'style-transfer' || llmProfileFields.length > 1;
+  const shouldShowPerStepSummary = llmProfileFields.length > 1;
   const stepSummary = shouldShowPerStepSummary
     ? llmProfileFields
         .map((field) => {

@@ -145,7 +145,7 @@ export type TranslatorEntry = {
   /** 旧版步骤模型覆盖，兼容已有配置。 */
   models?: TranslatorModelOverrides;
   /**
-   * 评审迭代次数（仅 multi-stage 工作流使用）。
+    * 评审迭代次数，供需要多轮审校的工作流使用。
    * 默认值为 2。
    */
   reviewIterations?: number;

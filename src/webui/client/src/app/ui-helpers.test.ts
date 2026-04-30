@@ -193,10 +193,10 @@ describe('WebUI LLM request config helpers', () => {
     expect(payload.promptSet).toBe('en-fr');
   });
 
-  test('serializes multi-stage step model chains and request options', () => {
+  test('serializes style-transfer step model chains and request options', () => {
     const workflow = {
-      workflow: 'multi-stage',
-      title: 'Multi-stage',
+      workflow: 'style-transfer',
+      title: 'Style transfer',
       fields: [
         {
           key: 'steps.analyzer.modelNames',
@@ -228,7 +228,7 @@ describe('WebUI LLM request config helpers', () => {
       sourceLanguage: 'ja',
       targetLanguage: 'zh-CN',
       promptSet: 'ja-zhCN',
-      type: 'multi-stage',
+      type: 'style-transfer',
       modelNames: ['analyzer-primary'],
       steps: {
         analyzer: {

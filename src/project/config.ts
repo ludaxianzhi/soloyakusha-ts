@@ -38,7 +38,7 @@ export type TranslationProcessorConfig = {
   slidingWindow?: SlidingWindowOptions;
   requestOptions?: ChatRequestOptions;
   /**
-   * 各步骤的模型链与请求选项（供 multi-stage 等多步骤工作流使用）。
+    * 各步骤的模型链与请求选项（供 style-transfer 等分步骤工作流使用）。
    * key 为步骤标识，value 为该步骤的独立配置。
    */
   steps?: Partial<Record<TranslationProcessorStepName, TranslationProcessorStepConfig>>;
@@ -47,7 +47,7 @@ export type TranslationProcessorConfig = {
    * 新配置请使用 steps。
    */
   models?: Record<string, string>;
-  /** 评审迭代次数（仅 multi-stage 工作流使用，默认值为 2）。 */
+  /** 评审迭代次数，供需要多轮审校的工作流使用。 */
   reviewIterations?: number;
 };
 

@@ -10,7 +10,6 @@ import type { ChatRequestOptions, LlmClientConfig } from "../../llm/types.ts";
 import { GlobalConfigManager } from "../../config/manager.ts";
 import { TranslationGlobalConfig } from "../config.ts";
 import { DefaultTranslationProcessor } from "./default-translation-processor.ts";
-import { MultiStageTranslationProcessor } from "./multi-stage-translation-processor.ts";
 import { MultiStageProofreadProcessor } from "./proofread-processor.ts";
 import { StyleTransferTranslationProcessor } from "./style-transfer-translation-processor.ts";
 import { DefaultTextSplitter } from "../document/translation-document-manager.ts";
@@ -342,34 +341,6 @@ describe("TranslationProcessor", () => {
     });
   });
 
-  test("injects custom editor requirements into the multi-stage editor step", async () => {
-    const client = new FakeChatClient([
-      "分析结果",
-      JSON.stringify({
-        translations: [{ id: "1", translation: "初稿译文" }],
-      }),
-      "[1] 建议收紧句式。",
-      "[1] 无事实错误。",
-      JSON.stringify({
-        translations: [{ id: "1", translation: "终稿译文" }],
-      }),
-    ]);
-    const processor = new MultiStageTranslationProcessor(client, {}, {
-      reviewIterations: 1,
-    });
-
-    const result = await processor.process({
-      sourceText: "勇者は王都を見つめていた",
-      requirements: ["保持文学性"],
-      editorRequirementsText: "避免使用半文言句式。",
-    });
-
-    expect(result.outputText).toBe("终稿译文");
-    expect(client.requests[2]?.options?.requestConfig?.systemPrompt).toContain(
-      "避免使用半文言句式。",
-    );
-  });
-
   test("injects style requirements into the style-transfer step system prompt", async () => {
     const client = new FakeChatClient([
       "分析结果",
@@ -540,9 +511,12 @@ describe("TranslationProcessor", () => {
     ).rejects.toThrow("译文与原文行数差异过大");
   });
 
-  test("multi-stage processor repairs minor output line mismatch", async () => {
+  test("style-transfer processor repairs minor output line mismatch", async () => {
     const client = new FakeChatClient([
       "分析结果",
+      JSON.stringify({
+        translations: createSequentialTranslations(7),
+      }),
       JSON.stringify({
         translations: createSequentialTranslations(7, {
           4: "T4\nEXTRA",
@@ -552,8 +526,7 @@ describe("TranslationProcessor", () => {
     const outputRepairer = new FakeOutputRepairer([
       createResolvedRepairResult(createSequentialLineArray("T", 7), 7, 8),
     ]);
-    const processor = new MultiStageTranslationProcessor(client, {}, {
-      reviewIterations: 0,
+    const processor = new StyleTransferTranslationProcessor(client, {}, {
       outputRepairer,
     });
 
@@ -577,18 +550,21 @@ describe("TranslationProcessor", () => {
     expect(client.requests.map((entry) => entry.options?.meta?.label)).toEqual([
       "翻译-分析",
       "翻译-初步翻译",
+      "翻译-风格迁移",
     ]);
   });
 
-  test("multi-stage processor applies per-step request options", async () => {
+  test("style-transfer processor applies per-step request options", async () => {
     const client = new FakeChatClient([
       "分析结果",
       JSON.stringify({
         translations: createSequentialTranslations(7),
       }),
+      JSON.stringify({
+        translations: createSequentialTranslations(7),
+      }),
     ]);
-    const processor = new MultiStageTranslationProcessor(client, {}, {
-      reviewIterations: 0,
+    const processor = new StyleTransferTranslationProcessor(client, {}, {
       stepRequestOptions: {
         analyzer: {
           requestConfig: {
@@ -600,6 +576,11 @@ describe("TranslationProcessor", () => {
             maxTokens: 1024,
           },
         },
+        styleTransfer: {
+          requestConfig: {
+            topP: 0.9,
+          },
+        },
       },
     });
 
@@ -609,6 +590,7 @@ describe("TranslationProcessor", () => {
 
     expect(client.requests[0]?.options?.requestConfig?.temperature).toBe(0.1);
     expect(client.requests[1]?.options?.requestConfig?.maxTokens).toBe(1024);
+    expect(client.requests[2]?.options?.requestConfig?.topP).toBe(0.9);
   });
 
   test("creates processor from user global config and merges processor/updater request parameters", async () => {

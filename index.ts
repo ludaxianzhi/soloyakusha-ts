@@ -12,7 +12,6 @@ export * from "./src/project/config.ts";
 export * from "./src/project/document/index.ts";
 export * from "./src/project/logger.ts";
 export * from "./src/project/processing/default-translation-processor.ts";
-export * from "./src/project/processing/multi-stage-translation-processor.ts";
 export * from "./src/project/processing/proofread-processor-factory.ts";
 export * from "./src/project/processing/proofread-processor.ts";
 export * from "./src/project/processing/translation-output-repair.ts";
