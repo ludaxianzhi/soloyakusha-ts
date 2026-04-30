@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
-import { GlobalConfigManager } from "../config/manager.ts";
+import {
+  BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME,
+  GlobalConfigManager,
+} from "../config/manager.ts";
 import type {
   PersistedStyleLibraryConfig,
   StyleLibrarySourceSummary,
@@ -88,13 +91,17 @@ export class StyleLibraryService {
     this.vectorClientResolver = options.vectorClientResolver;
   }
 
+  async listVectorStoreNames(): Promise<string[]> {
+    return await this.manager.listStyleLibraryVectorStoreNames();
+  }
+
   async listLibraries(): Promise<StyleLibraryCatalog> {
     const registered = (await this.manager.getStyleLibraryConfig())?.libraries ?? {};
     const discoveryErrors: Record<string, string> = {};
     const currentEmbeddingState = await this.resolveCurrentEmbeddingState();
     const discoveredByKey = new Map<string, DiscoveredCollection>();
 
-    for (const storeName of await this.manager.listVectorStoreNames()) {
+    for (const storeName of await this.listVectorStoreNames()) {
       try {
         const collections = await this.listStoreCollections(storeName);
         for (const collection of collections) {
@@ -424,7 +431,7 @@ export class StyleLibraryService {
     }
 
     if (!SUPPORTED_SINGLE_FILE_EXTENSIONS.has(extension)) {
-      throw new Error(`不支持的样式库导入文件类型: ${input.fileName}`);
+      throw new Error(`不支持的风格库导入文件类型: ${input.fileName}`);
     }
 
     const targetPath = join(tempDir, sanitizeFileName(input.fileName || "upload.txt"));
@@ -476,7 +483,7 @@ export class StyleLibraryService {
       current.available,
     );
     if (compatibility.state === "invalid") {
-      throw new Error(compatibility.reason ?? "样式库已失效");
+      throw new Error(compatibility.reason ?? "风格库已失效");
     }
   }
 
@@ -518,7 +525,7 @@ export class StyleLibraryService {
     storeName: string,
     operation: (client: VectorStoreClient) => Promise<T>,
   ): Promise<T> {
-    const config = await this.manager.getResolvedVectorStoreConfig(storeName);
+    const config = await this.manager.getResolvedStyleLibraryVectorStoreConfig(storeName);
     if (this.vectorClientResolver) {
       return await operation(await this.vectorClientResolver(storeName, config as unknown as { provider: string } & JsonObject));
     }
@@ -532,6 +539,8 @@ export class StyleLibraryService {
     }
   }
 }
+
+export { BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME };
 
 export function buildStyleLibraryEmbeddingFingerprint(config: LlmClientConfig): string {
   const fingerprintSource = {
@@ -655,21 +664,21 @@ function evaluateEmbeddingCompatibility(
   if (!libraryFingerprint) {
     return {
       state: "unknown",
-      reason: "样式库缺少嵌入绑定信息",
+      reason: "风格库缺少嵌入绑定信息",
     };
   }
 
   if (!currentAvailable || !currentFingerprint) {
     return {
       state: "invalid",
-      reason: "当前未配置全局嵌入模型，样式库不可用",
+      reason: "当前未配置全局嵌入模型，风格库不可用",
     };
   }
 
   if (libraryFingerprint !== currentFingerprint) {
     return {
       state: "invalid",
-      reason: "样式库绑定的嵌入模型与当前全局嵌入模型不一致",
+      reason: "风格库绑定的嵌入模型与当前全局嵌入模型不一致",
     };
   }
 

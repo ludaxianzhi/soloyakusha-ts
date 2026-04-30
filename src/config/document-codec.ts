@@ -581,7 +581,7 @@ export function normalizePersistedStyleLibraryConfig(
   sourceLabel: string,
 ): PersistedStyleLibraryConfig {
   if (!isRecord(value)) {
-    throw new Error(`样式库配置必须是对象: ${sourceLabel}`);
+    throw new Error(`风格库配置必须是对象: ${sourceLabel}`);
   }
 
   return {
@@ -1618,7 +1618,7 @@ function normalizeOptionalStyleLibrarySourceSummary(
   }
 
   if (!isRecord(value)) {
-    throw new Error(`样式库来源摘要必须是对象: ${sourceLabel}`);
+    throw new Error(`风格库来源摘要必须是对象: ${sourceLabel}`);
   }
 
   const summary: StyleLibrarySourceSummary = {

@@ -6,7 +6,6 @@ import {
   type StyleLibraryImportResult,
   type StyleLibraryQueryResult,
 } from '../../style-library/index.ts';
-import { GlobalConfigManager } from '../../config/manager.ts';
 
 type WebStyleLibraryServiceOptions = {
   service?: CoreStyleLibraryService;
@@ -14,15 +13,13 @@ type WebStyleLibraryServiceOptions = {
 
 export class StyleLibraryService {
   private readonly service: CoreStyleLibraryService;
-  private readonly manager: GlobalConfigManager;
 
   constructor(options: WebStyleLibraryServiceOptions = {}) {
     this.service = options.service ?? new CoreStyleLibraryService();
-    this.manager = new GlobalConfigManager();
   }
 
   async listVectorStoreNames(): Promise<string[]> {
-    return await this.manager.listVectorStoreNames();
+    return await this.service.listVectorStoreNames();
   }
 
   async listLibraries(): Promise<StyleLibraryCatalog> {

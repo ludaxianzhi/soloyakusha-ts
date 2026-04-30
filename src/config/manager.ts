@@ -73,6 +73,10 @@ import {
   pruneEmptyVectorConfig,
 } from "./document-codec.ts";
 
+export const BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME = "builtin-memory";
+
+const BUILTIN_STYLE_LIBRARY_VECTOR_STORE_FILE_NAME = "style-library-memory.sqlite";
+
 export class GlobalConfigManager {
   private readonly filePath: string;
   private cachedDocument?: GlobalConfigDocument;
@@ -417,6 +421,12 @@ export class GlobalConfigManager {
     return Object.keys((await this.loadDocument()).vector?.stores ?? {}).sort();
   }
 
+  async listStyleLibraryVectorStoreNames(): Promise<string[]> {
+    const names = new Set(await this.listVectorStoreNames());
+    names.add(BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME);
+    return Array.from(names).sort();
+  }
+
   async getDefaultVectorStoreName(): Promise<string | undefined> {
     return (await this.loadDocument()).vector?.defaultStoreName;
   }
@@ -457,6 +467,22 @@ export class GlobalConfigManager {
 
   async getResolvedVectorStoreConfig(storeName?: string): Promise<VectorStoreConfig> {
     return createVectorStoreConfig(await this.getRequiredVectorStore(storeName));
+  }
+
+  async getResolvedStyleLibraryVectorStoreConfig(storeName: string): Promise<VectorStoreConfig> {
+    const registered = await this.getVectorStore(storeName);
+    if (registered) {
+      return createVectorStoreConfig(registered);
+    }
+
+    if (storeName === BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME) {
+      return createVectorStoreConfig({
+        provider: "sqlite-memory",
+        endpoint: join(dirname(this.filePath), BUILTIN_STYLE_LIBRARY_VECTOR_STORE_FILE_NAME),
+      });
+    }
+
+    throw new Error(`未找到名为 '${storeName}' 的向量数据库配置`);
   }
 
   async setVectorStore(
@@ -509,7 +535,7 @@ export class GlobalConfigManager {
   async getRequiredStyleLibrary(libraryName: string): Promise<PersistedStyleLibraryConfig> {
     const library = await this.getStyleLibrary(libraryName);
     if (!library) {
-      throw new Error(`未找到名为 '${libraryName}' 的样式库配置`);
+      throw new Error(`未找到名为 '${libraryName}' 的风格库配置`);
     }
 
     return library;
@@ -522,8 +548,11 @@ export class GlobalConfigManager {
     validateStyleLibraryName(libraryName);
     const document = await this.loadDocument();
     const vectorStores = document.vector?.stores ?? {};
-    if (!vectorStores[config.vectorStoreName]) {
-      throw new Error(`样式库引用了不存在的向量数据库配置: ${config.vectorStoreName}`);
+    if (
+      !vectorStores[config.vectorStoreName] &&
+      config.vectorStoreName !== BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME
+    ) {
+      throw new Error(`风格库引用了不存在的向量数据库配置: ${config.vectorStoreName}`);
     }
 
     const styleLibraries = document.styleLibraries ?? { libraries: {} };
@@ -634,7 +663,7 @@ function validateVectorStoreName(name: string): void {
 
 function validateStyleLibraryName(name: string): void {
   if (name.trim().length === 0) {
-    throw new Error("样式库名称不能为空字符串");
+    throw new Error("风格库名称不能为空字符串");
   }
 }
 

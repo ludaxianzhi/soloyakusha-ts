@@ -8,6 +8,7 @@ import { EmbeddingClient } from "../llm/base.ts";
 import type { LlmClientConfig } from "../llm/types.ts";
 import { VectorStoreClientProvider } from "../vector/provider.ts";
 import {
+  BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME,
   buildManagedStyleLibraryCollectionName,
   buildStyleLibraryEmbeddingFingerprint,
   splitTextIntoChunks,
@@ -62,6 +63,46 @@ describe("StyleLibraryService", () => {
         embeddingState: "compatible",
         existsInVectorStore: true,
       });
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  test("creates and uses builtin memory vector store without registration", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-style-library-"));
+    const manager = new GlobalConfigManager({ filePath: join(workspaceDir, "config.json") });
+    await manager.setEmbeddingConfig(createEmbeddingConfig("embed-a"));
+
+    const service = new StyleLibraryService({
+      manager,
+      tempRootDir: workspaceDir,
+      embeddingClientResolver: async () => new FakeEmbeddingClient(createEmbeddingConfig("embed-a")),
+    });
+
+    try {
+      const created = await service.createLibrary("builtin-memory-style", {
+        vectorStoreName: BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME,
+        targetLanguage: "zh-CN",
+        chunkLength: 8,
+      });
+
+      expect(created.vectorStoreName).toBe(BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME);
+
+      await service.importLibrary("builtin-memory-style", {
+        fileName: "sample.txt",
+        content: new TextEncoder().encode("校园的清晨\n微风掠过树梢\n铃声打破寂静\n"),
+      });
+
+      const query = await service.queryLibrary("builtin-memory-style", "校园里很安静");
+      expect(query.matches[0]?.document).toContain("校园");
+
+      const catalog = await service.listLibraries();
+      expect(catalog.libraries).toContainEqual(expect.objectContaining({
+        name: "builtin-memory-style",
+        vectorStoreName: BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME,
+        source: "registered",
+        existsInVectorStore: true,
+      }));
     } finally {
       await rm(workspaceDir, { recursive: true, force: true });
     }
@@ -151,7 +192,7 @@ describe("StyleLibraryService", () => {
 
       const catalog = await service.listLibraries();
       expect(catalog.libraries[0]?.embeddingState).toBe("invalid");
-      await expect(service.queryLibrary("invalid-test", "校园")).rejects.toThrow("样式库绑定的嵌入模型与当前全局嵌入模型不一致");
+      await expect(service.queryLibrary("invalid-test", "校园")).rejects.toThrow("风格库绑定的嵌入模型与当前全局嵌入模型不一致");
     } finally {
       await rm(workspaceDir, { recursive: true, force: true });
     }

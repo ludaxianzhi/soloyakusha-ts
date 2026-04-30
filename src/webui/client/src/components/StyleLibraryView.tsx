@@ -37,6 +37,9 @@ import type {
 const { Paragraph, Text, Title } = Typography;
 const { TextArea } = Input;
 
+const BUILTIN_MEMORY_STYLE_LIBRARY_STORE = 'builtin-memory';
+const BUILTIN_MEMORY_STYLE_LIBRARY_STORE_LABEL = '内存数据库（无需注册）';
+
 export function StyleLibraryView() {
   const { message } = AntdApp.useApp();
   const [form] = Form.useForm<CreateStyleLibraryFormValues>();
@@ -93,7 +96,7 @@ export function StyleLibraryView() {
   const handleCreateLibrary = async (values: CreateStyleLibraryFormValues) => {
     const name = values.name.trim();
     if (!name) {
-      message.error('样式库名称不能为空');
+      message.error('风格库名称不能为空');
       return;
     }
 
@@ -109,7 +112,7 @@ export function StyleLibraryView() {
     setSaving(true);
     try {
       await api.saveStyleLibrary(name, payload);
-      message.success('样式库已保存');
+      message.success('风格库已保存');
       setIsCreateModalVisible(false);
       form.resetFields();
       await refreshData();
@@ -163,7 +166,7 @@ export function StyleLibraryView() {
   const handleDeleteRegistered = async (library: StyleLibrarySummary) => {
     try {
       await api.deleteStyleLibrary(library.name, true);
-      message.success('样式库已删除');
+      message.success('风格库已删除');
       if (searchTarget?.name === library.name) {
         setSearchTarget(null);
         setQueryResult(null);
@@ -203,7 +206,7 @@ export function StyleLibraryView() {
       key: 'vectorStore',
       render: (_: unknown, record: StyleLibrarySummary) => (
         <Space direction="vertical" size={2}>
-          <Text>{record.vectorStoreName}</Text>
+          <Text>{formatVectorStoreLabel(record.vectorStoreName)}</Text>
           <Text type="secondary" style={{ fontSize: '12px' }}>{record.collectionName}</Text>
           {!record.existsInVectorStore && <Tag color="warning">集合未发现</Tag>}
         </Space>
@@ -270,7 +273,7 @@ export function StyleLibraryView() {
             查询
           </Button>
           <Popconfirm
-            title="删除样式库"
+            title="删除风格库"
             description="将同时删除注册表项和对应的向量集合，确认删除？"
             onConfirm={() => void handleDeleteRegistered(record)}
           >
@@ -292,7 +295,7 @@ export function StyleLibraryView() {
       key: 'vectorStore',
       render: (_: unknown, record: StyleLibrarySummary) => (
         <Space direction="vertical" size={2}>
-          <Text>{record.vectorStoreName}</Text>
+          <Text>{formatVectorStoreLabel(record.vectorStoreName)}</Text>
           <Text type="secondary" style={{ fontSize: '12px' }}>{record.collectionName}</Text>
         </Space>
       ),
@@ -344,7 +347,7 @@ export function StyleLibraryView() {
                 setIsCreateModalVisible(true);
               }}
             >
-              新建样式库
+              新建风格库
             </Button>
             <Button icon={<ReloadOutlined />} onClick={() => void refreshData()} loading={loading}>
               刷新
@@ -359,7 +362,7 @@ export function StyleLibraryView() {
           items={[
             {
               key: 'registered',
-              label: `已注册样式库 (${registeredLibraries.length})`,
+              label: `已注册风格库 (${registeredLibraries.length})`,
               children: (
                 <Table
                   dataSource={registeredLibraries}
@@ -367,7 +370,7 @@ export function StyleLibraryView() {
                   rowKey="name"
                   loading={loading}
                   pagination={{ pageSize: 10 }}
-                  locale={{ emptyText: <Empty description="还没有已注册的样式库，请点击上方新建" /> }}
+                  locale={{ emptyText: <Empty description="还没有已注册的风格库，请点击上方新建" /> }}
                 />
               ),
             },
@@ -379,7 +382,7 @@ export function StyleLibraryView() {
                   {Object.keys(catalog.discoveryErrors).length > 0 && (
                     <Space direction="vertical" size={4} style={{ marginBottom: 12 }}>
                       {Object.entries(catalog.discoveryErrors).map(([storeName, error]) => (
-                        <Text key={storeName} type="danger">{storeName}: {error}</Text>
+                        <Text key={storeName} type="danger">{formatVectorStoreLabel(storeName)}: {error}</Text>
                       ))}
                     </Space>
                   )}
@@ -389,7 +392,7 @@ export function StyleLibraryView() {
                     rowKey={(record) => `${record.vectorStoreName}:${record.collectionName}`}
                     loading={loading}
                     pagination={{ pageSize: 10 }}
-                    locale={{ emptyText: <Empty description="当前没有发现未注册的外部样式库集合" /> }}
+                    locale={{ emptyText: <Empty description="当前没有发现未注册的外部风格库集合" /> }}
                   />
                 </Space>
               ),
@@ -400,7 +403,7 @@ export function StyleLibraryView() {
 
       {/* Create Modal */}
       <Modal
-        title="新建样式库"
+        title="新建风格库"
         open={isCreateModalVisible}
         onOk={() => form.submit()}
         onCancel={() => {
@@ -420,7 +423,7 @@ export function StyleLibraryView() {
           onFinish={(values) => void handleCreateLibrary(values)}
           style={{ marginTop: 16 }}
         >
-          <Form.Item name="name" label="样式库名称" rules={[{ required: true, message: '请输入样式库名称' }]}>
+          <Form.Item name="name" label="风格库名称" rules={[{ required: true, message: '请输入风格库名称' }]}>
             <Input placeholder="例如：campus-style" />
           </Form.Item>
           <Form.Item name="displayName" label="显示名称">
@@ -428,8 +431,8 @@ export function StyleLibraryView() {
           </Form.Item>
           <Form.Item name="vectorStoreName" label="向量数据库" rules={[{ required: true, message: '请选择向量数据库' }]}>
             <Select
-              options={vectorStoreNames.map((name) => ({ label: name, value: name }))}
-              placeholder={vectorStoreNames.length === 0 ? '请先在系统设置中配置向量数据库' : '请选择向量数据库'}
+              options={vectorStoreNames.map((name) => ({ label: formatVectorStoreLabel(name), value: name }))}
+              placeholder="请选择向量数据库"
             />
           </Form.Item>
           <Form.Item name="collectionName" label="Collection 名称" tooltip="留空时按规则自动生成">
@@ -493,7 +496,7 @@ export function StyleLibraryView() {
           </div>
           {importTarget?.sourceSummary ? (
             <Text type="secondary">
-              注意：该样式库当前已有 {importTarget.sourceSummary.chunkCount ?? 0} 个切片。导入新文件会增加其切片数量。
+              注意：该风格库当前已有 {importTarget.sourceSummary.chunkCount ?? 0} 个切片。导入新文件会增加其切片数量。
             </Text>
           ) : null}
         </Space>
@@ -520,7 +523,7 @@ export function StyleLibraryView() {
               rows={4}
               value={queryText}
               onChange={(event) => setQueryText(event.target.value)}
-              placeholder={`输入待检索文本。文本会按该样式库设置的 ${searchTarget?.chunkLength || 400} 字符长度自动切分，并为每段返回匹配结果。`}
+              placeholder={`输入待检索文本。文本会按该风格库设置的 ${searchTarget?.chunkLength || 400} 字符长度自动切分，并为每段返回匹配结果。`}
             />
             <Button
               type="primary"
@@ -597,6 +600,13 @@ type CreateStyleLibraryFormValues = {
 function optionalTrim(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized ? normalized : undefined;
+}
+
+function formatVectorStoreLabel(name: string): string {
+  if (name === BUILTIN_MEMORY_STYLE_LIBRARY_STORE) {
+    return BUILTIN_MEMORY_STYLE_LIBRARY_STORE_LABEL;
+  }
+  return name;
 }
 
 function renderEmbeddingTag(library: StyleLibrarySummary) {
