@@ -3,22 +3,29 @@ import {
   App as AntdApp,
   Button,
   Card,
-  Col,
+  Drawer,
   Empty,
   Form,
   Input,
-  List,
+  Modal,
   Popconfirm,
-  Row,
   Select,
   Space,
   Table,
+  Tabs,
   Tag,
   Typography,
   Upload,
 } from 'antd';
-import { DeleteOutlined, ReloadOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
-import { api, ApiError } from '../app/api.ts';
+import {
+  DeleteOutlined,
+  ImportOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
+import { api } from '../app/api.ts';
 import { IMPORT_FORMAT_OPTIONS, toErrorMessage } from '../app/ui-helpers.ts';
 import type {
   CreateStyleLibraryInput,
@@ -39,9 +46,17 @@ export function StyleLibraryView() {
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [querying, setQuerying] = useState(false);
+  
+  // Modals state
+  const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
+  const [importTarget, setImportTarget] = useState<StyleLibrarySummary | null>(null);
+  const [searchTarget, setSearchTarget] = useState<StyleLibrarySummary | null>(null);
+
+  // Import state
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importFormatName, setImportFormatName] = useState<string>('');
-  const [selectedLibraryName, setSelectedLibraryName] = useState<string>();
+
+  // Search state
   const [queryText, setQueryText] = useState('');
   const [queryResult, setQueryResult] = useState<StyleLibraryQueryResult | null>(null);
 
@@ -53,17 +68,10 @@ export function StyleLibraryView() {
     () => catalog.libraries.filter((library) => library.source === 'discovered'),
     [catalog.libraries],
   );
-  const selectedLibrary = registeredLibraries.find((library) => library.name === selectedLibraryName);
 
   useEffect(() => {
     void refreshData();
   }, []);
-
-  useEffect(() => {
-    if (!selectedLibraryName && registeredLibraries[0]?.name) {
-      setSelectedLibraryName(registeredLibraries[0].name);
-    }
-  }, [registeredLibraries, selectedLibraryName]);
 
   const refreshData = async () => {
     setLoading(true);
@@ -102,8 +110,8 @@ export function StyleLibraryView() {
     try {
       await api.saveStyleLibrary(name, payload);
       message.success('样式库已保存');
-      setSelectedLibraryName(name);
-      form.setFieldValue('name', name);
+      setIsCreateModalVisible(false);
+      form.resetFields();
       await refreshData();
     } catch (error) {
       message.error(toErrorMessage(error));
@@ -113,20 +121,21 @@ export function StyleLibraryView() {
   };
 
   const handleImport = async () => {
-    if (!selectedLibraryName || !importFile) {
-      message.error('请先选择样式库并选择要导入的文件');
+    if (!importTarget || !importFile) {
+      message.error('请先选择要导入的文件');
       return;
     }
 
     setImporting(true);
     try {
-      const result = await api.importStyleLibrary(selectedLibraryName, {
+      const result = await api.importStyleLibrary(importTarget.name, {
         file: importFile,
         formatName: importFormatName || undefined,
       });
       message.success(`已导入 ${result.chunkCount} 个风格块`);
       setImportFile(null);
       setImportFormatName('');
+      setImportTarget(null);
       await refreshData();
     } catch (error) {
       message.error(toErrorMessage(error));
@@ -136,14 +145,14 @@ export function StyleLibraryView() {
   };
 
   const handleQuery = async () => {
-    if (!selectedLibraryName || !queryText.trim()) {
-      message.error('请选择样式库并输入查询文本');
+    if (!searchTarget || !queryText.trim()) {
+      message.error('请输入查询文本');
       return;
     }
 
     setQuerying(true);
     try {
-      setQueryResult(await api.queryStyleLibrary(selectedLibraryName, queryText));
+      setQueryResult(await api.queryStyleLibrary(searchTarget.name, queryText));
     } catch (error) {
       message.error(toErrorMessage(error));
     } finally {
@@ -155,8 +164,8 @@ export function StyleLibraryView() {
     try {
       await api.deleteStyleLibrary(library.name, true);
       message.success('样式库已删除');
-      if (selectedLibraryName === library.name) {
-        setSelectedLibraryName(undefined);
+      if (searchTarget?.name === library.name) {
+        setSearchTarget(null);
         setQueryResult(null);
       }
       await refreshData();
@@ -178,276 +187,400 @@ export function StyleLibraryView() {
     }
   };
 
+  const registeredColumns = [
+    {
+      title: '名称',
+      key: 'name',
+      render: (_: unknown, record: StyleLibrarySummary) => (
+        <Space direction="vertical" size={2}>
+          <Text strong>{record.displayName || record.name}</Text>
+          {record.displayName && <Text type="secondary" style={{ fontSize: '12px' }}>{record.name}</Text>}
+        </Space>
+      ),
+    },
+    {
+      title: '向量库 / 集合',
+      key: 'vectorStore',
+      render: (_: unknown, record: StyleLibrarySummary) => (
+        <Space direction="vertical" size={2}>
+          <Text>{record.vectorStoreName}</Text>
+          <Text type="secondary" style={{ fontSize: '12px' }}>{record.collectionName}</Text>
+          {!record.existsInVectorStore && <Tag color="warning">集合未发现</Tag>}
+        </Space>
+      ),
+    },
+    {
+      title: '切分配置',
+      key: 'config',
+      render: (_: unknown, record: StyleLibrarySummary) => (
+        <Space direction="vertical" size={2}>
+          <Text>{record.targetLanguage ?? '未知语言'}</Text>
+          <Text type="secondary" style={{ fontSize: '12px' }}>长度: {record.chunkLength ?? '-'}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '数据量',
+      key: 'stats',
+      render: (_: unknown, record: StyleLibrarySummary) => {
+        if (!record.sourceSummary) return <Text type="secondary">暂无数据</Text>;
+        return (
+          <Space direction="vertical" size={2}>
+            <Text>{record.sourceSummary.chunkCount ?? 0} 个切片</Text>
+            <Text type="secondary" style={{ fontSize: '12px' }}>{record.sourceSummary.fileCount ?? 0} 个来源</Text>
+          </Space>
+        );
+      },
+    },
+    {
+      title: '状态',
+      key: 'status',
+      render: (_: unknown, record: StyleLibrarySummary) => (
+        <Space direction="vertical" size={2}>
+          {renderEmbeddingTag(record)}
+          {record.invalidationReason && (
+            <Text type="danger" style={{ fontSize: '12px' }}>{record.invalidationReason}</Text>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      render: (_: unknown, record: StyleLibrarySummary) => (
+        <Space>
+          <Button
+            type="text"
+            icon={<ImportOutlined />}
+            onClick={() => setImportTarget(record)}
+            disabled={record.embeddingState === 'invalid'}
+          >
+            导入
+          </Button>
+          <Button
+            type="text"
+            icon={<SearchOutlined />}
+            onClick={() => {
+              setSearchTarget(record);
+              setQueryText('');
+              setQueryResult(null);
+            }}
+            disabled={record.embeddingState === 'invalid'}
+          >
+            查询
+          </Button>
+          <Popconfirm
+            title="删除样式库"
+            description="将同时删除注册表项和对应的向量集合，确认删除？"
+            onConfirm={() => void handleDeleteRegistered(record)}
+          >
+            <Button type="text" danger icon={<DeleteOutlined />}>删除</Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  const discoveredColumns = [
+    {
+      title: '名称',
+      key: 'name',
+      render: (_: unknown, record: StyleLibrarySummary) => <Text strong>{record.name}</Text>,
+    },
+    {
+      title: '向量库 / 集合',
+      key: 'vectorStore',
+      render: (_: unknown, record: StyleLibrarySummary) => (
+        <Space direction="vertical" size={2}>
+          <Text>{record.vectorStoreName}</Text>
+          <Text type="secondary" style={{ fontSize: '12px' }}>{record.collectionName}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '状态',
+      key: 'status',
+      render: (_: unknown, record: StyleLibrarySummary) => (
+        <Space direction="vertical" size={2}>
+          {renderEmbeddingTag(record)}
+          {record.invalidationReason && (
+            <Text type="danger" style={{ fontSize: '12px' }}>{record.invalidationReason}</Text>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      render: (_: unknown, record: StyleLibrarySummary) => (
+        <Popconfirm
+          title="删除外部集合"
+          description="此操作只删除向量数据库中的 collection，不会删除任何注册表项。"
+          onConfirm={() => void handleDeleteDiscovered(record)}
+        >
+          <Button type="text" danger icon={<DeleteOutlined />}>删除</Button>
+        </Popconfirm>
+      ),
+    },
+  ];
+
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Card
-        loading={loading}
-        title={<Title level={4} style={{ margin: 0 }}>风格库</Title>}
-        extra={
-          <Button icon={<ReloadOutlined />} onClick={() => void refreshData()}>
-            刷新
-          </Button>
-        }
-      >
-        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          管理全局风格库、导入文本或压缩包，并在接入翻译流程前预览风格检索结果。
-        </Paragraph>
+      {/* Header */}
+      <Card bodyStyle={{ padding: '16px 24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <Title level={4} style={{ margin: 0 }}>风格库</Title>
+            <Paragraph type="secondary" style={{ margin: '4px 0 0 0' }}>
+              管理全局风格库、导入文本或压缩包，并在接入翻译流程前预览风格检索结果。
+            </Paragraph>
+          </div>
+          <Space>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                form.setFieldValue('vectorStoreName', vectorStoreNames[0]);
+                setIsCreateModalVisible(true);
+              }}
+            >
+              新建样式库
+            </Button>
+            <Button icon={<ReloadOutlined />} onClick={() => void refreshData()} loading={loading}>
+              刷新
+            </Button>
+          </Space>
+        </div>
       </Card>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={10}>
-          <Card title="创建或更新样式库" loading={loading}>
-            <Form
-              form={form}
-              layout="vertical"
-              initialValues={{
-                targetLanguage: 'zh-CN',
-                chunkLength: 400,
-                vectorStoreName: vectorStoreNames[0],
-              }}
-              onFinish={(values) => void handleCreateLibrary(values)}
-            >
-              <Form.Item name="name" label="样式库名称" rules={[{ required: true, message: '请输入样式库名称' }]}>
-                <Input placeholder="例如：campus-style" />
-              </Form.Item>
-              <Form.Item name="displayName" label="显示名称">
-                <Input placeholder="例如：校园叙事风格" />
-              </Form.Item>
-              <Form.Item name="vectorStoreName" label="向量数据库" rules={[{ required: true, message: '请选择向量数据库' }]}>
-                <Select
-                  options={vectorStoreNames.map((name) => ({ label: name, value: name }))}
-                  placeholder={vectorStoreNames.length === 0 ? '请先在系统设置中配置向量数据库' : '请选择向量数据库'}
+      {/* Main Content */}
+      <Card bodyStyle={{ paddingTop: 0 }}>
+        <Tabs
+          items={[
+            {
+              key: 'registered',
+              label: `已注册样式库 (${registeredLibraries.length})`,
+              children: (
+                <Table
+                  dataSource={registeredLibraries}
+                  columns={registeredColumns}
+                  rowKey="name"
+                  loading={loading}
+                  pagination={{ pageSize: 10 }}
+                  locale={{ emptyText: <Empty description="还没有已注册的样式库，请点击上方新建" /> }}
                 />
-              </Form.Item>
-              <Form.Item name="collectionName" label="Collection 名称">
-                <Input placeholder="留空时自动生成 stylelib__ 前缀名称" />
-              </Form.Item>
-              <Row gutter={12}>
-                <Col span={12}>
-                  <Form.Item name="targetLanguage" label="目标语言" rules={[{ required: true, message: '请输入目标语言' }]}>
-                    <Input placeholder="zh-CN" />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item
-                    name="chunkLength"
-                    label="切分长度"
-                    rules={[{ required: true, message: '请输入切分长度' }]}
-                  >
-                    <Input type="number" min={1} />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Button type="primary" htmlType="submit" loading={saving} disabled={vectorStoreNames.length === 0}>
-                保存样式库
-              </Button>
-            </Form>
-          </Card>
-        </Col>
+              ),
+            },
+            {
+              key: 'discovered',
+              label: `已发现外部集合 (${discoveredLibraries.length})`,
+              children: (
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  {Object.keys(catalog.discoveryErrors).length > 0 && (
+                    <Space direction="vertical" size={4} style={{ marginBottom: 12 }}>
+                      {Object.entries(catalog.discoveryErrors).map(([storeName, error]) => (
+                        <Text key={storeName} type="danger">{storeName}: {error}</Text>
+                      ))}
+                    </Space>
+                  )}
+                  <Table
+                    dataSource={discoveredLibraries}
+                    columns={discoveredColumns}
+                    rowKey={(record) => `${record.vectorStoreName}:${record.collectionName}`}
+                    loading={loading}
+                    pagination={{ pageSize: 10 }}
+                    locale={{ emptyText: <Empty description="当前没有发现未注册的外部样式库集合" /> }}
+                  />
+                </Space>
+              ),
+            },
+          ]}
+        />
+      </Card>
 
-        <Col xs={24} xl={14}>
-          <Card title="已注册样式库" loading={loading}>
-            {registeredLibraries.length === 0 ? (
-              <Empty description="还没有已注册的样式库" />
-            ) : (
-              <List
-                dataSource={registeredLibraries}
-                renderItem={(library) => (
-                  <List.Item
-                    actions={[
-                      <Button key="select" type={library.name === selectedLibraryName ? 'primary' : 'default'} onClick={() => setSelectedLibraryName(library.name)}>
-                        {library.name === selectedLibraryName ? '当前使用' : '选择'}
-                      </Button>,
-                      <Popconfirm
-                        key="delete"
-                        title="删除样式库"
-                        description="将同时删除注册表项和对应向量集合。"
-                        onConfirm={() => void handleDeleteRegistered(library)}
-                      >
-                        <Button danger icon={<DeleteOutlined />} />
-                      </Popconfirm>,
-                    ]}
-                  >
-                    <List.Item.Meta
-                      title={<Space wrap><span>{library.displayName || library.name}</span>{renderEmbeddingTag(library)}</Space>}
-                      description={
-                        <Space direction="vertical" size={4}>
-                          <Text type="secondary">{library.vectorStoreName} / {library.collectionName}</Text>
-                          <Space wrap>
-                            <Tag>{library.targetLanguage ?? '未设置目标语言'}</Tag>
-                            <Tag>chunk {library.chunkLength ?? '-'}</Tag>
-                            {!library.existsInVectorStore && <Tag color="warning">集合未发现</Tag>}
-                          </Space>
-                          {library.invalidationReason ? <Text type="danger">{library.invalidationReason}</Text> : null}
-                        </Space>
-                      }
-                    />
-                  </List.Item>
-                )}
-              />
-            )}
-          </Card>
-        </Col>
-      </Row>
+      {/* Create Modal */}
+      <Modal
+        title="新建样式库"
+        open={isCreateModalVisible}
+        onOk={() => form.submit()}
+        onCancel={() => {
+          setIsCreateModalVisible(false);
+          form.resetFields();
+        }}
+        confirmLoading={saving}
+        destroyOnClose
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{
+            targetLanguage: 'zh-CN',
+            chunkLength: 400,
+          }}
+          onFinish={(values) => void handleCreateLibrary(values)}
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item name="name" label="样式库名称" rules={[{ required: true, message: '请输入样式库名称' }]}>
+            <Input placeholder="例如：campus-style" />
+          </Form.Item>
+          <Form.Item name="displayName" label="显示名称">
+            <Input placeholder="例如：校园叙事风格" />
+          </Form.Item>
+          <Form.Item name="vectorStoreName" label="向量数据库" rules={[{ required: true, message: '请选择向量数据库' }]}>
+            <Select
+              options={vectorStoreNames.map((name) => ({ label: name, value: name }))}
+              placeholder={vectorStoreNames.length === 0 ? '请先在系统设置中配置向量数据库' : '请选择向量数据库'}
+            />
+          </Form.Item>
+          <Form.Item name="collectionName" label="Collection 名称" tooltip="留空时按规则自动生成">
+            <Input placeholder="建议留空，自动生成 stylelib__ 前缀名称" />
+          </Form.Item>
+          <div style={{ display: 'flex', gap: '16px' }}>
+            <Form.Item name="targetLanguage" label="目标语言" rules={[{ required: true, message: '请输入目标语言' }]} style={{ flex: 1 }}>
+              <Input placeholder="zh-CN" />
+            </Form.Item>
+            <Form.Item name="chunkLength" label="切分长度" rules={[{ required: true, message: '请输入切分长度' }]} style={{ flex: 1 }}>
+              <Input type="number" min={1} />
+            </Form.Item>
+          </div>
+        </Form>
+      </Modal>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={12}>
-          <Card title="导入语料" extra={selectedLibrary ? <Tag color="blue">{selectedLibrary.name}</Tag> : null}>
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-              <Select
-                value={selectedLibraryName}
-                onChange={setSelectedLibraryName}
-                options={registeredLibraries.map((library) => ({ label: library.displayName || library.name, value: library.name }))}
-                placeholder="选择要导入的样式库"
-              />
-              <Select
-                value={importFormatName}
-                onChange={setImportFormatName}
-                options={IMPORT_FORMAT_OPTIONS}
-                placeholder="格式自动识别"
-              />
+      {/* Import Modal */}
+      <Modal
+        title={`导入语料 - ${importTarget?.displayName || importTarget?.name}`}
+        open={!!importTarget}
+        onCancel={() => {
+          setImportTarget(null);
+          setImportFile(null);
+          setImportFormatName('');
+        }}
+        onOk={() => void handleImport()}
+        confirmLoading={importing}
+        okText="开始导入"
+        okButtonProps={{ disabled: !importFile }}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%', marginTop: 16 }}>
+          <div>
+            <Text strong>选择文件：</Text>
+            <div style={{ marginTop: 8 }}>
               <Upload
                 beforeUpload={(file) => {
                   setImportFile(file);
                   return false;
                 }}
                 maxCount={1}
-                showUploadList={{ showRemoveIcon: true }}
-                onRemove={() => {
-                  setImportFile(null);
-                }}
+                fileList={importFile ? [importFile as any] : []}
+                onRemove={() => setImportFile(null)}
               >
-                <Button icon={<UploadOutlined />}>选择单文件或 ZIP</Button>
+                <Button icon={<UploadOutlined />}>选择单文件或 ZIP 压缩包</Button>
               </Upload>
-              <Button
-                type="primary"
-                onClick={() => void handleImport()}
-                loading={importing}
-                disabled={!selectedLibrary || selectedLibrary.embeddingState === 'invalid'}
-              >
-                导入到当前样式库
-              </Button>
-              {selectedLibrary?.sourceSummary ? (
-                <Text type="secondary">
-                  最近一次导入：{selectedLibrary.sourceSummary.fileCount ?? 0} 个文件，{selectedLibrary.sourceSummary.chunkCount ?? 0} 个块。
-                </Text>
-              ) : null}
-            </Space>
-          </Card>
-        </Col>
-
-        <Col xs={24} xl={12}>
-          <Card title="检索预览" extra={queryResult ? <Tag color="cyan">{queryResult.matches.length} 条命中</Tag> : null}>
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            </div>
+          </div>
+          <div>
+            <Text strong>解析格式：</Text>
+            <div style={{ marginTop: 8 }}>
               <Select
-                value={selectedLibraryName}
-                onChange={setSelectedLibraryName}
-                options={registeredLibraries.map((library) => ({ label: library.displayName || library.name, value: library.name }))}
-                placeholder="选择要检索的样式库"
+                style={{ width: '100%' }}
+                value={importFormatName}
+                onChange={setImportFormatName}
+                options={IMPORT_FORMAT_OPTIONS}
+                placeholder="默认自动识别"
+                allowClear
               />
-              <TextArea
-                rows={6}
-                value={queryText}
-                onChange={(event) => setQueryText(event.target.value)}
-                placeholder="输入待检索文本。文本会按样式库 chunkLength 自动切分，并为每段返回 1 条最近邻结果。"
-              />
-              <Button
-                type="primary"
-                icon={<SearchOutlined />}
-                loading={querying}
-                onClick={() => void handleQuery()}
-                disabled={!selectedLibrary || selectedLibrary.embeddingState === 'invalid'}
-              >
-                预览检索
-              </Button>
-              {queryResult ? (
-                <Table
-                  size="small"
-                  pagination={false}
-                  rowKey={(record) => `${record.chunkIndex}:${record.text}`}
-                  dataSource={queryResult.chunks}
-                  columns={[
-                    {
-                      title: '查询块',
-                      dataIndex: 'text',
-                      render: (value: string, record) => (
-                        <Space direction="vertical" size={2}>
-                          <Text>{value}</Text>
-                          <Text type="secondary">chunk #{record.chunkIndex + 1} / {record.charCount} chars</Text>
-                        </Space>
-                      ),
-                    },
-                    {
-                      title: '命中风格示例',
-                      dataIndex: 'matches',
-                      render: (matches: StyleLibraryQueryResult['chunks'][number]['matches']) => {
-                        const topMatch = matches[0];
-                        if (!topMatch) {
-                          return <Text type="secondary">无命中</Text>;
-                        }
+            </div>
+          </div>
+          {importTarget?.sourceSummary ? (
+            <Text type="secondary">
+              注意：该样式库当前已有 {importTarget.sourceSummary.chunkCount ?? 0} 个切片。导入新文件会增加其切片数量。
+            </Text>
+          ) : null}
+        </Space>
+      </Modal>
 
-                        return (
-                          <Space direction="vertical" size={2}>
-                            <Text>{topMatch.document ?? '-'}</Text>
-                            <Text type="secondary">score {topMatch.score.toFixed(4)}</Text>
-                          </Space>
-                        );
-                      },
-                    },
-                  ]}
-                />
-              ) : (
-                <Empty description="还没有检索结果" />
-              )}
-            </Space>
-          </Card>
-        </Col>
-      </Row>
-
-      <Card title="已发现的外部样式库集合" loading={loading}>
-        {Object.keys(catalog.discoveryErrors).length > 0 ? (
-          <Space direction="vertical" size={4} style={{ marginBottom: 12 }}>
-            {Object.entries(catalog.discoveryErrors).map(([storeName, error]) => (
-              <Text key={storeName} type="danger">{storeName}: {error}</Text>
-            ))}
+      {/* Search Drawer */}
+      <Drawer
+        title={
+          <Space>
+            <span>预览查询</span>
+            <Tag color="blue">{searchTarget?.displayName || searchTarget?.name}</Tag>
           </Space>
-        ) : null}
-        {discoveredLibraries.length === 0 ? (
-          <Empty description="当前没有发现未注册的外部样式库集合" />
-        ) : (
-          <List
-            dataSource={discoveredLibraries}
-            renderItem={(library) => (
-              <List.Item
-                actions={[
-                  <Popconfirm
-                    key="delete"
-                    title="删除外部集合"
-                    description="此操作只删除向量数据库中的 collection，不会删除任何注册表项。"
-                    onConfirm={() => void handleDeleteDiscovered(library)}
-                  >
-                    <Button danger icon={<DeleteOutlined />} />
-                  </Popconfirm>,
-                ]}
-              >
-                <List.Item.Meta
-                  title={<Space wrap><span>{library.name}</span>{renderEmbeddingTag(library)}</Space>}
-                  description={
-                    <Space direction="vertical" size={4}>
-                      <Text type="secondary">{library.vectorStoreName} / {library.collectionName}</Text>
-                      <Space wrap>
-                        <Tag>{library.targetLanguage ?? '未知目标语言'}</Tag>
-                        <Tag>chunk {library.chunkLength ?? '未知'}</Tag>
+        }
+        placement="right"
+        width={700}
+        onClose={() => setSearchTarget(null)}
+        open={!!searchTarget}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            <Text strong>请输入查询片段</Text>
+            <TextArea
+              rows={4}
+              value={queryText}
+              onChange={(event) => setQueryText(event.target.value)}
+              placeholder={`输入待检索文本。文本会按该样式库设置的 ${searchTarget?.chunkLength || 400} 字符长度自动切分，并为每段返回匹配结果。`}
+            />
+            <Button
+              type="primary"
+              icon={<SearchOutlined />}
+              loading={querying}
+              onClick={() => void handleQuery()}
+              style={{ alignSelf: 'flex-start' }}
+            >
+              检索
+            </Button>
+          </Space>
+
+          {queryResult ? (
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text strong>检索结果</Text>
+                <Tag color="cyan">共 {queryResult.matches.length} 条命中记录</Tag>
+              </div>
+              <Table
+                size="middle"
+                pagination={false}
+                bordered
+                rowKey={(record) => `${record.chunkIndex}:${record.text}`}
+                dataSource={queryResult.chunks}
+                columns={[
+                  {
+                    title: '查询切分',
+                    dataIndex: 'text',
+                    width: '40%',
+                    render: (value: string, record) => (
+                      <Space direction="vertical" size={4}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>分片 #{record.chunkIndex + 1} ({record.charCount} 字符)</Text>
+                        <Text>{value}</Text>
                       </Space>
-                      {library.invalidationReason ? <Text type="danger">{library.invalidationReason}</Text> : null}
-                    </Space>
-                  }
-                />
-              </List.Item>
-            )}
-          />
-        )}
-      </Card>
+                    ),
+                  },
+                  {
+                    title: '最匹配风格示例',
+                    dataIndex: 'matches',
+                    render: (matches: StyleLibraryQueryResult['chunks'][number]['matches']) => {
+                      const topMatch = matches[0];
+                      if (!topMatch) {
+                        return <Text type="secondary">无命中</Text>;
+                      }
+                      return (
+                        <Space direction="vertical" size={4}>
+                          <Tag bordered={false} color="success">相关度: {topMatch.score.toFixed(4)}</Tag>
+                          <Text>{topMatch.document ?? '-'}</Text>
+                        </Space>
+                      );
+                    },
+                  },
+                ]}
+              />
+            </Space>
+          ) : (
+            <Empty description="请输入文本后点击检索" style={{ marginTop: 40 }} />
+          )}
+        </Space>
+      </Drawer>
     </Space>
   );
 }
@@ -468,10 +601,10 @@ function optionalTrim(value: string | undefined): string | undefined {
 
 function renderEmbeddingTag(library: StyleLibrarySummary) {
   if (library.embeddingState === 'compatible') {
-    return <Tag color="success">嵌入兼容</Tag>;
+    return <Tag color="success">配置有效</Tag>;
   }
   if (library.embeddingState === 'invalid') {
-    return <Tag color="error">嵌入失效</Tag>;
+    return <Tag color="error">配置错误</Tag>;
   }
-  return <Tag color="warning">嵌入未知</Tag>;
+  return <Tag color="warning">状态未知</Tag>;
 }
