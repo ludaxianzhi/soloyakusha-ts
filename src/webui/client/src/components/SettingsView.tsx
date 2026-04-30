@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Checkbox, Collapse, Col, Form, Input, Popconfirm, Row, Select, Space, Tabs, Tag, Typography, Upload } from 'antd';
+import { Button, Card, Checkbox, Collapse, Col, Divider, Form, Input, Popconfirm, Row, Select, Space, Tabs, Tag, Typography, Upload } from 'antd';
 import type { FormInstance } from 'antd';
 import type {
   AlignmentRepairConfig,
@@ -726,168 +726,124 @@ export function SettingsView({
           key: 'auxiliary',
           label: '辅助配置',
           children: (
-            <div className="section-stack">
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Card title="术语提取" loading={settingsLoading.extractor}>
-                    <Form
-                      form={extractorForm}
-                      layout="vertical"
-                      className="compact-form"
-                      onFinish={(values) =>
-                        void onSaveAuxiliaryConfig('extractor', values)
-                      }
-                    >
-                      <AuxiliaryCommonFields llmProfileOptions={llmProfileOptions} />
-                      <Row gutter={16}>
-                        <Col span={8}>
-                          <Form.Item name="maxCharsPerBatch" label="每批最大字符">
-                            <Input type="number" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={8}>
-                          <Form.Item name="occurrenceTopK" label="Top K">
-                            <Input type="number" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={8}>
-                          <Form.Item name="occurrenceTopP" label="Top P">
-                            <Input type="number" />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                      <Button type="primary" htmlType="submit">
-                        保存
-                      </Button>
-                    </Form>
-                  </Card>
-                </Col>
-                <Col span={12}>
-                  <Card title="术语更新" loading={settingsLoading.updater}>
-                    <Form
-                      form={updaterForm}
-                      layout="vertical"
-                      className="compact-form"
-                      onFinish={(values) =>
-                        void onSaveAuxiliaryConfig('updater', values)
-                      }
-                    >
-                      <Row gutter={16}>
-                        <Col span={8}>
-                          <Form.Item name="workflow" label="工作流">
-                            <Input placeholder="default" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={16}>
-                          <Form.Item
-                            name="modelNames"
-                            label="模型链"
-                            extra="按选择顺序执行；后面的模型会作为前面的 Fallback。"
-                            rules={[buildModelChainRule('模型链')]}
-                          >
-                            <Select
-                              mode="multiple"
-                              showSearch
-                              options={llmProfileOptions}
-                              placeholder="按顺序选择 LLM Profile"
-                            />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                      <Form.Item name="requestOptionsYaml" label="请求选项（YAML）">
-                        <YamlCodeEditor height={180} placeholder="temperature: 0.1" />
-                      </Form.Item>
-                      <Button type="primary" htmlType="submit">
-                        保存
-                      </Button>
-                    </Form>
-                  </Card>
-                </Col>
-              </Row>
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Card title="情节总结" loading={settingsLoading.plot}>
-                    <Form
-                      form={plotForm}
-                      layout="vertical"
-                      className="compact-form"
-                      onFinish={(values) =>
-                        void onSaveAuxiliaryConfig('plot', values)
-                      }
-                    >
-                      <Row gutter={16}>
-                        <Col span={12}>
-                          <Form.Item
-                            name="modelNames"
-                            label="模型链"
-                            extra="按选择顺序执行；后面的模型会作为前面的 Fallback。"
-                            rules={[buildModelChainRule('模型链')]}
-                          >
-                            <Select
-                              mode="multiple"
-                              showSearch
-                              options={llmProfileOptions}
-                              placeholder="按顺序选择 LLM Profile"
-                            />
-                          </Form.Item>
-                        </Col>
-                        <Col span={6}>
-                          <Form.Item name="fragmentsPerBatch" label="每批片段数">
-                            <Input type="number" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={6}>
-                          <Form.Item
-                            name="maxContextSummaries"
-                            label="最大上下文摘要数"
-                          >
-                            <Input type="number" />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                      <Form.Item name="requestOptionsYaml" label="请求选项（YAML）">
-                        <YamlCodeEditor height={180} placeholder="temperature: 0.3" />
-                      </Form.Item>
-                      <Button type="primary" htmlType="submit">
-                        保存
-                      </Button>
-                    </Form>
-                  </Card>
-                </Col>
-                <Col span={12}>
-                  <Card title="对齐补翻" loading={settingsLoading.alignment}>
-                    <Form
-                      form={alignmentForm}
-                      layout="vertical"
-                      className="compact-form"
-                      onFinish={(values) =>
-                        void onSaveAuxiliaryConfig('alignment', values)
-                      }
-                    >
-                      <Form.Item
-                        name="modelNames"
-                        label="模型链"
-                        extra="按选择顺序执行；后面的模型会作为前面的 Fallback。"
-                        rules={[buildModelChainRule('模型链')]}
-                      >
-                        <Select
-                          mode="multiple"
-                          showSearch
-                          options={llmProfileOptions}
-                          placeholder="按顺序选择 LLM Profile"
-                        />
-                      </Form.Item>
-                      <Form.Item name="requestOptionsYaml" label="请求选项（YAML）">
-                        <YamlCodeEditor height={180} placeholder="temperature: 0.1" />
-                      </Form.Item>
-                      <Button type="primary" htmlType="submit">
-                        保存
-                      </Button>
-                    </Form>
-                  </Card>
-                </Col>
-              </Row>
-            </div>
+            <Card title="辅助功能配置" loading={settingsLoading.extractor || settingsLoading.updater || settingsLoading.plot || settingsLoading.alignment}>
+              
+              {/* 术语提取 */}
+              <Divider titlePlacement="left" style={{ marginTop: 0 }}>术语提取</Divider>
+              <Form
+                form={extractorForm}
+                layout="horizontal"
+                className="compact-form"
+                labelCol={{ flex: '120px' }}
+                onFinish={(values) =>
+                  void onSaveAuxiliaryConfig('extractor', values)
+                }
+              >
+                <Row gutter={16}>
+                  <Col xs={24} lg={12}>
+                    <AuxiliaryModelChainField llmProfileOptions={llmProfileOptions} />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <Row gutter={8}>
+                      <Col span={8}>
+                        <Form.Item name="maxCharsPerBatch" label="每批最长" labelCol={{span:12}}>
+                          <Input type="number" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item name="occurrenceTopK" label="Top K" labelCol={{span:12}}>
+                          <Input type="number" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item name="occurrenceTopP" label="Top P" labelCol={{span:12}}>
+                          <Input type="number" />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Col>
+                </Row>
+                <AuxiliaryYamlCollapse name="requestOptionsYaml" placeholder="temperature: 0.2" />
+                <Button type="primary" htmlType="submit">保存设置</Button>
+              </Form>
+
+              <Divider titlePlacement="left">术语更新</Divider>
+              <Form
+                form={updaterForm}
+                layout="horizontal"
+                className="compact-form"
+                labelCol={{ flex: '120px' }}
+                onFinish={(values) =>
+                  void onSaveAuxiliaryConfig('updater', values)
+                }
+              >
+                <Row gutter={16}>
+                  <Col xs={24} lg={12}>
+                    <AuxiliaryModelChainField llmProfileOptions={llmProfileOptions} />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <Form.Item name="workflow" label="工作流">
+                      <Input placeholder="default" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <AuxiliaryYamlCollapse name="requestOptionsYaml" placeholder="temperature: 0.1" />
+                <Button type="primary" htmlType="submit">保存设置</Button>
+              </Form>
+
+              <Divider titlePlacement="left">情节总结</Divider>
+              <Form
+                form={plotForm}
+                layout="horizontal"
+                className="compact-form"
+                labelCol={{ flex: '120px' }}
+                onFinish={(values) =>
+                  void onSaveAuxiliaryConfig('plot', values)
+                }
+              >
+                <Row gutter={16}>
+                  <Col xs={24} lg={12}>
+                    <AuxiliaryModelChainField llmProfileOptions={llmProfileOptions} />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <Row gutter={8}>
+                      <Col span={12}>
+                        <Form.Item name="fragmentsPerBatch" label="每批片段数" labelCol={{span:12}}>
+                          <Input type="number" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item name="maxContextSummaries" label="最大摘要数" labelCol={{span:14}}>
+                          <Input type="number" />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Col>
+                </Row>
+                <AuxiliaryYamlCollapse name="requestOptionsYaml" placeholder="temperature: 0.3" />
+                <Button type="primary" htmlType="submit">保存设置</Button>
+              </Form>
+
+              <Divider titlePlacement="left">对齐补翻</Divider>
+              <Form
+                form={alignmentForm}
+                layout="horizontal"
+                className="compact-form"
+                labelCol={{ flex: '120px' }}
+                onFinish={(values) =>
+                  void onSaveAuxiliaryConfig('alignment', values)
+                }
+              >
+                <Row gutter={16}>
+                  <Col xs={24} lg={12}>
+                    <AuxiliaryModelChainField llmProfileOptions={llmProfileOptions} />
+                  </Col>
+                </Row>
+                <AuxiliaryYamlCollapse name="requestOptionsYaml" placeholder="temperature: 0.1" />
+                <Button type="primary" htmlType="submit">保存设置</Button>
+              </Form>
+              
+            </Card>
           ),
         },
       ]}
@@ -896,30 +852,37 @@ export function SettingsView({
   );
 }
 
-function AuxiliaryCommonFields({
+function AuxiliaryModelChainField({
   llmProfileOptions,
 }: {
   llmProfileOptions: Array<{ label: string; value: string }>;
 }) {
   return (
-    <>
-      <Form.Item
-        name="modelNames"
-        label="模型链"
-        extra="按选择顺序执行；后面的模型会作为前面的 Fallback。"
-        rules={[buildModelChainRule('模型链')]}
-      >
-        <Select
-          mode="multiple"
-          showSearch
-          options={llmProfileOptions}
-          placeholder="按顺序选择 LLM Profile"
-        />
-      </Form.Item>
-      <Form.Item name="requestOptionsYaml" label="请求选项（YAML）">
-        <YamlCodeEditor height={180} placeholder="temperature: 0.2" />
-      </Form.Item>
-    </>
+    <Form.Item
+      name="modelNames"
+      label="模型链"
+      tooltip="按选择顺序执行；后面的模型会作为前面的 Fallback。"
+      rules={[buildModelChainRule('模型链')]}
+    >
+      <Select
+        mode="multiple"
+        showSearch
+        options={llmProfileOptions}
+        placeholder="按顺序选择 LLM Profile"
+      />
+    </Form.Item>
+  );
+}
+
+function AuxiliaryYamlCollapse({ name, placeholder }: { name: string; placeholder?: string }) {
+  return (
+    <Collapse size="small" ghost style={{ marginBottom: 16 }}>
+      <Collapse.Panel key="1" header={<Text type="secondary">配置请求选项（YAML）</Text>}>
+        <Form.Item name={name} style={{ marginBottom: 0 }}>
+          <YamlCodeEditor height={180} placeholder={placeholder} />
+        </Form.Item>
+      </Collapse.Panel>
+    </Collapse>
   );
 }
 
