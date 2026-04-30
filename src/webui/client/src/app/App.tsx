@@ -649,6 +649,10 @@ export function AppShell() {
     });
   }, [runSettingsAction]);
 
+  const refreshStyleLibraryOptions = useCallback(async () => {
+    setStyleLibraryCatalog(await api.getStyleLibraries());
+  }, []);
+
   const eventHandlers = useMemo(
     () => ({
       onSnapshot: (nextSnapshot: TranslationProjectSnapshot | null) => {
@@ -671,27 +675,21 @@ export function AppShell() {
               },
         );
       },
-      onScanProgress: (progress: ProjectStatus['scanDictionaryProgress']) =>
-        {
-          setProjectStatus((prev) =>
-
-    const refreshStyleLibraryOptions = useCallback(async () => {
-      setStyleLibraryCatalog(await api.getStyleLibraries());
-    }, []);
-            prev
-              ? {
-                  ...prev,
-                  isBusy: progress?.status === 'running',
-                  scanDictionaryProgress: progress,
-                }
-              : prev,
-          );
-          if (progress && progress.status !== 'running') {
-            void refreshProjectStatus().catch(() => undefined);
-          }
-        },
-      onProofreadProgress: (progress: ProjectStatus['proofreadProgress']) =>
-        {
+      onScanProgress: (progress: ProjectStatus['scanDictionaryProgress']) => {
+        setProjectStatus((prev) =>
+          prev
+            ? {
+                ...prev,
+                isBusy: progress?.status === 'running',
+                scanDictionaryProgress: progress,
+              }
+            : prev,
+        );
+        if (progress && progress.status !== 'running') {
+          void refreshProjectStatus().catch(() => undefined);
+        }
+      },
+      onProofreadProgress: (progress: ProjectStatus['proofreadProgress']) => {
           setProjectStatus((prev) =>
             prev
               ? {
@@ -705,8 +703,7 @@ export function AppShell() {
             void refreshProjectStatus().catch(() => undefined);
           }
         },
-      onPlotProgress: (progress: ProjectStatus['plotSummaryProgress']) =>
-        {
+      onPlotProgress: (progress: ProjectStatus['plotSummaryProgress']) => {
           setProjectStatus((prev) =>
             prev
               ? {
