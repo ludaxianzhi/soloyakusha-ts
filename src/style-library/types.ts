@@ -77,6 +77,10 @@ export type StyleLibraryQueryResult = {
   matches: StyleLibraryChunkMatch[];
 };
 
+export type StyleLibraryQueryOptions = {
+  topKPerChunk?: number | "source-ratio";
+};
+
 export type DeleteStyleLibraryResult = {
   removedRegistry: boolean;
   removedCollection: boolean;

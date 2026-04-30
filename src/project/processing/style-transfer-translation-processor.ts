@@ -11,6 +11,7 @@ import {
   type GlossaryUpdater,
 } from "../../glossary/updater.ts";
 import type { ChatClient } from "../../llm/base.ts";
+import { StyleLibraryService } from "../../style-library/service.ts";
 import {
   buildJsonSchemaChatRequestOptions,
   mergeChatRequestOptions,
@@ -66,6 +67,7 @@ export type StyleTransferTranslationProcessorOptions = {
   processorName?: string;
   glossaryUpdater?: GlossaryUpdater;
   outputRepairer?: TranslationOutputRepairer;
+  styleLibraryService?: StyleLibraryService;
   stepRequestOptions?: Partial<Record<StyleTransferStepName, ChatRequestOptions>>;
 };
 
@@ -78,6 +80,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
   private readonly promptManager: PromptManager;
   private readonly stepRequestOptions?: Partial<Record<StyleTransferStepName, ChatRequestOptions>>;
   private readonly outputRepairer?: TranslationOutputRepairer;
+  private readonly styleLibraryService?: StyleLibraryService;
 
   constructor(
     private readonly defaultClientResolver: TranslationProcessorClientResolver,
@@ -93,6 +96,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
     this.processorName = options.processorName;
     this.stepRequestOptions = options.stepRequestOptions;
     this.outputRepairer = options.outputRepairer;
+    this.styleLibraryService = options.styleLibraryService;
     this.glossaryUpdater =
       options.glossaryUpdater ??
       new DefaultGlossaryUpdater(this.resolveClient("styleTransfer"), {
@@ -110,7 +114,9 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       | "requestOptions"
       | "documentManager"
       | "slidingWindow"
+      | "styleGuidanceMode"
       | "styleRequirementsText"
+      | "styleLibraryName"
     > = {},
   ): Promise<TranslationProcessorResult> {
     return this.process({
@@ -118,7 +124,9 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       contextView: workItem.contextView,
       glossary: options.glossary,
       requirements: workItem.requirements,
+      styleGuidanceMode: options.styleGuidanceMode,
       styleRequirementsText: options.styleRequirementsText,
+      styleLibraryName: options.styleLibraryName,
       requestOptions: options.requestOptions,
       documentManager: options.documentManager,
       slidingWindow: options.slidingWindow,
@@ -224,6 +232,8 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
           })
         : Promise.resolve(undefined);
 
+    const styleExamples = await this.resolveStyleExamples(request);
+
     const styleTransferPrompt = await this.promptManager.renderStyleTransferPrompt({
       sourceUnits,
       currentTranslations: toPromptUnits(currentTranslations),
@@ -231,7 +241,11 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       translatedGlossaryTerms,
       analysisText,
       requirements,
-      styleRequirementsText: request.styleRequirementsText,
+      styleRequirementsText:
+        request.styleGuidanceMode === "requirements"
+          ? request.styleRequirementsText
+          : undefined,
+      styleExamples,
     });
     this.logger.info?.("风格迁移阶段", { processorName: this.processorName });
     const styleTransferClient = this.resolveClient("styleTransfer");
@@ -348,6 +362,53 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       mergeChatRequestOptions(this.defaultRequestOptions, this.stepRequestOptions?.[step]),
       requestOptions,
     );
+  }
+
+  private async resolveStyleExamples(
+    request: TranslationProcessorRequest,
+  ): Promise<string[]> {
+    if (request.styleGuidanceMode !== "examples") {
+      return [];
+    }
+
+    const libraryName = request.styleLibraryName?.trim();
+    if (!libraryName || !this.styleLibraryService) {
+      return [];
+    }
+
+    try {
+      const queryResult = await this.styleLibraryService.queryLibrary(libraryName, request.sourceText, {
+        topKPerChunk: "source-ratio",
+      });
+      const targetExampleCount = queryResult.chunks.length;
+      if (targetExampleCount === 0) {
+        return [];
+      }
+
+      const seenExamples = new Set<string>();
+      const examples: string[] = [];
+      for (const match of queryResult.matches) {
+        const example = match.document?.trim();
+        if (!example || seenExamples.has(example)) {
+          continue;
+        }
+
+        seenExamples.add(example);
+        examples.push(example);
+        if (examples.length >= targetExampleCount) {
+          break;
+        }
+      }
+
+      return examples;
+    } catch (error) {
+      this.logger.warn?.("风格库检索失败，已跳过风格示例注入", {
+        processorName: this.processorName,
+        styleLibraryName: libraryName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
   }
 }
 

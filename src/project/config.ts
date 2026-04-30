@@ -23,6 +23,7 @@ import type {
   TranslationProcessorClientResolver,
 } from "./processing/translation-processor.ts";
 import type { TranslationOutputRepairer } from "./processing/translation-output-repair.ts";
+import type { StyleLibraryService } from "../style-library/service.ts";
 import type { SlidingWindowOptions } from "./types.ts";
 
 export const GLOBAL_EMBEDDING_CLIENT_NAME = "__global_embedding__";
@@ -213,6 +214,7 @@ export class TranslationGlobalConfig {
     logger?: Logger;
     promptManager?: PromptManager;
     glossaryUpdater?: GlossaryUpdater;
+    styleLibraryService?: StyleLibraryService;
   } = {}): TranslationProcessor {
     const config = this.getTranslationProcessorConfig();
     const provider = options.provider ?? this.createProvider(options.hooks);
@@ -253,6 +255,7 @@ export class TranslationGlobalConfig {
       logger,
       glossaryUpdater,
       outputRepairer,
+      styleLibraryService: options.styleLibraryService,
     });
   }
 

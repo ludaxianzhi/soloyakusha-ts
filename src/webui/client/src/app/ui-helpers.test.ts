@@ -367,9 +367,32 @@ describe('WebUI LLM request config helpers', () => {
       title: 'Style Transfer',
       workspaceFields: [
         {
+          key: 'styleGuidanceMode',
+          label: '风格引导来源',
+          input: 'select' as const,
+          required: true,
+          options: [
+            { label: '风格要求提示词', value: 'requirements' },
+            { label: '风格示例提示词', value: 'examples' },
+          ],
+        },
+        {
           key: 'styleRequirementsText',
           label: '风格要求',
           input: 'textarea' as const,
+          visibleWhen: {
+            key: 'styleGuidanceMode',
+            equals: 'requirements',
+          },
+        },
+        {
+          key: 'styleLibraryName',
+          label: '参考风格库',
+          input: 'select' as const,
+          visibleWhen: {
+            key: 'styleGuidanceMode',
+            equals: 'examples',
+          },
         },
       ],
     } satisfies TranslationProcessorWorkflowMetadata;
@@ -385,19 +408,39 @@ describe('WebUI LLM request config helpers', () => {
         translatorName: 'style-demo',
       },
       customRequirements: [],
+      styleGuidanceMode: 'requirements',
       styleRequirementsText: '整体口语化',
     } satisfies WorkspaceConfig;
 
     const formValues = workspaceWorkflowToForm(config, previousWorkflow);
+    expect(formValues[workspaceFieldName('styleGuidanceMode')]).toBe('requirements');
     expect(formValues[workspaceFieldName('styleRequirementsText')]).toBe('整体口语化');
 
     const patch = buildWorkspaceWorkflowPatch(formValues as Record<string, unknown>, previousWorkflow);
     expect(patch).toEqual({
+      styleGuidanceMode: 'requirements',
       styleRequirementsText: '整体口语化',
+      styleLibraryName: null,
+    });
+
+    const examplesPatch = buildWorkspaceWorkflowPatch(
+      {
+        [workspaceFieldName('styleGuidanceMode')]: 'examples',
+        [workspaceFieldName('styleRequirementsText')]: '应当被清空',
+        [workspaceFieldName('styleLibraryName')]: 'campus-style',
+      },
+      previousWorkflow,
+    );
+    expect(examplesPatch).toEqual({
+      styleGuidanceMode: 'examples',
+      styleRequirementsText: null,
+      styleLibraryName: 'campus-style',
     });
 
     expect(buildClearedWorkspaceWorkflowPatch(previousWorkflow, nextWorkflow)).toEqual({
+      styleGuidanceMode: null,
       styleRequirementsText: null,
+      styleLibraryName: null,
     });
   });
 });

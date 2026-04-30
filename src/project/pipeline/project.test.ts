@@ -1601,6 +1601,53 @@ describe("TranslationProject", () => {
     expect(persistedGlossary.getTerm("勇者")?.translation).toBe("Hero");
   });
 
+  test("clears inactive style guidance fields when switching guidance mode", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-style-guidance-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "style-guidance",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    await project.updateWorkspaceConfig({
+      styleGuidanceMode: "requirements",
+      styleRequirementsText: "整体口语化，避免半文言句式，并且让叙述更贴近现代简中读者的阅读习惯。",
+    });
+
+    expect(project.getWorkspaceConfig()).toMatchObject({
+      styleGuidanceMode: "requirements",
+      styleRequirementsText: "整体口语化，避免半文言句式，并且让叙述更贴近现代简中读者的阅读习惯。",
+      styleLibraryName: undefined,
+    });
+
+    await project.updateWorkspaceConfig({
+      styleGuidanceMode: "examples",
+      styleLibraryName: "campus-style",
+    });
+
+    expect(project.getWorkspaceConfig()).toMatchObject({
+      styleGuidanceMode: "examples",
+      styleRequirementsText: undefined,
+      styleLibraryName: "campus-style",
+    });
+  });
+
   test("loads glossary from the persisted workspace glossary path", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-glossary-load-"));
     cleanupTargets.push(workspaceDir);

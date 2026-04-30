@@ -40,6 +40,7 @@ import { TranslationProcessorFactory } from '../../project/processing/translatio
 import type { ProofreadProcessor } from '../../project/processing/proofread-processor.ts';
 import { TranslationProject } from '../../project/pipeline/translation-project.ts';
 import {
+  applyWorkspaceConfigPatch,
   DEFAULT_WORKSPACE_PIPELINE_STRATEGY,
   openWorkspaceConfig,
 } from '../../project/pipeline/translation-project-workspace.ts';
@@ -74,6 +75,7 @@ import type {
 import { StoryTopology } from '../../project/context/story-topology.ts';
 import { DefaultTextSplitter } from '../../project/document/translation-document-manager.ts';
 import type { Logger } from '../../project/logger.ts';
+import { StyleLibraryService } from '../../style-library/service.ts';
 import { computeChunkLinkGraph } from '../../vector/chunk-link-graph.ts';
 import { createVectorStoreConfig } from '../../vector/types.ts';
 import type {
@@ -2701,6 +2703,7 @@ export class ProjectService {
     try {
       const currentProject = this.project;
       const currentConfig = currentProject.getWorkspaceConfig();
+      const nextConfig = applyWorkspaceConfigPatch(currentConfig, patch);
       const previousPipelineStrategy = resolveWorkspacePipelineStrategy(
         currentConfig.pipelineStrategy,
       );
@@ -2714,6 +2717,8 @@ export class ProjectService {
       ) {
         throw new ProjectServiceUserInputError('请先暂停或中止翻译，再切换工作流');
       }
+
+      await validateStyleTransferWorkspaceConfig(nextConfig);
 
       await this.project.updateWorkspaceConfig(patch);
 
@@ -3658,7 +3663,9 @@ export class ProjectService {
               processResult = await processor.processWorkItem(item, {
                 glossary: currentProject.getGlossary(),
                 documentManager: currentProject.getDocumentManager(),
+                styleGuidanceMode: currentProject.getStyleGuidanceMode(),
                 styleRequirementsText: currentProject.getStyleRequirementsText(),
+                styleLibraryName: currentProject.getStyleLibraryName(),
               });
             } catch (error) {
               processError = error;
@@ -4044,6 +4051,7 @@ async function createProcessorForProject(
       promptManager: new PromptManager({
         translationPromptSet: workflow?.promptSet ?? entry.promptSet,
       }),
+      styleLibraryService: new StyleLibraryService({ manager }),
     }),
     maxConcurrentWorkItems: await resolveTranslatorMaxConcurrentWorkItems(
       manager,
@@ -4053,6 +4061,47 @@ async function createProcessorForProject(
       await provider.closeAll();
     },
   };
+}
+
+async function validateStyleTransferWorkspaceConfig(
+  config: WorkspaceConfig,
+): Promise<void> {
+  const translatorName = config.translator?.translatorName?.trim();
+  if (!translatorName) {
+    return;
+  }
+
+  const manager = new GlobalConfigManager();
+  const translator = await manager.getTranslator(translatorName);
+  if (!translator) {
+    throw new ProjectServiceUserInputError(`未找到名为 "${translatorName}" 的翻译器`);
+  }
+
+  if ((translator.type ?? 'default') !== 'style-transfer') {
+    return;
+  }
+
+  if (config.styleGuidanceMode !== 'requirements' && config.styleGuidanceMode !== 'examples') {
+    throw new ProjectServiceUserInputError('风格迁移翻译器必须选择一种风格引导来源');
+  }
+
+  if (config.styleGuidanceMode === 'requirements') {
+    const requirementsText = config.styleRequirementsText?.trim() ?? '';
+    if (requirementsText.length < 50) {
+      throw new ProjectServiceUserInputError('选择风格要求提示词时，风格要求至少需要 50 个字符');
+    }
+    return;
+  }
+
+  const styleLibraryName = config.styleLibraryName?.trim();
+  if (!styleLibraryName) {
+    throw new ProjectServiceUserInputError('选择风格示例提示词时，必须选择一个风格库');
+  }
+
+  const library = await manager.getStyleLibrary(styleLibraryName);
+  if (!library) {
+    throw new ProjectServiceUserInputError(`未找到名为 "${styleLibraryName}" 的风格库`);
+  }
 }
 
 async function createProofreadProcessorForProject(

@@ -328,6 +328,36 @@ export function getWorkspaceWorkflowFields(
   return workflow?.workspaceFields ?? [];
 }
 
+export function isWorkflowFieldVisible(
+  field: TranslationProcessorWorkflowFieldMetadata,
+  values: Record<string, unknown> | undefined,
+  fieldNameForKey: (key: string) => string,
+): boolean {
+  if (!field.visibleWhen) {
+    return true;
+  }
+
+  const expectedValue = optionalString(values?.[fieldNameForKey(field.visibleWhen.key)]);
+  return expectedValue === field.visibleWhen.equals;
+}
+
+export function isWorkflowFieldRequired(
+  field: TranslationProcessorWorkflowFieldMetadata,
+  values: Record<string, unknown> | undefined,
+  fieldNameForKey: (key: string) => string,
+): boolean {
+  if (field.required) {
+    return true;
+  }
+
+  if (!field.requiredWhen) {
+    return false;
+  }
+
+  const actualValue = optionalString(values?.[fieldNameForKey(field.requiredWhen.key)]);
+  return actualValue === field.requiredWhen.equals;
+}
+
 export function translatorToForm(
   translator: TranslatorEntry | null,
   translatorName: string | undefined,
@@ -456,6 +486,11 @@ export function buildWorkspaceWorkflowPatch(
   const payload: Record<string, unknown> = {};
 
   for (const field of getWorkspaceWorkflowFields(workflow)) {
+    if (!isWorkflowFieldVisible(field, values, workspaceFieldName)) {
+      setNestedValue(payload, field.key, null);
+      continue;
+    }
+
     const parsed = parseWorkflowFieldValue(values[workspaceFieldName(field.key)], field);
     setNestedValue(payload, field.key, parsed ?? null);
   }
@@ -530,6 +565,8 @@ function serializeWorkflowFieldValue(
       return normalizeModelChain(value);
     case 'yaml':
       return stringifyYaml(value);
+    case 'select':
+      return optionalString(value);
     default:
       return typeof value === 'number' ? value : optionalString(value);
   }
@@ -544,6 +581,8 @@ function parseWorkflowFieldValue(
       return normalizeModelChain(value);
     case 'number':
       return optionalNumber(value);
+    case 'select':
+      return optionalString(value);
     case 'yaml':
       return field.yamlShape === 'string-map' ? parseYamlStringMap(value) : parseYamlObject(value);
     default:

@@ -55,6 +55,7 @@ import type {
   ProjectResourceVersions,
   RepetitionPatternAnalysisResult,
   SavedRepetitionPatternAnalysisResult,
+  StyleLibraryCatalog,
   StoryTopologyDescriptor,
   TranslationProcessorConfig,
   TranslationProcessorWorkflowMetadata,
@@ -183,6 +184,10 @@ export function AppShell() {
   const [translatorWorkflows, setTranslatorWorkflows] = useState<
     TranslationProcessorWorkflowMetadata[]
   >([]);
+  const [styleLibraryCatalog, setStyleLibraryCatalog] = useState<StyleLibraryCatalog>({
+    libraries: [],
+    discoveryErrors: {},
+  });
   const [proofreadConfig, setProofreadConfig] =
     useState<TranslationProcessorConfig | null>(null);
   const [proofreadWorkflows, setProofreadWorkflows] = useState<
@@ -255,6 +260,20 @@ export function AppShell() {
       translatorWorkflows[0]
     );
   }, [selectedWorkspaceTranslatorName, translators, translatorWorkflows, workflowMap]);
+  const styleLibraryOptions = useMemo(
+    () =>
+      styleLibraryCatalog.libraries
+        .filter((library) => library.existsInVectorStore && library.embeddingState !== 'invalid')
+        .map((library) => ({
+          label: library.displayName ?? library.name,
+          value: library.name,
+          description:
+            library.displayName && library.displayName !== library.name
+              ? library.name
+              : library.targetLanguage,
+        })),
+    [styleLibraryCatalog],
+  );
 
   const runAction = useCallback(
     async (action: () => Promise<void>) => {
@@ -579,6 +598,7 @@ export function AppShell() {
         vectorRes,
         translatorsRes,
         workflowRes,
+        styleLibraryRes,
         proofreadConfigRes,
         proofreadWorkflowRes,
         extractorRes,
@@ -591,6 +611,7 @@ export function AppShell() {
         api.getVectorStores(),
         api.getTranslators(),
         api.getTranslatorWorkflows(),
+        api.getStyleLibraries(),
         api.getProofreadProcessorConfig(),
         api.getProofreadWorkflows(),
         api.getGlossaryExtractor(),
@@ -606,6 +627,7 @@ export function AppShell() {
       setVectorConnectionStatus(vectorRes.status);
       setTranslators(translatorsRes.translators);
       setTranslatorWorkflows(workflowRes.workflows);
+      setStyleLibraryCatalog(styleLibraryRes);
       setProofreadConfig(proofreadConfigRes as TranslationProcessorConfig | null);
       setProofreadWorkflows(proofreadWorkflowRes.workflows);
       setExtractorConfig(extractorRes as GlossaryExtractorConfig | null);
@@ -652,6 +674,10 @@ export function AppShell() {
       onScanProgress: (progress: ProjectStatus['scanDictionaryProgress']) =>
         {
           setProjectStatus((prev) =>
+
+    const refreshStyleLibraryOptions = useCallback(async () => {
+      setStyleLibraryCatalog(await api.getStyleLibraries());
+    }, []);
             prev
               ? {
                   ...prev,
@@ -1938,6 +1964,7 @@ export function AppShell() {
                           : undefined
                       }
                       translatorOptions={translatorOptions}
+                      styleLibraryOptions={styleLibraryOptions}
                       selectedTranslatorWorkflow={selectedWorkspaceWorkflow}
                       llmProfileOptions={llmProfileOptions}
                       defaultLlmProfileName={defaultLlmName}
@@ -1960,6 +1987,7 @@ export function AppShell() {
                       onRefreshChapters={refreshChapters}
                       onRefreshTopology={refreshTopology}
                       onRefreshWorkspaceConfig={refreshWorkspaceConfig}
+                      onRefreshStyleLibraryOptions={refreshStyleLibraryOptions}
                       onProjectCommand={handleProjectCommand}
                       onBuildContextNetwork={handleBuildContextNetwork}
                       onStartProofread={handleStartProofread}

@@ -385,6 +385,7 @@ describe("TranslationProcessor", () => {
     const result = await processor.process({
       sourceText: "勇者は王都を見つめていた",
       requirements: ["保持文学性"],
+      styleGuidanceMode: "requirements",
       styleRequirementsText: "整体口语化，避免半文言句式。",
     });
 
@@ -397,6 +398,59 @@ describe("TranslationProcessor", () => {
       "翻译-初步翻译",
       "翻译-风格迁移",
     ]);
+  });
+
+  test("injects style examples into the style-transfer step system prompt based on source ratio", async () => {
+    const client = new FakeChatClient([
+      "分析结果",
+      JSON.stringify({
+        translations: [
+          { id: "1", translation: "第一行初稿" },
+          { id: "2", translation: "第二行初稿" },
+        ],
+      }),
+      JSON.stringify({
+        translations: [
+          { id: "1", translation: "第一行终稿" },
+          { id: "2", translation: "第二行终稿" },
+        ],
+      }),
+    ]);
+    const styleLibraryService = new FakeStyleLibraryService({
+      libraryName: "campus-style",
+      collectionName: "stylelib__campus_style",
+      chunks: [
+        { chunkIndex: 0, text: "第一行", charCount: 3, matches: [] },
+        { chunkIndex: 1, text: "第二行", charCount: 3, matches: [] },
+      ],
+      matches: [
+        { id: "a", score: 0.9, document: "示例一：语气轻盈。", chunkIndex: 0, queryText: "第一行" },
+        { id: "b", score: 0.8, document: "示例一：语气轻盈。", chunkIndex: 0, queryText: "第一行" },
+        { id: "c", score: 0.7, document: "示例二：叙述自然。", chunkIndex: 1, queryText: "第二行" },
+      ],
+    });
+    const processor = new StyleTransferTranslationProcessor(client, {}, {
+      styleLibraryService: styleLibraryService as unknown as import("../../style-library/service.ts").StyleLibraryService,
+    });
+
+    const result = await processor.process({
+      sourceText: "第一行\n第二行",
+      requirements: ["保持文学性"],
+      styleGuidanceMode: "examples",
+      styleLibraryName: "campus-style",
+    });
+
+    expect(result.outputText).toBe("第一行终稿\n第二行终稿");
+    expect(styleLibraryService.requests).toEqual([
+      {
+        libraryName: "campus-style",
+        text: "第一行\n第二行",
+        topKPerChunk: "source-ratio",
+      },
+    ]);
+    expect(client.requests[2]?.options?.requestConfig?.systemPrompt).toContain("示例一：语气轻盈。");
+    expect(client.requests[2]?.options?.requestConfig?.systemPrompt).toContain("示例二：叙述自然。");
+    expect(client.requests[2]?.options?.requestConfig?.systemPrompt).not.toContain("风格要求：");
   });
 
   test("repairs minor output line mismatch using alignment repair from global config", async () => {
@@ -822,6 +876,49 @@ class FakeEmbeddingClient extends EmbeddingClient {
 
   override async getEmbeddings(texts: string[]): Promise<number[][]> {
     return texts.map((text) => [extractNumericSignal(text)]);
+  }
+}
+
+class FakeStyleLibraryService {
+  readonly requests: Array<{
+    libraryName: string;
+    text: string;
+    topKPerChunk?: number | "source-ratio";
+  }> = [];
+
+  constructor(
+    private readonly response: {
+      libraryName: string;
+      collectionName: string;
+      chunks: Array<{
+        chunkIndex: number;
+        text: string;
+        charCount: number;
+        matches: Array<{
+          id: string;
+          score: number;
+          document?: string;
+          chunkIndex: number;
+          queryText: string;
+        }>;
+      }>;
+      matches: Array<{
+        id: string;
+        score: number;
+        document?: string;
+        chunkIndex: number;
+        queryText: string;
+      }>;
+    },
+  ) {}
+
+  async queryLibrary(
+    libraryName: string,
+    text: string,
+    options: { topKPerChunk?: number | "source-ratio" } = {},
+  ) {
+    this.requests.push({ libraryName, text, topKPerChunk: options.topKPerChunk });
+    return this.response;
   }
 }
 

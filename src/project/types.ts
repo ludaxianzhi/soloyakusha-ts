@@ -121,6 +121,8 @@ export type GlossarySettings = {
   autoFilter?: boolean;
 };
 
+export type StyleGuidanceMode = "requirements" | "examples";
+
 export type TranslationProjectConfig = {
   projectName: string;
   projectDir: string;
@@ -129,7 +131,9 @@ export type TranslationProjectConfig = {
   textSplitMaxChars?: number;
   customRequirements?: string[];
   editorRequirementsText?: string;
+  styleGuidanceMode?: StyleGuidanceMode;
   styleRequirementsText?: string;
+  styleLibraryName?: string;
 };
 
 export type TranslationUnitParser = (content: string) => TranslationUnit[];
@@ -453,7 +457,9 @@ export type WorkspaceConfig = {
   contextSize?: number;
   customRequirements: string[];
   editorRequirementsText?: string;
+  styleGuidanceMode?: StyleGuidanceMode;
   styleRequirementsText?: string;
+  styleLibraryName?: string;
   defaultImportFormat?: string;
   defaultExportFormat?: string;
 };
@@ -473,7 +479,9 @@ export type WorkspaceConfigPatch = {
   contextSize?: number | null;
   customRequirements?: string[];
   editorRequirementsText?: string | null;
+  styleGuidanceMode?: StyleGuidanceMode | null;
   styleRequirementsText?: string | null;
+  styleLibraryName?: string | null;
   defaultImportFormat?: string | null;
   defaultExportFormat?: string | null;
 };

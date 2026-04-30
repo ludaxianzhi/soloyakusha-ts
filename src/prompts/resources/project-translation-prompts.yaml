@@ -175,6 +175,12 @@ prompts:
         风格要求：
         {{ styleRequirementsText }}
         {% endif %}
+        {% if styleExamples.size > 0 %}
+        风格示例：
+        {% for example in styleExamples %}
+        - {{ example }}
+        {% endfor %}
+        {% endif %}
         必须遵守：
         - 保留每一行与原 id 的对应关系，不得缺失、重复或新增 id。
         - 保持与术语表一致，不得擅自改动已有稳定译名。

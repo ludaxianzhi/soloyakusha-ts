@@ -11,6 +11,7 @@ import type { TranslationDocumentManager } from "../document/translation-documen
 import type {
   Chapter,
   GlossaryImportResult,
+  StyleGuidanceMode,
   WorkspaceDependencyTrackingConfig,
   WorkspacePipelineStrategy,
   TranslationExportResult,
@@ -418,6 +419,7 @@ export function buildInitialWorkspaceConfig(
   config: TranslationProjectConfig,
   chapters: Chapter[],
 ): WorkspaceConfig {
+  const styleGuidanceMode = normalizeStyleGuidanceMode(config.styleGuidanceMode);
   return {
     schemaVersion: 1,
     projectName: config.projectName,
@@ -436,7 +438,15 @@ export function buildInitialWorkspaceConfig(
     textSplitMaxChars: config.textSplitMaxChars,
     customRequirements: [...(config.customRequirements ?? [])],
     editorRequirementsText: config.editorRequirementsText?.trim() || undefined,
-    styleRequirementsText: config.styleRequirementsText?.trim() || undefined,
+    styleGuidanceMode,
+    styleRequirementsText:
+      styleGuidanceMode === "requirements"
+        ? (config.styleRequirementsText?.trim() || undefined)
+        : undefined,
+    styleLibraryName:
+      styleGuidanceMode === "examples"
+        ? (config.styleLibraryName?.trim() || undefined)
+        : undefined,
   };
 }
 
@@ -444,6 +454,9 @@ export function mergePersistedWorkspaceConfig(
   current: WorkspaceConfig,
   persisted: WorkspaceConfig,
 ): WorkspaceConfig {
+  const styleGuidanceMode = normalizeStyleGuidanceMode(
+    persisted.styleGuidanceMode ?? current.styleGuidanceMode,
+  );
   return {
     ...current,
     glossary: {
@@ -472,8 +485,15 @@ export function mergePersistedWorkspaceConfig(
     customRequirements: [...(persisted.customRequirements ?? current.customRequirements)],
     editorRequirementsText:
       persisted.editorRequirementsText?.trim() || current.editorRequirementsText,
+    styleGuidanceMode,
     styleRequirementsText:
-      persisted.styleRequirementsText?.trim() || current.styleRequirementsText,
+      styleGuidanceMode === "requirements"
+        ? (persisted.styleRequirementsText?.trim() || current.styleRequirementsText)
+        : undefined,
+    styleLibraryName:
+      styleGuidanceMode === "examples"
+        ? (persisted.styleLibraryName?.trim() || current.styleLibraryName)
+        : undefined,
     defaultImportFormat: persisted.defaultImportFormat ?? current.defaultImportFormat,
     defaultExportFormat: persisted.defaultExportFormat ?? current.defaultExportFormat,
   };
@@ -491,6 +511,12 @@ export function applyWorkspaceConfigPatch(
         : (patch.translator.translatorName ?? config.translator.translatorName);
     nextTranslator = { translatorName };
   }
+
+  const styleGuidanceMode = normalizeStyleGuidanceMode(
+    patch.styleGuidanceMode === null
+      ? undefined
+      : (patch.styleGuidanceMode ?? config.styleGuidanceMode),
+  );
 
   return {
     ...config,
@@ -517,10 +543,23 @@ export function applyWorkspaceConfigPatch(
       patch.editorRequirementsText === null
         ? undefined
         : ((patch.editorRequirementsText ?? config.editorRequirementsText)?.trim() || undefined),
+    styleGuidanceMode,
     styleRequirementsText:
-      patch.styleRequirementsText === null
-        ? undefined
-        : ((patch.styleRequirementsText ?? config.styleRequirementsText)?.trim() || undefined),
+      styleGuidanceMode === "requirements"
+        ? (
+            patch.styleRequirementsText === null
+              ? undefined
+              : ((patch.styleRequirementsText ?? config.styleRequirementsText)?.trim() || undefined)
+          )
+        : undefined,
+    styleLibraryName:
+      styleGuidanceMode === "examples"
+        ? (
+            patch.styleLibraryName === null
+              ? undefined
+              : ((patch.styleLibraryName ?? config.styleLibraryName)?.trim() || undefined)
+          )
+        : undefined,
     defaultImportFormat:
       patch.defaultImportFormat === null
         ? undefined
@@ -543,8 +582,16 @@ export function cloneWorkspaceConfig(config: WorkspaceConfig): WorkspaceConfig {
     slidingWindow: { ...config.slidingWindow },
     customRequirements: [...config.customRequirements],
     editorRequirementsText: config.editorRequirementsText,
+    styleGuidanceMode: config.styleGuidanceMode,
     styleRequirementsText: config.styleRequirementsText,
+    styleLibraryName: config.styleLibraryName,
   };
+}
+
+function normalizeStyleGuidanceMode(
+  value: StyleGuidanceMode | string | undefined,
+): StyleGuidanceMode | undefined {
+  return value === "requirements" || value === "examples" ? value : undefined;
 }
 
 export function buildWorkspaceBootstrapDocument(

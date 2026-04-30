@@ -6,6 +6,7 @@
 
 import type { GlossaryUpdater } from "../../glossary/updater.ts";
 import type { ChatRequestOptions } from "../../llm/types.ts";
+import type { StyleLibraryService } from "../../style-library/service.ts";
 import type { Logger } from "../logger.ts";
 import type { PromptManager } from "./prompt-manager.ts";
 import { DefaultTranslationProcessor } from "./default-translation-processor.ts";
@@ -50,23 +51,43 @@ export type TranslationProcessorFactoryCreateOptions = {
   processorName?: string;
   glossaryUpdater?: GlossaryUpdater;
   outputRepairer?: TranslationOutputRepairer;
+  styleLibraryService?: StyleLibraryService;
 };
 
 export type TranslationProcessorWorkflowFieldInput =
   | "llm-profile"
   | "number"
+  | "select"
   | "text"
   | "textarea"
   | "yaml";
+
+export type TranslationProcessorWorkflowFieldOption = {
+  label: string;
+  value: string;
+  description?: string;
+};
+
+export type TranslationProcessorWorkflowFieldCondition = {
+  key: string;
+  equals: string;
+};
+
+export type TranslationProcessorWorkflowFieldOptionsSource = "style-libraries";
 
 export type TranslationProcessorWorkflowFieldMetadata = {
   key: string;
   label: string;
   description?: string;
   input: TranslationProcessorWorkflowFieldInput;
+  options?: TranslationProcessorWorkflowFieldOption[];
+  optionsSource?: TranslationProcessorWorkflowFieldOptionsSource;
+  visibleWhen?: TranslationProcessorWorkflowFieldCondition;
+  requiredWhen?: TranslationProcessorWorkflowFieldCondition;
   yamlShape?: "object" | "string-map";
   required?: boolean;
   min?: number;
+  minLength?: number;
   placeholder?: string;
   section?: "basic" | "advanced";
 };
@@ -178,6 +199,7 @@ export class TranslationProcessorFactory {
             processorName: options.processorName,
             glossaryUpdater: options.glossaryUpdater,
             outputRepairer: options.outputRepairer,
+            styleLibraryService: options.styleLibraryService,
             stepRequestOptions: options.stepRequestOptions,
           });
         },
@@ -211,11 +233,56 @@ export class TranslationProcessorFactory {
           ],
           workspaceFields: [
             {
+              key: "styleGuidanceMode",
+              label: "风格引导来源",
+              description: "二选一：使用文字化风格要求，或从风格库检索风格示例注入系统提示词。",
+              input: "select",
+              required: true,
+              options: [
+                {
+                  label: "风格要求提示词",
+                  value: "requirements",
+                  description: "手动填写不少于 50 字的风格描述。",
+                },
+                {
+                  label: "风格示例提示词",
+                  value: "examples",
+                  description: "从已建立的风格库检索示例并注入提示词。",
+                },
+              ],
+              section: "basic",
+            },
+            {
               key: "styleRequirementsText",
               label: "风格要求",
-              description: "仅对风格迁移阶段生效，会被注入系统提示词以约束最终译文风格。",
+              description: "仅对风格迁移阶段生效，会被注入系统提示词以约束最终译文风格。至少填写 50 字。",
               input: "textarea",
               placeholder: "例如：整体口语化，避免半文言句式，角色对话保留轻小说感。",
+              visibleWhen: {
+                key: "styleGuidanceMode",
+                equals: "requirements",
+              },
+              requiredWhen: {
+                key: "styleGuidanceMode",
+                equals: "requirements",
+              },
+              minLength: 50,
+              section: "basic",
+            },
+            {
+              key: "styleLibraryName",
+              label: "参考风格库",
+              description: "仅对风格迁移阶段生效；系统会按原文长度与风格库切割长度的倍率动态检索示例。",
+              input: "select",
+              optionsSource: "style-libraries",
+              visibleWhen: {
+                key: "styleGuidanceMode",
+                equals: "examples",
+              },
+              requiredWhen: {
+                key: "styleGuidanceMode",
+                equals: "examples",
+              },
               section: "basic",
             },
           ],
@@ -293,8 +360,8 @@ export class TranslationProcessorFactory {
         sourceLanguage: metadata.sourceLanguage,
         targetLanguage: metadata.targetLanguage,
         promptSet: metadata.promptSet,
-        translatorFields: metadata.translatorFields.map((field) => ({ ...field })),
-        workspaceFields: metadata.workspaceFields?.map((field) => ({ ...field })) ?? [],
+        translatorFields: metadata.translatorFields.map(cloneWorkflowFieldMetadata),
+        workspaceFields: metadata.workspaceFields?.map(cloneWorkflowFieldMetadata) ?? [],
       },
       listed: true,
     });
@@ -304,8 +371,8 @@ export class TranslationProcessorFactory {
 function cloneWorkflowMetadata(
   metadata: TranslationProcessorWorkflowMetadata,
 ): TranslationProcessorWorkflowMetadata {
-  const translatorFields = metadata.translatorFields.map((field) => ({ ...field }));
-  const workspaceFields = metadata.workspaceFields?.map((field) => ({ ...field })) ?? [];
+  const translatorFields = metadata.translatorFields.map(cloneWorkflowFieldMetadata);
+  const workspaceFields = metadata.workspaceFields?.map(cloneWorkflowFieldMetadata) ?? [];
 
   return {
     workflow: metadata.workflow,
@@ -316,7 +383,18 @@ function cloneWorkflowMetadata(
     promptSet: metadata.promptSet,
     translatorFields,
     workspaceFields,
-    fields: translatorFields.map((field) => ({ ...field })),
+    fields: translatorFields.map(cloneWorkflowFieldMetadata),
+  };
+}
+
+function cloneWorkflowFieldMetadata(
+  field: TranslationProcessorWorkflowFieldMetadata,
+): TranslationProcessorWorkflowFieldMetadata {
+  return {
+    ...field,
+    options: field.options?.map((option) => ({ ...option })),
+    visibleWhen: field.visibleWhen ? { ...field.visibleWhen } : undefined,
+    requiredWhen: field.requiredWhen ? { ...field.requiredWhen } : undefined,
   };
 }
 

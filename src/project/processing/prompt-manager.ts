@@ -56,6 +56,7 @@ export type StyleTransferPromptInput = {
   analysisText: string;
   requirements: string[];
   styleRequirementsText?: string;
+  styleExamples?: string[];
 };
 
 export type MultiStageEditorPromptInput = {
@@ -240,6 +241,7 @@ export class PromptManager {
       analysisText: input.analysisText,
       requirements: input.requirements,
       styleRequirementsText: resolveStyleRequirementsText(input.styleRequirementsText),
+      styleExamples: input.styleExamples ?? [],
       responseSchemaJson: JSON.stringify(responseSchema, null, 2),
     });
 

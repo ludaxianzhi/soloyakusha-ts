@@ -25,6 +25,7 @@ import type {
   ImportStyleLibraryInput,
   StyleLibraryCatalog,
   StyleLibraryImportResult,
+  StyleLibraryQueryOptions,
   StyleLibraryQueryChunkResult,
   StyleLibraryQueryResult,
   StyleLibrarySummary,
@@ -306,7 +307,11 @@ export class StyleLibraryService {
     }
   }
 
-  async queryLibrary(libraryName: string, text: string): Promise<StyleLibraryQueryResult> {
+  async queryLibrary(
+    libraryName: string,
+    text: string,
+    options: StyleLibraryQueryOptions = {},
+  ): Promise<StyleLibraryQueryResult> {
     const config = await this.manager.getRequiredStyleLibrary(libraryName);
     await this.assertLibraryCompatible(config);
     const chunks = splitTextIntoChunks(text, config.chunkLength);
@@ -324,11 +329,15 @@ export class StyleLibraryService {
         const retriever = new VectorRetriever(vectorClient, embeddingClient, {
           defaultCollectionName: config.collectionName,
         });
+        const topKPerChunk =
+          options.topKPerChunk === "source-ratio"
+            ? Math.max(1, chunks.length)
+            : Math.max(1, Math.floor(options.topKPerChunk ?? 1));
         const chunkResults: StyleLibraryQueryChunkResult[] = [];
         for (const [chunkIndex, chunk] of chunks.entries()) {
           const matches = (await retriever.searchText({
             text: chunk.text,
-            topK: 1,
+            topK: topKPerChunk,
             filter: {
               resourceType: STYLE_LIBRARY_RESOURCE_TYPE,
               styleLibraryName: libraryName,

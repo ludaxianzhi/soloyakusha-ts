@@ -12,6 +12,7 @@ import type { ChatRequestOptions, JsonObject } from "../../llm/types.ts";
 import type { TranslationContextView } from "../context/context-view.ts";
 import type { TranslationWorkItem } from "../pipeline/pipeline.ts";
 import type { TranslationDocumentManager } from "../document/translation-document-manager.ts";
+import type { StyleGuidanceMode } from "../types.ts";
 import type { FragmentAuxData, FragmentAuxDataPatch, SlidingWindowOptions, SlidingWindowFragment } from "../types.ts";
 
 export type TranslationProcessorRequest = {
@@ -20,7 +21,9 @@ export type TranslationProcessorRequest = {
   glossary?: Glossary;
   requirements?: ReadonlyArray<string>;
   editorRequirementsText?: string;
+  styleGuidanceMode?: StyleGuidanceMode;
   styleRequirementsText?: string;
+  styleLibraryName?: string;
   requestOptions?: ChatRequestOptions;
   documentManager?: TranslationDocumentManager;
   slidingWindow?: SlidingWindowOptions;
@@ -70,7 +73,9 @@ export interface TranslationProcessor {
       | "documentManager"
       | "slidingWindow"
       | "editorRequirementsText"
+      | "styleGuidanceMode"
       | "styleRequirementsText"
+      | "styleLibraryName"
     >,
   ): Promise<TranslationProcessorResult>;
 

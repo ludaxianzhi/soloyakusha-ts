@@ -33,8 +33,10 @@ interface WorkspaceConfigTabProps {
   active: boolean;
   workspaceForm: FormInstance<Record<string, unknown>>;
   translatorOptions: Array<{ label: string; value: string }>;
+  styleLibraryOptions: Array<{ label: string; value: string; description?: string }>;
   selectedTranslatorWorkflow?: TranslationProcessorWorkflowMetadata;
   onRefreshWorkspaceConfig: () => void | Promise<void>;
+  onRefreshStyleLibraryOptions?: () => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
   onDownloadExport: (format: string) => void | Promise<void>;
   onResetProject: (
@@ -47,18 +49,23 @@ export function WorkspaceConfigTab({
   active,
   workspaceForm,
   translatorOptions,
+  styleLibraryOptions,
   selectedTranslatorWorkflow,
   onRefreshWorkspaceConfig,
+  onRefreshStyleLibraryOptions,
   onWorkspaceConfigSave,
   onDownloadExport,
   onResetProject,
 }: WorkspaceConfigTabProps) {
+  const formValues = Form.useWatch([], workspaceForm) as Record<string, unknown> | undefined;
+
   useEffect(() => {
     if (!active) {
       return;
     }
     void onRefreshWorkspaceConfig();
-  }, [active, onRefreshWorkspaceConfig]);
+    void onRefreshStyleLibraryOptions?.();
+  }, [active, onRefreshStyleLibraryOptions, onRefreshWorkspaceConfig]);
 
   usePollingTask({
     enabled: active,
@@ -137,8 +144,12 @@ export function WorkspaceConfigTab({
           {workspaceFields.length > 0 ? (
             <Card size="small" className="settings-meta-card" title="翻译器专属参数">
               <WorkflowFieldSections
+                formValues={formValues}
                 fields={workspaceFields}
                 llmProfileOptions={[]}
+                fieldOptionsBySource={{
+                  'style-libraries': styleLibraryOptions,
+                }}
                 fieldNameForKey={workspaceFieldName}
               />
             </Card>

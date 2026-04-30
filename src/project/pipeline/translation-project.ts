@@ -352,7 +352,9 @@ export class TranslationProject
         textSplitMaxChars: workspaceConfig.textSplitMaxChars,
         customRequirements: workspaceConfig.customRequirements,
         editorRequirementsText: workspaceConfig.editorRequirementsText,
+        styleGuidanceMode: workspaceConfig.styleGuidanceMode,
         styleRequirementsText: workspaceConfig.styleRequirementsText,
+        styleLibraryName: workspaceConfig.styleLibraryName,
       },
       {
         ...options,
@@ -1675,8 +1677,16 @@ export class TranslationProject
     return this.workspaceManager.getWorkspaceConfig().editorRequirementsText;
   }
 
+  getStyleGuidanceMode(): import("../types.ts").StyleGuidanceMode | undefined {
+    return this.workspaceManager.getWorkspaceConfig().styleGuidanceMode;
+  }
+
   getStyleRequirementsText(): string | undefined {
     return this.workspaceManager.getWorkspaceConfig().styleRequirementsText;
+  }
+
+  getStyleLibraryName(): string | undefined {
+    return this.workspaceManager.getWorkspaceConfig().styleLibraryName;
   }
 
   async reconcileImportedTranslations(

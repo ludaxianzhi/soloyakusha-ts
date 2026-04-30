@@ -42,6 +42,7 @@ export interface WorkspaceViewProps {
   workspaceForm: FormInstance<Record<string, unknown>>;
   defaultImportFormat?: string;
   translatorOptions: Array<{ label: string; value: string }>;
+  styleLibraryOptions: Array<{ label: string; value: string; description?: string }>;
   selectedTranslatorWorkflow?: TranslationProcessorWorkflowMetadata;
   llmProfileOptions: Array<{ label: string; value: string }>;
   defaultLlmProfileName?: string;
@@ -76,6 +77,7 @@ export interface WorkspaceViewProps {
   onRefreshChapters: () => void | Promise<void>;
   onRefreshTopology: () => void | Promise<void>;
   onRefreshWorkspaceConfig: () => void | Promise<void>;
+  onRefreshStyleLibraryOptions: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onBuildContextNetwork: (
     input: {

@@ -23,6 +23,7 @@ export function WorkspaceView({
   workspaceForm,
   defaultImportFormat,
   translatorOptions,
+  styleLibraryOptions,
   selectedTranslatorWorkflow,
   llmProfileOptions,
   defaultLlmProfileName,
@@ -39,6 +40,7 @@ export function WorkspaceView({
   onRefreshChapters,
   onRefreshTopology,
   onRefreshWorkspaceConfig,
+  onRefreshStyleLibraryOptions,
   onProjectCommand,
   onBuildContextNetwork,
   onStartProofread,
@@ -202,8 +204,10 @@ export function WorkspaceView({
                 active={activeTabKey === 'workspace-config'}
                 workspaceForm={workspaceForm}
                 translatorOptions={translatorOptions}
+                styleLibraryOptions={styleLibraryOptions}
                 selectedTranslatorWorkflow={selectedTranslatorWorkflow}
                 onRefreshWorkspaceConfig={onRefreshWorkspaceConfig}
+                onRefreshStyleLibraryOptions={onRefreshStyleLibraryOptions}
                 onWorkspaceConfigSave={onWorkspaceConfigSave}
                 onDownloadExport={onDownloadExport}
                 onResetProject={onResetProject}
