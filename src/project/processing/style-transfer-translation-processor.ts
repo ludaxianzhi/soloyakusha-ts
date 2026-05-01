@@ -46,6 +46,12 @@ export const STYLE_TRANSFER_STEP_NAMES = ["analyzer", "translator", "styleTransf
 
 export type StyleTransferStepName = (typeof STYLE_TRANSFER_STEP_NAMES)[number];
 
+type StyleTransferModification = {
+  id: string;
+  styleAnalysis: string;
+  translation: string;
+};
+
 /**
  * 风格迁移处理器的辅助数据契约。
  * 提供分析阶段的输出文本，共下游流程（如独立校对）复用。
@@ -263,7 +269,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
             styleTransferClient.supportsStructuredOutput,
           ),
           (candidateResponseText) => {
-            parseTranslationResponse(
+            parseStyleTransferResponse(
               candidateResponseText,
               sourceUnits.map((unit) => unit.id),
             );
@@ -272,9 +278,13 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
         this.buildStepRequestMeta("styleTransfer", request),
       ),
     );
-    currentTranslations = parseTranslationResponse(
+    const styleTransferModifications = parseStyleTransferResponse(
       styleTransferResponseText,
       sourceUnits.map((unit) => unit.id),
+    );
+    currentTranslations = applyStyleTransferModifications(
+      currentTranslations,
+      styleTransferModifications,
     );
 
     const glossaryUpdateResult = await glossaryUpdatePromise;
@@ -500,6 +510,77 @@ function parseTranslationResponse(
   }
 
   return translations;
+}
+
+function parseStyleTransferResponse(
+  responseText: string,
+  expectedIds: ReadonlyArray<string>,
+): StyleTransferModification[] {
+  let parsed: unknown;
+  try {
+    parsed = parseJsonResponseText(responseText);
+  } catch (error) {
+    throw new Error(
+      `风格迁移结果不是合法 JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error("风格迁移结果必须是 JSON 对象");
+  }
+
+  const modificationValues = parsed.modifications;
+  if (!Array.isArray(modificationValues)) {
+    throw new Error("风格迁移结果缺少 modifications 数组");
+  }
+
+  const expectedIdSet = new Set(expectedIds);
+  const seenIds = new Set<string>();
+
+  return modificationValues.map<StyleTransferModification>((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`modifications[${index}] 必须是对象`);
+    }
+
+    const id = typeof entry.id === "string" ? entry.id.trim() : "";
+    const styleAnalysis =
+      typeof entry.styleAnalysis === "string" ? entry.styleAnalysis.trim() : "";
+    const translation = typeof entry.translation === "string" ? entry.translation.trim() : "";
+
+    if (!id || !expectedIdSet.has(id)) {
+      throw new Error(`modifications[${index}].id 无效或未请求: ${id}`);
+    }
+    if (seenIds.has(id)) {
+      throw new Error(`modifications[${index}].id 重复: ${id}`);
+    }
+    if (!styleAnalysis) {
+      throw new Error(`modifications[${index}].styleAnalysis 不能为空`);
+    }
+    if (!translation) {
+      throw new Error(`modifications[${index}].translation 不能为空`);
+    }
+
+    seenIds.add(id);
+    return { id, styleAnalysis, translation };
+  });
+}
+
+function applyStyleTransferModifications(
+  translations: ReadonlyArray<TranslationProcessorTranslation>,
+  modifications: ReadonlyArray<StyleTransferModification>,
+): TranslationProcessorTranslation[] {
+  if (modifications.length === 0) {
+    return [...translations];
+  }
+
+  const modificationMap = new Map(
+    modifications.map((modification) => [modification.id, modification.translation]),
+  );
+
+  return translations.map((translation) => ({
+    id: translation.id,
+    translation: modificationMap.get(translation.id) ?? translation.translation,
+  }));
 }
 
 function buildGlossaryUpdateUnits(

@@ -232,7 +232,7 @@ export class PromptManager {
   async renderStyleTransferPrompt(
     input: StyleTransferPromptInput,
   ): Promise<RenderedPrompt> {
-    const responseSchema = buildTranslationStepResponseSchema(input.sourceUnits);
+    const responseSchema = buildStyleTransferResponseSchema(input.sourceUnits);
     const renderedPrompt = await this.renderPrompt(STYLE_TRANSFER_PROMPT_ID, {
       sourceUnits: input.sourceUnits,
       currentTranslations: input.currentTranslations,
@@ -400,5 +400,40 @@ function buildTranslationStepResponseSchema(
       },
     },
     required: ["translations"],
+  };
+}
+
+function buildStyleTransferResponseSchema(
+  sourceUnits: ReadonlyArray<PromptTranslationUnit>,
+): JsonObject {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      modifications: {
+        type: "array",
+        minItems: 0,
+        maxItems: sourceUnits.length,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            id: {
+              type: "string",
+            },
+            styleAnalysis: {
+              type: "string",
+              minLength: 1,
+            },
+            translation: {
+              type: "string",
+              minLength: 1,
+            },
+          },
+          required: ["id", "styleAnalysis", "translation"],
+        },
+      },
+    },
+    required: ["modifications"],
   };
 }

@@ -184,6 +184,9 @@ prompts:
         必须遵守：
         - 保留每一行与原 id 的对应关系，不得缺失、重复或新增 id。
         - 保持与术语表一致，不得擅自改动已有稳定译名。
+        - 只输出需要调整的句子；若无需调整，返回空的 modifications 数组。
+        - 每个 modifications 对象必须先写 styleAnalysis，再写 translation。
+        - styleAnalysis 需要先解释为什么要改，再给出对应的 translation。
         - 输出必须是严格 JSON，并符合给定 schema。
     user:
       type: liquid
@@ -226,7 +229,11 @@ prompts:
           translation: {{ unit.text }}
         {% endfor %}
 
-        请在保留信息准确性的前提下，对当前初译进行逐行风格迁移改写。
+        请在保留信息准确性的前提下，审查当前初译，只返回需要做风格迁移改写的句子。
+        - 对每个需要改写的句子，输出 id、styleAnalysis、translation 三个字段。
+        - styleAnalysis 必须先说明改写思路、语气调整或表达问题，再输出最终 translation。
+        - 对不需要改写的句子，不要输出对象。
+        - 如果全部句子都不需要改写，返回 {"modifications":[]}。
 
         JSON Schema:
         {{ responseSchemaJson }}
