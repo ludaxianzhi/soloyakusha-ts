@@ -72,6 +72,11 @@ import { DictionaryEditorModal } from '../components/DictionaryEditorModal.tsx';
 import { ActivityCenterDrawer } from '../components/activity/ActivityCenterDrawer.tsx';
 import type { ProjectCommand, TaskActivityKind } from '../components/WorkspaceView.tsx';
 
+const LazyActivityCenterPage = lazy(async () => {
+  const { ActivityCenterPage } = await import('../components/activity/ActivityCenterPage.tsx');
+  return { default: ActivityCenterPage };
+});
+
 const LazyChapterTranslationEditorPage = lazy(async () => {
   const { ChapterTranslationEditorPage } = await import(
     '../features/chapter-editor/ChapterTranslationEditorPage.tsx'
@@ -1852,6 +1857,7 @@ export function AppShell() {
               label: '风格库',
             },
             { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
+            { key: '/activity-center', icon: <ProfileOutlined />, label: '活动中心' },
           ],
     [isMobile],
   );
@@ -1928,13 +1934,15 @@ export function AppShell() {
                 </Tag>
                 {projectStatus?.isBusy && <Tag color="gold">正在执行操作</Tag>}
               </Space>
-              <Button
-                size={isMobile ? 'small' : 'middle'}
-                icon={<ProfileOutlined />}
-                onClick={() => setActivityCenterOpen(true)}
-              >
-                {isMobile ? '日志' : '活动中心'}
-              </Button>
+              {isMobile ? (
+                <Button
+                  size="small"
+                  icon={<ProfileOutlined />}
+                  onClick={() => setActivityCenterOpen(true)}
+                >
+                  日志
+                </Button>
+              ) : null}
             </div>
           </Header>
           <Content style={{ padding: isMobile ? 12 : 16 }}>
@@ -2106,6 +2114,12 @@ export function AppShell() {
                     )
                   }
                 />
+                <Route
+                  path="/activity-center"
+                  element={
+                    isMobile ? <Navigate replace to="/workspace/current" /> : <LazyActivityCenterPage />
+                  }
+                />
                 <Route path="*" element={<Navigate replace to="/workspace/current" />} />
               </Routes>
             </Suspense>
@@ -2113,11 +2127,13 @@ export function AppShell() {
         </Layout>
       </Layout>
 
-      <ActivityCenterDrawer
-        open={activityCenterOpen}
-        onClose={() => setActivityCenterOpen(false)}
-        mobileMode={isMobile}
-      />
+      {isMobile ? (
+        <ActivityCenterDrawer
+          open={activityCenterOpen}
+          onClose={() => setActivityCenterOpen(false)}
+          mobileMode
+        />
+      ) : null}
 
       <DictionaryEditorModal
         open={dictionaryModalOpen}

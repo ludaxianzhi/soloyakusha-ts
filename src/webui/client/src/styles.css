@@ -108,6 +108,215 @@ body {
   overflow-x: hidden;
 }
 
+/* ── Activity Center Page ───────────────────────────────────── */
+
+.activity-center-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-tab-scroll {
+  padding-bottom: 16px;
+}
+
+/* ── Request History Two-Column Layout ──────────────────────── */
+
+.history-panel {
+  display: flex;
+  gap: 12px;
+  height: calc(100vh - 196px);
+  min-height: 400px;
+}
+
+.history-list-pane {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+.history-list-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.history-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.history-list-scroll .ant-list {
+  padding: 0;
+}
+
+.history-list-scroll .ant-spin-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-entry-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history-entry-item:hover {
+  background: var(--surface-soft);
+}
+
+.history-entry-item--selected {
+  background: rgba(22, 119, 255, 0.08);
+  border-left: 3px solid #1677ff;
+  padding-left: 9px;
+}
+
+.history-entry-item--selected:hover {
+  background: rgba(22, 119, 255, 0.12);
+}
+
+.history-entry-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.history-entry-model {
+  font-size: 12px;
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-entry-meta {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.history-entry-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.history-entry-tags .ant-tag {
+  font-size: 11px;
+  padding: 0 4px;
+  line-height: 18px;
+  margin: 0;
+}
+
+.history-entry-error {
+  font-size: 11px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-entry-project {
+  font-size: 11px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-entry-time {
+  font-size: 11px;
+  display: block;
+}
+
+.history-detail-pane {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.history-detail-loading,
+.history-detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+}
+
+.history-detail-content {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-detail-content-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+/* ── JSON Syntax Highlighting ───────────────────────────────── */
+
+.json-code-block {
+  font-family: var(--font-family);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 0;
+}
+
+.json-token-key    { color: #9cdcfe; }
+.json-token-string { color: #ce9178; }
+.json-token-number { color: #b5cea8; }
+.json-token-bool   { color: #569cd6; }
+.json-token-null   { color: #569cd6; }
+.json-token-punct  { color: #808080; }
+
+/* ── Detail Text Block ───────────────────────────────────────── */
+
+.detail-text-block {
+  font-family: var(--font-family);
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.detail-text-block--error {
+  background: rgba(255, 77, 79, 0.06);
+  border-color: rgba(255, 77, 79, 0.3);
+  color: #ff4d4f;
+}
+
 .app-shell,
 .app-shell * {
   font-family: var(--font-family);
