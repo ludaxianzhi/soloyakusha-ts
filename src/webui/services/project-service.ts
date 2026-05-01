@@ -47,6 +47,7 @@ import {
 import type { TranslationProcessor } from '../../project/processing/translation-processor.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { NatureDialogKeepNameFileHandler } from '../../file-handlers/nature-dialog-file-handler.ts';
+import { restoreBlankText } from '../../file-handlers/base.ts';
 import { FullTextGlossaryScanner, type FullTextGlossaryScanBatch, type FullTextGlossaryScanLine } from '../../glossary/scanner.ts';
 import { GlossaryPersisterFactory } from '../../glossary/persister.ts';
 import { Glossary } from '../../glossary/glossary.ts';
@@ -3130,12 +3131,12 @@ export class ProjectService {
           const fragment = chapter.fragments[i];
           if (!fragment) continue;
 
-          const originalText = docManager.getSourceText(chapterId, i);
           const translatedLines = fragment.translation.lines;
 
           let changed = false;
-          const newTranslatedLines = translatedLines.map((line) => {
-            const processed = pipeline.process(line, originalText);
+          const newTranslatedLines = translatedLines.map((line, lineIndex) => {
+            const originalLine = restoreBlankText(fragment.source.lines[lineIndex] ?? '');
+            const processed = pipeline.process(line, originalLine);
             if (processed !== line) {
               changed = true;
             }
