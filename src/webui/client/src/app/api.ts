@@ -44,6 +44,7 @@ import type {
   StyleLibraryCatalog,
   StyleLibraryImportResult,
   StyleLibraryQueryResult,
+  TextPostProcessorDescriptor,
   WorkspaceArchiveManifest,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
@@ -199,6 +200,13 @@ export const api = {
   getProjectStatus: () => request<ProjectStatus>('/api/project/status'),
   getProjectResourceVersions: () =>
     request<ProjectResourceVersions>('/api/project/resources/versions'),
+  getPostProcessors: () =>
+    request<{ processors: TextPostProcessorDescriptor[] }>('/api/project/post-processors'),
+  runBatchPostProcess: (chapterIds: number[], processorIds: string[]) =>
+    request<{ ok: boolean }>('/api/project/chapters/post-process', {
+      method: 'POST',
+      body: { chapterIds, processorIds },
+    }),
   getSnapshot: () =>
     request<TranslationProjectSnapshot | null>('/api/project/snapshot'),
   getSnapshotWithEntries: () =>

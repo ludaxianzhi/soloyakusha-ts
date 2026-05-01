@@ -93,6 +93,10 @@ import type {
   WorkspaceConfigPatch,
   WorkspacePipelineStrategy,
 } from '../../project/types.ts';
+import { 
+  TextPostProcessorRegistry, 
+  type TextPostProcessorDescriptor 
+} from '../../utils/text-post-processor.ts';
 import type { EventBus } from './event-bus.ts';
 import { extractArchiveToDirectory } from './archive-extractor.ts';
 import type { RequestHistoryService } from './request-history-service.ts';
@@ -423,6 +427,10 @@ export class ProjectService {
 
   getTopology(): StoryTopologyDescriptor | null {
     return this.project?.getStoryTopologyDescriptor() ?? null;
+  }
+
+  getPostProcessorDescriptors(): TextPostProcessorDescriptor[] {
+    return TextPostProcessorRegistry.getAllDescriptors();
   }
 
   getResourceVersions(): ProjectResourceVersions {
@@ -3097,6 +3105,54 @@ export class ProjectService {
 
   private markDictionaryChanged(): void {
     this.resourceVersions.dictionaryRevision += 1;
+  }
+
+  async runBatchPostProcess(chapterIds: number[], processorIds: string[]): Promise<void> {
+    if (!this.project) {
+      throw new Error('未加载项目');
+    }
+
+    if (this.isBusy) {
+      throw new Error('当前正在运行其他任务，请稍后再试');
+    }
+
+    this.isBusy = true;
+    try {
+      const pipeline = TextPostProcessorRegistry.createPipeline(processorIds);
+      const docManager = this.project.getDocumentManager();
+
+      for (const chapterId of chapterIds) {
+        const chapter = docManager.getChapterById(chapterId);
+        if (!chapter) continue;
+
+        const fragmentCount = chapter.fragments.length;
+        for (let i = 0; i < fragmentCount; i++) {
+          const fragment = chapter.fragments[i];
+          if (!fragment) continue;
+
+          const originalText = docManager.getSourceText(chapterId, i);
+          const translatedLines = fragment.translation.lines;
+
+          let changed = false;
+          const newTranslatedLines = translatedLines.map((line) => {
+            const processed = pipeline.process(line, originalText);
+            if (processed !== line) {
+              changed = true;
+            }
+            return processed;
+          });
+
+          if (changed) {
+            await docManager.updateTranslation(chapterId, i, newTranslatedLines);
+          }
+        }
+      }
+
+      this.refreshSnapshot();
+      this.markChaptersChanged();
+    } finally {
+      this.isBusy = false;
+    }
   }
 
   private markChaptersChanged(): void {

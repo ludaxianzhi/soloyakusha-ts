@@ -602,6 +602,23 @@ export function createProjectRoutes(
     return c.json({ ok: true });
   });
 
+  app.get('/post-processors', (c) => {
+    return c.json({ processors: projectService.getPostProcessorDescriptors() });
+  });
+
+  app.post('/chapters/post-process', async (c) => {
+    const body = await c.req.json<{ chapterIds: number[]; processorIds: string[] }>();
+    try {
+      await projectService.runBatchPostProcess(body.chapterIds, body.processorIds);
+      return c.json({ ok: true });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: String(error) }, 500);
+    }
+  });
+
   app.put('/chapters/reorder', async (c) => {
     const body = await c.req.json<{ chapterIds: number[] }>();
     await projectService.reorderChapters(body.chapterIds);

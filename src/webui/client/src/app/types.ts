@@ -248,6 +248,12 @@ export interface TranslationStepQueueSnapshot {
   };
 }
 
+export interface TextPostProcessorDescriptor {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export interface TranslationStepQueueEntrySnapshot {
   stepId: string;
   chapterId: number;
@@ -407,6 +413,12 @@ export interface WorkspaceChapterDescriptor {
   routeChapterIndex?: number;
   isForkPoint?: boolean;
   childBranchCount?: number;
+}
+
+export interface TextPostProcessorDescriptor {
+  id: string;
+  name: string;
+  description: string;
 }
 
 export interface ImportArchiveFailedFile {

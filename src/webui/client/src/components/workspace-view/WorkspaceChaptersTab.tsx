@@ -35,6 +35,7 @@ import {
 import { usePollingTask } from '../../app/usePollingTask.ts';
 import { TranslationPreviewModal } from '../TranslationPreviewModal.tsx';
 import { ChapterKanbanBoard } from '../topology/ChapterKanbanBoard.tsx';
+import { PostProcessModal } from './PostProcessModal.tsx';
 import {
   buildChapterImportGroups,
   formatChapterLabel,
@@ -99,24 +100,25 @@ type ImportArchiveFormValues = {
   importTranslation?: boolean;
 };
 
-export function WorkspaceChaptersTab({
-  active,
-  mobileMode = false,
-  chapters,
-  topology,
-  defaultImportFormat,
-  onRefreshChapters,
-  onClearChapterTranslations,
-  onStartProofread,
-  onRemoveChapters,
-  onCreateStoryBranch,
-  onUpdateStoryRoute,
-  onReorderStoryRouteChapters,
-  onMoveChapterToRoute,
-  onRemoveStoryRoute,
-  onImportChapterArchive,
-  onDownloadChapters,
-}: WorkspaceChaptersTabProps) {
+export function WorkspaceChaptersTab(props: WorkspaceChaptersTabProps) {
+  const {
+    active,
+    mobileMode = false,
+    chapters,
+    topology,
+    defaultImportFormat,
+    onRefreshChapters,
+    onClearChapterTranslations,
+    onStartProofread,
+    onRemoveChapters,
+    onCreateStoryBranch,
+    onUpdateStoryRoute,
+    onReorderStoryRouteChapters,
+    onMoveChapterToRoute,
+    onRemoveStoryRoute,
+    onImportChapterArchive,
+    onDownloadChapters,
+  } = props;
   const [activeTabKey, setActiveTabKey] = useState(mobileMode ? 'list' : 'list');
 
   useEffect(() => {
@@ -321,6 +323,7 @@ function ChapterInfoTable({
   const [importArchiveResult, setImportArchiveResult] = useState<ImportArchiveResult | null>(null);
   const [importArchiveForm] = Form.useForm<ImportArchiveFormValues>();
   const [importGroupsModalOpen, setImportGroupsModalOpen] = useState(false);
+  const [postProcessModalOpen, setPostProcessModalOpen] = useState(false);
   const selectedParentRouteId = Form.useWatch('parentRouteId', attachForm);
   const selectedForkAfterChapterId = Form.useWatch('forkAfterChapterId', attachForm);
 
@@ -517,6 +520,14 @@ function ChapterInfoTable({
     setBatchDownloadModalOpen(true);
   };
 
+  const handleBatchPostProcess = () => {
+    if (selectedChapterIds.length === 0) {
+      message.warning('请先选择章节');
+      return;
+    }
+    setPostProcessModalOpen(true);
+  };
+
   const handleConfirmBatchDownload = () => {
     void onDownloadChapters(selectedChapterIds, batchDownloadFormat);
     setBatchDownloadModalOpen(false);
@@ -664,6 +675,9 @@ function ChapterInfoTable({
           </Button>
           <Button size="small" icon={<DownloadOutlined />} onClick={handleBatchDownload}>
             下载选中章节
+          </Button>
+          <Button size="small" onClick={handleBatchPostProcess}>
+            文本后处理
           </Button>
           <Popconfirm
             title={`确认清空选中的 ${selectedChapterIds.length} 个章节译文？`}
@@ -971,6 +985,16 @@ function ChapterInfoTable({
         ) : null}
       </Modal>
 
+      <PostProcessModal
+        open={postProcessModalOpen}
+        chapterIds={selectedChapterIds}
+        onCancel={() => setPostProcessModalOpen(false)}
+        onSuccess={() => {
+          setPostProcessModalOpen(false);
+          (() => {})(); 
+        }}
+      />
+
       <TranslationPreviewModal
         open={previewOpen}
         chapters={chapters}
@@ -1084,3 +1108,11 @@ function ChapterInfoTable({
     </>
   );
 }
+
+
+
+
+
+
+
+
