@@ -64,6 +64,8 @@ export type GlossaryApplyTranslationsOptions = {
   logger?: GlossaryApplyTranslationsLogger;
 };
 
+const GLOSSARY_MATCH_IGNORED_CHARACTERS = /[\p{P}~\u30FC\uFF70\u223C\u301C\uFF5E]/gu;
+
 /**
  * 术语表模型，负责维护术语集合并按上下文筛选、渲染可用条目。
  *
@@ -115,9 +117,10 @@ export class Glossary {
     options: GlossaryTermFilterOptions = {},
   ): ResolvedGlossaryTerm[] {
     const allowedStatuses = normalizeGlossaryStatusFilter(options.status);
+    const normalizedText = normalizeTextForGlossaryMatching(text);
     return this.getAllTerms().filter(
       (term) =>
-        text.includes(term.term) &&
+        normalizedText.includes(normalizeTextForGlossaryMatching(term.term)) &&
         (!allowedStatuses || allowedStatuses.has(term.status)),
     );
   }
@@ -247,6 +250,10 @@ export function normalizeGlossaryTerm(term: GlossaryTerm): ResolvedGlossaryTerm 
     totalOccurrenceCount: normalizeNonNegativeInteger(term.totalOccurrenceCount),
     textBlockOccurrenceCount: normalizeNonNegativeInteger(term.textBlockOccurrenceCount),
   };
+}
+
+export function normalizeTextForGlossaryMatching(text: string): string {
+  return text.normalize("NFKC").replaceAll(GLOSSARY_MATCH_IGNORED_CHARACTERS, "");
 }
 
 function resolveGlossaryTermStatus(translation: string): GlossaryTermStatus {

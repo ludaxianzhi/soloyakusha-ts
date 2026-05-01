@@ -1,4 +1,13 @@
-import type { Glossary, ResolvedGlossaryTerm } from "../../glossary/glossary.ts";
+import {
+  normalizeTextForGlossaryMatching,
+  type Glossary,
+  type ResolvedGlossaryTerm,
+} from "../../glossary/glossary.ts";
+
+type PreparedGlossaryTerm = {
+  term: ResolvedGlossaryTerm;
+  normalizedTerm: string;
+};
 
 /**
  * 仅用于 prompt 注入路径的术语匹配：
@@ -13,7 +22,16 @@ export function matchGlossaryTermsWithCascadeForInjection(
 ): ResolvedGlossaryTerm[] {
   const sortedTerms = glossary
     .getAllTerms()
-    .sort((left, right) => right.term.length - left.term.length);
+    .map((term) => ({
+      term,
+      normalizedTerm: normalizeTextForGlossaryMatching(term.term),
+    }))
+    .filter(({ normalizedTerm }) => normalizedTerm.length > 0)
+    .sort(
+      (left, right) =>
+        right.normalizedTerm.length - left.normalizedTerm.length ||
+        right.term.term.length - left.term.term.length,
+    );
   const foundByTerm = new Map<string, ResolvedGlossaryTerm>();
 
   const firstPass = scanTextWithMask(sourceText, sortedTerms);
@@ -40,25 +58,26 @@ export function matchGlossaryTermsWithCascadeForInjection(
 
 function scanTextWithMask(
   text: string,
-  sortedTerms: ReadonlyArray<ResolvedGlossaryTerm>,
+  sortedTerms: ReadonlyArray<PreparedGlossaryTerm>,
 ): ResolvedGlossaryTerm[] {
-  if (!text) {
+  const normalizedText = normalizeTextForGlossaryMatching(text);
+  if (!normalizedText) {
     return [];
   }
 
-  const mask = new Array<boolean>(text.length).fill(false);
+  const mask = new Array<boolean>(normalizedText.length).fill(false);
   const found: ResolvedGlossaryTerm[] = [];
 
   for (const term of sortedTerms) {
-    const termText = term.term;
+    const termText = term.normalizedTerm;
     const termLength = termText.length;
     if (termLength === 0) {
       continue;
     }
 
     let searchStart = 0;
-    while (searchStart < text.length) {
-      const index = text.indexOf(termText, searchStart);
+    while (searchStart < normalizedText.length) {
+      const index = normalizedText.indexOf(termText, searchStart);
       if (index === -1) {
         break;
       }
@@ -66,7 +85,7 @@ function scanTextWithMask(
       const end = index + termLength;
       if (!isMasked(mask, index, end)) {
         fillMask(mask, index, end);
-        found.push(term);
+        found.push(term.term);
       }
 
       searchStart = index + 1;

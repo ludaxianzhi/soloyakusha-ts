@@ -16,6 +16,17 @@ describe("matchGlossaryTermsWithCascadeForInjection", () => {
     expect(directMatched.map((term) => term.term)).toEqual(["勇者"]);
   });
 
+  test("matches source text and descriptions after punctuation normalization", () => {
+    const glossary = new Glossary([
+      { term: "王都", translation: "Royal Capital", description: "情绪：すごーい！" },
+      { term: "すごい", translation: "Amazing" },
+    ]);
+
+    const matched = matchGlossaryTermsWithCascadeForInjection(glossary, "王～都だ！！！");
+
+    expect(matched.map((term) => term.term)).toEqual(["王都", "すごい"]);
+  });
+
   test("does not recurse beyond the second pass", () => {
     const glossary = new Glossary([
       { term: "勇者", translation: "Hero", description: "提到：陛下" },

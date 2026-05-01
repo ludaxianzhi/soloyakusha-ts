@@ -33,6 +33,20 @@ describe("glossary", () => {
     expect(glossary.filterAndRenderAsCsv("勇者打败了敌人")).toContain("Hero");
   });
 
+  test("filters terms after removing common punctuation noise", () => {
+    const glossary = new Glossary([
+      { term: "勇者", translation: "Hero" },
+      { term: "王都", translation: "Royal Capital" },
+      { term: "すごい", translation: "Amazing" },
+    ]);
+
+    const filtered = glossary.filterTerms("勇者！！！来到王～都，真是すごーい。", {
+      status: "translated",
+    });
+
+    expect(filtered.map((term) => term.term)).toEqual(["勇者", "王都", "すごい"]);
+  });
+
   test("tracks term status and occurrence stats by text block", () => {
     const glossary = new Glossary([
       { term: "勇者", translation: "" },
