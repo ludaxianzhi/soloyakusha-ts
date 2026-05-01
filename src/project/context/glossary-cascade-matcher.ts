@@ -1,13 +1,9 @@
 import {
   normalizeTextForGlossaryMatching,
+  type GlossaryMatchEntry,
   type Glossary,
   type ResolvedGlossaryTerm,
 } from "../../glossary/glossary.ts";
-
-type PreparedGlossaryTerm = {
-  term: ResolvedGlossaryTerm;
-  normalizedTerm: string;
-};
 
 /**
  * 仅用于 prompt 注入路径的术语匹配：
@@ -21,11 +17,7 @@ export function matchGlossaryTermsWithCascadeForInjection(
   sourceText: string,
 ): ResolvedGlossaryTerm[] {
   const sortedTerms = glossary
-    .getAllTerms()
-    .map((term) => ({
-      term,
-      normalizedTerm: normalizeTextForGlossaryMatching(term.term),
-    }))
+    .getTermsForMatching()
     .filter(({ normalizedTerm }) => normalizedTerm.length > 0)
     .sort(
       (left, right) =>
@@ -35,21 +27,25 @@ export function matchGlossaryTermsWithCascadeForInjection(
   const foundByTerm = new Map<string, ResolvedGlossaryTerm>();
 
   const firstPass = scanTextWithMask(sourceText, sortedTerms);
-  for (const term of firstPass) {
-    foundByTerm.set(term.term, term);
+  for (const entry of firstPass) {
+    foundByTerm.set(entry.term.term, entry.term);
   }
 
   const descriptions = firstPass
-    .map((term) => term.description?.trim())
-    .filter((description): description is string => Boolean(description));
-  if (descriptions.length === 0) {
-    return [...foundByTerm.values()];
+    .map((entry) => entry.normalizedDescription)
+    .filter((description) => description.length > 0);
+  if (descriptions.length > 0) {
+    const secondPass = scanNormalizedTextWithMask(descriptions.join("\n"), sortedTerms);
+    for (const entry of secondPass) {
+      if (!foundByTerm.has(entry.term.term)) {
+        foundByTerm.set(entry.term.term, entry.term);
+      }
+    }
   }
 
-  const secondPass = scanTextWithMask(descriptions.join("\n"), sortedTerms);
-  for (const term of secondPass) {
-    if (!foundByTerm.has(term.term)) {
-      foundByTerm.set(term.term, term);
+  for (const entry of collectReverseCascadeMatches(firstPass, sortedTerms)) {
+    if (!foundByTerm.has(entry.term.term)) {
+      foundByTerm.set(entry.term.term, entry.term);
     }
   }
 
@@ -58,15 +54,21 @@ export function matchGlossaryTermsWithCascadeForInjection(
 
 function scanTextWithMask(
   text: string,
-  sortedTerms: ReadonlyArray<PreparedGlossaryTerm>,
-): ResolvedGlossaryTerm[] {
-  const normalizedText = normalizeTextForGlossaryMatching(text);
+  sortedTerms: ReadonlyArray<GlossaryMatchEntry>,
+): GlossaryMatchEntry[] {
+  return scanNormalizedTextWithMask(normalizeTextForGlossaryMatching(text), sortedTerms);
+}
+
+function scanNormalizedTextWithMask(
+  normalizedText: string,
+  sortedTerms: ReadonlyArray<GlossaryMatchEntry>,
+): GlossaryMatchEntry[] {
   if (!normalizedText) {
     return [];
   }
 
   const mask = new Array<boolean>(normalizedText.length).fill(false);
-  const found: ResolvedGlossaryTerm[] = [];
+  const found: GlossaryMatchEntry[] = [];
 
   for (const term of sortedTerms) {
     const termText = term.normalizedTerm;
@@ -85,7 +87,7 @@ function scanTextWithMask(
       const end = index + termLength;
       if (!isMasked(mask, index, end)) {
         fillMask(mask, index, end);
-        found.push(term.term);
+        found.push(term);
       }
 
       searchStart = index + 1;
@@ -93,6 +95,35 @@ function scanTextWithMask(
   }
 
   return found;
+}
+
+function collectReverseCascadeMatches(
+  firstPass: ReadonlyArray<GlossaryMatchEntry>,
+  allTerms: ReadonlyArray<GlossaryMatchEntry>,
+): GlossaryMatchEntry[] {
+  if (firstPass.length === 0) {
+    return [];
+  }
+
+  const matchedSeeds = new Set(firstPass.map((entry) => entry.term.term));
+  const reverseMatches: GlossaryMatchEntry[] = [];
+  for (const candidate of allTerms) {
+    if (matchedSeeds.has(candidate.term.term) || candidate.normalizedDescription.length === 0) {
+      continue;
+    }
+
+    for (const seed of firstPass) {
+      if (
+        seed.normalizedTerm.length > 0 &&
+        candidate.normalizedDescription.includes(seed.normalizedTerm)
+      ) {
+        reverseMatches.push(candidate);
+        break;
+      }
+    }
+  }
+
+  return reverseMatches;
 }
 
 function isMasked(mask: ReadonlyArray<boolean>, start: number, end: number): boolean {

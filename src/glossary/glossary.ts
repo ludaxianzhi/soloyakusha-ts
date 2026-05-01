@@ -64,6 +64,12 @@ export type GlossaryApplyTranslationsOptions = {
   logger?: GlossaryApplyTranslationsLogger;
 };
 
+export type GlossaryMatchEntry = {
+  term: ResolvedGlossaryTerm;
+  normalizedTerm: string;
+  normalizedDescription: string;
+};
+
 const GLOSSARY_MATCH_IGNORED_CHARACTERS = /[\p{P}~\u30FC\uFF70\u223C\u301C\uFF5E]/gu;
 
 /**
@@ -79,10 +85,12 @@ const GLOSSARY_MATCH_IGNORED_CHARACTERS = /[\p{P}~\u30FC\uFF70\u223C\u301C\uFF5E
 export class Glossary {
   private readonly terms = new Map<string, ResolvedGlossaryTerm>();
 
+  private readonly matchEntries = new Map<string, GlossaryMatchEntry>();
+
   constructor(terms: GlossaryTerm[] = []) {
     for (const term of terms) {
       const normalized = normalizeGlossaryTerm(term);
-      this.terms.set(normalized.term, normalized);
+      this.upsertTerm(normalized);
     }
   }
 
@@ -97,19 +105,25 @@ export class Glossary {
 
   addTerm(term: GlossaryTerm): void {
     const normalized = normalizeGlossaryTerm(term);
-    this.terms.set(normalized.term, normalized);
+    this.upsertTerm(normalized);
   }
 
   removeTerm(termText: string): void {
     this.terms.delete(termText);
+    this.matchEntries.delete(termText);
   }
 
   updateTerm(termText: string, newTerm: GlossaryTerm): void {
     const normalized = normalizeGlossaryTerm(newTerm);
     if (termText !== normalized.term) {
       this.terms.delete(termText);
+      this.matchEntries.delete(termText);
     }
-    this.terms.set(normalized.term, normalized);
+    this.upsertTerm(normalized);
+  }
+
+  getTermsForMatching(): ReadonlyArray<GlossaryMatchEntry> {
+    return [...this.matchEntries.values()];
   }
 
   filterTerms(
@@ -118,11 +132,14 @@ export class Glossary {
   ): ResolvedGlossaryTerm[] {
     const allowedStatuses = normalizeGlossaryStatusFilter(options.status);
     const normalizedText = normalizeTextForGlossaryMatching(text);
-    return this.getAllTerms().filter(
-      (term) =>
-        normalizedText.includes(normalizeTextForGlossaryMatching(term.term)) &&
-        (!allowedStatuses || allowedStatuses.has(term.status)),
-    );
+    return this.getTermsForMatching()
+      .filter(
+        ({ term, normalizedTerm }) =>
+          normalizedTerm.length > 0 &&
+          normalizedText.includes(normalizedTerm) &&
+          (!allowedStatuses || allowedStatuses.has(term.status)),
+      )
+      .map(({ term }) => cloneResolvedGlossaryTerm(term));
   }
 
   getTranslatedTermsForText(text: string): ResolvedGlossaryTerm[] {
@@ -169,7 +186,7 @@ export class Glossary {
         translation,
         status: resolveGlossaryTermStatus(translation),
       };
-      this.terms.set(termText, nextTerm);
+      this.upsertTerm(nextTerm);
       appliedTerms.push(cloneResolvedGlossaryTerm(nextTerm));
     }
 
@@ -192,7 +209,7 @@ export class Glossary {
         }
       }
 
-      this.terms.set(termText, {
+      this.upsertTerm({
         ...term,
         totalOccurrenceCount,
         textBlockOccurrenceCount,
@@ -229,6 +246,11 @@ export class Glossary {
   filterAndRenderAsCsv(text: string): string {
     return this.renderAsCsv(this.filterTerms(text));
   }
+
+  private upsertTerm(term: ResolvedGlossaryTerm): void {
+    this.terms.set(term.term, term);
+    this.matchEntries.set(term.term, createGlossaryMatchEntry(term));
+  }
 }
 
 export function normalizeGlossaryTerm(term: GlossaryTerm): ResolvedGlossaryTerm {
@@ -254,6 +276,14 @@ export function normalizeGlossaryTerm(term: GlossaryTerm): ResolvedGlossaryTerm 
 
 export function normalizeTextForGlossaryMatching(text: string): string {
   return text.normalize("NFKC").replaceAll(GLOSSARY_MATCH_IGNORED_CHARACTERS, "");
+}
+
+function createGlossaryMatchEntry(term: ResolvedGlossaryTerm): GlossaryMatchEntry {
+  return {
+    term,
+    normalizedTerm: normalizeTextForGlossaryMatching(term.term),
+    normalizedDescription: normalizeTextForGlossaryMatching(term.description ?? ""),
+  };
 }
 
 function resolveGlossaryTermStatus(translation: string): GlossaryTermStatus {

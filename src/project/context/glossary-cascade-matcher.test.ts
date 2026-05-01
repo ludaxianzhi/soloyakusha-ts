@@ -27,6 +27,18 @@ describe("matchGlossaryTermsWithCascadeForInjection", () => {
     expect(matched.map((term) => term.term)).toEqual(["王都", "すごい"]);
   });
 
+  test("includes reverse cascade matches from descriptions that mention first-pass terms", () => {
+    const glossary = new Glossary([
+      { term: "勇者", translation: "Hero" },
+      { term: "公会登记员", translation: "Guild Clerk", description: "专门接待勇～者！" },
+      { term: "圣剑", translation: "Holy Sword", description: "常与公会登记员一起被提及" },
+    ]);
+
+    const matched = matchGlossaryTermsWithCascadeForInjection(glossary, "勇者来了");
+
+    expect(matched.map((term) => term.term)).toEqual(["勇者", "公会登记员"]);
+  });
+
   test("does not recurse beyond the second pass", () => {
     const glossary = new Glossary([
       { term: "勇者", translation: "Hero", description: "提到：陛下" },
