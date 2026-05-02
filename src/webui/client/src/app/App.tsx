@@ -316,16 +316,18 @@ export function AppShell() {
   );
 
   const refreshBootData = useCallback(async () => {
-    const [workspaceRes, activeRes, translatorsRes, llmRes] = await Promise.all([
+    const [workspaceRes, activeRes, translatorsRes, translatorWorkflowsRes, llmRes] = await Promise.all([
       api.listWorkspaces(),
       api.getActiveProject(),
       api.getTranslators().catch(() => ({ translators: {} })),
+      api.getTranslatorWorkflows().catch(() => ({ workflows: [] })),
       api.getLlmProfiles().catch(() => ({ profiles: {}, defaultName: undefined })),
     ]);
     setWorkspaces(workspaceRes.workspaces);
     setProjectStatus(activeRes);
     setSnapshot(activeRes.snapshot);
     setTranslators(translatorsRes.translators);
+    setTranslatorWorkflows(translatorWorkflowsRes.workflows);
     setLlmProfiles(llmRes.profiles);
     setDefaultLlmName(llmRes.defaultName);
   }, []);
