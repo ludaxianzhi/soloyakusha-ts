@@ -19,10 +19,9 @@ const buildWorkspaceDir = resolve(distDir, '.webui-build');
 const clientBuildDir = resolve(buildWorkspaceDir, 'client');
 const embeddedAssetsModulePath = resolve(buildWorkspaceDir, 'embedded-assets.ts');
 const standaloneEntryModulePath = resolve(buildWorkspaceDir, 'standalone-entry.ts');
-const workerEntrypoints = [
-  resolve(projectRoot, 'src', 'vector', 'sqlite-memory-worker.ts'),
-  resolve(projectRoot, 'src', 'vector', 'chunk-link-graph-worker.ts'),
-];
+const sqliteMemoryWorkerProxyPath = resolve(buildWorkspaceDir, 'sqlite-memory-worker.ts');
+const chunkLinkGraphWorkerProxyPath = resolve(buildWorkspaceDir, 'chunk-link-graph-worker.ts');
+const workerEntrypoints = [sqliteMemoryWorkerProxyPath, chunkLinkGraphWorkerProxyPath];
 const defaultPromptCatalogPath = resolve(
   projectRoot,
   'src',
@@ -80,17 +79,33 @@ async function main() {
     ),
     'utf8',
   );
+  await writeFile(
+    sqliteMemoryWorkerProxyPath,
+    buildWorkerProxyModule(
+      sqliteMemoryWorkerProxyPath,
+      resolve(projectRoot, 'src', 'vector', 'sqlite-memory-worker.ts'),
+    ),
+    'utf8',
+  );
+  await writeFile(
+    chunkLinkGraphWorkerProxyPath,
+    buildWorkerProxyModule(
+      chunkLinkGraphWorkerProxyPath,
+      resolve(projectRoot, 'src', 'vector', 'chunk-link-graph-worker.ts'),
+    ),
+    'utf8',
+  );
 
-  const buildResult = await Bun.build({
-    entrypoints: [standaloneEntryModulePath, ...workerEntrypoints],
-    compile: {
-      outfile: executableOutputPath,
-    },
-    minify: true,
-  });
-  if (!buildResult.success) {
-    throw new AggregateError(buildResult.logs, 'Failed to build standalone WebUI executable.');
-  }
+  await runCommand([
+    'bun',
+    'build',
+    '--compile',
+    '--minify',
+    '--outfile',
+    executableOutputPath,
+    standaloneEntryModulePath,
+    ...workerEntrypoints,
+  ]);
 
   await rm(buildWorkspaceDir, { recursive: true, force: true });
 
@@ -211,6 +226,8 @@ import { embeddedStaticAssets } from ${JSON.stringify(assetsImport)};
 import { getDefaultPromptFilePath, registerEmbeddedPromptCatalog } from ${JSON.stringify(promptManagerImport)};
 import { getConsistencyPromptFilePath } from ${JSON.stringify(consistencyPromptManagerImport)};
 
+(globalThis as { __SOLOYAKUSHA_STANDALONE__?: boolean }).__SOLOYAKUSHA_STANDALONE__ = true;
+
 registerEmbeddedPromptCatalog(
   getDefaultPromptFilePath(),
   ${JSON.stringify(defaultPromptCatalogText)},
@@ -229,6 +246,12 @@ const server = createWebUiServer({
 logWebUiServerStart(server.port);
 
 export default server;
+`;
+}
+
+function buildWorkerProxyModule(modulePath: string, workerModulePath: string): string {
+  const workerImport = toImportSpecifier(modulePath, workerModulePath);
+  return `import ${JSON.stringify(workerImport)};
 `;
 }
 

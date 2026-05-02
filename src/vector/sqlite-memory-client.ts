@@ -14,6 +14,7 @@ import type {
   SqliteMemoryWorkerRequest,
   SqliteMemoryWorkerResponse,
 } from "./sqlite-memory-protocol.ts";
+import { createSqliteMemoryWorkerRuntime } from "./sqlite-memory-runtime.ts";
 
 type UpsertRequestParams = Extract<SqliteMemoryWorkerRequest, { type: "upsert" }> ["params"];
 type QueryRequestParams = Extract<SqliteMemoryWorkerRequest, { type: "query" }> ["params"];
@@ -35,11 +36,18 @@ type PendingRequest = {
   reject: (reason?: unknown) => void;
 };
 
-type WorkerFactory = () => Worker;
+type WorkerLike = {
+  addEventListener: Worker["addEventListener"];
+  removeEventListener: Worker["removeEventListener"];
+  postMessage: Worker["postMessage"];
+  terminate: Worker["terminate"];
+};
+
+type WorkerFactory = () => WorkerLike;
 
 type CollectionWorkerHandle = {
   collectionName: string;
-  worker: Worker;
+  worker: WorkerLike;
   pendingRequests: Map<number, PendingRequest>;
   nextRequestId: number;
   initializationPromise?: Promise<void>;
@@ -70,7 +78,9 @@ export class SqliteMemoryVectorStoreClient extends VectorStoreClient {
   ) {
     super(config);
     this.idleTtlMs = options.idleTtlMs ?? resolveIdleTtlMs(config);
-    this.workerFactory = options.workerFactory ?? (() => new Worker(SQLITE_MEMORY_WORKER_ENTRY, { type: "module" }));
+    this.workerFactory = options.workerFactory ?? (() => shouldUseInProcessSqliteMemoryWorker()
+      ? createInProcessSqliteMemoryWorker()
+      : new Worker(SQLITE_MEMORY_WORKER_ENTRY, { type: "module" }));
   }
 
   override async probeConnection(): Promise<void> {
@@ -381,6 +391,72 @@ export class SqliteMemoryVectorStoreClient extends VectorStoreClient {
       handle.worker.terminate();
     }
   }
+}
+
+function createInProcessSqliteMemoryWorker(): WorkerLike {
+  const messageListeners = new Set<(event: MessageEvent<SqliteMemoryWorkerResponse>) => void>();
+  const errorListeners = new Set<(event: ErrorEvent) => void>();
+  let terminated = false;
+  const runtime = createSqliteMemoryWorkerRuntime((response) => {
+    if (terminated) {
+      return;
+    }
+    queueMicrotask(() => {
+      if (terminated) {
+        return;
+      }
+      const event = { data: response } as MessageEvent<SqliteMemoryWorkerResponse>;
+      for (const listener of messageListeners) {
+        listener(event);
+      }
+    });
+  });
+
+  return {
+    addEventListener(type, listener) {
+      if (type === "message") {
+        messageListeners.add(listener as (event: MessageEvent<SqliteMemoryWorkerResponse>) => void);
+        return;
+      }
+      if (type === "error") {
+        errorListeners.add(listener as (event: ErrorEvent) => void);
+      }
+    },
+    removeEventListener(type, listener) {
+      if (type === "message") {
+        messageListeners.delete(listener as (event: MessageEvent<SqliteMemoryWorkerResponse>) => void);
+        return;
+      }
+      if (type === "error") {
+        errorListeners.delete(listener as (event: ErrorEvent) => void);
+      }
+    },
+    postMessage(message) {
+      void runtime.handleRequest(message as SqliteMemoryWorkerRequest).catch((error) => {
+        if (terminated) {
+          return;
+        }
+        const normalized = error instanceof Error ? error : new Error(String(error));
+        const event = {
+          error: normalized,
+          message: normalized.message,
+        } as ErrorEvent;
+        for (const listener of errorListeners) {
+          listener(event);
+        }
+      });
+    },
+    terminate() {
+      terminated = true;
+      messageListeners.clear();
+      errorListeners.clear();
+    },
+  };
+}
+
+function shouldUseInProcessSqliteMemoryWorker(): boolean {
+  return (globalThis as { __SOLOYAKUSHA_STANDALONE__?: boolean }).__SOLOYAKUSHA_STANDALONE__ === true ||
+    SQLITE_MEMORY_WORKER_ENTRY.includes("~BUN/root");
 }
 
 function resolveIdleTtlMs(config: VectorStoreConfig): number {
