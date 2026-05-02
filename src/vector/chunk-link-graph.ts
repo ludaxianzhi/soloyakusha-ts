@@ -1,5 +1,3 @@
-// @ts-expect-error Bun import attributes resolve this worker module to a file URL string.
-import workerEntry from "./chunk-link-graph-worker.ts" with { type: "file" };
 import { NOOP_LOGGER, type Logger } from "../project/logger.ts";
 import type {
   ChunkLinkGraphWorkerProgressEvent,
@@ -9,6 +7,7 @@ import type {
 import type { VectorStoreConfig } from "./types.ts";
 
 type WorkerFactory = () => Worker;
+const CHUNK_LINK_GRAPH_WORKER_ENTRY = new URL("./chunk-link-graph-worker.ts", import.meta.url).href;
 
 export type ChunkLinkGraphComputeParams = {
   vectorStoreConfig: VectorStoreConfig;
@@ -31,7 +30,7 @@ export class ChunkLinkGraphCalculator {
     workerFactory?: WorkerFactory;
   } = {}) {
     this.logger = options.logger ?? NOOP_LOGGER;
-    this.workerFactory = options.workerFactory ?? (() => new Worker(workerEntry, { type: "module" }));
+    this.workerFactory = options.workerFactory ?? (() => new Worker(CHUNK_LINK_GRAPH_WORKER_ENTRY, { type: "module" }));
   }
 
   async compute(params: ChunkLinkGraphComputeParams): Promise<ChunkLinkGraphResult> {

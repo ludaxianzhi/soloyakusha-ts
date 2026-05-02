@@ -19,6 +19,10 @@ const buildWorkspaceDir = resolve(distDir, '.webui-build');
 const clientBuildDir = resolve(buildWorkspaceDir, 'client');
 const embeddedAssetsModulePath = resolve(buildWorkspaceDir, 'embedded-assets.ts');
 const standaloneEntryModulePath = resolve(buildWorkspaceDir, 'standalone-entry.ts');
+const workerEntrypoints = [
+  resolve(projectRoot, 'src', 'vector', 'sqlite-memory-worker.ts'),
+  resolve(projectRoot, 'src', 'vector', 'chunk-link-graph-worker.ts'),
+];
 const defaultPromptCatalogPath = resolve(
   projectRoot,
   'src',
@@ -77,17 +81,16 @@ async function main() {
     'utf8',
   );
 
-  await runCommand(
-    [
-      'bun',
-      'build',
-      '--compile',
-      '--minify',
-      '--outfile',
-      executableOutputPath,
-      standaloneEntryModulePath,
-    ],
-  );
+  const buildResult = await Bun.build({
+    entrypoints: [standaloneEntryModulePath, ...workerEntrypoints],
+    compile: {
+      outfile: executableOutputPath,
+    },
+    minify: true,
+  });
+  if (!buildResult.success) {
+    throw new AggregateError(buildResult.logs, 'Failed to build standalone WebUI executable.');
+  }
 
   await rm(buildWorkspaceDir, { recursive: true, force: true });
 

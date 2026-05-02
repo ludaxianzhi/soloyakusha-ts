@@ -1,5 +1,3 @@
-// @ts-expect-error Bun import attributes resolve this worker module to a file URL string.
-import workerEntry from "./sqlite-memory-worker.ts" with { type: "file" };
 import { VectorStoreClient } from "./base.ts";
 import type {
   VectorCollectionInfo,
@@ -58,6 +56,7 @@ type SqliteMemoryVectorStoreClientOptions = {
 };
 
 const DEFAULT_IDLE_TTL_MS = 10 * 60 * 1000;
+const SQLITE_MEMORY_WORKER_ENTRY = new URL("./sqlite-memory-worker.ts", import.meta.url).href;
 
 export class SqliteMemoryVectorStoreClient extends VectorStoreClient {
   private readonly collectionWorkers = new Map<string, CollectionWorkerHandle>();
@@ -71,7 +70,7 @@ export class SqliteMemoryVectorStoreClient extends VectorStoreClient {
   ) {
     super(config);
     this.idleTtlMs = options.idleTtlMs ?? resolveIdleTtlMs(config);
-    this.workerFactory = options.workerFactory ?? (() => new Worker(workerEntry, { type: "module" }));
+    this.workerFactory = options.workerFactory ?? (() => new Worker(SQLITE_MEMORY_WORKER_ENTRY, { type: "module" }));
   }
 
   override async probeConnection(): Promise<void> {
