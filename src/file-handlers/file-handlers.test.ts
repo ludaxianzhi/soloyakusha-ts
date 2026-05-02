@@ -52,6 +52,20 @@ describe("file handlers", () => {
     expect(written[1]).toEqual({ name: "Alice", message: "Hello" });
   });
 
+  test("escapes embedded line breaks when reading galtransl json", async () => {
+    const handler = new GaltranslJsonFileHandler();
+
+    const parsed = handler.parseTranslationDocument(
+      JSON.stringify([
+        { message: "第一行\n第二行" },
+      ]),
+    );
+
+    expect(parsed.units).toEqual([
+      { source: "第一行\\n第二行", target: [] },
+    ]);
+  });
+
   test("round-trips blank nature dialog units as empty output", async () => {
     const handler = new NatureDialogFileHandler();
 

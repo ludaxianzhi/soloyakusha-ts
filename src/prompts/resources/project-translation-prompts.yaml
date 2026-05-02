@@ -172,11 +172,12 @@ prompts:
         - 更换原文的修辞手法，比喻喻体等。
         一切目的以向读者传达原文的意思，色彩和感情，摆脱原文用词束缚。
         {% if styleRequirementsText %}
-        风格要求：
+        下面是你需要迁移的目标风格描述，请尽可能将文本改写为该风格。
+
         {{ styleRequirementsText }}
         {% endif %}
         {% if styleExamples.size > 0 %}
-        风格示例：
+        下面是你需要迁移和学习的目标文本，请仿照这些文本的表现方式，语感、氛围、用词等，对已有翻译进行改写。
         {% for example in styleExamples %}
         - {{ example }}
         {% endfor %}

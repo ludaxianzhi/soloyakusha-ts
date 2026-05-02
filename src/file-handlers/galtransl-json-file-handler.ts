@@ -45,7 +45,7 @@ export class GaltranslJsonFileHandler extends TranslationFileHandler {
   override parseTranslationDocument(content: string): ParsedTranslationDocument {
     const data = JSON.parse(content) as Array<Record<string, unknown>>;
     const units = data.map<TranslationUnit>((item) => {
-      const message = typeof item.message === "string" ? item.message : "";
+      const message = typeof item.message === "string" ? item.message.replace(/\r?\n/g, "\\n") : "";
       const name = typeof item.name === "string" ? item.name : undefined;
       return normalizeBlankSourceUnit({
         source: name ? `【${name}】${message}` : message,
