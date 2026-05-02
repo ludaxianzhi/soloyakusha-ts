@@ -153,7 +153,7 @@ prompts:
     const shared = SharedPromptManager.fromYamlText(`
 version: 1
 prompts:
-  project.multiStage.editor.ja-zhCN:
+  project.proofread.editor.ja-zhCN:
     system:
       type: liquid
       template: |

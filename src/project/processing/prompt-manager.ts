@@ -67,16 +67,6 @@ export type MultiStageEditorPromptInput = {
   editorRequirementsText?: string;
 };
 
-export type MultiStageProofreaderPromptInput = {
-  sourceUnits: PromptTranslationUnit[];
-  currentTranslations: PromptTranslationUnit[];
-  referencePairs: PromptReferenceUnit[];
-  plotSummaries: string[];
-  translatedGlossaryTerms: ResolvedGlossaryTerm[];
-  analysisText: string;
-  requirements: string[];
-};
-
 export type ProofreadProofreaderPromptInput = {
   sourceUnits: PromptTranslationUnit[];
   currentTranslations: PromptTranslationUnit[];
@@ -143,14 +133,12 @@ const MULTI_STAGE_TRANSLATOR_PROMPT_NAME = "multi_stage_translation";
 const MULTI_STAGE_TRANSLATOR_PROMPT_ID = "project.multiStage.translator";
 const STYLE_TRANSFER_PROMPT_NAME = "style_transfer_translation";
 const STYLE_TRANSFER_PROMPT_ID = "project.styleTransfer.transfer";
-const MULTI_STAGE_EDITOR_PROMPT_NAME = "multi_stage_editor";
-const MULTI_STAGE_EDITOR_PROMPT_ID = "project.multiStage.editor";
-const MULTI_STAGE_PROOFREADER_PROMPT_NAME = "multi_stage_proofreader";
-const MULTI_STAGE_PROOFREADER_PROMPT_ID = "project.multiStage.proofreader";
+const PROOFREAD_EDITOR_PROMPT_NAME = "proofread_editor";
+const PROOFREAD_EDITOR_PROMPT_ID = "project.proofread.editor";
 const PROOFREAD_PROOFREADER_PROMPT_NAME = "proofread_proofreader";
 const PROOFREAD_PROOFREADER_PROMPT_ID = "project.proofread.proofreader";
-const MULTI_STAGE_REVISER_PROMPT_NAME = "multi_stage_revision";
-const MULTI_STAGE_REVISER_PROMPT_ID = "project.multiStage.reviser";
+const PROOFREAD_REVISER_PROMPT_NAME = "proofread_reviser";
+const PROOFREAD_REVISER_PROMPT_ID = "project.proofread.reviser";
 const CHAPTER_EDITOR_ASSISTANT_PROMPT_NAME = "chapter_editor_assistant";
 const CHAPTER_EDITOR_ASSISTANT_PROMPT_ID = "project.chapterEditorAssistant";
 const DEFAULT_TRANSLATION_PROMPT_SET = "ja-zhCN";
@@ -256,7 +244,7 @@ export class PromptManager {
   async renderMultiStageEditorPrompt(
     input: MultiStageEditorPromptInput,
   ): Promise<RenderedTextPrompt> {
-    const renderedPrompt = await this.renderPrompt(MULTI_STAGE_EDITOR_PROMPT_ID, {
+    const renderedPrompt = await this.renderPrompt(PROOFREAD_EDITOR_PROMPT_ID, {
       currentTranslations: input.currentTranslations,
       referenceTranslations: input.referenceTranslations,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
@@ -265,27 +253,7 @@ export class PromptManager {
     });
 
     return {
-      name: MULTI_STAGE_EDITOR_PROMPT_NAME,
-      systemPrompt: renderedPrompt.systemPrompt,
-      userPrompt: renderedPrompt.userPrompt,
-    };
-  }
-
-  async renderMultiStageProofreaderPrompt(
-    input: MultiStageProofreaderPromptInput,
-  ): Promise<RenderedTextPrompt> {
-    const renderedPrompt = await this.renderPrompt(MULTI_STAGE_PROOFREADER_PROMPT_ID, {
-      sourceUnits: input.sourceUnits,
-      currentTranslations: input.currentTranslations,
-      referencePairs: input.referencePairs,
-      plotSummaries: input.plotSummaries,
-      translatedGlossaryTerms: input.translatedGlossaryTerms,
-      analysisText: input.analysisText,
-      requirements: input.requirements,
-    });
-
-    return {
-      name: MULTI_STAGE_PROOFREADER_PROMPT_NAME,
+      name: PROOFREAD_EDITOR_PROMPT_NAME,
       systemPrompt: renderedPrompt.systemPrompt,
       userPrompt: renderedPrompt.userPrompt,
     };
@@ -315,7 +283,7 @@ export class PromptManager {
     input: MultiStageReviserPromptInput,
   ): Promise<RenderedPrompt> {
     const responseSchema = buildTranslationStepResponseSchema(input.sourceUnits);
-    const renderedPrompt = await this.renderPrompt(MULTI_STAGE_REVISER_PROMPT_ID, {
+    const renderedPrompt = await this.renderPrompt(PROOFREAD_REVISER_PROMPT_ID, {
       sourceUnits: input.sourceUnits,
       currentTranslations: input.currentTranslations,
       referenceSourceTexts: input.referenceSourceTexts,
@@ -329,7 +297,7 @@ export class PromptManager {
     });
 
     return {
-      name: MULTI_STAGE_REVISER_PROMPT_NAME,
+      name: PROOFREAD_REVISER_PROMPT_NAME,
       systemPrompt: renderedPrompt.systemPrompt,
       userPrompt: renderedPrompt.userPrompt,
       responseSchema,

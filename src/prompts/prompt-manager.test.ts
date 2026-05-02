@@ -18,15 +18,14 @@ describe("PromptManager", () => {
     expect(promptIds).toContain("project.multiStage.analyzer.ja-zhCN");
     expect(promptIds).toContain("project.multiStage.translator.ja-zhCN");
     expect(promptIds).toContain("project.styleTransfer.transfer.ja-zhCN");
-    expect(promptIds).toContain("project.multiStage.editor.ja-zhCN");
-    expect(promptIds).toContain("project.multiStage.proofreader.ja-zhCN");
-    expect(promptIds).toContain("project.multiStage.reviser.ja-zhCN");
+    expect(promptIds).toContain("project.proofread.editor.ja-zhCN");
+    expect(promptIds).toContain("project.proofread.reviser.ja-zhCN");
     expect(promptIds).toContain("project.chapterEditorAssistant.ja-zhCN");
     expect(promptIds).toContain("project.plotSummary");
     expect(promptIds).toContain("utils.alignmentRepair");
     expect(promptIds).not.toContain("project.translationPipeline");
     expect(promptIds).not.toContain("project.multiStage.analyzer");
-    expect(promptIds).not.toContain("project.multiStage.reviser");
+    expect(promptIds).not.toContain("project.proofread.reviser");
   });
 
   test("renders static and interpolated prompt sections separately", () => {
@@ -201,7 +200,7 @@ prompts:
       translatedGlossaryTerms: [{ term: "勇者", translation: "勇者", status: "translated" }],
       requirements: ["保持文学语气"],
     });
-    const reviserPrompt = manager.renderPrompt("project.multiStage.reviser.ja-zhCN", {
+    const reviserPrompt = manager.renderPrompt("project.proofread.reviser.ja-zhCN", {
       sourceUnits: [{ id: "1", text: "勇者が扉を開けた。" }],
       currentTranslations: [{ id: "1", text: "勇者推开了门。" }],
       referenceSourceTexts: ["扉の先には長い廊下があった。"],
@@ -227,7 +226,7 @@ prompts:
   test("renders proofreader prompt with plot summaries instead of reference source texts", async () => {
     const manager = await getDefaultPromptManager();
 
-    const prompt = manager.renderPrompt("project.multiStage.proofreader.ja-zhCN", {
+    const prompt = manager.renderPrompt("project.proofread.proofreader.ja-zhCN", {
       sourceUnits: [{ id: "1", text: "勇者が扉を開けた。" }],
       currentTranslations: [{ id: "1", text: "勇者推开了门。" }],
       referencePairs: [

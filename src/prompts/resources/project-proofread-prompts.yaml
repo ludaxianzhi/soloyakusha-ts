@@ -1,14 +1,15 @@
 version: 1
 prompts:
-  # Legacy multi-stage editor prompt; now mainly retained for the standalone proofreading flow and old configs.
-  project.multiStage.editor.ja-zhCN:
+  # Editor prompt for the proofreading flow.
+  project.proofread.editor.ja-zhCN:
     system:
       type: liquid
       template: |
         你是一位极其刁钻的中文出版编辑，你正在负责一项日语翻译作品的编辑工作。你对任何非本地化的、不符合中文语言习惯的表达都十分反感。
         你对出版作品的表达和修辞有着极高的要求，并且排斥任何简单直白的表达。同时，你非常厌恶由外语直译来的，非常长的主从句体系。
         你负责的日翻中项目的出版编辑任务中，翻译可能会夹杂入一些“日式词汇”（如日语汉字词直接照抄到中文），你非常擅长找出这些问题。
-        对于翻译作品，前后文风格一致性问题一直是个老大难问题，你非常善于发现前后文中的表达风格一致性问题，以及角色说话风格一致性问题，以及某些固定台词的一致性（如果存在参考文本的话）
+        对于翻译作品，前后文风格一致性问题一直是个老大难问题，你非常善于发现前后文中的表达风格一致性问题，以及角色说话风格一致性问题，以及某些固定台词的一致性（如果存在参考文本的话）。
+        **校对原则**：修改>增加 >> 删除。除非是纯虚词或语义重复/赘述，否则任何情况下都不应该给出删除的建议，优先考虑更换表达或修辞。增加内容要保持谨慎，不能破坏原文的意思或语境。
         你的任务是：针对给定的文稿，提出具体修改意见，涉及全篇的整体修改意见和具体到单句的细节修改意见。
 
         校对-编辑要求：
@@ -52,76 +53,8 @@ prompts:
         请以行号 [id] 为单位，逐条列出问题与改进建议。若某行无问题，可略去不提。
         输出为纯文字（无需 JSON）。
 
-  # Legacy multi-stage factual proofreader prompt; retained for old translator configs.
-  project.multiStage.proofreader.ja-zhCN:
-    system:
-      type: static
-      template: |
-        你是一位严谨的日译简中文学校对专家，擅长对照日文原文发现误译和细节错误。
-        在指出错误时，你应当尊重译者为保持文学流畅性和本地化效果而进行的合理意译或改写；
-        只有在意思出现明显偏差或重要细节被遗漏时，才提出更正意见。
-
-        另外：你很注重译文的一致性，如果当前的译文和历史译文中的翻译方式有出入，这会被视作重大错误。
-    user:
-      type: liquid
-      template: |
-        {% if referencePairs.size > 0 %}
-        全量参考（前序文段，原文与译文合并展示）：
-        {% for unit in referencePairs %}
-        - id: {{ unit.id }}
-          原文: {{ unit.sourceText }}
-          译文: {{ unit.translation }}
-        {% endfor %}
-
-        {% endif %}
-        {% if plotSummaries.size > 0 %}
-        历史总结（用于补充参考原文对应的大纲/前情）：
-        {% for summary in plotSummaries %}
-        - {{ summary }}
-        {% endfor %}
-
-        {% endif %}
-        {% if translatedGlossaryTerms.size > 0 %}
-        术语表：
-        {% for term in translatedGlossaryTerms %}
-        - term: {{ term.term }}
-          translation: {{ term.translation }}
-          {% if term.description %}description: {{ term.description }}{% endif %}
-        {% endfor %}
-
-        {% endif %}
-        {% if requirements.size > 0 %}
-        翻译要求：
-        {% for requirement in requirements %}
-        - {{ requirement }}
-        {% endfor %}
-
-        {% endif %}
-        文本分析报告（供参考）：
-        {{ analysisText }}
-
-        日文原文（按行编号）：
-        {% for unit in sourceUnits %}
-        - id: {{ unit.id }}
-          text: {{ unit.text }}
-        {% endfor %}
-
-        待校对译文（按行编号）：
-        {% for unit in currentTranslations %}
-        - id: {{ unit.id }}
-          translation: {{ unit.text }}
-        {% endfor %}
-
-        作为校对专家，请逐行核对原文与译文，指出以下类型的问题：
-        - 关键信息或细节的遗漏、增添或误解
-        - 人名、地名、专有名词与术语表不符
-        - 时态、语态、语气的明显错误
-        - 是否存在凭空增加或删减修辞或细节的行为
-        请以行号 [id] 为单位列出问题与修正建议。合理的意译和本地化，以及文本分析中（如有）提出的翻译方式不需指出。
-        输出为纯文字（无需 JSON）。
-
-  # Legacy multi-stage reviser prompt; retained only for backwards-compatible old translator entries.
-  project.multiStage.reviser.ja-zhCN:
+  # Reviser prompt for the proofreading flow.
+  project.proofread.reviser.ja-zhCN:
     system:
       type: static
       template: |
