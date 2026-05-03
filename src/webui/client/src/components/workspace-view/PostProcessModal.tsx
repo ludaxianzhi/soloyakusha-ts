@@ -1,16 +1,26 @@
 import { useState, useEffect } from 'react';
 import { Modal, Checkbox, Space, Typography, Alert, message } from 'antd';
 import { api } from '../../app/api';
+import { useActiveWorkspaceId } from '../../app/active-workspace-context';
 import type { TextPostProcessorDescriptor } from '../../app/types';
 
 interface PostProcessModalProps {
   open: boolean;
+  workspaceId?: string | null;
   chapterIds: number[];
   onCancel: () => void;
   onSuccess: () => void;
 }
 
-export function PostProcessModal({ open, chapterIds, onCancel, onSuccess }: PostProcessModalProps) {
+export function PostProcessModal({
+  open,
+  workspaceId,
+  chapterIds,
+  onCancel,
+  onSuccess,
+}: PostProcessModalProps) {
+  const activeWorkspaceId = useActiveWorkspaceId();
+  const resolvedWorkspaceId = workspaceId ?? activeWorkspaceId;
   const [processors, setProcessors] = useState<TextPostProcessorDescriptor[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -19,7 +29,7 @@ export function PostProcessModal({ open, chapterIds, onCancel, onSuccess }: Post
   useEffect(() => {
     if (open) {
       setLoading(true);
-      api.getPostProcessors()
+      api.getPostProcessors(resolvedWorkspaceId ?? undefined)
         .then(res => {
           setProcessors(res.processors);
           // 默认全选
@@ -27,7 +37,7 @@ export function PostProcessModal({ open, chapterIds, onCancel, onSuccess }: Post
         })
         .finally(() => setLoading(false));
     }
-  }, [open]);
+  }, [open, resolvedWorkspaceId]);
 
   const handleOk = async () => {
     if (selectedIds.length === 0) {
@@ -36,7 +46,7 @@ export function PostProcessModal({ open, chapterIds, onCancel, onSuccess }: Post
     }
     setSubmitting(true);
     try {
-      await api.runBatchPostProcess(chapterIds, selectedIds);
+      await api.runBatchPostProcess(chapterIds, selectedIds, resolvedWorkspaceId ?? undefined);
       message.success('后处理任务执行成功');
       onSuccess();
     } catch (err) {

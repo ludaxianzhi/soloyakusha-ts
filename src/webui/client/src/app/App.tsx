@@ -22,6 +22,7 @@ import {
 } from '@ant-design/icons';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './api.ts';
+import { ActiveWorkspaceIdContext } from './active-workspace-context.ts';
 import {
   auxToForm,
   buildClearedWorkspaceWorkflowPatch,
@@ -2344,21 +2345,22 @@ export function AppShell() {
   );
 
   return (
-    <>
-      {openedWorkspaces.map((workspace) => (
-        <WorkspaceEventBridge
-          key={workspace.workspaceId}
-          workspaceId={workspace.workspaceId}
-          onConnectedChange={handleWorkspaceConnectedChange}
-          onSnapshot={handleWorkspaceSnapshot}
-          onScanProgress={handleWorkspaceScanProgress}
-          onProofreadProgress={handleWorkspaceProofreadProgress}
-          onPlotProgress={handleWorkspacePlotProgress}
-          onChaptersChanged={handleWorkspaceChaptersChanged}
-        />
-      ))}
+    <ActiveWorkspaceIdContext.Provider value={activeWorkspaceId}>
+      <>
+        {openedWorkspaces.map((workspace) => (
+          <WorkspaceEventBridge
+            key={workspace.workspaceId}
+            workspaceId={workspace.workspaceId}
+            onConnectedChange={handleWorkspaceConnectedChange}
+            onSnapshot={handleWorkspaceSnapshot}
+            onScanProgress={handleWorkspaceScanProgress}
+            onProofreadProgress={handleWorkspaceProofreadProgress}
+            onPlotProgress={handleWorkspacePlotProgress}
+            onChaptersChanged={handleWorkspaceChaptersChanged}
+          />
+        ))}
 
-      <Layout className="app-shell">
+        <Layout className="app-shell">
         {!isMobile ? (
           <Sider width={208}>
             <div style={{ padding: 16 }}>
@@ -2524,7 +2526,15 @@ export function AppShell() {
                 <Route
                   path="/workspace/editor/:chapterId?"
                   element={
-                    isMobile ? <Navigate replace to="/workspace/current" /> : <LazyChapterTranslationEditorPage chaptersRevision={chapterContentRevision} />
+                    isMobile ? (
+                      <Navigate replace to="/workspace/current" />
+                    ) : (
+                      <LazyChapterTranslationEditorPage
+                        key={activeWorkspaceId ?? 'no-workspace-editor'}
+                        workspaceId={activeWorkspaceId}
+                        chaptersRevision={chapterContentRevision}
+                      />
+                    )
                   }
                 />
                 <Route
@@ -2628,23 +2638,24 @@ export function AppShell() {
             </Suspense>
           </Content>
         </Layout>
-      </Layout>
+        </Layout>
 
-      {isMobile ? (
-        <ActivityCenterDrawer
-          open={activityCenterOpen}
-          onClose={() => setActivityCenterOpen(false)}
-          mobileMode
+        {isMobile ? (
+          <ActivityCenterDrawer
+            open={activityCenterOpen}
+            onClose={() => setActivityCenterOpen(false)}
+            mobileMode
+          />
+        ) : null}
+
+        <DictionaryEditorModal
+          open={dictionaryModalOpen}
+          editingTerm={editingTerm}
+          form={dictionaryForm}
+          onCancel={() => setDictionaryModalOpen(false)}
+          onSubmit={handleSaveDictionary}
         />
-      ) : null}
-
-      <DictionaryEditorModal
-        open={dictionaryModalOpen}
-        editingTerm={editingTerm}
-        form={dictionaryForm}
-        onCancel={() => setDictionaryModalOpen(false)}
-        onSubmit={handleSaveDictionary}
-      />
-    </>
+      </>
+    </ActiveWorkspaceIdContext.Provider>
   );
 }

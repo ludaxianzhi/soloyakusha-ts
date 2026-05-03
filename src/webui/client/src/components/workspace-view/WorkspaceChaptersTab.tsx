@@ -100,25 +100,24 @@ type ImportArchiveFormValues = {
   importTranslation?: boolean;
 };
 
-export function WorkspaceChaptersTab(props: WorkspaceChaptersTabProps) {
-  const {
-    active,
-    mobileMode = false,
-    chapters,
-    topology,
-    defaultImportFormat,
-    onRefreshChapters,
-    onClearChapterTranslations,
-    onStartProofread,
-    onRemoveChapters,
-    onCreateStoryBranch,
-    onUpdateStoryRoute,
-    onReorderStoryRouteChapters,
-    onMoveChapterToRoute,
-    onRemoveStoryRoute,
-    onImportChapterArchive,
-    onDownloadChapters,
-  } = props;
+export function WorkspaceChaptersTab({
+  active,
+  mobileMode = false,
+  chapters,
+  topology,
+  defaultImportFormat,
+  onRefreshChapters,
+  onClearChapterTranslations,
+  onStartProofread,
+  onRemoveChapters,
+  onCreateStoryBranch,
+  onUpdateStoryRoute,
+  onReorderStoryRouteChapters,
+  onMoveChapterToRoute,
+  onRemoveStoryRoute,
+  onImportChapterArchive,
+  onDownloadChapters,
+}: WorkspaceChaptersTabProps) {
   const [activeTabKey, setActiveTabKey] = useState(mobileMode ? 'list' : 'list');
 
   useEffect(() => {

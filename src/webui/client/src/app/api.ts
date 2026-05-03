@@ -221,8 +221,10 @@ export const api = {
     request<ProjectResourceVersions>(
       `/api/project/resources/versions${buildWorkspaceQueryString(workspaceId)}`,
     ),
-  getPostProcessors: () =>
-    request<{ processors: TextPostProcessorDescriptor[] }>('/api/project/post-processors'),
+  getPostProcessors: (workspaceId?: string) =>
+    request<{ processors: TextPostProcessorDescriptor[] }>(
+      `/api/project/post-processors${buildWorkspaceQueryString(workspaceId)}`,
+    ),
   runBatchPostProcess: (chapterIds: number[], processorIds: string[], workspaceId?: string) =>
     request<{ ok: boolean }>(`/api/project/chapters/post-process${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',

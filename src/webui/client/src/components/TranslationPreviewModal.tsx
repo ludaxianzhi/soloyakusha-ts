@@ -16,12 +16,14 @@ import {
 } from 'antd';
 import type { WorkspaceChapterDescriptor, TranslationPreviewChapter } from '../app/types.ts';
 import { api } from '../app/api.ts';
+import { useActiveWorkspaceId } from '../app/active-workspace-context.ts';
 import { toErrorMessage } from '../app/ui-helpers.ts';
 
 type PreviewViewMode = 'safe' | 'card';
 
 interface TranslationPreviewModalProps {
   open: boolean;
+  workspaceId?: string | null;
   chapters: WorkspaceChapterDescriptor[];
   defaultChapterId?: number;
   onCancel: () => void;
@@ -29,12 +31,15 @@ interface TranslationPreviewModalProps {
 
 export function TranslationPreviewModal({
   open,
+  workspaceId,
   chapters,
   defaultChapterId,
   onCancel,
 }: TranslationPreviewModalProps) {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
+  const activeWorkspaceId = useActiveWorkspaceId();
+  const resolvedWorkspaceId = workspaceId ?? activeWorkspaceId;
   const [selectedChapterId, setSelectedChapterId] = useState<number>();
   const [preview, setPreview] = useState<TranslationPreviewChapter | null>(null);
   const [loading, setLoading] = useState(false);
@@ -66,7 +71,10 @@ export function TranslationPreviewModal({
   }, [chapters, defaultChapterId, open]);
 
   useEffect(() => {
-    if (!open || selectedChapterId === undefined) {
+    if (!open || !resolvedWorkspaceId || selectedChapterId === undefined) {
+      if (!open || !resolvedWorkspaceId) {
+        setPreview(null);
+      }
       return;
     }
 
@@ -74,7 +82,7 @@ export function TranslationPreviewModal({
     setLoading(true);
     setErrorMessage(undefined);
     void api
-      .getChapterPreview(selectedChapterId)
+      .getChapterPreview(selectedChapterId, resolvedWorkspaceId)
       .then((result) => {
         if (!cancelled) {
           setPreview(result);
@@ -95,7 +103,7 @@ export function TranslationPreviewModal({
     return () => {
       cancelled = true;
     };
-  }, [open, selectedChapterId]);
+  }, [open, resolvedWorkspaceId, selectedChapterId]);
 
   const filteredUnits = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();

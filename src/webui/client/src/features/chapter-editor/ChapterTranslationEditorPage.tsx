@@ -19,6 +19,7 @@ import {
   Typography,
 } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useActiveWorkspaceId } from '../../app/active-workspace-context.ts';
 import { api } from '../../app/api.ts';
 import type {
   ChapterTranslationAssistantConversationTurn,
@@ -58,8 +59,16 @@ type EditorGlossaryHint = {
   text: string;
 };
 
-export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRevision?: number }) {
+export function ChapterTranslationEditorPage({
+  workspaceId,
+  chaptersRevision,
+}: {
+  workspaceId?: string | null;
+  chaptersRevision?: number;
+}) {
   const { message } = AntdApp.useApp();
+  const activeWorkspaceId = useActiveWorkspaceId();
+  const resolvedWorkspaceId = workspaceId ?? activeWorkspaceId;
   const navigate = useNavigate();
   const params = useParams<{ chapterId?: string }>();
   const [isDarkMode, setIsDarkMode] = useState(() =>
@@ -117,11 +126,23 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
 
   useEffect(() => {
     let cancelled = false;
+    if (!resolvedWorkspaceId) {
+      setChapters([]);
+      setDictionary([]);
+      setDraft(null);
+      setContent('');
+      setDiagnostics([]);
+      setSelectedChapterId(undefined);
+      setLoading(false);
+      setErrorMessage(undefined);
+      return;
+    }
+
     setLoading(true);
     setErrorMessage(undefined);
     void Promise.all([
-      api.getChapters().catch(() => ({ chapters: [] })),
-      api.getDictionary().catch(() => ({ terms: [] })),
+      api.getChapters(resolvedWorkspaceId).catch(() => ({ chapters: [] })),
+      api.getDictionary(resolvedWorkspaceId).catch(() => ({ terms: [] })),
       api.getLlmProfiles().catch(
         () =>
           ({
@@ -169,10 +190,10 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
     return () => {
       cancelled = true;
     };
-  }, [selectedChapterId]);
+  }, [resolvedWorkspaceId, selectedChapterId]);
 
   const loadDraft = useCallback(async () => {
-    if (!selectedChapterId) {
+    if (!resolvedWorkspaceId || !selectedChapterId) {
       setDraft(null);
       setContent('');
       setDiagnostics([]);
@@ -182,7 +203,11 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
     setLoading(true);
     setErrorMessage(undefined);
     try {
-      const nextDraft = await api.getChapterEditorDocument(selectedChapterId, format);
+      const nextDraft = await api.getChapterEditorDocument(
+        selectedChapterId,
+        format,
+        resolvedWorkspaceId,
+      );
       setDraft(nextDraft);
       setContent(nextDraft.content);
       setDiagnostics(nextDraft.diagnostics);
@@ -203,7 +228,7 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
     } finally {
       setLoading(false);
     }
-  }, [format, navigate, selectedChapterId]);
+  }, [format, navigate, resolvedWorkspaceId, selectedChapterId]);
 
   useEffect(() => {
     void loadDraft();
@@ -231,7 +256,7 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
           chapterId: selectedChapterId,
           format,
           content,
-        })
+        }, resolvedWorkspaceId ?? undefined)
         .then((result) => {
           if (!cancelled) {
             setDiagnostics(result.diagnostics);
@@ -253,7 +278,7 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [content, dirty, draft, format, selectedChapterId]);
+  }, [content, dirty, draft, format, resolvedWorkspaceId, selectedChapterId]);
 
   const glossaryRender = useMemo(
     () => buildGlossaryRenderState(content, format, dictionary, draft?.repetitionMatches ?? []),
@@ -508,7 +533,7 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
         instruction,
         glossaryHints,
         repetitionHints,
-      });
+      }, resolvedWorkspaceId ?? undefined);
 
       setAssistantConversation((previous) => [
         ...previous,
@@ -531,6 +556,7 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
     draft?.repetitionMatches,
     format,
     message,
+    resolvedWorkspaceId,
     selectedChapterId,
     selectedLlmProfileName,
   ]);
@@ -545,7 +571,7 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
         chapterId: selectedChapterId,
         format,
         content,
-      });
+      }, resolvedWorkspaceId ?? undefined);
       setDiagnostics(result.diagnostics);
       if (result.canApply) {
         message.success('校验通过');
@@ -557,7 +583,7 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
     } finally {
       setValidating(false);
     }
-  }, [content, format, message, selectedChapterId]);
+  }, [content, format, message, resolvedWorkspaceId, selectedChapterId]);
 
   const handleApply = useCallback(async () => {
     if (!selectedChapterId) {
@@ -569,7 +595,7 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
         chapterId: selectedChapterId,
         format,
         content,
-      });
+      }, resolvedWorkspaceId ?? undefined);
       setDiagnostics(result.validation.diagnostics);
       if (!result.validation.canApply) {
         message.error('提交失败，请先修复格式问题');
@@ -601,7 +627,7 @@ export function ChapterTranslationEditorPage({ chaptersRevision }: { chaptersRev
     } finally {
       setApplying(false);
     }
-  }, [content, format, message, selectedChapterId]);
+  }, [content, format, message, resolvedWorkspaceId, selectedChapterId]);
 
   useLayoutEffect(() => {
     const scrollPosition = pendingEditorScrollRef.current;
