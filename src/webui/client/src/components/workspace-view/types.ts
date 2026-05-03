@@ -30,6 +30,7 @@ export type TaskActivityKind = 'scan' | 'plot' | 'proofread';
 export type ProofreadTaskMode = 'linear' | 'simultaneous';
 
 export interface WorkspaceViewProps {
+  workspaceId?: string | null;
   snapshot: TranslationProjectSnapshot | null;
   projectStatus: ProjectStatus | null;
   pipelineStrategy?: 'default' | 'context-network';

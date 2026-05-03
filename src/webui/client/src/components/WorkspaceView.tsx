@@ -11,6 +11,7 @@ import type { WorkspaceViewProps } from './workspace-view/types.ts';
 export type { ProjectCommand, TaskActivityKind } from './workspace-view/types.ts';
 
 export function WorkspaceView({
+  workspaceId,
   snapshot,
   projectStatus,
   pipelineStrategy,
@@ -95,13 +96,13 @@ export function WorkspaceView({
       return;
     }
 
-    if (prefetchedWorkspaceKeyRef.current === snapshot.projectName) {
+    if (prefetchedWorkspaceKeyRef.current === workspaceId) {
       return;
     }
 
-    prefetchedWorkspaceKeyRef.current = snapshot.projectName;
+    prefetchedWorkspaceKeyRef.current = workspaceId ?? snapshot.projectName;
     void Promise.all(mobileMode ? [onRefreshChapters()] : [onRefreshChapters(), onRefreshTopology()]);
-  }, [mobileMode, onRefreshChapters, onRefreshTopology, snapshot?.projectName]);
+  }, [mobileMode, onRefreshChapters, onRefreshTopology, snapshot?.projectName, workspaceId]);
 
   if (!snapshot) {
     return (

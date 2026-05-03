@@ -9,6 +9,7 @@ import {
   Space,
   Spin,
   Tag,
+  Tabs,
   Typography,
 } from 'antd';
 import {
@@ -50,6 +51,7 @@ import type {
   GlossaryUpdaterConfig,
   LlmProfileConfig,
   ManagedWorkspace,
+  OpenWorkspaceStatus,
   PlotSummaryConfig,
   ProjectStatus,
   ProjectResourceVersions,
@@ -154,6 +156,130 @@ const INITIAL_SETTINGS_LOADING: SettingsLoadingState = {
   alignment: false,
 };
 
+type OpenedWorkspaceStatusMap = Record<string, ProjectStatus | null>;
+type WorkspaceConnectionMap = Record<string, boolean>;
+
+function WorkspaceEventBridge(props: {
+  workspaceId: string;
+  onConnectedChange: (workspaceId: string, connected: boolean) => void;
+  onSnapshot: (workspaceId: string, snapshot: TranslationProjectSnapshot | null) => void;
+  onScanProgress: (
+    workspaceId: string,
+    progress: ProjectStatus['scanDictionaryProgress'],
+  ) => void;
+  onProofreadProgress: (
+    workspaceId: string,
+    progress: ProjectStatus['proofreadProgress'],
+  ) => void;
+  onPlotProgress: (
+    workspaceId: string,
+    progress: ProjectStatus['plotSummaryProgress'],
+  ) => void;
+  onChaptersChanged: (workspaceId: string, revision: number) => void;
+}) {
+  const {
+    workspaceId,
+    onConnectedChange,
+    onSnapshot,
+    onScanProgress,
+    onProofreadProgress,
+    onPlotProgress,
+    onChaptersChanged,
+  } = props;
+
+  const handlers = useMemo(
+    () => ({
+      onSnapshot: (snapshot: TranslationProjectSnapshot | null) => {
+        onSnapshot(workspaceId, snapshot);
+      },
+      onScanProgress: (progress: ProjectStatus['scanDictionaryProgress']) => {
+        onScanProgress(workspaceId, progress);
+      },
+      onProofreadProgress: (progress: ProjectStatus['proofreadProgress']) => {
+        onProofreadProgress(workspaceId, progress);
+      },
+      onPlotProgress: (progress: ProjectStatus['plotSummaryProgress']) => {
+        onPlotProgress(workspaceId, progress);
+      },
+      onChaptersChanged: (revision: number) => {
+        onChaptersChanged(workspaceId, revision);
+      },
+    }),
+    [
+      onChaptersChanged,
+      onPlotProgress,
+      onProofreadProgress,
+      onScanProgress,
+      onSnapshot,
+      workspaceId,
+    ],
+  );
+
+  const { connected } = useEventStream(handlers, {
+    workspaceId,
+  });
+
+  useEffect(() => {
+    onConnectedChange(workspaceId, connected);
+  }, [connected, onConnectedChange, workspaceId]);
+
+  return null;
+}
+
+function toWorkspaceLifecycleTag(status: ProjectStatus | null): {
+  text: string;
+  color: string;
+} | null {
+  const lifecycleStatus = status?.snapshot?.lifecycle.status;
+  if (!lifecycleStatus) {
+    return null;
+  }
+
+  switch (lifecycleStatus) {
+    case 'running':
+      return { text: '运行中', color: 'gold' };
+    case 'stopping':
+      return { text: '停止中', color: 'orange' };
+    case 'stopped':
+      return { text: '已暂停', color: 'default' };
+    case 'completed':
+      return { text: '已完成', color: 'green' };
+    case 'aborted':
+      return { text: '已中止', color: 'red' };
+    case 'interrupted':
+      return { text: '已中断', color: 'red' };
+    default:
+      return null;
+  }
+}
+
+function createProjectStatus(
+  snapshot: TranslationProjectSnapshot | null,
+  overrides: Partial<ProjectStatus> = {},
+): ProjectStatus {
+  return {
+    workspaceId: null,
+    isActiveWorkspace: false,
+    hasProject: snapshot !== null,
+    isBusy: false,
+    plotSummaryReady: false,
+    plotSummaryProgress: null,
+    scanDictionaryProgress: null,
+    proofreadProgress: null,
+    snapshot,
+    ...overrides,
+  };
+}
+
+function toProjectStatus(workspace: OpenWorkspaceStatus): ProjectStatus {
+  return createProjectStatus(workspace.snapshot, {
+    workspaceId: workspace.workspaceId,
+    isActiveWorkspace: workspace.isActive,
+    isBusy: workspace.isBusy,
+    plotSummaryReady: workspace.plotSummaryReady,
+  });
+}
+
 export function AppShell() {
   const { message, modal } = AntdApp.useApp();
   const location = useLocation();
@@ -161,6 +287,11 @@ export function AppShell() {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const [workspaces, setWorkspaces] = useState<ManagedWorkspace[]>([]);
+  const [openedWorkspaces, setOpenedWorkspaces] = useState<OpenWorkspaceStatus[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
+  const [openedWorkspaceStatuses, setOpenedWorkspaceStatuses] =
+    useState<OpenedWorkspaceStatusMap>({});
+  const [workspaceConnections, setWorkspaceConnections] = useState<WorkspaceConnectionMap>({});
   const [projectStatus, setProjectStatus] = useState<ProjectStatus | null>(null);
   const [snapshot, setSnapshot] = useState<TranslationProjectSnapshot | null>(null);
   const [dictionary, setDictionary] = useState<GlossaryTerm[]>([]);
@@ -241,6 +372,8 @@ export function AppShell() {
   const [workspacePipelineStrategy, setWorkspacePipelineStrategy] = useState<
     'default' | 'context-network' | undefined
   >(undefined);
+  const activeWorkspaceIdRef = useRef<string | null>(null);
+  const openedWorkspaceStatusesRef = useRef<OpenedWorkspaceStatusMap>({});
   const workflowMap = useMemo(
     () =>
       new Map(
@@ -280,6 +413,92 @@ export function AppShell() {
     [styleLibraryCatalog],
   );
 
+  useEffect(() => {
+    activeWorkspaceIdRef.current = activeWorkspaceId;
+  }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    openedWorkspaceStatusesRef.current = openedWorkspaceStatuses;
+  }, [openedWorkspaceStatuses]);
+
+  const getSelectedWorkspaceId = useCallback(() => activeWorkspaceIdRef.current ?? undefined, []);
+
+  const applyWorkspaceStatus = useCallback((workspaceId: string, status: ProjectStatus | null) => {
+    const normalizedStatus =
+      status === null
+        ? null
+        : {
+            ...status,
+            workspaceId,
+            isActiveWorkspace: activeWorkspaceIdRef.current === workspaceId,
+          };
+
+    setOpenedWorkspaceStatuses((prev) => ({
+      ...prev,
+      [workspaceId]: normalizedStatus,
+    }));
+    setOpenedWorkspaces((prev) =>
+      prev.map((workspace) =>
+        workspace.workspaceId === workspaceId
+          ? {
+              ...workspace,
+              isActive: activeWorkspaceIdRef.current === workspaceId,
+              isBusy: normalizedStatus?.isBusy ?? workspace.isBusy,
+              plotSummaryReady:
+                normalizedStatus?.plotSummaryReady ?? workspace.plotSummaryReady,
+              projectName:
+                normalizedStatus?.snapshot?.projectName ?? workspace.projectName,
+              snapshot: normalizedStatus?.snapshot ?? workspace.snapshot,
+            }
+          : workspace,
+      ),
+    );
+
+    if (activeWorkspaceIdRef.current === workspaceId) {
+      setProjectStatus(normalizedStatus);
+      setSnapshot(normalizedStatus?.snapshot ?? null);
+    }
+  }, []);
+
+  const patchWorkspaceStatus = useCallback(
+    (workspaceId: string, updater: (status: ProjectStatus | null) => ProjectStatus | null) => {
+      const nextStatus = updater(openedWorkspaceStatusesRef.current[workspaceId] ?? null);
+      applyWorkspaceStatus(workspaceId, nextStatus);
+    },
+    [applyWorkspaceStatus],
+  );
+
+  const activateWorkspaceLocally = useCallback(
+    (workspaceId: string | null) => {
+      setActiveWorkspaceId(workspaceId);
+      setOpenedWorkspaces((prev) =>
+        prev.map((workspace) => ({
+          ...workspace,
+          isActive: workspace.workspaceId === workspaceId,
+        })),
+      );
+
+      if (!workspaceId) {
+        setProjectStatus(null);
+        setSnapshot(null);
+        return;
+      }
+
+      const nextStatus = openedWorkspaceStatusesRef.current[workspaceId] ?? null;
+      setProjectStatus(
+        nextStatus
+          ? {
+              ...nextStatus,
+              workspaceId,
+              isActiveWorkspace: true,
+            }
+          : null,
+      );
+      setSnapshot(nextStatus?.snapshot ?? null);
+    },
+    [],
+  );
+
   const runAction = useCallback(
     async (action: () => Promise<void>) => {
       try {
@@ -316,27 +535,67 @@ export function AppShell() {
   );
 
   const refreshBootData = useCallback(async () => {
-    const [workspaceRes, activeRes, translatorsRes, translatorWorkflowsRes, llmRes] = await Promise.all([
-      api.listWorkspaces(),
-      api.getActiveProject(),
-      api.getTranslators().catch(() => ({ translators: {} })),
-      api.getTranslatorWorkflows().catch(() => ({ workflows: [] })),
-      api.getLlmProfiles().catch(() => ({ profiles: {}, defaultName: undefined })),
-    ]);
+    const [workspaceRes, openedWorkspaceRes, translatorsRes, translatorWorkflowsRes, llmRes] =
+      await Promise.all([
+        api.listWorkspaces(),
+        api.listOpenedWorkspaces(),
+        api.getTranslators().catch(() => ({ translators: {} })),
+        api.getTranslatorWorkflows().catch(() => ({ workflows: [] })),
+        api.getLlmProfiles().catch(() => ({ profiles: {}, defaultName: undefined })),
+      ]);
+
+    const workspaceStatuses = Object.fromEntries(
+      await Promise.all(
+        openedWorkspaceRes.workspaces.map(async (workspace) => {
+          try {
+            return [workspace.workspaceId, await api.getProjectStatus(workspace.workspaceId)] as const;
+          } catch {
+            return [workspace.workspaceId, toProjectStatus(workspace)] as const;
+          }
+        }),
+      ),
+    );
+
+    const nextActiveWorkspaceId =
+      openedWorkspaceRes.activeWorkspaceId ??
+      openedWorkspaceRes.workspaces.find((workspace) => workspace.isActive)?.workspaceId ??
+      null;
+
     setWorkspaces(workspaceRes.workspaces);
-    setProjectStatus(activeRes);
-    setSnapshot(activeRes.snapshot);
+    setOpenedWorkspaces(
+      openedWorkspaceRes.workspaces.map((workspace) => ({
+        ...workspace,
+        isActive: workspace.workspaceId === nextActiveWorkspaceId,
+      })),
+    );
+    setOpenedWorkspaceStatuses(workspaceStatuses);
+    openedWorkspaceStatusesRef.current = workspaceStatuses;
+    setWorkspaceConnections((prev) =>
+      Object.fromEntries(
+        Object.entries(prev).filter(([workspaceId]) =>
+          openedWorkspaceRes.workspaces.some((workspace) => workspace.workspaceId === workspaceId),
+        ),
+      ),
+    );
+    activateWorkspaceLocally(nextActiveWorkspaceId);
     setTranslators(translatorsRes.translators);
     setTranslatorWorkflows(translatorWorkflowsRes.workflows);
     setLlmProfiles(llmRes.profiles);
     setDefaultLlmName(llmRes.defaultName);
-  }, []);
+  }, [activateWorkspaceLocally]);
 
-  const refreshProjectStatus = useCallback(async () => {
-    const status = await api.getProjectStatus();
-    setProjectStatus(status);
-    setSnapshot(status.snapshot);
-  }, []);
+  const refreshProjectStatus = useCallback(
+    async (workspaceId?: string) => {
+      const targetWorkspaceId = workspaceId ?? activeWorkspaceIdRef.current;
+      if (!targetWorkspaceId) {
+        return;
+      }
+
+      const status = await api.getProjectStatus(targetWorkspaceId);
+      applyWorkspaceStatus(targetWorkspaceId, status);
+    },
+    [applyWorkspaceStatus],
+  );
 
   const resetWorkspaceResourceVersions = useCallback((value = 0) => {
     workspaceResourceVersionsRef.current = {
@@ -353,6 +612,7 @@ export function AppShell() {
     setRepeatedPatterns(null);
     setChapters([]);
     setTopology(null);
+    setChapterContentRevision(0);
     setWorkspacePipelineStrategy(undefined);
     workspaceConfigRef.current = null;
     workspaceForm.resetFields();
@@ -360,9 +620,15 @@ export function AppShell() {
   }, [resetWorkspaceResourceVersions, workspaceForm]);
 
   const refreshDictionary = useCallback(async () => {
+    const workspaceId = getSelectedWorkspaceId();
+    if (!workspaceId) {
+      setDictionary([]);
+      return;
+    }
+
     let nextRevision: number | undefined;
     try {
-      const versions = await api.getProjectResourceVersions();
+      const versions = await api.getProjectResourceVersions(workspaceId);
       nextRevision = versions.dictionaryRevision;
       if (nextRevision === workspaceResourceVersionsRef.current.dictionaryRevision) {
         return;
@@ -370,7 +636,7 @@ export function AppShell() {
     } catch {
       // ignore version probe failures and fall back to direct fetch
     }
-    const dictionaryRes = await api.getDictionary().catch(() => ({ terms: [] }));
+    const dictionaryRes = await api.getDictionary(workspaceId).catch(() => ({ terms: [] }));
     setDictionary(dictionaryRes.terms);
     workspaceResourceVersionsRef.current = {
       ...workspaceResourceVersionsRef.current,
@@ -385,9 +651,15 @@ export function AppShell() {
 
   const refreshRepeatedPatterns = useCallback(
     async (options?: { chapterIds?: number[] }) => {
+      const workspaceId = getSelectedWorkspaceId();
+      if (!workspaceId) {
+        setRepeatedPatterns(null);
+        return null;
+      }
+
       let nextRevision: number | undefined;
       try {
-        const versions = await api.getProjectResourceVersions();
+        const versions = await api.getProjectResourceVersions(workspaceId);
         nextRevision = versions.repetitionPatternsRevision;
         if (
           nextRevision === workspaceResourceVersionsRef.current.repetitionPatternsRevision &&
@@ -398,7 +670,10 @@ export function AppShell() {
       } catch {
         // ignore version probe failures and fall back to direct fetch
       }
-      const result = await api.getRepeatedPatterns(options);
+      const result = await api.getRepeatedPatterns({
+        ...options,
+        workspaceId,
+      });
       setRepeatedPatterns(result);
       workspaceResourceVersionsRef.current = {
         ...workspaceResourceVersionsRef.current,
@@ -416,7 +691,13 @@ export function AppShell() {
       minLength?: number;
       maxResults?: number;
     }) => {
-      const result = await api.scanRepeatedPatterns(options);
+      const workspaceId = getSelectedWorkspaceId();
+      if (!workspaceId) {
+        setRepeatedPatterns(null);
+        return null;
+      }
+
+      const result = await api.scanRepeatedPatterns(options, workspaceId);
       setRepeatedPatterns(result);
       workspaceResourceVersionsRef.current = {
         ...workspaceResourceVersionsRef.current,
@@ -429,8 +710,8 @@ export function AppShell() {
 
   const hydrateRepeatedPatterns = useCallback(
     async (input: { chapterIds?: number[]; patternTexts?: string[] }) =>
-      api.hydrateRepeatedPatterns(input),
-    [],
+      api.hydrateRepeatedPatterns(input, getSelectedWorkspaceId()),
+    [getSelectedWorkspaceId],
   );
 
   const handleSaveRepeatedPatternTranslation = useCallback(
@@ -440,39 +721,48 @@ export function AppShell() {
       lineIndex: number;
       translation: string;
     }) => {
-      await api.saveRepeatedPatternTranslation(input);
+      await api.saveRepeatedPatternTranslation(input, getSelectedWorkspaceId());
       await refreshProjectStatus();
     },
-    [refreshProjectStatus],
+    [getSelectedWorkspaceId, refreshProjectStatus],
   );
 
   const handleLoadRepeatedPatternContext = useCallback(
     async (input: { chapterId: number; unitIndex: number }) =>
-      api.getRepeatedPatternContext(input),
-    [],
+      api.getRepeatedPatternContext({
+        ...input,
+        workspaceId: getSelectedWorkspaceId(),
+      }),
+    [getSelectedWorkspaceId],
   );
 
   const handleStartRepeatedPatternConsistencyFix = useCallback(
     async (input: {
       llmProfileName: string;
       chapterIds?: number[];
-    }) => api.startRepeatedPatternConsistencyFix(input),
-    [],
+    }) => api.startRepeatedPatternConsistencyFix(input, getSelectedWorkspaceId()),
+    [getSelectedWorkspaceId],
   );
 
   const handleGetRepeatedPatternConsistencyFixStatus = useCallback(
-    async () => api.getRepeatedPatternConsistencyFixStatus(),
-    [],
+    async () => api.getRepeatedPatternConsistencyFixStatus(getSelectedWorkspaceId()),
+    [getSelectedWorkspaceId],
   );
 
   const handleClearRepeatedPatternConsistencyFixStatus = useCallback(
     async () => {
-      await api.clearRepeatedPatternConsistencyFixStatus();
+      await api.clearRepeatedPatternConsistencyFixStatus(getSelectedWorkspaceId());
     },
-    [],
+    [getSelectedWorkspaceId],
   );
 
   const refreshChapters = useCallback(() => {
+    const workspaceId = getSelectedWorkspaceId();
+    if (!workspaceId) {
+      setChapters([]);
+      return Promise.resolve();
+    }
+
     if (chaptersRefreshPromiseRef.current) {
       return chaptersRefreshPromiseRef.current;
     }
@@ -480,7 +770,7 @@ export function AppShell() {
     const refreshPromise = (async () => {
       let nextRevision: number | undefined;
       try {
-        const versions = await api.getProjectResourceVersions();
+        const versions = await api.getProjectResourceVersions(workspaceId);
         nextRevision = versions.chaptersRevision;
         if (nextRevision === workspaceResourceVersionsRef.current.chaptersRevision) {
           return;
@@ -488,7 +778,7 @@ export function AppShell() {
       } catch {
         // ignore version probe failures and fall back to direct fetch
       }
-      const chaptersRes = await api.getChapters().catch(() => ({ chapters: [] }));
+      const chaptersRes = await api.getChapters(workspaceId).catch(() => ({ chapters: [] }));
       setChapters(chaptersRes.chapters);
       workspaceResourceVersionsRef.current = {
         ...workspaceResourceVersionsRef.current,
@@ -504,9 +794,15 @@ export function AppShell() {
       }
     });
     return refreshPromise;
-  }, []);
+  }, [getSelectedWorkspaceId]);
 
   const refreshTopology = useCallback(() => {
+    const workspaceId = getSelectedWorkspaceId();
+    if (!workspaceId) {
+      setTopology(null);
+      return Promise.resolve();
+    }
+
     if (topologyRefreshPromiseRef.current) {
       return topologyRefreshPromiseRef.current;
     }
@@ -514,7 +810,7 @@ export function AppShell() {
     const refreshPromise = (async () => {
       let nextRevision: number | undefined;
       try {
-        const versions = await api.getProjectResourceVersions();
+        const versions = await api.getProjectResourceVersions(workspaceId);
         nextRevision = versions.topologyRevision;
         if (nextRevision === workspaceResourceVersionsRef.current.topologyRevision) {
           return;
@@ -522,7 +818,7 @@ export function AppShell() {
       } catch {
         // ignore version probe failures and fall back to direct fetch
       }
-      const topologyRes = await api.getTopology().catch(() => ({ topology: null }));
+      const topologyRes = await api.getTopology(workspaceId).catch(() => ({ topology: null }));
       setTopology(topologyRes.topology);
       workspaceResourceVersionsRef.current = {
         ...workspaceResourceVersionsRef.current,
@@ -538,12 +834,20 @@ export function AppShell() {
       }
     });
     return refreshPromise;
-  }, []);
+  }, [getSelectedWorkspaceId]);
 
   const refreshWorkspaceConfig = useCallback(async () => {
+    const workspaceId = getSelectedWorkspaceId();
+    if (!workspaceId) {
+      workspaceForm.resetFields();
+      workspaceConfigRef.current = null;
+      setWorkspacePipelineStrategy(undefined);
+      return;
+    }
+
     let nextRevision: number | undefined;
     try {
-      const versions = await api.getProjectResourceVersions();
+      const versions = await api.getProjectResourceVersions(workspaceId);
       nextRevision = versions.workspaceConfigRevision;
       if (nextRevision === workspaceResourceVersionsRef.current.workspaceConfigRevision) {
         return;
@@ -551,7 +855,7 @@ export function AppShell() {
     } catch {
       // ignore version probe failures and fall back to direct fetch
     }
-    const configRes = await api.getWorkspaceConfig().catch(() => null);
+    const configRes = await api.getWorkspaceConfig(workspaceId).catch(() => null);
     if (!configRes) {
       return;
     }
@@ -574,7 +878,7 @@ export function AppShell() {
       workspaceConfigRevision:
         nextRevision ?? workspaceResourceVersionsRef.current.workspaceConfigRevision + 1,
     };
-  }, [workspaceForm]);
+  }, [getSelectedWorkspaceId, workspaceForm]);
 
   useEffect(() => {
     if (!workspaceConfigRef.current) {
@@ -660,81 +964,114 @@ export function AppShell() {
     setStyleLibraryCatalog(await api.getStyleLibraries());
   }, []);
 
-  const eventHandlers = useMemo(
-    () => ({
-      onSnapshot: (nextSnapshot: TranslationProjectSnapshot | null) => {
-        setSnapshot(nextSnapshot);
-        setProjectStatus((prev) =>
-          prev
-            ? {
-                ...prev,
-                hasProject: nextSnapshot !== null,
-                snapshot: nextSnapshot,
-              }
-            : {
-                hasProject: nextSnapshot !== null,
-                isBusy: false,
-                plotSummaryReady: false,
-                plotSummaryProgress: null,
-                scanDictionaryProgress: null,
-                proofreadProgress: null,
-                snapshot: nextSnapshot,
-              },
-        );
-      },
-      onScanProgress: (progress: ProjectStatus['scanDictionaryProgress']) => {
-        setProjectStatus((prev) =>
-          prev
-            ? {
-                ...prev,
-                isBusy: progress?.status === 'running',
-                scanDictionaryProgress: progress,
-              }
-            : prev,
-        );
-        if (progress && progress.status !== 'running') {
-          void refreshProjectStatus().catch(() => undefined);
-        }
-      },
-      onProofreadProgress: (progress: ProjectStatus['proofreadProgress']) => {
-          setProjectStatus((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  isBusy: progress?.status === 'running',
-                  proofreadProgress: progress,
-                }
-              : prev,
-          );
-          if (progress && progress.status !== 'running') {
-            void refreshProjectStatus().catch(() => undefined);
-          }
-        },
-      onPlotProgress: (progress: ProjectStatus['plotSummaryProgress']) => {
-          setProjectStatus((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  isBusy: progress?.status === 'running',
-                  plotSummaryReady:
-                    progress?.status === 'done' ? true : prev.plotSummaryReady,
-                  plotSummaryProgress: progress,
-                }
-              : prev,
-          );
-          if (progress && progress.status !== 'running') {
-            void refreshProjectStatus().catch(() => undefined);
-          }
-        },
-      onChaptersChanged: (revision: number) => {
-        setChapterContentRevision(revision);
-        void refreshChapters().catch(() => undefined);
-      },
-    }),
-    [refreshChapters, refreshProjectStatus],
+  const connected = activeWorkspaceId
+    ? (workspaceConnections[activeWorkspaceId] ?? false)
+    : false;
+
+  const handleWorkspaceConnectedChange = useCallback(
+    (workspaceId: string, nextConnected: boolean) => {
+      setWorkspaceConnections((prev) => ({
+        ...prev,
+        [workspaceId]: nextConnected,
+      }));
+    },
+    [],
   );
 
-  const { connected } = useEventStream(eventHandlers);
+  const handleWorkspaceSnapshot = useCallback(
+    (workspaceId: string, nextSnapshot: TranslationProjectSnapshot | null) => {
+      patchWorkspaceStatus(workspaceId, (prev) =>
+        prev
+          ? {
+              ...prev,
+              hasProject: nextSnapshot !== null,
+              snapshot: nextSnapshot,
+            }
+          : createProjectStatus(nextSnapshot, { workspaceId }),
+      );
+    },
+    [patchWorkspaceStatus],
+  );
+
+  const handleWorkspaceScanProgress = useCallback(
+    (workspaceId: string, progress: ProjectStatus['scanDictionaryProgress']) => {
+      patchWorkspaceStatus(workspaceId, (prev) =>
+        prev
+          ? {
+              ...prev,
+              isBusy: progress?.status === 'running',
+              scanDictionaryProgress: progress,
+            }
+          : createProjectStatus(null, {
+              workspaceId,
+              isBusy: progress?.status === 'running',
+              scanDictionaryProgress: progress,
+            }),
+      );
+      if (progress && progress.status !== 'running') {
+        void refreshProjectStatus(workspaceId).catch(() => undefined);
+      }
+    },
+    [patchWorkspaceStatus, refreshProjectStatus],
+  );
+
+  const handleWorkspaceProofreadProgress = useCallback(
+    (workspaceId: string, progress: ProjectStatus['proofreadProgress']) => {
+      patchWorkspaceStatus(workspaceId, (prev) =>
+        prev
+          ? {
+              ...prev,
+              isBusy: progress?.status === 'running',
+              proofreadProgress: progress,
+            }
+          : createProjectStatus(null, {
+              workspaceId,
+              isBusy: progress?.status === 'running',
+              proofreadProgress: progress,
+            }),
+      );
+      if (progress && progress.status !== 'running') {
+        void refreshProjectStatus(workspaceId).catch(() => undefined);
+      }
+    },
+    [patchWorkspaceStatus, refreshProjectStatus],
+  );
+
+  const handleWorkspacePlotProgress = useCallback(
+    (workspaceId: string, progress: ProjectStatus['plotSummaryProgress']) => {
+      patchWorkspaceStatus(workspaceId, (prev) =>
+        prev
+          ? {
+              ...prev,
+              isBusy: progress?.status === 'running',
+              plotSummaryReady: progress?.status === 'done' ? true : prev.plotSummaryReady,
+              plotSummaryProgress: progress,
+            }
+          : createProjectStatus(null, {
+              workspaceId,
+              isBusy: progress?.status === 'running',
+              plotSummaryReady: progress?.status === 'done',
+              plotSummaryProgress: progress,
+            }),
+      );
+      if (progress && progress.status !== 'running') {
+        void refreshProjectStatus(workspaceId).catch(() => undefined);
+      }
+    },
+    [patchWorkspaceStatus, refreshProjectStatus],
+  );
+
+  const handleWorkspaceChaptersChanged = useCallback(
+    (workspaceId: string, revision: number) => {
+      if (workspaceId !== activeWorkspaceIdRef.current) {
+        return;
+      }
+
+      setChapterContentRevision(revision);
+      void refreshChapters().catch(() => undefined);
+    },
+    [refreshChapters],
+  );
 
   useEffect(() => {
     void refreshBootData();
@@ -758,7 +1095,7 @@ export function AppShell() {
 
   useEffect(() => {
     resetWorkspaceDataCaches();
-  }, [resetWorkspaceDataCaches, snapshot?.projectName]);
+  }, [activeWorkspaceId, resetWorkspaceDataCaches]);
 
   useEffect(() => {
     if (!snapshot) {
@@ -922,9 +1259,51 @@ export function AppShell() {
     [llmProfiles],
   );
 
+  const openedWorkspaceByDir = useMemo(
+    () => new Map(openedWorkspaces.map((workspace) => [workspace.projectDir, workspace] as const)),
+    [openedWorkspaces],
+  );
+
+  const handleActivateOpenedWorkspace = useCallback(
+    async (workspaceId: string) => {
+      await runAction(async () => {
+        const status = await api.activateWorkspace({ workspaceId });
+        activateWorkspaceLocally(workspaceId);
+        applyWorkspaceStatus(workspaceId, status);
+        resetWorkspaceDataCaches();
+        navigate('/workspace/current');
+      });
+    },
+    [activateWorkspaceLocally, applyWorkspaceStatus, navigate, resetWorkspaceDataCaches, runAction],
+  );
+
+  const handleCloseOpenedWorkspace = useCallback(
+    async (workspaceId: string) => {
+      await runAction(async () => {
+        const isClosingActiveWorkspace = activeWorkspaceIdRef.current === workspaceId;
+        await api.closeWorkspace({ workspaceId });
+        await refreshBootData();
+        if (isClosingActiveWorkspace) {
+          resetWorkspaceDataCaches();
+        }
+        if (isClosingActiveWorkspace && openedWorkspaces.length <= 1) {
+          navigate('/workspaces/recent');
+        }
+        message.success('工作区已关闭');
+      });
+    },
+    [message, navigate, openedWorkspaces.length, refreshBootData, resetWorkspaceDataCaches, runAction],
+  );
+
   const handleOpenWorkspace = useCallback(
     async (workspace: ManagedWorkspace) => {
       if (openingWorkspaceDir) {
+        return;
+      }
+
+      const openedWorkspace = openedWorkspaceByDir.get(workspace.dir);
+      if (openedWorkspace) {
+        await handleActivateOpenedWorkspace(openedWorkspace.workspaceId);
         return;
       }
 
@@ -945,7 +1324,9 @@ export function AppShell() {
     },
     [
       message,
+      handleActivateOpenedWorkspace,
       navigate,
+      openedWorkspaceByDir,
       openingWorkspaceDir,
       refreshBootData,
       resetWorkspaceDataCaches,
@@ -1012,46 +1393,47 @@ export function AppShell() {
   const handleProjectCommand = useCallback(
     async (command: ProjectCommand) => {
       await runAction(async () => {
+        const workspaceId = getSelectedWorkspaceId();
         switch (command) {
           case 'start':
-            await api.startTranslation();
+            await api.startTranslation(workspaceId);
             await refreshProjectStatus();
             message.success('翻译已启动');
             break;
           case 'pause':
-            await api.pauseTranslation();
+            await api.pauseTranslation(workspaceId);
             await refreshProjectStatus();
             message.success('暂停请求已提交');
             break;
           case 'resume':
-            await api.resumeTranslation();
+            await api.resumeTranslation(workspaceId);
             await refreshProjectStatus();
             message.success('翻译已恢复');
             break;
           case 'abort':
-            await api.abortTranslation();
+            await api.abortTranslation(workspaceId);
             await refreshProjectStatus();
             message.success('翻译已中止');
             break;
           case 'scan':
-            await api.scanDictionary();
+            await api.scanDictionary(workspaceId);
             await refreshProjectStatus();
             message.success('已开始扫描术语表');
             break;
           case 'plot':
-            await api.startPlotSummary();
+            await api.startPlotSummary(workspaceId);
             await refreshProjectStatus();
             message.success('已开始生成情节大纲');
             break;
           case 'close':
-            await api.closeWorkspace();
+            await api.closeWorkspace(workspaceId ? { workspaceId } : undefined);
             await refreshBootData();
             resetWorkspaceDataCaches();
             navigate('/workspaces/recent');
             message.success('已关闭工作区');
             break;
           case 'remove':
-            await api.removeCurrentWorkspace();
+            await api.removeCurrentWorkspace(workspaceId ? { workspaceId } : undefined);
             await refreshBootData();
             resetWorkspaceDataCaches();
             navigate('/workspaces/recent');
@@ -1060,18 +1442,25 @@ export function AppShell() {
         }
       });
     },
-    [message, navigate, refreshBootData, resetWorkspaceDataCaches, runAction],
+    [
+      getSelectedWorkspaceId,
+      message,
+      navigate,
+      refreshBootData,
+      resetWorkspaceDataCaches,
+      runAction,
+    ],
   );
 
   const handleStartProofread = useCallback(
     async (input: { chapterIds: number[]; mode?: 'linear' | 'simultaneous' }) => {
       await runAction(async () => {
-        await api.startProofread(input);
+        await api.startProofread(input, getSelectedWorkspaceId());
         await Promise.all([refreshProjectStatus(), refreshChapters()]);
         message.success('已开始章节校对任务');
       });
     },
-    [message, refreshChapters, refreshProjectStatus, runAction],
+    [getSelectedWorkspaceId, message, refreshChapters, refreshProjectStatus, runAction],
   );
 
   const openDictionaryEditor = useCallback(
@@ -1098,30 +1487,35 @@ export function AppShell() {
       await runAction(async () => {
         await api.saveDictionaryTerm(
           values as Partial<GlossaryTerm> & { term: string },
+          getSelectedWorkspaceId(),
         );
         setDictionaryModalOpen(false);
         await Promise.all([refreshDictionary(), refreshProjectStatus()]);
         message.success('术语条目已保存');
       });
     },
-    [message, refreshDictionary, refreshProjectStatus, runAction],
+    [getSelectedWorkspaceId, message, refreshDictionary, refreshProjectStatus, runAction],
   );
 
   const handleDeleteDictionary = useCallback(
     async (term: string) => {
       await runAction(async () => {
-        await api.deleteDictionaryTerm(term);
+        await api.deleteDictionaryTerm(term, getSelectedWorkspaceId());
         await Promise.all([refreshDictionary(), refreshProjectStatus()]);
         message.success('术语条目已删除');
       });
     },
-    [message, refreshDictionary, refreshProjectStatus, runAction],
+    [getSelectedWorkspaceId, message, refreshDictionary, refreshProjectStatus, runAction],
   );
 
   const handleImportDictionaryFromContent = useCallback(
     async (content: string, format: 'csv' | 'tsv') => {
       try {
-        const result = await api.importDictionaryFromContent(content, format);
+        const result = await api.importDictionaryFromContent(
+          content,
+          format,
+          getSelectedWorkspaceId(),
+        );
         await Promise.all([refreshDictionary(), refreshProjectStatus()]);
         message.success(
           `术语导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
@@ -1132,7 +1526,7 @@ export function AppShell() {
         throw error;
       }
     },
-    [message, refreshDictionary, refreshProjectStatus],
+    [getSelectedWorkspaceId, message, refreshDictionary, refreshProjectStatus],
   );
 
   const handleWorkspaceConfigSave = useCallback(
@@ -1173,22 +1567,25 @@ export function AppShell() {
           workflowMap.get(previousTranslator?.type ?? 'default') ??
           workflowMap.get('default') ??
           translatorWorkflows[0];
-        await api.updateWorkspaceConfig({
-          projectName: String(values.projectName ?? ''),
-          pipelineStrategy: nextPipelineStrategy,
-          glossary: {
-            path: String(values.glossaryPath ?? '').trim() || undefined,
+        await api.updateWorkspaceConfig(
+          {
+            projectName: String(values.projectName ?? ''),
+            pipelineStrategy: nextPipelineStrategy,
+            glossary: {
+              path: String(values.glossaryPath ?? '').trim() || undefined,
+            },
+            translator: {
+              translatorName: nextTranslatorName,
+            },
+            defaultImportFormat: String(values.defaultImportFormat ?? '') || null,
+            defaultExportFormat: String(values.defaultExportFormat ?? '') || null,
+            customRequirements: splitLines(String(values.customRequirements ?? '')),
+            editorRequirementsText: String(values.editorRequirementsText ?? '').trim() || null,
+            ...buildClearedWorkspaceWorkflowPatch(previousWorkflow, nextWorkflow),
+            ...buildWorkspaceWorkflowPatch(values, nextWorkflow),
           },
-          translator: {
-            translatorName: nextTranslatorName,
-          },
-          defaultImportFormat: String(values.defaultImportFormat ?? '') || null,
-          defaultExportFormat: String(values.defaultExportFormat ?? '') || null,
-          customRequirements: splitLines(String(values.customRequirements ?? '')),
-          editorRequirementsText: String(values.editorRequirementsText ?? '').trim() || null,
-          ...buildClearedWorkspaceWorkflowPatch(previousWorkflow, nextWorkflow),
-          ...buildWorkspaceWorkflowPatch(values, nextWorkflow),
-        });
+          getSelectedWorkspaceId(),
+        );
         await Promise.all([
           refreshWorkspaceConfig(),
           refreshProjectStatus(),
@@ -1208,6 +1605,7 @@ export function AppShell() {
       translators,
       workflowMap,
       workspaceForm,
+      getSelectedWorkspaceId,
     ],
   );
 
@@ -1217,25 +1615,25 @@ export function AppShell() {
       minEdgeStrength: number;
     }) => {
       await runAction(async () => {
-        const result = await api.buildContextNetwork(input);
+        const result = await api.buildContextNetwork(input, getSelectedWorkspaceId());
         await refreshProjectStatus();
         message.success(
           `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边，最小连接强度阈值 ${result.minEdgeStrength}`,
         );
       });
     },
-    [message, refreshProjectStatus, runAction],
+    [getSelectedWorkspaceId, message, refreshProjectStatus, runAction],
   );
 
   const handleClearChapterTranslations = useCallback(
     async (chapterIds: number[]) => {
       await runAction(async () => {
-        await api.clearChapterTranslations(chapterIds);
+        await api.clearChapterTranslations(chapterIds, getSelectedWorkspaceId());
         await Promise.all([refreshChapters(), refreshProjectStatus()]);
         message.success('章节译文已清空');
       });
     },
-    [message, refreshChapters, refreshProjectStatus, runAction],
+    [getSelectedWorkspaceId, message, refreshChapters, refreshProjectStatus, runAction],
   );
 
   const handleRemoveChapters = useCallback(
@@ -1247,7 +1645,7 @@ export function AppShell() {
         return;
       }
       await runAction(async () => {
-        await api.removeChapters(chapterIds, options);
+        await api.removeChapters(chapterIds, options, getSelectedWorkspaceId());
         await Promise.all([refreshChapters(), refreshTopology(), refreshProjectStatus()]);
         message.success(
           chapterIds.length === 1
@@ -1256,7 +1654,14 @@ export function AppShell() {
         );
       });
     },
-    [message, refreshChapters, refreshProjectStatus, refreshTopology, runAction],
+    [
+      getSelectedWorkspaceId,
+      message,
+      refreshChapters,
+      refreshProjectStatus,
+      refreshTopology,
+      runAction,
+    ],
   );
 
   const handleImportChapterArchive = useCallback(
@@ -1278,19 +1683,19 @@ export function AppShell() {
         formData.set('importTranslation', String(payload.importTranslation));
       }
 
-      const result = await api.importChapterArchive(formData);
+      const result = await api.importChapterArchive(formData, getSelectedWorkspaceId());
       if (result.addedCount > 0) {
         await Promise.all([refreshChapters(), refreshTopology(), refreshProjectStatus()]);
       }
       return result;
     },
-    [refreshChapters, refreshProjectStatus, refreshTopology],
+    [getSelectedWorkspaceId, refreshChapters, refreshProjectStatus, refreshTopology],
   );
 
   const handleCreateStoryBranch = useCallback(
     async (payload: CreateStoryBranchPayload) => {
       try {
-        await api.createStoryBranch(payload);
+        await api.createStoryBranch(payload, getSelectedWorkspaceId());
         await Promise.all([refreshChapters(), refreshTopology()]);
         message.success(`分支“${payload.name}”已创建`);
       } catch (error) {
@@ -1298,57 +1703,62 @@ export function AppShell() {
         throw error;
       }
     },
-    [message, refreshChapters, refreshTopology],
+    [getSelectedWorkspaceId, message, refreshChapters, refreshTopology],
   );
 
   const handleUpdateStoryRoute = useCallback(
     async (routeId: string, payload: UpdateStoryRoutePayload) => {
       await runAction(async () => {
-        await api.updateStoryRoute(routeId, payload);
+        await api.updateStoryRoute(routeId, payload, getSelectedWorkspaceId());
         await Promise.all([refreshChapters(), refreshTopology()]);
         message.success('路线已更新');
       });
     },
-    [message, refreshChapters, refreshTopology, runAction],
+    [getSelectedWorkspaceId, message, refreshChapters, refreshTopology, runAction],
   );
 
   const handleReorderStoryRouteChapters = useCallback(
     async (routeId: string, chapterIds: number[]) => {
       await runAction(async () => {
-        await api.reorderStoryRouteChapters(routeId, chapterIds);
+        await api.reorderStoryRouteChapters(routeId, chapterIds, getSelectedWorkspaceId());
         await Promise.all([refreshChapters(), refreshTopology()]);
         message.success('路线内章节顺序已更新');
       });
     },
-    [message, refreshChapters, refreshTopology, runAction],
+    [getSelectedWorkspaceId, message, refreshChapters, refreshTopology, runAction],
   );
 
   const handleRemoveStoryRoute = useCallback(
     async (routeId: string) => {
       await runAction(async () => {
-        await api.removeStoryRoute(routeId);
+        await api.removeStoryRoute(routeId, getSelectedWorkspaceId());
         await Promise.all([refreshChapters(), refreshTopology()]);
         message.success('路线已删除');
       });
     },
-    [message, refreshChapters, refreshTopology, runAction],
+    [getSelectedWorkspaceId, message, refreshChapters, refreshTopology, runAction],
   );
 
   const handleMoveChapterToRoute = useCallback(
     async (chapterId: number, targetRouteId: string, targetIndex: number) => {
       await runAction(async () => {
-        await api.moveChapterToRoute(chapterId, targetRouteId, targetIndex);
+        await api.moveChapterToRoute(
+          chapterId,
+          targetRouteId,
+          targetIndex,
+          getSelectedWorkspaceId(),
+        );
         await Promise.all([refreshChapters(), refreshTopology()]);
         message.success('章节已移动');
       });
     },
-    [message, refreshChapters, refreshTopology, runAction],
+    [getSelectedWorkspaceId, message, refreshChapters, refreshTopology, runAction],
   );
 
   const handleDownloadExport= useCallback(
     async (format: string) => {
       await runAction(async () => {
-        const blob = await api.downloadExport(format);
+        const blob = await api.downloadExport(format, getSelectedWorkspaceId());
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -1358,13 +1768,17 @@ export function AppShell() {
         message.success('导出已开始下载');
       });
     },
-    [message, runAction, snapshot?.projectName],
+    [getSelectedWorkspaceId, message, runAction, snapshot?.projectName],
   );
 
   const handleDownloadChapters = useCallback(
     async (chapterIds: number[], format: string) => {
       await runAction(async () => {
-        const blob = await api.downloadChaptersExport(chapterIds, format);
+        const blob = await api.downloadChaptersExport(
+          chapterIds,
+          format,
+          getSelectedWorkspaceId(),
+        );
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         if (chapterIds.length === 1) {
@@ -1382,13 +1796,13 @@ export function AppShell() {
         message.success('章节下载已开始');
       });
     },
-    [message, runAction, snapshot?.projectName, chapters],
+    [getSelectedWorkspaceId, message, runAction, snapshot?.projectName, chapters],
   );
 
   const handleResetProject = useCallback(
     async (payload: Record<string, unknown>, successText: string) => {
       await runAction(async () => {
-        await api.resetProject(payload);
+        await api.resetProject(payload, getSelectedWorkspaceId());
         await Promise.all([
           refreshDictionary(),
           refreshChapters(),
@@ -1407,32 +1821,34 @@ export function AppShell() {
       refreshTopology,
       refreshWorkspaceConfig,
       runAction,
+      getSelectedWorkspaceId,
     ],
   );
 
   const handleDismissTaskActivity = useCallback(
     async (task: TaskActivityKind) => {
       await runAction(async () => {
-        await api.clearTaskProgress(task);
+        await api.clearTaskProgress(task, getSelectedWorkspaceId());
       });
     },
-    [runAction],
+    [getSelectedWorkspaceId, runAction],
   );
 
   const handleAbortTaskActivity = useCallback(
     async (task: TaskActivityKind) => {
       await runAction(async () => {
+        const workspaceId = getSelectedWorkspaceId();
         if (task === 'scan') {
-          await api.abortScanDictionary();
+          await api.abortScanDictionary(workspaceId);
         } else if (task === 'proofread') {
-          await api.abortProofread();
+          await api.abortProofread(workspaceId);
         } else {
-          await api.abortPlotSummary();
+          await api.abortPlotSummary(workspaceId);
         }
         await refreshProjectStatus();
       });
     },
-    [refreshProjectStatus, runAction],
+    [getSelectedWorkspaceId, refreshProjectStatus, runAction],
   );
 
   const handleForceAbortTaskActivity = useCallback(
@@ -1441,11 +1857,11 @@ export function AppShell() {
         if (task !== 'proofread') {
           return;
         }
-        await api.forceAbortProofread();
+        await api.forceAbortProofread(getSelectedWorkspaceId());
         await refreshProjectStatus();
       });
     },
-    [refreshProjectStatus, runAction],
+    [getSelectedWorkspaceId, refreshProjectStatus, runAction],
   );
 
   const handleRemoveTaskActivity = useCallback(
@@ -1454,27 +1870,28 @@ export function AppShell() {
         if (task !== 'proofread') {
           return;
         }
-        await api.removeProofreadTask();
+        await api.removeProofreadTask(getSelectedWorkspaceId());
         await refreshProjectStatus();
       });
     },
-    [refreshProjectStatus, runAction],
+    [getSelectedWorkspaceId, refreshProjectStatus, runAction],
   );
 
   const handleResumeTaskActivity = useCallback(
     async (task: TaskActivityKind) => {
       await runAction(async () => {
+        const workspaceId = getSelectedWorkspaceId();
         if (task === 'scan') {
-          await api.resumeScanDictionary();
+          await api.resumeScanDictionary(workspaceId);
         } else if (task === 'proofread') {
-          await api.resumeProofread();
+          await api.resumeProofread(workspaceId);
         } else {
-          await api.resumePlotSummary();
+          await api.resumePlotSummary(workspaceId);
         }
         await refreshProjectStatus();
       });
     },
-    [refreshProjectStatus, runAction],
+    [getSelectedWorkspaceId, refreshProjectStatus, runAction],
   );
 
   const handleCreateLlmProfile = useCallback(() => {
@@ -1864,6 +2281,36 @@ export function AppShell() {
     [isMobile],
   );
 
+  const activeOpenedWorkspace = useMemo(
+    () =>
+      activeWorkspaceId
+        ? openedWorkspaces.find((workspace) => workspace.workspaceId === activeWorkspaceId) ?? null
+        : null,
+    [activeWorkspaceId, openedWorkspaces],
+  );
+
+  const workspaceTabItems = useMemo(
+    () =>
+      openedWorkspaces.map((workspace) => {
+        const status = openedWorkspaceStatuses[workspace.workspaceId] ?? toProjectStatus(workspace);
+        const lifecycleTag = toWorkspaceLifecycleTag(status);
+        return {
+          key: workspace.workspaceId,
+          closable: true,
+          label: (
+            <Space size={4}>
+              <span>{status.snapshot?.projectName ?? workspace.projectName}</span>
+              {lifecycleTag ? <Tag color={lifecycleTag.color}>{lifecycleTag.text}</Tag> : null}
+              {workspaceConnections[workspace.workspaceId] === false ? (
+                <Tag color="red">离线</Tag>
+              ) : null}
+            </Space>
+          ),
+        };
+      }),
+    [openedWorkspaceStatuses, openedWorkspaces, workspaceConnections],
+  );
+
   const currentNavigationKey = useMemo(
     () =>
       isMobile
@@ -1876,7 +2323,8 @@ export function AppShell() {
   const currentSectionTitle = useMemo(
     () => {
       if (isMobile) {
-        return snapshot?.projectName ? `移动工作台 · ${snapshot.projectName}` : '移动工作台';
+        const activeProjectName = snapshot?.projectName ?? activeOpenedWorkspace?.projectName;
+        return activeProjectName ? `移动工作台 · ${activeProjectName}` : '移动工作台';
       }
       if (location.pathname.startsWith('/workspace/editor')) {
         return '章节文本编辑器';
@@ -1885,11 +2333,31 @@ export function AppShell() {
         navigationItems.find((item) => item.key === currentNavigationKey)?.label ?? '当前工作区'
       );
     },
-    [currentNavigationKey, isMobile, location.pathname, navigationItems, snapshot?.projectName],
+    [
+      activeOpenedWorkspace?.projectName,
+      currentNavigationKey,
+      isMobile,
+      location.pathname,
+      navigationItems,
+      snapshot?.projectName,
+    ],
   );
 
   return (
     <>
+      {openedWorkspaces.map((workspace) => (
+        <WorkspaceEventBridge
+          key={workspace.workspaceId}
+          workspaceId={workspace.workspaceId}
+          onConnectedChange={handleWorkspaceConnectedChange}
+          onSnapshot={handleWorkspaceSnapshot}
+          onScanProgress={handleWorkspaceScanProgress}
+          onProofreadProgress={handleWorkspaceProofreadProgress}
+          onPlotProgress={handleWorkspacePlotProgress}
+          onChaptersChanged={handleWorkspaceChaptersChanged}
+        />
+      ))}
+
       <Layout className="app-shell">
         {!isMobile ? (
           <Sider width={208}>
@@ -1921,29 +2389,59 @@ export function AppShell() {
               style={{
                 width: '100%',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
+                flexDirection: 'column',
                 gap: 12,
-                flexWrap: 'wrap',
               }}
             >
-              <Space wrap size={[8, 8]}>
-                <Typography.Title level={5} style={{ margin: 0, color: '#fff' }}>
-                  {currentSectionTitle}
-                </Typography.Title>
-                <Tag color={connected ? 'green' : 'red'}>
-                  {connected ? 'SSE 已连接' : 'SSE 断开'}
-                </Tag>
-                {projectStatus?.isBusy && <Tag color="gold">正在执行操作</Tag>}
-              </Space>
-              {isMobile ? (
-                <Button
+              <div
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <Space wrap size={[8, 8]}>
+                  <Typography.Title level={5} style={{ margin: 0, color: '#fff' }}>
+                    {currentSectionTitle}
+                  </Typography.Title>
+                  {activeWorkspaceId ? (
+                    <Tag color={connected ? 'green' : 'red'}>
+                      {connected ? 'SSE 已连接' : 'SSE 断开'}
+                    </Tag>
+                  ) : null}
+                  {projectStatus?.isBusy && <Tag color="gold">正在执行操作</Tag>}
+                </Space>
+                {isMobile ? (
+                  <Button
+                    size="small"
+                    icon={<ProfileOutlined />}
+                    onClick={() => setActivityCenterOpen(true)}
+                  >
+                    日志
+                  </Button>
+                ) : null}
+              </div>
+
+              {workspaceTabItems.length > 0 ? (
+                <Tabs
                   size="small"
-                  icon={<ProfileOutlined />}
-                  onClick={() => setActivityCenterOpen(true)}
-                >
-                  日志
-                </Button>
+                  type="editable-card"
+                  hideAdd
+                  activeKey={activeWorkspaceId ?? undefined}
+                  items={workspaceTabItems}
+                  onChange={(key) => {
+                    void handleActivateOpenedWorkspace(key);
+                  }}
+                  onEdit={(targetKey, action) => {
+                    if (action === 'remove' && typeof targetKey === 'string') {
+                      void handleCloseOpenedWorkspace(targetKey);
+                    }
+                  }}
+                  tabBarStyle={{ width: '100%', marginBottom: 0 }}
+                />
               ) : null}
             </div>
           </Header>
@@ -1955,7 +2453,8 @@ export function AppShell() {
                   path="/workspace/current"
                   element={
                     <LazyWorkspaceView
-                      key={snapshot?.projectName ?? 'no-workspace'}
+                      key={activeWorkspaceId ?? 'no-workspace'}
+                      workspaceId={activeWorkspaceId}
                       snapshot={snapshot}
                       projectStatus={projectStatus}
                       pipelineStrategy={workspacePipelineStrategy ?? pipelineStrategy}
@@ -2051,6 +2550,8 @@ export function AppShell() {
                     ) : (
                       <LazyRecentWorkspacesView
                         workspaces={workspaces}
+                        activeWorkspaceDir={activeOpenedWorkspace?.projectDir ?? null}
+                        openedWorkspaceDirs={openedWorkspaces.map((workspace) => workspace.projectDir)}
                         onRefreshBootData={() => void refreshBootData()}
                         onOpenWorkspace={handleOpenWorkspace}
                         onDeleteWorkspace={handleDeleteWorkspace}

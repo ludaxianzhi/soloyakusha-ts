@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { Button, Card, Empty, Popconfirm, Space, Spin, Tag, Typography } from 'antd';
 import {
   DownloadOutlined,
@@ -10,6 +10,8 @@ import type { ManagedWorkspace } from '../app/types.ts';
 
 interface RecentWorkspacesViewProps {
   workspaces: ManagedWorkspace[];
+  activeWorkspaceDir?: string | null;
+  openedWorkspaceDirs?: string[];
   onRefreshBootData: () => void;
   onOpenWorkspace: (workspace: ManagedWorkspace) => void | Promise<void>;
   onDeleteWorkspace: (workspace: ManagedWorkspace) => void | Promise<void>;
@@ -22,6 +24,8 @@ interface RecentWorkspacesViewProps {
 
 export function RecentWorkspacesView({
   workspaces,
+  activeWorkspaceDir,
+  openedWorkspaceDirs = [],
   onRefreshBootData,
   onOpenWorkspace,
   onDeleteWorkspace,
@@ -32,6 +36,7 @@ export function RecentWorkspacesView({
   openingWorkspaceDir,
 }: RecentWorkspacesViewProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const openedWorkspaceDirSet = useMemo(() => new Set(openedWorkspaceDirs), [openedWorkspaceDirs]);
 
   const handleOpenImportDialog = useCallback(() => {
     inputRef.current?.click();
@@ -86,6 +91,11 @@ export function RecentWorkspacesView({
       ) : (
         <Space direction="vertical" style={{ width: '100%' }}>
           {workspaces.map((workspace) => (
+            (() => {
+              const isOpened = openedWorkspaceDirSet.has(workspace.dir);
+              const isActive = activeWorkspaceDir === workspace.dir;
+
+              return (
             <Spin
               key={workspace.dir}
               spinning={openingWorkspaceDir === workspace.dir}
@@ -98,6 +108,8 @@ export function RecentWorkspacesView({
                       <span>{workspace.name}</span>
                       {workspace.managed && <Tag color="green">托管</Tag>}
                       {workspace.deprecated && <Tag color="red">旧版</Tag>}
+                      {isActive ? <Tag color="blue">当前标签</Tag> : null}
+                      {!isActive && isOpened ? <Tag color="gold">已打开</Tag> : null}
                     </Space>
                     <div>{workspace.dir}</div>
                     {workspace.deprecated && workspace.deprecationMessage ? (
@@ -129,7 +141,7 @@ export function RecentWorkspacesView({
                       loading={openingWorkspaceDir === workspace.dir}
                       onClick={() => void onOpenWorkspace(workspace)}
                     >
-                      打开
+                      {isOpened ? '切换' : '打开'}
                     </Button>
                     <Popconfirm
                       title={workspace.deprecated ? "确认删除该旧版工作区？" : "确认删除该工作区？"}
@@ -143,6 +155,8 @@ export function RecentWorkspacesView({
                 </div>
               </div>
             </Spin>
+              );
+            })()
           ))}
         </Space>
       )}
