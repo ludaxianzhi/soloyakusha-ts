@@ -281,6 +281,33 @@ function toProjectStatus(workspace: OpenWorkspaceStatus): ProjectStatus {
   });
 }
 
+function shouldObserveWorkspace(
+  workspaceId: string,
+  activeWorkspaceId: string | null,
+  status: ProjectStatus | null,
+): boolean {
+  if (workspaceId === activeWorkspaceId) {
+    return true;
+  }
+
+  if (!status) {
+    return false;
+  }
+
+  if (status.isBusy) {
+    return true;
+  }
+
+  const lifecycleStatus = status.snapshot?.lifecycle.status;
+  if (lifecycleStatus === 'running' || lifecycleStatus === 'stopping') {
+    return true;
+  }
+
+  return [status.scanDictionaryProgress, status.plotSummaryProgress, status.proofreadProgress].some(
+    (progress) => progress?.status === 'running',
+  );
+}
+
 export function AppShell() {
   const { message, modal } = AntdApp.useApp();
   const location = useLocation();
@@ -1282,18 +1309,21 @@ export function AppShell() {
     async (workspaceId: string) => {
       await runAction(async () => {
         const isClosingActiveWorkspace = activeWorkspaceIdRef.current === workspaceId;
+        const remainingWorkspaceCount = openedWorkspaces.filter(
+          (workspace) => workspace.workspaceId !== workspaceId,
+        ).length;
         await api.closeWorkspace({ workspaceId });
         await refreshBootData();
         if (isClosingActiveWorkspace) {
           resetWorkspaceDataCaches();
         }
-        if (isClosingActiveWorkspace && openedWorkspaces.length <= 1) {
+        if (isClosingActiveWorkspace && remainingWorkspaceCount === 0) {
           navigate('/workspaces/recent');
         }
         message.success('工作区已关闭');
       });
     },
-    [message, navigate, openedWorkspaces.length, refreshBootData, resetWorkspaceDataCaches, runAction],
+    [message, navigate, openedWorkspaces, refreshBootData, resetWorkspaceDataCaches, runAction],
   );
 
   const handleOpenWorkspace = useCallback(
@@ -2290,6 +2320,24 @@ export function AppShell() {
     [activeWorkspaceId, openedWorkspaces],
   );
 
+  const observedWorkspaceIds = useMemo(
+    () =>
+      openedWorkspaces
+        .map((workspace) => {
+          const status = openedWorkspaceStatuses[workspace.workspaceId] ?? toProjectStatus(workspace);
+          return shouldObserveWorkspace(workspace.workspaceId, activeWorkspaceId, status)
+            ? workspace.workspaceId
+            : null;
+        })
+        .filter((workspaceId): workspaceId is string => workspaceId !== null),
+    [activeWorkspaceId, openedWorkspaceStatuses, openedWorkspaces],
+  );
+
+  const observedWorkspaceIdSet = useMemo(
+    () => new Set(observedWorkspaceIds),
+    [observedWorkspaceIds],
+  );
+
   const workspaceTabItems = useMemo(
     () =>
       openedWorkspaces.map((workspace) => {
@@ -2302,14 +2350,15 @@ export function AppShell() {
             <Space size={4}>
               <span>{status.snapshot?.projectName ?? workspace.projectName}</span>
               {lifecycleTag ? <Tag color={lifecycleTag.color}>{lifecycleTag.text}</Tag> : null}
-              {workspaceConnections[workspace.workspaceId] === false ? (
+              {observedWorkspaceIdSet.has(workspace.workspaceId) &&
+              workspaceConnections[workspace.workspaceId] === false ? (
                 <Tag color="red">离线</Tag>
               ) : null}
             </Space>
           ),
         };
       }),
-    [openedWorkspaceStatuses, openedWorkspaces, workspaceConnections],
+    [observedWorkspaceIdSet, openedWorkspaceStatuses, openedWorkspaces, workspaceConnections],
   );
 
   const currentNavigationKey = useMemo(
@@ -2347,10 +2396,10 @@ export function AppShell() {
   return (
     <ActiveWorkspaceIdContext.Provider value={activeWorkspaceId}>
       <>
-        {openedWorkspaces.map((workspace) => (
+        {observedWorkspaceIds.map((workspaceId) => (
           <WorkspaceEventBridge
-            key={workspace.workspaceId}
-            workspaceId={workspace.workspaceId}
+            key={workspaceId}
+            workspaceId={workspaceId}
             onConnectedChange={handleWorkspaceConnectedChange}
             onSnapshot={handleWorkspaceSnapshot}
             onScanProgress={handleWorkspaceScanProgress}

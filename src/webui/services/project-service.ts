@@ -441,6 +441,7 @@ function toWorkspaceRuntimeId(projectDir: string): string {
 
 export class ProjectService {
   private readonly runtimes = new Map<string, WorkspaceRuntime>();
+  private readonly runtimeByProject = new Map<TranslationProject, WorkspaceRuntime>();
   private readonly workspaceScope = new AsyncLocalStorage<string>();
   private activeWorkspaceId: string | null = null;
   private detachedProject: TranslationProject | null = null;
@@ -506,12 +507,7 @@ export class ProjectService {
   }
 
   private getRuntimeForProject(project: TranslationProject): WorkspaceRuntime | null {
-    for (const runtime of this.runtimes.values()) {
-      if (runtime.project === project) {
-        return runtime;
-      }
-    }
-    return null;
+    return this.runtimeByProject.get(project) ?? null;
   }
 
   private getStateForProject(project: TranslationProject): WorkspaceRuntimeState {
@@ -570,6 +566,25 @@ export class ProjectService {
     return this.isWorkspaceRuntimeState(state) ? state.workspaceId : null;
   }
 
+  private registerRuntime(runtime: WorkspaceRuntime): void {
+    this.runtimes.set(runtime.workspaceId, runtime);
+    this.runtimeByProject.set(runtime.project, runtime);
+  }
+
+  private updateRuntimeProject(runtime: WorkspaceRuntime, project: TranslationProject): void {
+    if (runtime.project === project) {
+      return;
+    }
+    this.runtimeByProject.delete(runtime.project);
+    runtime.project = project;
+    this.runtimeByProject.set(project, runtime);
+  }
+
+  private unregisterRuntime(runtime: WorkspaceRuntime): void {
+    this.runtimeByProject.delete(runtime.project);
+    this.runtimes.delete(runtime.workspaceId);
+  }
+
   private setActiveWorkspace(workspaceId: string | null): void {
     this.activeWorkspaceId = workspaceId;
   }
@@ -592,7 +607,7 @@ export class ProjectService {
       if (value === null) {
         throw new Error('请使用 closeInternal 关闭工作区，而不是直接清空 project');
       }
-      scopedRuntime.project = value;
+      this.updateRuntimeProject(scopedRuntime, value);
       return;
     }
 
@@ -605,7 +620,7 @@ export class ProjectService {
       throw new Error('请使用 closeInternal 关闭工作区，而不是直接清空 project');
     }
     this.detachedProject = null;
-    runtime.project = value;
+    this.updateRuntimeProject(runtime, value);
   }
 
   private get snapshot(): TranslationProjectProgressSnapshot | null {
@@ -1392,7 +1407,7 @@ export class ProjectService {
       runtime.snapshot = toProgressSnapshot(runtime.fullSnapshot);
       runtime.plotSummaryReady = nextPlotSummaryReady;
       runtime.resourceVersions = createProjectResourceVersions(1);
-      this.runtimes.set(workspaceId, runtime);
+      this.registerRuntime(runtime);
       this.setActiveWorkspace(workspaceId);
       await this.restoreProofreadTaskState(runtime);
       this.startPolling(runtime);
@@ -3212,7 +3227,7 @@ export class ProjectService {
           nextPipelineStrategy,
         );
         if (runtime) {
-          runtime.project = reopenedProject;
+          this.updateRuntimeProject(runtime, reopenedProject);
           runtime.topology = reopenedProject.getStoryTopology() ?? null;
           runtime.plotSummaryReady = reopenedProject.hasPlotSummaries();
         } else {
@@ -3455,7 +3470,7 @@ export class ProjectService {
     runtime.plotSummaryReady = false;
     runtime.isBusy = false;
     runtime.resourceVersions = createProjectResourceVersions(0);
-    this.runtimes.delete(workspaceId);
+    this.unregisterRuntime(runtime);
 
     if (this.activeWorkspaceId === workspaceId) {
       const nextRuntime = this.runtimes.values().next().value ?? null;
