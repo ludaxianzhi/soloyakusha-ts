@@ -463,6 +463,33 @@ export class ProjectService {
     return this.runtimes.get(workspaceId);
   }
 
+  private getRuntimeForProject(project: TranslationProject): WorkspaceRuntime | null {
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.project === project) {
+        return runtime;
+      }
+    }
+    return null;
+  }
+
+  private getStateForProject(project: TranslationProject): WorkspaceRuntimeState {
+    return this.getRuntimeForProject(project) ?? this.detachedState;
+  }
+
+  private isCurrentVisibleState(state: WorkspaceRuntimeState): boolean {
+    return state === this.currentState;
+  }
+
+  private isTrackedProjectCurrent(
+    project: TranslationProject,
+    runtime: WorkspaceRuntime | null,
+  ): boolean {
+    if (runtime) {
+      return runtime.project === project;
+    }
+    return this.detachedProject === null || this.detachedProject === project;
+  }
+
   private setActiveWorkspace(workspaceId: string | null): void {
     this.activeWorkspaceId = workspaceId;
   }
@@ -1230,112 +1257,126 @@ export class ProjectService {
   }
 
   async startTranslation(): Promise<void> {
+    const runtime = this.activeRuntime;
+    const project = runtime?.project ?? this.project;
     await this.runAction('启动翻译流程', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
+      if (!project) throw new Error('当前没有已初始化的项目');
 
-      if (!this.project.hasPlotSummaries()) {
+      if (!project.hasPlotSummaries()) {
         this.log(
           'warning',
           '尚未生成情节大纲，可能影响翻译效果',
         );
       }
 
-      const lifecycle = await this.project.startTranslation();
-      this.refreshSnapshot();
+      const lifecycle = await project.startTranslation();
+      this.refreshSnapshot(runtime ?? undefined);
       this.log(
         'success',
         `翻译流程已启动，当前状态：${lifecycle.status}`,
       );
       if (lifecycle.status === 'running') {
-        this.startTranslationLoop(this.project);
+        this.startTranslationLoop(project, runtime);
       }
-    });
+    }, runtime ?? this.currentState);
   }
 
   async pauseTranslation(): Promise<void> {
+    const runtime = this.activeRuntime;
+    const project = runtime?.project ?? this.project;
     await this.runAction('暂停翻译流程', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      const lifecycle = await this.project.stopTranslation();
-      this.refreshSnapshot();
+      if (!project) throw new Error('当前没有已初始化的项目');
+      const lifecycle = await project.stopTranslation();
+      this.refreshSnapshot(runtime ?? undefined);
       this.log('success', `已提交暂停请求，当前状态：${lifecycle.status}`);
-    });
+    }, runtime ?? this.currentState);
   }
 
   async resumeTranslation(): Promise<void> {
+    const runtime = this.activeRuntime;
+    const project = runtime?.project ?? this.project;
     await this.runAction('恢复翻译流程', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
+      if (!project) throw new Error('当前没有已初始化的项目');
 
-      if (!this.project.hasPlotSummaries()) {
+      if (!project.hasPlotSummaries()) {
         this.log('warning', '尚未生成情节大纲，可能影响翻译效果');
       }
 
-      const lifecycle = await this.project.startTranslation();
-      this.refreshSnapshot();
+      const lifecycle = await project.startTranslation();
+      this.refreshSnapshot(runtime ?? undefined);
       this.log('success', `翻译流程已恢复，当前状态：${lifecycle.status}`);
       if (lifecycle.status === 'running') {
-        this.startTranslationLoop(this.project);
+        this.startTranslationLoop(project, runtime);
       }
-    });
+    }, runtime ?? this.currentState);
   }
 
   async abortTranslation(): Promise<void> {
+    const runtime = this.activeRuntime;
+    const state = runtime ?? this.currentState;
+    const project = runtime?.project ?? this.project;
     await this.runAction('中止翻译流程', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      this.processingToken += 1;
-      const lifecycle = await this.project.abortTranslation(
+      if (!project) throw new Error('当前没有已初始化的项目');
+      state.processingToken += 1;
+      const lifecycle = await project.abortTranslation(
         'webui_abort_requested',
       );
-      this.refreshSnapshot();
+      this.refreshSnapshot(runtime ?? undefined);
       this.log('warning', `翻译流程已中止，当前状态：${lifecycle.status}`);
-    });
+    }, state);
   }
 
   async startProofread(input: {
     chapterIds: number[];
     mode?: ProofreadTaskMode;
   }): Promise<void> {
-    if (this.isBusy) {
+    const runtime = this.activeRuntime;
+    const state = runtime ?? this.currentState;
+    const project = runtime?.project ?? this.project;
+    if (state.isBusy) {
       this.log('warning', '正在执行其他操作，请稍候');
       return;
     }
-    if (!this.project) {
+    if (!project) {
       this.log('warning', '当前没有已初始化的项目');
       return;
     }
-    if (this.proofreadTaskState?.status === 'running') {
+    if (state.proofreadTaskState?.status === 'running') {
       throw new ProjectServiceUserInputError('校对任务正在运行');
     }
 
-    const project = this.project;
     const task = this.createProofreadTaskState(project, input.chapterIds, input.mode ?? 'linear');
     task.status = 'running';
     task.abortRequested = false;
     task.errorMessage = undefined;
     task.updatedAt = new Date().toISOString();
     this.clearTaskProgressUi('proofread');
-    this.proofreadTaskState = task;
+    state.proofreadTaskState = task;
     await project.saveProofreadTaskState(task);
 
     this.log(
       'info',
       `校对任务开始，共 ${task.totalChapters} 个章节，${task.totalBatches} 个片段，模式：${task.mode === 'linear' ? '线性校对' : '同时校对'}`,
     );
-    this.isBusy = true;
-    this.syncProofreadProgress(task);
-    this.broadcastProofreadProgress();
-    void this.runProofreadTask(project, task);
+    state.isBusy = true;
+    this.syncProofreadProgress(task, state);
+    this.broadcastProofreadProgress(state);
+    void this.runProofreadTask(project, task, runtime);
   }
 
   async resumeProofread(): Promise<void> {
-    if (this.isBusy) {
+    const runtime = this.activeRuntime;
+    const state = runtime ?? this.currentState;
+    const project = runtime?.project ?? this.project;
+    if (state.isBusy) {
       this.log('warning', '正在执行其他操作，请稍候');
       return;
     }
-    if (!this.project) {
+    if (!project) {
       throw new ProjectServiceUserInputError('当前没有已初始化的项目');
     }
 
-    const task = this.proofreadTaskState ?? this.project.getProofreadTaskState();
+    const task = state.proofreadTaskState ?? project.getProofreadTaskState();
     if (!task || task.status === 'done') {
       throw new ProjectServiceUserInputError('当前没有可恢复的校对任务');
     }
@@ -1347,68 +1388,76 @@ export class ProjectService {
     task.abortRequested = false;
     task.errorMessage = undefined;
     task.updatedAt = new Date().toISOString();
-    this.proofreadTaskState = task;
-    await this.project.saveProofreadTaskState(task);
+    state.proofreadTaskState = task;
+    await project.saveProofreadTaskState(task);
 
     this.log(
       'info',
       `继续校对任务，已完成 ${task.completedBatches}/${task.totalBatches} 个片段`,
     );
-    this.isBusy = true;
-    this.syncProofreadProgress(task);
-    this.broadcastProofreadProgress();
-    void this.runProofreadTask(this.project, task);
+    state.isBusy = true;
+    this.syncProofreadProgress(task, state);
+    this.broadcastProofreadProgress(state);
+    void this.runProofreadTask(project, task, runtime);
   }
 
   async abortProofread(): Promise<void> {
-    if (this.proofreadTaskState?.status !== 'running') {
+    const runtime = this.activeRuntime;
+    const state = runtime ?? this.currentState;
+    if (state.proofreadTaskState?.status !== 'running') {
       throw new ProjectServiceUserInputError('当前没有正在运行的校对任务');
     }
 
-    this.proofreadTaskState.abortRequested = true;
-    this.proofreadTaskState.updatedAt = new Date().toISOString();
-    await this.project?.saveProofreadTaskState(this.proofreadTaskState);
+    state.proofreadTaskState.abortRequested = true;
+    state.proofreadTaskState.updatedAt = new Date().toISOString();
+    await (runtime?.project ?? this.project)?.saveProofreadTaskState(state.proofreadTaskState);
     this.log('warning', '已提交校对任务中止请求');
   }
 
   async forceAbortProofread(): Promise<void> {
-    if (!this.project || this.proofreadTaskState?.status !== 'running') {
+    const runtime = this.activeRuntime;
+    const state = runtime ?? this.currentState;
+    const project = runtime?.project ?? this.project;
+    if (!project || state.proofreadTaskState?.status !== 'running') {
       throw new ProjectServiceUserInputError('当前没有正在运行的校对任务');
     }
 
-    this.processingToken += 1;
-    this.isBusy = false;
-    this.proofreadTaskState.status = 'paused';
-    this.proofreadTaskState.abortRequested = false;
-    this.proofreadTaskState.currentChapterId = undefined;
-    this.proofreadTaskState.errorMessage = undefined;
-    this.proofreadTaskState.updatedAt = new Date().toISOString();
-    await this.project.saveProofreadTaskState(this.proofreadTaskState);
-    this.syncProofreadProgress(this.proofreadTaskState);
-    this.broadcastProofreadProgress();
+    state.processingToken += 1;
+    state.isBusy = false;
+    state.proofreadTaskState.status = 'paused';
+    state.proofreadTaskState.abortRequested = false;
+    state.proofreadTaskState.currentChapterId = undefined;
+    state.proofreadTaskState.errorMessage = undefined;
+    state.proofreadTaskState.updatedAt = new Date().toISOString();
+    await project.saveProofreadTaskState(state.proofreadTaskState);
+    this.syncProofreadProgress(state.proofreadTaskState, state);
+    this.broadcastProofreadProgress(state);
     this.log('warning', '已强行中止校对任务，当前正在处理的片段结果将被丢弃');
   }
 
   async removeProofreadTask(): Promise<void> {
-    if (!this.project) {
+    const runtime = this.activeRuntime;
+    const state = runtime ?? this.currentState;
+    const project = runtime?.project ?? this.project;
+    if (!project) {
       throw new ProjectServiceUserInputError('当前没有已初始化的项目');
     }
 
-    const task = this.proofreadTaskState ?? this.project.getProofreadTaskState();
+    const task = state.proofreadTaskState ?? project.getProofreadTaskState();
     if (!task) {
       throw new ProjectServiceUserInputError('当前没有可移除的校对任务');
     }
 
     if (task.status === 'running') {
-      this.processingToken += 1;
-      this.isBusy = false;
+      state.processingToken += 1;
+      state.isBusy = false;
       this.log('warning', '已移除正在运行的校对任务，当前正在处理的片段结果将被丢弃');
     } else {
       this.log('info', '已移除校对任务');
     }
 
-    this.proofreadTaskState = null;
-    await this.project.saveProofreadTaskState(undefined);
+    state.proofreadTaskState = null;
+    await project.saveProofreadTaskState(undefined);
     this.clearTaskProgressUi('proofread');
   }
 
@@ -1470,17 +1519,19 @@ export class ProjectService {
   private async runProofreadTask(
     project: TranslationProject,
     task: ProofreadTaskState,
+    runtime: WorkspaceRuntime | null = this.getRuntimeForProject(project),
   ): Promise<void> {
-    const taskToken = this.processingToken;
-    let runtime: ProofreadExecutionRuntime | undefined;
+    const state = runtime ?? this.getStateForProject(project);
+    const taskToken = state.processingToken;
+    let proofreadExecutionRuntime: ProofreadExecutionRuntime | undefined;
 
     try {
-      runtime = await (this.options.createProofreadRuntime ?? createProofreadProcessorForProject)(
+      proofreadExecutionRuntime = await (this.options.createProofreadRuntime ?? createProofreadProcessorForProject)(
         project,
         (level, msg) => this.log(level, msg),
         this.requestHistoryService,
       );
-      const proofreadRuntime = runtime;
+      const proofreadRuntime = proofreadExecutionRuntime;
 
       const maxConcurrentWorkItems =
         task.mode === 'simultaneous'
@@ -1493,8 +1544,8 @@ export class ProjectService {
       let persistChain = Promise.resolve();
 
       this.syncDerivedProofreadTaskState(task);
-      this.syncProofreadProgress(task);
-      this.broadcastProofreadProgress();
+      this.syncProofreadProgress(task, state);
+      this.broadcastProofreadProgress(state);
 
       if (task.mode === 'simultaneous') {
         this.log(
@@ -1508,14 +1559,14 @@ export class ProjectService {
           task.updatedAt = new Date().toISOString();
           this.syncDerivedProofreadTaskState(task, activeChapterCounts.keys());
           await project.saveProofreadTaskState(task);
-          if (this.proofreadTaskState !== task) {
+          if (state.proofreadTaskState !== task) {
             return;
           }
-          this.syncProofreadProgress(task);
-          this.broadcastProofreadProgress();
+          this.syncProofreadProgress(task, state);
+          this.broadcastProofreadProgress(state);
           if (refreshChapters) {
-            this.refreshSnapshot();
-            this.markChaptersChanged();
+            this.refreshSnapshot(runtime ?? undefined);
+            this.markChaptersChanged(state);
           }
         });
         await persistChain;
@@ -1524,8 +1575,8 @@ export class ProjectService {
       const beginActiveChapter = (chapterId: number) => {
         activeChapterCounts.set(chapterId, (activeChapterCounts.get(chapterId) ?? 0) + 1);
         this.syncDerivedProofreadTaskState(task, activeChapterCounts.keys());
-        this.syncProofreadProgress(task);
-        this.broadcastProofreadProgress();
+        this.syncProofreadProgress(task, state);
+        this.broadcastProofreadProgress(state);
       };
 
       const endActiveChapter = (chapterId: number) => {
@@ -1536,8 +1587,8 @@ export class ProjectService {
           activeChapterCounts.delete(chapterId);
         }
         this.syncDerivedProofreadTaskState(task, activeChapterCounts.keys());
-        this.syncProofreadProgress(task);
-        this.broadcastProofreadProgress();
+        this.syncProofreadProgress(task, state);
+        this.broadcastProofreadProgress(state);
       };
 
       const takeNextWorkItem = () => {
@@ -1550,7 +1601,7 @@ export class ProjectService {
       };
 
       const worker = async () => {
-        while (taskToken === this.processingToken && !task.abortRequested && !workerFailure) {
+        while (taskToken === state.processingToken && !task.abortRequested && !workerFailure) {
           const workItem = takeNextWorkItem();
           if (!workItem) {
             return;
@@ -1587,7 +1638,7 @@ export class ProjectService {
             });
 
             if (
-              taskToken !== this.processingToken ||
+              taskToken !== state.processingToken ||
               task.abortRequested ||
               workerFailure !== undefined
             ) {
@@ -1618,7 +1669,7 @@ export class ProjectService {
         throw workerFailure;
       }
 
-      if (taskToken !== this.processingToken) {
+      if (taskToken !== state.processingToken) {
         return;
       }
 
@@ -1627,8 +1678,8 @@ export class ProjectService {
         task.errorMessage = undefined;
         task.updatedAt = new Date().toISOString();
         await project.saveProofreadTaskState(task);
-        this.syncProofreadProgress(task);
-        this.broadcastProofreadProgress();
+        this.syncProofreadProgress(task, state);
+        this.broadcastProofreadProgress(state);
         this.log(
           'warning',
           `校对任务已中止，已完成 ${task.completedBatches}/${task.totalBatches} 个片段`,
@@ -1647,17 +1698,17 @@ export class ProjectService {
       task.errorMessage = undefined;
       task.updatedAt = new Date().toISOString();
       await project.saveProofreadTaskState(task);
-      this.refreshSnapshot();
-      this.markChaptersChanged();
-      this.markRepeatedPatternsChanged();
-      this.syncProofreadProgress(task);
-      this.broadcastProofreadProgress();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markRepeatedPatternsChanged(state);
+      this.syncProofreadProgress(task, state);
+      this.broadcastProofreadProgress(state);
       this.log(
         'success',
         `校对任务完成（${task.totalChapters} 章节，${task.totalBatches} 个片段）`,
       );
     } catch (error) {
-      if (taskToken !== this.processingToken) {
+      if (taskToken !== state.processingToken) {
         return;
       }
 
@@ -1665,13 +1716,13 @@ export class ProjectService {
       task.errorMessage = toMsg(error);
       task.updatedAt = new Date().toISOString();
       await project.saveProofreadTaskState(task);
-      this.syncProofreadProgress(task);
-      this.broadcastProofreadProgress();
+      this.syncProofreadProgress(task, state);
+      this.broadcastProofreadProgress(state);
       this.log('error', `校对任务失败：${task.errorMessage}`);
     } finally {
-      await runtime?.close().catch(() => undefined);
-      if (taskToken === this.processingToken) {
-        this.isBusy = false;
+      await proofreadExecutionRuntime?.close().catch(() => undefined);
+      if (taskToken === state.processingToken) {
+        state.isBusy = false;
       }
     }
   }
@@ -1761,47 +1812,49 @@ export class ProjectService {
   // ─── Dictionary / Glossary ──────────────────────────
 
   async scanDictionary(): Promise<void> {
-    if (this.isBusy) {
+    const runtime = this.activeRuntime;
+    const state = runtime ?? this.currentState;
+    const project = runtime?.project ?? this.project;
+    if (state.isBusy) {
       this.log('warning', '正在执行其他操作，请稍候');
       return;
     }
-    if (!this.project) {
+    if (!project) {
       this.log('warning', '当前没有已初始化的项目');
       return;
     }
-    if (this.scanTaskState?.status === 'running') {
+    if (state.scanTaskState?.status === 'running') {
       throw new ProjectServiceUserInputError('术语扫描任务正在运行');
     }
 
-    const project = this.project;
     const { scanner, extractorConfig } = await this.createGlossaryScanner(project);
-    const isFreshRun = !this.scanTaskState || this.scanTaskState.status === 'done';
+    const isFreshRun = !state.scanTaskState || state.scanTaskState.status === 'done';
 
     if (isFreshRun) {
       this.clearTaskProgressUi('scan');
-      this.scanTaskState = this.createGlossaryScanTask(project, scanner, extractorConfig);
-      this.scanTaskState.status = 'running';
+      state.scanTaskState = this.createGlossaryScanTask(project, scanner, extractorConfig);
+      state.scanTaskState.status = 'running';
     } else {
-      this.scanTaskState!.requestOptions = extractorConfig.requestOptions;
-      this.scanTaskState!.maxCharsPerBatch = extractorConfig.maxCharsPerBatch;
-      this.scanTaskState!.occurrenceTopK = extractorConfig.occurrenceTopK;
-      this.scanTaskState!.occurrenceTopP = extractorConfig.occurrenceTopP;
-      this.scanTaskState!.abortRequested = false;
-      this.scanTaskState!.errorMessage = undefined;
-      this.scanTaskState!.status = 'running';
+      state.scanTaskState!.requestOptions = extractorConfig.requestOptions;
+      state.scanTaskState!.maxCharsPerBatch = extractorConfig.maxCharsPerBatch;
+      state.scanTaskState!.occurrenceTopK = extractorConfig.occurrenceTopK;
+      state.scanTaskState!.occurrenceTopP = extractorConfig.occurrenceTopP;
+      state.scanTaskState!.abortRequested = false;
+      state.scanTaskState!.errorMessage = undefined;
+      state.scanTaskState!.status = 'running';
     }
 
-    const task = this.scanTaskState!;
+    const task = state.scanTaskState!;
     this.log(
       'info',
       isFreshRun
         ? `术语扫描开始，共 ${task.totalLines} 行，分 ${task.totalBatches} 个批次`
         : `继续术语扫描，已完成 ${task.completedBatches}/${task.totalBatches} 个批次`,
     );
-    this.isBusy = true;
-    this.syncScanDictionaryProgress(task);
-    this.broadcastScanProgress();
-    void this.runGlossaryScanTask(project, scanner, task);
+    state.isBusy = true;
+    this.syncScanDictionaryProgress(task, state);
+    this.broadcastScanProgress(state);
+    void this.runGlossaryScanTask(project, scanner, task, runtime);
   }
 
   async resumeGlossaryScan(): Promise<void> {
@@ -1809,11 +1862,12 @@ export class ProjectService {
   }
 
   async abortGlossaryScan(): Promise<void> {
-    if (this.scanTaskState?.status !== 'running') {
+    const state = this.activeRuntime ?? this.currentState;
+    if (state.scanTaskState?.status !== 'running') {
       throw new ProjectServiceUserInputError('当前没有正在运行的术语扫描任务');
     }
 
-    this.scanTaskState.abortRequested = true;
+    state.scanTaskState.abortRequested = true;
     this.log('warning', '已提交术语扫描中止请求');
   }
 
@@ -1889,12 +1943,14 @@ export class ProjectService {
     project: TranslationProject,
     scanner: FullTextGlossaryScanner,
     task: ScanDictionaryTaskState,
+    runtime: WorkspaceRuntime | null = this.getRuntimeForProject(project),
   ): Promise<void> {
-    const taskToken = this.processingToken;
+    const state = runtime ?? this.getStateForProject(project);
+    const taskToken = state.processingToken;
 
     try {
       while (task.nextBatchIndex < task.batches.length) {
-        if (taskToken !== this.processingToken) {
+        if (taskToken !== state.processingToken) {
           return;
         }
         if (task.abortRequested) {
@@ -1906,7 +1962,7 @@ export class ProjectService {
           requestOptions: task.requestOptions,
         });
 
-        if (taskToken !== this.processingToken) {
+        if (taskToken !== state.processingToken) {
           return;
         }
 
@@ -1917,23 +1973,23 @@ export class ProjectService {
 
         task.completedBatches = batch.batchIndex + 1;
         task.nextBatchIndex = batch.batchIndex + 1;
-        this.syncScanDictionaryProgress(task);
-        this.broadcastScanProgress();
+        this.syncScanDictionaryProgress(task, state);
+        this.broadcastScanProgress(state);
         this.log(
           'info',
           `术语扫描批次 ${task.completedBatches}/${task.totalBatches} 完成`,
         );
       }
 
-      if (taskToken !== this.processingToken) {
+      if (taskToken !== state.processingToken) {
         return;
       }
 
       if (task.abortRequested) {
         task.status = 'paused';
         task.errorMessage = undefined;
-        this.syncScanDictionaryProgress(task);
-        this.broadcastScanProgress();
+        this.syncScanDictionaryProgress(task, state);
+        this.broadcastScanProgress(state);
         this.log(
           'warning',
           `术语扫描已中止，已完成 ${task.completedBatches}/${task.totalBatches} 个批次`,
@@ -1970,38 +2026,41 @@ export class ProjectService {
         await project.bumpGlossaryDependencyRevision();
       }
       await project.saveProgress();
-      this.refreshSnapshot();
-      this.markDictionaryChanged();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markDictionaryChanged(state);
 
       task.status = 'done';
       task.errorMessage = undefined;
       task.completedBatches = task.totalBatches;
       task.nextBatchIndex = task.totalBatches;
-      this.syncScanDictionaryProgress(task);
-      this.broadcastScanProgress();
+      this.syncScanDictionaryProgress(task, state);
+      this.broadcastScanProgress(state);
       this.log(
         'success',
         `术语提取完成，共 ${task.glossary.getAllTerms().length} 个条目`,
       );
     } catch (error) {
-      if (taskToken !== this.processingToken) {
+      if (taskToken !== state.processingToken) {
         return;
       }
 
       task.status = 'error';
       task.errorMessage = toMsg(error);
-      this.syncScanDictionaryProgress(task);
-      this.broadcastScanProgress();
+      this.syncScanDictionaryProgress(task, state);
+      this.broadcastScanProgress(state);
       this.log('error', `扫描字典失败：${task.errorMessage}`);
     } finally {
-      if (taskToken === this.processingToken) {
-        this.isBusy = false;
+      if (taskToken === state.processingToken) {
+        state.isBusy = false;
       }
     }
   }
 
-  private syncScanDictionaryProgress(task: ScanDictionaryTaskState): void {
-    this.scanDictionaryProgress = {
+  private syncScanDictionaryProgress(
+    task: ScanDictionaryTaskState,
+    state: WorkspaceRuntimeState = this.currentState,
+  ): void {
+    state.scanDictionaryProgress = {
       status: task.status,
       totalBatches: task.totalBatches,
       completedBatches: task.completedBatches,
@@ -2277,52 +2336,54 @@ export class ProjectService {
   // ─── Plot Summary ───────────────────────────────────
 
   async startPlotSummary(): Promise<void> {
-    if (this.isBusy) {
+    const runtime = this.activeRuntime;
+    const state = runtime ?? this.currentState;
+    const project = runtime?.project ?? this.project;
+    if (state.isBusy) {
       this.log('warning', '正在执行其他操作，请稍候');
       return;
     }
-    if (!this.project) {
+    if (!project) {
       this.log('warning', '当前没有已初始化的项目');
       return;
     }
-    if (this.plotTaskState?.status === 'running') {
+    if (state.plotTaskState?.status === 'running') {
       throw new ProjectServiceUserInputError('情节总结任务正在运行');
     }
 
-    const project = this.project;
     const { summarizer, plotConfig, chapters, totalBatches } =
       await this.createPlotSummaryRuntime(project);
-    const isFreshRun = !this.plotTaskState || this.plotTaskState.status === 'done';
+    const isFreshRun = !state.plotTaskState || state.plotTaskState.status === 'done';
 
     if (isFreshRun) {
       this.clearTaskProgressUi('plot');
-      this.plotTaskState = this.createPlotSummaryTaskState({
+      state.plotTaskState = this.createPlotSummaryTaskState({
         project,
         plotConfig,
         chapters,
         totalBatches,
       });
-      this.plotTaskState.status = 'running';
+      state.plotTaskState.status = 'running';
     } else {
-      this.plotTaskState!.requestOptions = plotConfig.requestOptions;
-      this.plotTaskState!.fragmentsPerBatch = plotConfig.fragmentsPerBatch ?? 5;
-      this.plotTaskState!.maxContextSummaries = plotConfig.maxContextSummaries ?? 20;
-      this.plotTaskState!.abortRequested = false;
-      this.plotTaskState!.errorMessage = undefined;
-      this.plotTaskState!.status = 'running';
+      state.plotTaskState!.requestOptions = plotConfig.requestOptions;
+      state.plotTaskState!.fragmentsPerBatch = plotConfig.fragmentsPerBatch ?? 5;
+      state.plotTaskState!.maxContextSummaries = plotConfig.maxContextSummaries ?? 20;
+      state.plotTaskState!.abortRequested = false;
+      state.plotTaskState!.errorMessage = undefined;
+      state.plotTaskState!.status = 'running';
     }
 
-    const task = this.plotTaskState!;
+    const task = state.plotTaskState!;
     this.log(
       'info',
       isFreshRun
         ? `情节总结开始，共 ${task.totalChapters} 个章节，${task.totalBatches} 个批次`
         : `继续情节总结，已完成 ${task.completedBatches}/${task.totalBatches} 个批次`,
     );
-    this.isBusy = true;
-    this.syncPlotSummaryProgress(task);
-    this.broadcastPlotProgress();
-    void this.runPlotSummaryTask(project, summarizer, task);
+    state.isBusy = true;
+    this.syncPlotSummaryProgress(task, undefined, state);
+    this.broadcastPlotProgress(state);
+    void this.runPlotSummaryTask(project, summarizer, task, runtime);
   }
 
   async resumePlotSummary(): Promise<void> {
@@ -2330,11 +2391,12 @@ export class ProjectService {
   }
 
   async abortPlotSummary(): Promise<void> {
-    if (this.plotTaskState?.status !== 'running') {
+    const state = this.activeRuntime ?? this.currentState;
+    if (state.plotTaskState?.status !== 'running') {
       throw new ProjectServiceUserInputError('当前没有正在运行的情节总结任务');
     }
 
-    this.plotTaskState.abortRequested = true;
+    state.plotTaskState.abortRequested = true;
     this.log('warning', '已提交情节总结中止请求');
   }
 
@@ -2437,12 +2499,14 @@ export class ProjectService {
     project: TranslationProject,
     summarizer: PlotSummarizer,
     task: PlotSummaryTaskState,
+    runtime: WorkspaceRuntime | null = this.getRuntimeForProject(project),
   ): Promise<void> {
-    const taskToken = this.processingToken;
+    const state = runtime ?? this.getStateForProject(project);
+    const taskToken = state.processingToken;
 
     try {
       for (let chapterIndex = task.nextChapterIndex; chapterIndex < task.chapters.length; chapterIndex += 1) {
-        if (taskToken !== this.processingToken) {
+        if (taskToken !== state.processingToken) {
           return;
         }
         if (task.abortRequested) {
@@ -2463,12 +2527,12 @@ export class ProjectService {
           chapterIndex === task.nextChapterIndex ? task.nextFragmentIndex : 0;
         task.nextChapterIndex = chapterIndex;
         task.nextFragmentIndex = startFragmentIndex;
-        this.syncPlotSummaryProgress(task, chapter.id);
-        this.broadcastPlotProgress();
+        this.syncPlotSummaryProgress(task, chapter.id, state);
+        this.broadcastPlotProgress(state);
 
         let fragmentIndex = startFragmentIndex;
         while (fragmentIndex < chapter.fragments.length) {
-          if (taskToken !== this.processingToken) {
+          if (taskToken !== state.processingToken) {
             return;
           }
           if (task.abortRequested) {
@@ -2483,8 +2547,8 @@ export class ProjectService {
           task.completedBatches += 1;
           task.nextChapterIndex = chapterIndex;
           task.nextFragmentIndex = fragmentIndex;
-          this.syncPlotSummaryProgress(task, chapter.id);
-          this.broadcastPlotProgress();
+          this.syncPlotSummaryProgress(task, chapter.id, state);
+          this.broadcastPlotProgress(state);
         }
 
         if (task.abortRequested) {
@@ -2495,20 +2559,20 @@ export class ProjectService {
         task.completedBatches = Math.min(task.completedBatches, task.totalBatches);
         task.nextChapterIndex = chapterIndex + 1;
         task.nextFragmentIndex = 0;
-        this.syncPlotSummaryProgress(task, chapter.id);
-        this.broadcastPlotProgress();
+        this.syncPlotSummaryProgress(task, chapter.id, state);
+        this.broadcastPlotProgress(state);
         this.log('success', `章节 ${chapter.id} 总结完成`);
       }
 
-      if (taskToken !== this.processingToken) {
+      if (taskToken !== state.processingToken) {
         return;
       }
 
       if (task.abortRequested) {
         task.status = 'paused';
         task.errorMessage = undefined;
-        this.syncPlotSummaryProgress(task);
-        this.broadcastPlotProgress();
+        this.syncPlotSummaryProgress(task, undefined, state);
+        this.broadcastPlotProgress(state);
         this.log(
           'warning',
           `情节总结已中止，已完成 ${task.completedBatches}/${task.totalBatches} 个批次`,
@@ -2522,36 +2586,40 @@ export class ProjectService {
       task.completedBatches = task.totalBatches;
       task.nextChapterIndex = task.totalChapters;
       task.nextFragmentIndex = 0;
-      this.syncPlotSummaryProgress(task);
-      this.broadcastPlotProgress();
+      this.syncPlotSummaryProgress(task, undefined, state);
+      this.broadcastPlotProgress(state);
       await project.reloadNarrativeArtifacts();
-      this.topology = project.getStoryTopology() ?? null;
-      this.plotSummaryReady = project.hasPlotSummaries();
+      state.topology = project.getStoryTopology() ?? null;
+      state.plotSummaryReady = project.hasPlotSummaries();
       this.log(
         'success',
         `情节大纲完成（${task.totalChapters} 章节，${task.completedBatches} 批）`,
       );
     } catch (error) {
-      if (taskToken !== this.processingToken) {
+      if (taskToken !== state.processingToken) {
         return;
       }
 
       task.status = 'error';
       task.errorMessage = toMsg(error);
-      this.syncPlotSummaryProgress(task);
-      this.broadcastPlotProgress();
+      this.syncPlotSummaryProgress(task, undefined, state);
+      this.broadcastPlotProgress(state);
       this.log('error', `情节总结失败：${task.errorMessage}`);
     } finally {
-      if (taskToken === this.processingToken) {
-        this.isBusy = false;
+      if (taskToken === state.processingToken) {
+        state.isBusy = false;
       }
     }
   }
 
-  private syncPlotSummaryProgress(task: PlotSummaryTaskState, currentChapterId?: number): void {
+  private syncPlotSummaryProgress(
+    task: PlotSummaryTaskState,
+    currentChapterId?: number,
+    state: WorkspaceRuntimeState = this.currentState,
+  ): void {
     const resolvedCurrentChapterId =
       currentChapterId ?? task.chapters[task.nextChapterIndex]?.chapterId;
-    this.plotSummaryProgress = {
+    state.plotSummaryProgress = {
       status: task.status,
       totalChapters: task.totalChapters,
       completedChapters: task.completedChapters,
@@ -2562,8 +2630,11 @@ export class ProjectService {
     };
   }
 
-  private syncProofreadProgress(task: ProofreadTaskState): void {
-    this.proofreadProgress = {
+  private syncProofreadProgress(
+    task: ProofreadTaskState,
+    state: WorkspaceRuntimeState = this.currentState,
+  ): void {
+    state.proofreadProgress = {
       status: task.status,
       mode: task.mode,
       totalChapters: task.totalChapters,
@@ -3365,24 +3436,33 @@ export class ProjectService {
     });
   }
 
-  private broadcastScanProgress(): void {
+  private broadcastScanProgress(state: WorkspaceRuntimeState = this.currentState): void {
+    if (!this.isCurrentVisibleState(state)) {
+      return;
+    }
     this.eventBus.emit({
       type: 'scanProgress',
-      data: this.scanDictionaryProgress,
+      data: state.scanDictionaryProgress,
     });
   }
 
-  private broadcastPlotProgress(): void {
+  private broadcastPlotProgress(state: WorkspaceRuntimeState = this.currentState): void {
+    if (!this.isCurrentVisibleState(state)) {
+      return;
+    }
     this.eventBus.emit({
       type: 'plotProgress',
-      data: this.plotSummaryProgress,
+      data: state.plotSummaryProgress,
     });
   }
 
-  private broadcastProofreadProgress(): void {
+  private broadcastProofreadProgress(state: WorkspaceRuntimeState = this.currentState): void {
+    if (!this.isCurrentVisibleState(state)) {
+      return;
+    }
     this.eventBus.emit({
       type: 'proofreadProgress',
-      data: this.proofreadProgress,
+      data: state.proofreadProgress,
     });
   }
 
@@ -3660,24 +3740,29 @@ export class ProjectService {
   private async runAction(
     label: string,
     action: () => Promise<void>,
+    state: WorkspaceRuntimeState = this.currentState,
   ): Promise<void> {
-    if (this.isBusy) {
+    if (state.isBusy) {
       this.log('warning', `正在执行其他操作，请稍候：${label}`);
       return;
     }
-    this.isBusy = true;
+    state.isBusy = true;
     this.log('info', `${label}...`);
     try {
       await action();
     } catch (error) {
       this.log('error', `${label}失败：${toMsg(error)}`);
     } finally {
-      this.isBusy = false;
+      state.isBusy = false;
     }
   }
 
-  private startTranslationLoop(currentProject: TranslationProject): void {
-    const token = ++this.processingToken;
+  private startTranslationLoop(
+    currentProject: TranslationProject,
+    runtime: WorkspaceRuntime | null = this.getRuntimeForProject(currentProject),
+  ): void {
+    const state = runtime ?? this.getStateForProject(currentProject);
+    const token = ++state.processingToken;
 
     void (async () => {
       let translationRuntime: TranslationExecutionRuntime | undefined;
@@ -3712,10 +3797,10 @@ export class ProjectService {
         });
 
       const runSnapshotRefresh = () => {
-        if (this.project !== currentProject) {
+        if (!this.isTrackedProjectCurrent(currentProject, runtime)) {
           return;
         }
-        this.refreshSnapshot();
+        this.refreshSnapshot(runtime ?? undefined);
       };
 
       const scheduleSnapshotRefresh = (delayMs = 150) => {
@@ -3768,12 +3853,12 @@ export class ProjectService {
           clearTimeout(progressPersistTimer);
           progressPersistTimer = null;
         }
-        if (!progressPersistRequested || this.project !== currentProject) {
+        if (!progressPersistRequested || !this.isTrackedProjectCurrent(currentProject, runtime)) {
           return;
         }
 
         await queueMutation(async () => {
-          if (!progressPersistRequested || this.project !== currentProject) {
+          if (!progressPersistRequested || !this.isTrackedProjectCurrent(currentProject, runtime)) {
             return;
           }
           progressPersistRequested = false;
@@ -3801,7 +3886,7 @@ export class ProjectService {
       };
 
       const dispatchMoreReadyItems = async (): Promise<void> => {
-        if (this.processingToken !== token) {
+        if (state.processingToken !== token) {
           return;
         }
 
@@ -3844,7 +3929,7 @@ export class ProjectService {
         result: Awaited<ReturnType<TranslationProcessor['processWorkItem']>>,
       ): Promise<void> => {
         await queueMutation(async () => {
-          if (this.processingToken !== token) {
+          if (state.processingToken !== token) {
             return;
           }
 
@@ -3900,7 +3985,7 @@ export class ProjectService {
         error: unknown,
       ): Promise<void> => {
         await queueMutation(async () => {
-          if (this.processingToken !== token) {
+          if (state.processingToken !== token) {
             return;
           }
 
@@ -3931,7 +4016,7 @@ export class ProjectService {
       };
 
       const takeNextPendingItem = async (): Promise<TranslationWorkItem | undefined> => {
-        while (this.processingToken === token) {
+        while (state.processingToken === token) {
           if (fatalError) {
             throw fatalError;
           }
@@ -3988,7 +4073,7 @@ export class ProjectService {
         await scheduleDispatch();
 
         const worker = async () => {
-          while (this.processingToken === token) {
+          while (state.processingToken === token) {
             const item = await takeNextPendingItem();
             if (!item) {
               return;
@@ -4055,7 +4140,7 @@ export class ProjectService {
               notifyQueueWaiters();
             }
 
-            if (this.processingToken !== token) {
+            if (state.processingToken !== token) {
               return;
             }
 
