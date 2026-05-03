@@ -6,6 +6,7 @@
  */
 
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { basename, dirname, extname, join, normalize, relative } from 'node:path';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import {
@@ -440,6 +441,7 @@ function toWorkspaceRuntimeId(projectDir: string): string {
 
 export class ProjectService {
   private readonly runtimes = new Map<string, WorkspaceRuntime>();
+  private readonly workspaceScope = new AsyncLocalStorage<string>();
   private activeWorkspaceId: string | null = null;
   private detachedProject: TranslationProject | null = null;
   private readonly detachedState = createWorkspaceRuntimeState();
@@ -452,7 +454,30 @@ export class ProjectService {
     private readonly options: ProjectServiceOptions = {},
   ) {}
 
+  runInWorkspace<T>(workspaceId: string | undefined, action: () => T): T {
+    if (!workspaceId) {
+      return action();
+    }
+    return this.workspaceScope.run(workspaceId, action);
+  }
+
+  private get scopedWorkspaceId(): string | undefined {
+    return this.workspaceScope.getStore();
+  }
+
+  private get scopedRuntime(): WorkspaceRuntime | null | undefined {
+    if (this.scopedWorkspaceId === undefined) {
+      return undefined;
+    }
+    return this.getRuntime(this.scopedWorkspaceId) ?? null;
+  }
+
   private get activeRuntime(): WorkspaceRuntime | null {
+    const scopedRuntime = this.scopedRuntime;
+    if (scopedRuntime !== undefined) {
+      return scopedRuntime;
+    }
+
     if (this.activeWorkspaceId) {
       const runtime = this.runtimes.get(this.activeWorkspaceId);
       if (runtime) {
@@ -469,6 +494,10 @@ export class ProjectService {
   }
 
   private get currentState(): WorkspaceRuntimeState {
+    const scopedRuntime = this.scopedRuntime;
+    if (scopedRuntime !== undefined) {
+      return scopedRuntime ?? this.detachedState;
+    }
     return this.activeRuntime ?? this.detachedState;
   }
 
@@ -546,10 +575,27 @@ export class ProjectService {
   }
 
   private get project(): TranslationProject | null {
+    const scopedRuntime = this.scopedRuntime;
+    if (scopedRuntime !== undefined) {
+      return scopedRuntime?.project ?? null;
+    }
     return this.activeRuntime?.project ?? this.detachedProject;
   }
 
   private set project(value: TranslationProject | null) {
+    const scopedRuntime = this.scopedRuntime;
+    if (scopedRuntime !== undefined) {
+      if (!scopedRuntime) {
+        this.detachedProject = value;
+        return;
+      }
+      if (value === null) {
+        throw new Error('请使用 closeInternal 关闭工作区，而不是直接清空 project');
+      }
+      scopedRuntime.project = value;
+      return;
+    }
+
     const runtime = this.activeRuntime;
     if (!runtime) {
       this.detachedProject = value;

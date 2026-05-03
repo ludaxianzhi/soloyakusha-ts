@@ -223,8 +223,8 @@ export const api = {
     ),
   getPostProcessors: () =>
     request<{ processors: TextPostProcessorDescriptor[] }>('/api/project/post-processors'),
-  runBatchPostProcess: (chapterIds: number[], processorIds: string[]) =>
-    request<{ ok: boolean }>('/api/project/chapters/post-process', {
+  runBatchPostProcess: (chapterIds: number[], processorIds: string[], workspaceId?: string) =>
+    request<{ ok: boolean }>(`/api/project/chapters/post-process${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: { chapterIds, processorIds },
     }),
@@ -236,34 +236,39 @@ export const api = {
     request<TranslationProjectSnapshot | null>(
       `/api/project/snapshot${buildQueryString({ includeEntries: 1, workspaceId })}`,
     ),
-  startTranslation: () => request('/api/project/start', { method: 'POST' }),
-  pauseTranslation: () => request('/api/project/pause', { method: 'POST' }),
-  resumeTranslation: () => request('/api/project/resume', { method: 'POST' }),
-  abortTranslation: () => request('/api/project/abort', { method: 'POST' }),
+  startTranslation: (workspaceId?: string) =>
+    request(`/api/project/start${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  pauseTranslation: (workspaceId?: string) =>
+    request(`/api/project/pause${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  resumeTranslation: (workspaceId?: string) =>
+    request(`/api/project/resume${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  abortTranslation: (workspaceId?: string) =>
+    request(`/api/project/abort${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
   getQueueEntries: (stepId: string, workspaceId?: string) =>
     request<{ stepId: string; entries: TranslationStepQueueEntryDetail[] }>(
       `/api/project/queue/${encodeURIComponent(stepId)}/entries${buildWorkspaceQueryString(workspaceId)}`,
     ),
-  getRepeatedPatterns: (options?: { chapterIds?: number[] }) =>
+  getRepeatedPatterns: (options?: { chapterIds?: number[]; workspaceId?: string }) =>
     request<SavedRepetitionPatternAnalysisResult>(
       `/api/project/repetition-patterns${buildQueryString({
         chapterIds: options?.chapterIds?.join(','),
+        workspaceId: options?.workspaceId,
       })}`,
      ),
   scanRepeatedPatterns: (input?: {
     minOccurrences?: number;
     minLength?: number;
     maxResults?: number;
-  }) =>
-    request<SavedRepetitionPatternAnalysisResult>('/api/project/repetition-patterns/scan', {
+  }, workspaceId?: string) =>
+    request<SavedRepetitionPatternAnalysisResult>(`/api/project/repetition-patterns/scan${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: input ?? {},
     }),
   hydrateRepeatedPatterns: (input: {
     chapterIds?: number[];
     patternTexts?: string[];
-  }) =>
-    request<RepetitionPatternAnalysisResult>('/api/project/repetition-patterns/hydrate', {
+  }, workspaceId?: string) =>
+    request<RepetitionPatternAnalysisResult>(`/api/project/repetition-patterns/hydrate${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: input,
     }),
@@ -272,100 +277,100 @@ export const api = {
     fragmentIndex: number;
     lineIndex: number;
     translation: string;
-  }) =>
-    request('/api/project/repetition-patterns/translation', {
+  }, workspaceId?: string) =>
+    request(`/api/project/repetition-patterns/translation${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'PUT',
       body: input,
     }),
-  getRepeatedPatternContext: (input: { chapterId: number; unitIndex: number }) =>
+  getRepeatedPatternContext: (input: { chapterId: number; unitIndex: number; workspaceId?: string }) =>
     request<RepetitionPatternContextResult>(
       `/api/project/repetition-patterns/context${buildQueryString(input)}`,
     ),
   startRepeatedPatternConsistencyFix: (input: {
     llmProfileName: string;
     chapterIds?: number[];
-  }) =>
+  }, workspaceId?: string) =>
     request<RepetitionPatternConsistencyFixProgress>(
-      '/api/project/repetition-patterns/consistency-fix',
+      `/api/project/repetition-patterns/consistency-fix${buildWorkspaceQueryString(workspaceId)}`,
       {
         method: 'POST',
         body: input,
       },
     ),
-  getRepeatedPatternConsistencyFixStatus: () =>
+  getRepeatedPatternConsistencyFixStatus: (workspaceId?: string) =>
     request<RepetitionPatternConsistencyFixProgress | null>(
-      '/api/project/repetition-patterns/consistency-fix/status',
+      `/api/project/repetition-patterns/consistency-fix/status${buildWorkspaceQueryString(workspaceId)}`,
     ),
-  clearRepeatedPatternConsistencyFixStatus: () =>
-    request('/api/project/repetition-patterns/consistency-fix/clear', {
+  clearRepeatedPatternConsistencyFixStatus: (workspaceId?: string) =>
+    request(`/api/project/repetition-patterns/consistency-fix/clear${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
     }),
 
-  getDictionary: () =>
-    request<{ terms: GlossaryTerm[] }>('/api/project/dictionary'),
-  saveDictionaryTerm: (term: Partial<GlossaryTerm> & { term: string }) =>
-    request('/api/project/dictionary', { method: 'PUT', body: term }),
-  deleteDictionaryTerm: (term: string) =>
-    request('/api/project/dictionary', {
+  getDictionary: (workspaceId?: string) =>
+    request<{ terms: GlossaryTerm[] }>(`/api/project/dictionary${buildWorkspaceQueryString(workspaceId)}`),
+  saveDictionaryTerm: (term: Partial<GlossaryTerm> & { term: string }, workspaceId?: string) =>
+    request(`/api/project/dictionary${buildWorkspaceQueryString(workspaceId)}`, { method: 'PUT', body: term }),
+  deleteDictionaryTerm: (term: string, workspaceId?: string) =>
+    request(`/api/project/dictionary${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'DELETE',
       body: { term },
     }),
-  scanDictionary: () =>
-    request('/api/project/dictionary/scan', { method: 'POST' }),
-  abortScanDictionary: () =>
-    request('/api/project/dictionary/scan/abort', { method: 'POST' }),
-  resumeScanDictionary: () =>
-    request('/api/project/dictionary/scan/resume', { method: 'POST' }),
-  importDictionaryFromContent: (content: string, format: 'csv' | 'tsv') =>
-    request<DictionaryImportResult>('/api/project/dictionary/import-content', {
+  scanDictionary: (workspaceId?: string) =>
+    request(`/api/project/dictionary/scan${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  abortScanDictionary: (workspaceId?: string) =>
+    request(`/api/project/dictionary/scan/abort${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  resumeScanDictionary: (workspaceId?: string) =>
+    request(`/api/project/dictionary/scan/resume${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  importDictionaryFromContent: (content: string, format: 'csv' | 'tsv', workspaceId?: string) =>
+    request<DictionaryImportResult>(`/api/project/dictionary/import-content${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: { content, format },
     }),
 
-  startPlotSummary: () =>
-    request('/api/project/plot-summary', { method: 'POST' }),
-  abortPlotSummary: () =>
-    request('/api/project/plot-summary/abort', { method: 'POST' }),
-  resumePlotSummary: () =>
-    request('/api/project/plot-summary/resume', { method: 'POST' }),
+  startPlotSummary: (workspaceId?: string) =>
+    request(`/api/project/plot-summary${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  abortPlotSummary: (workspaceId?: string) =>
+    request(`/api/project/plot-summary/abort${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  resumePlotSummary: (workspaceId?: string) =>
+    request(`/api/project/plot-summary/resume${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
   startProofread: (payload: {
     chapterIds: number[];
     mode?: 'linear' | 'simultaneous';
-  }) =>
-    request('/api/project/proofread', {
+  }, workspaceId?: string) =>
+    request(`/api/project/proofread${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: payload,
     }),
-  abortProofread: () =>
-    request('/api/project/proofread/abort', { method: 'POST' }),
-  forceAbortProofread: () =>
-    request('/api/project/proofread/force-abort', { method: 'POST' }),
-  resumeProofread: () =>
-    request('/api/project/proofread/resume', { method: 'POST' }),
-  removeProofreadTask: () =>
-    request('/api/project/proofread/remove', { method: 'POST' }),
-  clearTaskProgress: (task: 'scan' | 'plot' | 'proofread' | 'all') =>
-    request('/api/project/task-ui/clear', {
+  abortProofread: (workspaceId?: string) =>
+    request(`/api/project/proofread/abort${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  forceAbortProofread: (workspaceId?: string) =>
+    request(`/api/project/proofread/force-abort${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  resumeProofread: (workspaceId?: string) =>
+    request(`/api/project/proofread/resume${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  removeProofreadTask: (workspaceId?: string) =>
+    request(`/api/project/proofread/remove${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  clearTaskProgress: (task: 'scan' | 'plot' | 'proofread' | 'all', workspaceId?: string) =>
+    request(`/api/project/task-ui/clear${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: { task },
     }),
 
-  getChapters: () =>
-    request<{ chapters: WorkspaceChapterDescriptor[] }>('/api/project/chapters'),
-  getTopology: () =>
-    request<{ topology: StoryTopologyDescriptor | null }>('/api/project/topology'),
-  getChapterPreview: (chapterId: number) =>
-    request<TranslationPreviewChapter>(`/api/project/preview/chapters/${chapterId}`),
-  getChapterEditorDocument: (chapterId: number, format: EditableTranslationFormat) =>
+  getChapters: (workspaceId?: string) =>
+    request<{ chapters: WorkspaceChapterDescriptor[] }>(`/api/project/chapters${buildWorkspaceQueryString(workspaceId)}`),
+  getTopology: (workspaceId?: string) =>
+    request<{ topology: StoryTopologyDescriptor | null }>(`/api/project/topology${buildWorkspaceQueryString(workspaceId)}`),
+  getChapterPreview: (chapterId: number, workspaceId?: string) =>
+    request<TranslationPreviewChapter>(`/api/project/preview/chapters/${chapterId}${buildWorkspaceQueryString(workspaceId)}`),
+  getChapterEditorDocument: (chapterId: number, format: EditableTranslationFormat, workspaceId?: string) =>
     request<ChapterTranslationEditorDocument>(
-      `/api/project/editor/chapters/${chapterId}${buildQueryString({ format })}`,
+      `/api/project/editor/chapters/${chapterId}${buildQueryString({ format, workspaceId })}`,
     ),
   validateChapterEditor: (payload: {
     chapterId: number;
     format: EditableTranslationFormat;
     content: string;
-  }) =>
-    request<ChapterTranslationEditorValidationResult>('/api/project/editor/validate', {
+  }, workspaceId?: string) =>
+    request<ChapterTranslationEditorValidationResult>(`/api/project/editor/validate${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: payload,
     }),
@@ -373,85 +378,86 @@ export const api = {
     chapterId: number;
     format: EditableTranslationFormat;
     content: string;
-  }) =>
-    request<ApplyChapterTranslationEditorResult>('/api/project/editor/apply', {
+  }, workspaceId?: string) =>
+    request<ApplyChapterTranslationEditorResult>(`/api/project/editor/apply${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: payload,
     }),
-  runChapterTranslationAssistant: (payload: ChapterTranslationAssistantRequest) =>
-    request<ChapterTranslationAssistantResponse>('/api/project/editor/assistant', {
+  runChapterTranslationAssistant: (payload: ChapterTranslationAssistantRequest, workspaceId?: string) =>
+    request<ChapterTranslationAssistantResponse>(`/api/project/editor/assistant${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: payload,
     }),
-  importChapterArchive: (formData: FormData) =>
-    request<ImportArchiveResult>('/api/project/chapters/import-archive', {
+  importChapterArchive: (formData: FormData, workspaceId?: string) =>
+    request<ImportArchiveResult>(`/api/project/chapters/import-archive${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: formData,
     }),
-  reorderChapters: (chapterIds: number[]) =>
-    request('/api/project/chapters/reorder', {
+  reorderChapters: (chapterIds: number[], workspaceId?: string) =>
+    request(`/api/project/chapters/reorder${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'PUT',
       body: { chapterIds },
     }),
-  removeChapter: (chapterId: number) =>
-    request(`/api/project/chapters/${chapterId}`, { method: 'DELETE' }),
+  removeChapter: (chapterId: number, workspaceId?: string) =>
+    request(`/api/project/chapters/${chapterId}${buildWorkspaceQueryString(workspaceId)}`, { method: 'DELETE' }),
   removeChapters: (
     chapterIds: number[],
     options: { cascadeBranches?: boolean } = {},
+    workspaceId?: string,
   ) =>
-    request('/api/project/chapters/remove', {
+    request(`/api/project/chapters/remove${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: {
         chapterIds,
         cascadeBranches: options.cascadeBranches,
       },
     }),
-  clearChapterTranslations: (chapterIds: number[]) =>
-    request('/api/project/chapters/clear', {
+  clearChapterTranslations: (chapterIds: number[], workspaceId?: string) =>
+    request(`/api/project/chapters/clear${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: { chapterIds },
     }),
-  createStoryBranch: (payload: CreateStoryBranchPayload) =>
-    request('/api/project/topology/routes', {
+  createStoryBranch: (payload: CreateStoryBranchPayload, workspaceId?: string) =>
+    request(`/api/project/topology/routes${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: payload,
     }),
-  updateStoryRoute: (routeId: string, payload: UpdateStoryRoutePayload) =>
-    request(`/api/project/topology/routes/${encodeURIComponent(routeId)}`, {
+  updateStoryRoute: (routeId: string, payload: UpdateStoryRoutePayload, workspaceId?: string) =>
+    request(`/api/project/topology/routes/${encodeURIComponent(routeId)}${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'PUT',
       body: payload,
     }),
-  reorderStoryRouteChapters: (routeId: string, chapterIds: number[]) =>
-    request(`/api/project/topology/routes/${encodeURIComponent(routeId)}/reorder`, {
+  reorderStoryRouteChapters: (routeId: string, chapterIds: number[], workspaceId?: string) =>
+    request(`/api/project/topology/routes/${encodeURIComponent(routeId)}/reorder${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'PUT',
       body: { chapterIds },
     }),
-  removeStoryRoute: (routeId: string) =>
-    request(`/api/project/topology/routes/${encodeURIComponent(routeId)}`, {
+  removeStoryRoute: (routeId: string, workspaceId?: string) =>
+    request(`/api/project/topology/routes/${encodeURIComponent(routeId)}${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'DELETE',
     }),
-  moveChapterToRoute: (chapterId: number, targetRouteId: string, targetIndex: number) =>
-    request('/api/project/topology/move-chapter', {
+  moveChapterToRoute: (chapterId: number, targetRouteId: string, targetIndex: number, workspaceId?: string) =>
+    request(`/api/project/topology/move-chapter${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: { chapterId, targetRouteId, targetIndex },
     }),
 
-  getWorkspaceConfig: () => request<WorkspaceConfig>('/api/project/config'),
-  updateWorkspaceConfig: (patch: Record<string, unknown>) =>
-    request<{ ok: boolean; config: WorkspaceConfig }>('/api/project/config', {
+  getWorkspaceConfig: (workspaceId?: string) => request<WorkspaceConfig>(`/api/project/config${buildWorkspaceQueryString(workspaceId)}`),
+  updateWorkspaceConfig: (patch: Record<string, unknown>, workspaceId?: string) =>
+    request<{ ok: boolean; config: WorkspaceConfig }>(`/api/project/config${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'PUT',
       body: patch,
     }),
   buildContextNetwork: (payload: {
     vectorStoreType: 'registered' | 'memory';
     minEdgeStrength: number;
-  }) =>
-    request<ContextNetworkBuildResult>('/api/project/context-network', {
+  }, workspaceId?: string) =>
+    request<ContextNetworkBuildResult>(`/api/project/context-network${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: payload,
     }),
-  resetProject: (payload: Record<string, unknown>) =>
-    request('/api/project/reset', {
+  resetProject: (payload: Record<string, unknown>, workspaceId?: string) =>
+    request(`/api/project/reset${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: payload,
     }),
@@ -486,14 +492,14 @@ export const api = {
   getUsageStats: (days = 30) =>
     request<UsageStatsSnapshot>(`/api/activity/usage${buildQueryString({ days })}`),
 
-  downloadExport: (format: string) =>
-    requestBlob('/api/project/export', {
+  downloadExport: (format: string, workspaceId?: string) =>
+    requestBlob(`/api/project/export${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: { format },
     }),
 
-  downloadChaptersExport: (chapterIds: number[], format: string) =>
-    requestBlob('/api/project/chapters/export', {
+  downloadChaptersExport: (chapterIds: number[], format: string, workspaceId?: string) =>
+    requestBlob(`/api/project/chapters/export${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: { chapterIds, format },
     }),

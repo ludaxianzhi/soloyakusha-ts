@@ -19,6 +19,18 @@ export function createProjectRoutes(
 ): Hono {
   const app = new Hono();
 
+  app.use('*', async (c, next) => {
+    const workspaceId = normalizeWorkspaceIdQuery(c.req.query('workspaceId'));
+    if (!workspaceId) {
+      await next();
+      return;
+    }
+    if (!projectService.hasWorkspace(workspaceId)) {
+      return c.json({ error: '指定工作区未在当前进程中打开' }, 404);
+    }
+    await projectService.runInWorkspace(workspaceId, () => next());
+  });
+
   const readWorkspaceId = (c: Context): string | Response | undefined => {
     const workspaceId = normalizeWorkspaceIdQuery(c.req.query('workspaceId'));
     if (!workspaceId) {
