@@ -6,7 +6,7 @@
  */
 
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, extname, join, relative } from 'node:path';
+import { basename, dirname, extname, join, normalize, relative } from 'node:path';
 import { GlobalConfigManager } from '../../config/manager.ts';
 import {
   RepetitionPatternFixer,
@@ -84,6 +84,7 @@ import type {
   ProofreadTaskMode,
   ProofreadTaskState,
   ProjectExportResult,
+  StyleGuidanceMode,
   StoryTopologyDescriptor,
   TranslationExportResult,
   TranslationProjectSnapshot,
@@ -351,32 +352,84 @@ type ProjectServiceOptions = {
 
 const DEFAULT_TRANSLATION_MAX_CONCURRENT_WORK_ITEMS = 4;
 
+type WorkspaceRuntimeState = {
+  snapshot: TranslationProjectProgressSnapshot | null;
+  fullSnapshot: TranslationProjectSnapshot | null;
+  topology: StoryTopology | null;
+  isBusy: boolean;
+  processingToken: number;
+  pollTimer: ReturnType<typeof setInterval> | null;
+  plotSummaryProgress: PlotSummaryProgress | null;
+  scanDictionaryProgress: ScanDictionaryProgress | null;
+  proofreadProgress: ProofreadProgress | null;
+  scanTaskState: ScanDictionaryTaskState | null;
+  plotTaskState: PlotSummaryTaskState | null;
+  proofreadTaskState: ProofreadTaskState | null;
+  repetitionPatternConsistencyFixProgress: RepetitionPatternConsistencyFixProgress | null;
+  plotSummaryReady: boolean;
+  resourceVersions: ProjectResourceVersions;
+};
+
+type WorkspaceRuntime = WorkspaceRuntimeState & {
+  workspaceId: string;
+  project: TranslationProject;
+};
+
+function createProjectResourceVersions(value: number): ProjectResourceVersions {
+  return {
+    dictionaryRevision: value,
+    chaptersRevision: value,
+    topologyRevision: value,
+    workspaceConfigRevision: value,
+    repetitionPatternsRevision: value,
+  };
+}
+
+function createWorkspaceRuntimeState(): WorkspaceRuntimeState {
+  return {
+    snapshot: null,
+    fullSnapshot: null,
+    topology: null,
+    isBusy: false,
+    processingToken: 0,
+    pollTimer: null,
+    plotSummaryProgress: null,
+    scanDictionaryProgress: null,
+    proofreadProgress: null,
+    scanTaskState: null,
+    plotTaskState: null,
+    proofreadTaskState: null,
+    repetitionPatternConsistencyFixProgress: null,
+    plotSummaryReady: false,
+    resourceVersions: createProjectResourceVersions(0),
+  };
+}
+
+function createWorkspaceRuntime(
+  workspaceId: string,
+  project: TranslationProject,
+): WorkspaceRuntime {
+  return {
+    workspaceId,
+    project,
+    ...createWorkspaceRuntimeState(),
+  };
+}
+
+function toWorkspaceRuntimeId(projectDir: string): string {
+  const normalizedPath = normalize(projectDir);
+  return process.platform === 'win32'
+    ? normalizedPath.toLowerCase()
+    : normalizedPath;
+}
+
 // ─── Service ────────────────────────────────────────────
 
 export class ProjectService {
-  private project: TranslationProject | null = null;
-  private snapshot: TranslationProjectProgressSnapshot | null = null;
-  private fullSnapshot: TranslationProjectSnapshot | null = null;
-  private topology: StoryTopology | null = null;
-  private isBusy = false;
-  private processingToken = 0;
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
-  private plotSummaryProgress: PlotSummaryProgress | null = null;
-  private scanDictionaryProgress: ScanDictionaryProgress | null = null;
-  private proofreadProgress: ProofreadProgress | null = null;
-  private scanTaskState: ScanDictionaryTaskState | null = null;
-  private plotTaskState: PlotSummaryTaskState | null = null;
-  private proofreadTaskState: ProofreadTaskState | null = null;
-  private repetitionPatternConsistencyFixProgress: RepetitionPatternConsistencyFixProgress | null =
-    null;
-  private plotSummaryReady = false;
-  private resourceVersions: ProjectResourceVersions = {
-    dictionaryRevision: 0,
-    chaptersRevision: 0,
-    topologyRevision: 0,
-    workspaceConfigRevision: 0,
-    repetitionPatternsRevision: 0,
-  };
+  private readonly runtimes = new Map<string, WorkspaceRuntime>();
+  private activeWorkspaceId: string | null = null;
+  private detachedProject: TranslationProject | null = null;
+  private readonly detachedState = createWorkspaceRuntimeState();
 
   constructor(
     private readonly eventBus: EventBus,
@@ -385,6 +438,173 @@ export class ProjectService {
     private readonly usageStatsService: UsageStatsService,
     private readonly options: ProjectServiceOptions = {},
   ) {}
+
+  private get activeRuntime(): WorkspaceRuntime | null {
+    if (this.activeWorkspaceId) {
+      const runtime = this.runtimes.get(this.activeWorkspaceId);
+      if (runtime) {
+        return runtime;
+      }
+      this.activeWorkspaceId = null;
+    }
+
+    const firstRuntime = this.runtimes.values().next().value ?? null;
+    if (firstRuntime) {
+      this.activeWorkspaceId = firstRuntime.workspaceId;
+    }
+    return firstRuntime;
+  }
+
+  private get currentState(): WorkspaceRuntimeState {
+    return this.activeRuntime ?? this.detachedState;
+  }
+
+  private getRuntime(workspaceId: string): WorkspaceRuntime | undefined {
+    return this.runtimes.get(workspaceId);
+  }
+
+  private setActiveWorkspace(workspaceId: string | null): void {
+    this.activeWorkspaceId = workspaceId;
+  }
+
+  private get project(): TranslationProject | null {
+    return this.activeRuntime?.project ?? this.detachedProject;
+  }
+
+  private set project(value: TranslationProject | null) {
+    const runtime = this.activeRuntime;
+    if (!runtime) {
+      this.detachedProject = value;
+      return;
+    }
+    if (value === null) {
+      throw new Error('请使用 closeInternal 关闭工作区，而不是直接清空 project');
+    }
+    this.detachedProject = null;
+    runtime.project = value;
+  }
+
+  private get snapshot(): TranslationProjectProgressSnapshot | null {
+    return this.currentState.snapshot;
+  }
+
+  private set snapshot(value: TranslationProjectProgressSnapshot | null) {
+    this.currentState.snapshot = value;
+  }
+
+  private get fullSnapshot(): TranslationProjectSnapshot | null {
+    return this.currentState.fullSnapshot;
+  }
+
+  private set fullSnapshot(value: TranslationProjectSnapshot | null) {
+    this.currentState.fullSnapshot = value;
+  }
+
+  private get topology(): StoryTopology | null {
+    return this.currentState.topology;
+  }
+
+  private set topology(value: StoryTopology | null) {
+    this.currentState.topology = value;
+  }
+
+  private get isBusy(): boolean {
+    return this.currentState.isBusy;
+  }
+
+  private set isBusy(value: boolean) {
+    this.currentState.isBusy = value;
+  }
+
+  private get processingToken(): number {
+    return this.currentState.processingToken;
+  }
+
+  private set processingToken(value: number) {
+    this.currentState.processingToken = value;
+  }
+
+  private get pollTimer(): ReturnType<typeof setInterval> | null {
+    return this.currentState.pollTimer;
+  }
+
+  private set pollTimer(value: ReturnType<typeof setInterval> | null) {
+    this.currentState.pollTimer = value;
+  }
+
+  private get plotSummaryProgress(): PlotSummaryProgress | null {
+    return this.currentState.plotSummaryProgress;
+  }
+
+  private set plotSummaryProgress(value: PlotSummaryProgress | null) {
+    this.currentState.plotSummaryProgress = value;
+  }
+
+  private get scanDictionaryProgress(): ScanDictionaryProgress | null {
+    return this.currentState.scanDictionaryProgress;
+  }
+
+  private set scanDictionaryProgress(value: ScanDictionaryProgress | null) {
+    this.currentState.scanDictionaryProgress = value;
+  }
+
+  private get proofreadProgress(): ProofreadProgress | null {
+    return this.currentState.proofreadProgress;
+  }
+
+  private set proofreadProgress(value: ProofreadProgress | null) {
+    this.currentState.proofreadProgress = value;
+  }
+
+  private get scanTaskState(): ScanDictionaryTaskState | null {
+    return this.currentState.scanTaskState;
+  }
+
+  private set scanTaskState(value: ScanDictionaryTaskState | null) {
+    this.currentState.scanTaskState = value;
+  }
+
+  private get plotTaskState(): PlotSummaryTaskState | null {
+    return this.currentState.plotTaskState;
+  }
+
+  private set plotTaskState(value: PlotSummaryTaskState | null) {
+    this.currentState.plotTaskState = value;
+  }
+
+  private get proofreadTaskState(): ProofreadTaskState | null {
+    return this.currentState.proofreadTaskState;
+  }
+
+  private set proofreadTaskState(value: ProofreadTaskState | null) {
+    this.currentState.proofreadTaskState = value;
+  }
+
+  private get repetitionPatternConsistencyFixProgress(): RepetitionPatternConsistencyFixProgress | null {
+    return this.currentState.repetitionPatternConsistencyFixProgress;
+  }
+
+  private set repetitionPatternConsistencyFixProgress(
+    value: RepetitionPatternConsistencyFixProgress | null,
+  ) {
+    this.currentState.repetitionPatternConsistencyFixProgress = value;
+  }
+
+  private get plotSummaryReady(): boolean {
+    return this.currentState.plotSummaryReady;
+  }
+
+  private set plotSummaryReady(value: boolean) {
+    this.currentState.plotSummaryReady = value;
+  }
+
+  private get resourceVersions(): ProjectResourceVersions {
+    return this.currentState.resourceVersions;
+  }
+
+  private set resourceVersions(value: ProjectResourceVersions) {
+    this.currentState.resourceVersions = value;
+  }
 
   // ─── Queries ────────────────────────────────────────
 
@@ -853,8 +1073,16 @@ export class ProjectService {
       return false;
     }
 
+    const workspaceId = toWorkspaceRuntimeId(normalizedDir);
+    const existingRuntime = this.getRuntime(workspaceId);
+    if (existingRuntime) {
+      this.setActiveWorkspace(workspaceId);
+      this.refreshSnapshot(existingRuntime);
+      this.log('info', `工作区已在当前会话中打开：${normalizedDir}`);
+      return true;
+    }
+
     this.isBusy = true;
-    this.processingToken += 1;
 
     try {
       const configPath = join(normalizedDir, 'Data', 'workspace-config.json');
@@ -862,6 +1090,7 @@ export class ProjectService {
 
       let nextProject: TranslationProject;
       let nextTopology: StoryTopology | null = null;
+      let nextPlotSummaryReady = false;
 
       if (hasConfig) {
         this.log('info', `检测到已有工作区，正在打开：${normalizedDir}`);
@@ -873,7 +1102,7 @@ export class ProjectService {
         if (nextTopology) {
           this.log('info', `已加载剧情拓扑（${nextTopology.getAllRoutes().length} 条路线）`);
         }
-        this.plotSummaryReady = nextProject.hasPlotSummaries();
+        nextPlotSummaryReady = nextProject.hasPlotSummaries();
       } else {
         const chapterPaths = input.chapterPaths
           .map((p) => p.trim())
@@ -954,7 +1183,7 @@ export class ProjectService {
           },
         );
 
-        this.plotSummaryReady = false;
+        nextPlotSummaryReady = false;
       }
 
       await applyWorkspacePreferences(nextProject, {
@@ -975,14 +1204,16 @@ export class ProjectService {
         dir: normalizedDir,
       });
 
-      this.closeInternal();
-      this.project = nextProject;
-      this.topology = nextTopology;
-      this.fullSnapshot = nextProject.getProjectSnapshot();
-      this.snapshot = toProgressSnapshot(this.fullSnapshot);
-      await this.restoreProofreadTaskState(nextProject);
-      this.resetResourceVersions(1);
-      this.startPolling();
+      const runtime = createWorkspaceRuntime(workspaceId, nextProject);
+      runtime.topology = nextTopology;
+      runtime.fullSnapshot = nextProject.getProjectSnapshot();
+      runtime.snapshot = toProgressSnapshot(runtime.fullSnapshot);
+      runtime.plotSummaryReady = nextPlotSummaryReady;
+      runtime.resourceVersions = createProjectResourceVersions(1);
+      this.runtimes.set(workspaceId, runtime);
+      this.setActiveWorkspace(workspaceId);
+      await this.restoreProofreadTaskState(runtime);
+      this.startPolling(runtime);
 
       this.log(
         'success',
@@ -2923,31 +3154,72 @@ export class ProjectService {
 
   // ─── Internal ───────────────────────────────────────
 
-  private closeInternal(): void {
-    this.processingToken += 1;
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
+  private closeInternal(workspaceId = this.activeWorkspaceId): void {
+    if (!workspaceId) {
+      this.detachedState.isBusy = false;
+      this.detachedState.resourceVersions = createProjectResourceVersions(0);
+      return;
     }
-    this.project = null;
-    this.snapshot = null;
-    this.fullSnapshot = null;
-    this.topology = null;
-    this.plotSummaryProgress = null;
-    this.scanDictionaryProgress = null;
-    this.proofreadProgress = null;
-    this.scanTaskState = null;
-    this.plotTaskState = null;
-    this.proofreadTaskState = null;
-    this.isBusy = false;
-    this.resetResourceVersions(0);
+
+    const runtime = this.runtimes.get(workspaceId);
+    if (!runtime) {
+      if (this.activeWorkspaceId === workspaceId) {
+        this.setActiveWorkspace(null);
+      }
+      return;
+    }
+
+    runtime.processingToken += 1;
+    if (runtime.pollTimer) {
+      clearInterval(runtime.pollTimer);
+      runtime.pollTimer = null;
+    }
+    runtime.snapshot = null;
+    runtime.fullSnapshot = null;
+    runtime.topology = null;
+    runtime.plotSummaryProgress = null;
+    runtime.scanDictionaryProgress = null;
+    runtime.proofreadProgress = null;
+    runtime.scanTaskState = null;
+    runtime.plotTaskState = null;
+    runtime.proofreadTaskState = null;
+    runtime.repetitionPatternConsistencyFixProgress = null;
+    runtime.plotSummaryReady = false;
+    runtime.isBusy = false;
+    runtime.resourceVersions = createProjectResourceVersions(0);
+    this.runtimes.delete(workspaceId);
+
+    if (this.activeWorkspaceId === workspaceId) {
+      const nextRuntime = this.runtimes.values().next().value ?? null;
+      this.setActiveWorkspace(nextRuntime?.workspaceId ?? null);
+    }
+
+    if (!this.activeRuntime) {
+      this.detachedProject = null;
+      this.detachedState.snapshot = null;
+      this.detachedState.fullSnapshot = null;
+      this.detachedState.topology = null;
+      this.detachedState.isBusy = false;
+      this.detachedState.processingToken = 0;
+      this.detachedState.pollTimer = null;
+      this.detachedState.plotSummaryProgress = null;
+      this.detachedState.scanDictionaryProgress = null;
+      this.detachedState.proofreadProgress = null;
+      this.detachedState.scanTaskState = null;
+      this.detachedState.plotTaskState = null;
+      this.detachedState.proofreadTaskState = null;
+      this.detachedState.repetitionPatternConsistencyFixProgress = null;
+      this.detachedState.plotSummaryReady = false;
+      this.detachedState.resourceVersions = createProjectResourceVersions(0);
+    }
   }
 
-  private async restoreProofreadTaskState(project: TranslationProject): Promise<void> {
+  private async restoreProofreadTaskState(runtime: WorkspaceRuntime): Promise<void> {
+    const project = runtime.project;
     const persistedTask = project.getProofreadTaskState();
     if (!persistedTask) {
-      this.proofreadTaskState = null;
-      this.proofreadProgress = null;
+      runtime.proofreadTaskState = null;
+      runtime.proofreadProgress = null;
       return;
     }
 
@@ -2958,8 +3230,8 @@ export class ProjectService {
       !persistedTask.chapters?.length
     ) {
       this.log('warning', '检测到无效的持久化校对任务状态（章节数据缺失或为空），已自动清除');
-      this.proofreadTaskState = null;
-      this.proofreadProgress = null;
+      runtime.proofreadTaskState = null;
+      runtime.proofreadProgress = null;
       await project.saveProofreadTaskState(undefined);
       return;
     }
@@ -2972,19 +3244,37 @@ export class ProjectService {
       this.log('warning', '检测到未完成的校对任务，已自动标记为暂停，可在 WebUI 中继续执行');
     }
 
-    this.proofreadTaskState = persistedTask;
-    this.syncProofreadProgress(persistedTask);
-    this.broadcastProofreadProgress();
+    runtime.proofreadTaskState = persistedTask;
+    if (runtime === this.activeRuntime) {
+      this.syncProofreadProgress(persistedTask);
+      this.broadcastProofreadProgress();
+      return;
+    }
+
+    runtime.proofreadProgress = {
+      status: persistedTask.status,
+      mode: persistedTask.mode,
+      totalChapters: persistedTask.totalChapters,
+      completedChapters: persistedTask.completedChapters,
+      totalBatches: persistedTask.totalBatches,
+      completedBatches: persistedTask.completedBatches,
+      currentChapterId: persistedTask.currentChapterId,
+      chapterIds: [...persistedTask.chapterIds],
+      warningCount: persistedTask.warningCount,
+      lastWarningMessage: persistedTask.lastWarningMessage,
+      errorMessage: persistedTask.errorMessage,
+    };
   }
 
-  private startPolling(): void {
-    if (this.pollTimer) clearInterval(this.pollTimer);
-    this.pollTimer = setInterval(() => {
-      if (!this.project) return;
+  private startPolling(runtime: WorkspaceRuntime): void {
+    if (runtime.pollTimer) {
+      clearInterval(runtime.pollTimer);
+    }
+    runtime.pollTimer = setInterval(() => {
       try {
-        const previousSnapshot = this.snapshot;
-        const nextLifecycle = this.project.getLifecycleSnapshot();
-        const nextProgress = this.project.getProgressSnapshot();
+        const previousSnapshot = runtime.snapshot;
+        const nextLifecycle = runtime.project.getLifecycleSnapshot();
+        const nextProgress = runtime.project.getProgressSnapshot();
 
         // 空闲阶段无需每秒推送同构快照，避免 SSE 长时间占用带宽。
         const lifecycleChanged =
@@ -3000,9 +3290,9 @@ export class ProjectService {
 
         if (!previousSnapshot || lifecycleChanged || queueChanged || progressChanged) {
           if (progressChanged) {
-            this.markChaptersChanged();
+            this.markChaptersChanged(runtime);
           }
-          this.refreshSnapshot();
+          this.refreshSnapshot(runtime);
         }
       } catch {
         // ignore
@@ -3010,22 +3300,22 @@ export class ProjectService {
     }, 1000);
   }
 
-  private refreshSnapshot(): void {
-    if (!this.project) {
+  private refreshSnapshot(runtime = this.activeRuntime): void {
+    if (!runtime) {
       this.snapshot = null;
       this.fullSnapshot = null;
       this.topology = null;
       return;
     }
     const startedAt = Date.now();
-    const progressSnapshot = this.project.getProgressSnapshot();
-    const lifecycleSnapshot = this.project.getLifecycleSnapshot();
-    const glossaryProgress = this.project.getGlossaryProgress();
-    const pipeline = this.project.getPipeline();
-    this.fullSnapshot = null;
-    this.snapshot = {
-      projectName: this.project.getWorkspaceConfig().projectName,
-      currentCursor: this.project.getCurrentCursor(),
+    const progressSnapshot = runtime.project.getProgressSnapshot();
+    const lifecycleSnapshot = runtime.project.getLifecycleSnapshot();
+    const glossaryProgress = runtime.project.getGlossaryProgress();
+    const pipeline = runtime.project.getPipeline();
+    runtime.fullSnapshot = null;
+    runtime.snapshot = {
+      projectName: runtime.project.getWorkspaceConfig().projectName,
+      currentCursor: runtime.project.getCurrentCursor(),
       lifecycle: lifecycleSnapshot,
       progress: progressSnapshot,
       glossary: glossaryProgress,
@@ -3042,18 +3332,20 @@ export class ProjectService {
         stepId: step.id,
         description: step.description,
         isFinalStep: step.id === pipeline.finalStepId,
-        progress: this.project!.getStepProgress(step.id),
+        progress: runtime.project.getStepProgress(step.id),
         entries: [],
       })),
       activeWorkItems: [],
       readyWorkItems: [],
     };
-    this.topology = this.project.getStoryTopology() ?? null;
+    runtime.topology = runtime.project.getStoryTopology() ?? null;
     const elapsedMs = Date.now() - startedAt;
     if (elapsedMs >= 200) {
-      this.log("warning", `刷新运行态快照耗时较高：${elapsedMs}ms`);
+      this.log('warning', `刷新运行态快照耗时较高：${elapsedMs}ms`);
     }
-    this.broadcastSnapshot();
+    if (runtime === this.activeRuntime) {
+      this.broadcastSnapshot();
+    }
   }
 
   private createNextBranchRouteId(): string {
@@ -3094,18 +3386,12 @@ export class ProjectService {
     });
   }
 
-  private resetResourceVersions(value: number): void {
-    this.resourceVersions = {
-      dictionaryRevision: value,
-      chaptersRevision: value,
-      topologyRevision: value,
-      workspaceConfigRevision: value,
-      repetitionPatternsRevision: value,
-    };
+  private resetResourceVersions(value: number, runtime: WorkspaceRuntimeState = this.currentState): void {
+    runtime.resourceVersions = createProjectResourceVersions(value);
   }
 
-  private markDictionaryChanged(): void {
-    this.resourceVersions.dictionaryRevision += 1;
+  private markDictionaryChanged(runtime: WorkspaceRuntimeState = this.currentState): void {
+    runtime.resourceVersions.dictionaryRevision += 1;
   }
 
   async runBatchPostProcess(chapterIds: number[], processorIds: string[]): Promise<void> {
@@ -3156,9 +3442,11 @@ export class ProjectService {
     }
   }
 
-  private markChaptersChanged(): void {
-    this.resourceVersions.chaptersRevision += 1;
-    this.broadcastChaptersChanged();
+  private markChaptersChanged(runtime: WorkspaceRuntimeState = this.currentState): void {
+    runtime.resourceVersions.chaptersRevision += 1;
+    if (runtime === this.activeRuntime) {
+      this.broadcastChaptersChanged();
+    }
   }
 
   private broadcastChaptersChanged(): void {
@@ -3168,16 +3456,16 @@ export class ProjectService {
     });
   }
 
-  private markTopologyChanged(): void {
-    this.resourceVersions.topologyRevision += 1;
+  private markTopologyChanged(runtime: WorkspaceRuntimeState = this.currentState): void {
+    runtime.resourceVersions.topologyRevision += 1;
   }
 
-  private markWorkspaceConfigChanged(): void {
-    this.resourceVersions.workspaceConfigRevision += 1;
+  private markWorkspaceConfigChanged(runtime: WorkspaceRuntimeState = this.currentState): void {
+    runtime.resourceVersions.workspaceConfigRevision += 1;
   }
 
-  private markRepeatedPatternsChanged(): void {
-    this.resourceVersions.repetitionPatternsRevision += 1;
+  private markRepeatedPatternsChanged(runtime: WorkspaceRuntimeState = this.currentState): void {
+    runtime.resourceVersions.repetitionPatternsRevision += 1;
   }
 
   private async runRepetitionPatternConsistencyFix(params: {
@@ -3717,12 +4005,48 @@ export class ProjectService {
             let processResult: Awaited<ReturnType<TranslationProcessor['processWorkItem']>> | undefined;
             let processError: unknown;
             try {
+              const styleGuidanceMode =
+                typeof (
+                  currentProject as {
+                    getStyleGuidanceMode?: () => StyleGuidanceMode | undefined;
+                  }
+                ).getStyleGuidanceMode === 'function'
+                  ? (
+                      currentProject as {
+                        getStyleGuidanceMode: () => StyleGuidanceMode | undefined;
+                      }
+                    ).getStyleGuidanceMode()
+                  : undefined;
+              const styleRequirementsText =
+                typeof (
+                  currentProject as {
+                    getStyleRequirementsText?: () => string | undefined;
+                  }
+                ).getStyleRequirementsText === 'function'
+                  ? (
+                      currentProject as {
+                        getStyleRequirementsText: () => string | undefined;
+                      }
+                    ).getStyleRequirementsText()
+                  : undefined;
+              const styleLibraryName =
+                typeof (
+                  currentProject as {
+                    getStyleLibraryName?: () => string | undefined;
+                  }
+                ).getStyleLibraryName === 'function'
+                  ? (
+                      currentProject as {
+                        getStyleLibraryName: () => string | undefined;
+                      }
+                    ).getStyleLibraryName()
+                  : undefined;
               processResult = await processor.processWorkItem(item, {
                 glossary: currentProject.getGlossary(),
                 documentManager: currentProject.getDocumentManager(),
-                styleGuidanceMode: currentProject.getStyleGuidanceMode(),
-                styleRequirementsText: currentProject.getStyleRequirementsText(),
-                styleLibraryName: currentProject.getStyleLibraryName(),
+                styleGuidanceMode,
+                styleRequirementsText,
+                styleLibraryName,
               });
             } catch (error) {
               processError = error;
