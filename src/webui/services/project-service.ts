@@ -490,6 +490,19 @@ export class ProjectService {
     return this.detachedProject === null || this.detachedProject === project;
   }
 
+  private getActiveWorkspaceContext(): {
+    runtime: WorkspaceRuntime | null;
+    state: WorkspaceRuntimeState;
+    project: TranslationProject | null;
+  } {
+    const runtime = this.activeRuntime;
+    return {
+      runtime,
+      state: runtime ?? this.currentState,
+      project: runtime?.project ?? this.project,
+    };
+  }
+
   private setActiveWorkspace(workspaceId: string | null): void {
     this.activeWorkspaceId = workspaceId;
   }
@@ -722,31 +735,32 @@ export class ProjectService {
     format: EditableTranslationFormat;
     content: string;
   }): Promise<ApplyChapterTranslationEditorResult> {
-    if (this.isBusy) {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
       throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
     }
-    if (!this.project) {
+    if (!project) {
       throw new ProjectServiceUserInputError('当前没有已初始化的项目');
     }
 
-    this.isBusy = true;
+    state.isBusy = true;
     try {
-      const validation = await this.project.applyChapterTranslationEditorContent(
+      const validation = await project.applyChapterTranslationEditorContent(
         input.chapterId,
         input.format,
         input.content,
       );
       const appliedUpdateCount = validation.updates.filter((update) => update.changed).length;
       if (validation.canApply) {
-        this.refreshSnapshot();
-        this.markChaptersChanged();
+        this.refreshSnapshot(runtime ?? undefined);
+        this.markChaptersChanged(state);
       }
       return {
         validation,
         appliedUpdateCount: validation.canApply ? appliedUpdateCount : 0,
       };
     } finally {
-      this.isBusy = false;
+      state.isBusy = false;
     }
   }
 
@@ -757,22 +771,23 @@ export class ProjectService {
   async scanRepeatedPatterns(
     options: RepetitionPatternAnalysisOptions = {},
   ): Promise<SavedRepetitionPatternAnalysisResult> {
-    if (this.isBusy) {
+    const { state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
       throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
     }
-    if (!this.project) {
+    if (!project) {
       throw new ProjectServiceUserInputError('当前没有已初始化的项目');
     }
 
-    this.isBusy = true;
+    state.isBusy = true;
     this.log('info', '正在扫描并保存重复 Pattern...');
     try {
-      const result = await this.project.scanAndSaveRepeatedPatterns(options);
-      this.markRepeatedPatternsChanged();
+      const result = await project.scanAndSaveRepeatedPatterns(options);
+      this.markRepeatedPatternsChanged(state);
       this.log('success', `重复 Pattern 已保存（${result.patterns.length} 个 Pattern）`);
       return result;
     } finally {
-      this.isBusy = false;
+      state.isBusy = false;
     }
   }
 
@@ -789,30 +804,31 @@ export class ProjectService {
     lineIndex: number;
     translation: string;
   }): Promise<void> {
-    if (this.isBusy) {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
       throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
     }
-    if (!this.project) {
+    if (!project) {
       throw new ProjectServiceUserInputError('当前没有已初始化的项目');
     }
 
-    this.isBusy = true;
+    state.isBusy = true;
     this.log(
       'info',
       `正在保存一致性分析译文：Ch${input.chapterId}/F${input.fragmentIndex + 1}/L${input.lineIndex + 1}`,
     );
     try {
-      await this.project.updateTranslatedLine(
+      await project.updateTranslatedLine(
         input.chapterId,
         input.fragmentIndex,
         input.lineIndex,
         input.translation,
       );
-      this.refreshSnapshot();
-      this.markChaptersChanged();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
       this.log('success', '一致性分析译文已保存');
     } finally {
-      this.isBusy = false;
+      state.isBusy = false;
     }
   }
 
@@ -974,13 +990,14 @@ export class ProjectService {
     llmProfileName: string;
     chapterIds?: number[];
   }): Promise<RepetitionPatternConsistencyFixProgress> {
-    if (this.isBusy) {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
       throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
     }
-    if (!this.project) {
+    if (!project) {
       throw new ProjectServiceUserInputError('当前没有已初始化的项目');
     }
-    if (this.repetitionPatternConsistencyFixProgress?.status === 'running') {
+    if (state.repetitionPatternConsistencyFixProgress?.status === 'running') {
       throw new ProjectServiceUserInputError('表达统一修复任务正在运行');
     }
 
@@ -992,7 +1009,7 @@ export class ProjectService {
     const manager = new GlobalConfigManager();
     await manager.getRequiredLlmProfile(llmProfileName);
 
-    const analysis = this.project.hydrateSavedRepeatedPatterns({
+    const analysis = project.hydrateSavedRepeatedPatterns({
       chapterIds: input.chapterIds,
     });
     if (!analysis) {
@@ -1001,8 +1018,8 @@ export class ProjectService {
     const tasks = buildRepetitionPatternFixTasks(analysis);
 
     this.clearRepetitionPatternConsistencyFixProgress();
-    this.isBusy = true;
-    this.repetitionPatternConsistencyFixProgress = {
+    state.isBusy = true;
+    state.repetitionPatternConsistencyFixProgress = {
       status: tasks.length > 0 ? 'running' : 'done',
       llmProfileName,
       totalPatterns: tasks.length,
@@ -1013,11 +1030,10 @@ export class ProjectService {
 
     if (tasks.length === 0) {
       this.log('info', '当前没有需要 AI 统一的重复 Pattern');
-      this.isBusy = false;
+      state.isBusy = false;
       return this.getRepetitionPatternConsistencyFixProgress()!;
     }
 
-    const project = this.project;
     this.log(
       'info',
       `开始执行表达统一修复，共 ${tasks.length} 个 Pattern，LLM=${llmProfileName}`,
@@ -1027,16 +1043,18 @@ export class ProjectService {
       project,
       llmProfileName,
       tasks,
+      runtime,
     });
 
     return this.getRepetitionPatternConsistencyFixProgress()!;
   }
 
   clearRepetitionPatternConsistencyFixProgress(): void {
-    if (this.repetitionPatternConsistencyFixProgress?.status === 'running') {
+    const { state } = this.getActiveWorkspaceContext();
+    if (state.repetitionPatternConsistencyFixProgress?.status === 'running') {
       throw new ProjectServiceUserInputError('表达统一修复任务仍在运行，暂时不能关闭进度');
     }
-    this.repetitionPatternConsistencyFixProgress = null;
+    state.repetitionPatternConsistencyFixProgress = null;
   }
 
   getGlossaryTerms(): Array<{
@@ -2169,9 +2187,10 @@ export class ProjectService {
     description?: string;
     category?: string;
   }): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('保存字典条目', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      const glossary = this.project.getGlossary();
+      if (!project) throw new Error('当前没有已初始化的项目');
+      const glossary = project.getGlossary();
       if (!glossary) throw new Error('当前项目还没有字典');
 
       const existing = args.originalTerm
@@ -2193,63 +2212,66 @@ export class ProjectService {
         glossary.addTerm(nextTerm);
       }
 
-      await this.project.saveProgress();
-      if ("bumpGlossaryDependencyRevision" in this.project) {
-        await this.project.bumpGlossaryDependencyRevision();
+      await project.saveProgress();
+      if ("bumpGlossaryDependencyRevision" in project) {
+        await project.bumpGlossaryDependencyRevision();
       }
-      this.refreshSnapshot();
-      this.markDictionaryChanged();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markDictionaryChanged(state);
       this.log('success', `字典条目已保存：${args.term}`);
-    });
+    }, state);
   }
 
   async deleteDictionaryTerm(term: string): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('删除字典条目', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      const glossary = this.project.getGlossary();
+      if (!project) throw new Error('当前没有已初始化的项目');
+      const glossary = project.getGlossary();
       if (!glossary) throw new Error('当前项目还没有字典');
       glossary.removeTerm(term);
-      await this.project.saveProgress();
-      if ("bumpGlossaryDependencyRevision" in this.project) {
-        await this.project.bumpGlossaryDependencyRevision();
+      await project.saveProgress();
+      if ("bumpGlossaryDependencyRevision" in project) {
+        await project.bumpGlossaryDependencyRevision();
       }
-      this.refreshSnapshot();
-      this.markDictionaryChanged();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markDictionaryChanged(state);
       this.log('success', `字典条目已删除：${term}`);
-    });
+    }, state);
   }
 
   async importGlossary(filePath: string): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('导入术语表', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      const result = await this.project.importGlossary(filePath);
-      await this.project.saveProgress();
-      this.refreshSnapshot();
-      this.markDictionaryChanged();
+      if (!project) throw new Error('当前没有已初始化的项目');
+      const result = await project.importGlossary(filePath);
+      await project.saveProgress();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markDictionaryChanged(state);
       this.log(
         'success',
         `术语表导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
       );
-    });
+    }, state);
   }
 
   async importGlossaryFromContent(
     content: string,
     format: 'csv' | 'tsv',
   ): Promise<GlossaryImportResult> {
-    if (this.isBusy) {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
       throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
     }
-    if (!this.project) {
+    if (!project) {
       throw new ProjectServiceUserInputError('当前没有已初始化的项目');
     }
     if (!content.trim()) {
       throw new ProjectServiceUserInputError('粘贴内容不能为空');
     }
 
-    this.isBusy = true;
+    state.isBusy = true;
     this.log('info', `正在导入粘贴术语（${format.toUpperCase()}）...`);
-    const projectDir = this.project.getWorkspaceFileManifest().projectDir;
+    const projectDir = project.getWorkspaceFileManifest().projectDir;
     const tempPath = join(
       projectDir,
       'Data',
@@ -2271,7 +2293,7 @@ export class ProjectService {
         }))
         .filter((term) => term.term.length > 0);
 
-      const glossary = this.project.getGlossary();
+      const glossary = project.getGlossary();
       if (!glossary) {
         throw new ProjectServiceUserInputError('当前项目还没有术语表');
       }
@@ -2305,12 +2327,12 @@ export class ProjectService {
         updatedTermCount,
       };
 
-      await this.project.saveProgress();
-      if ("bumpGlossaryDependencyRevision" in this.project) {
-        await this.project.bumpGlossaryDependencyRevision();
+      await project.saveProgress();
+      if ("bumpGlossaryDependencyRevision" in project) {
+        await project.bumpGlossaryDependencyRevision();
       }
-      this.refreshSnapshot();
-      this.markDictionaryChanged();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markDictionaryChanged(state);
       this.log(
         'success',
         `术语粘贴导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
@@ -2321,16 +2343,17 @@ export class ProjectService {
       throw error;
     } finally {
       await rm(tempPath, { force: true }).catch(() => undefined);
-      this.isBusy = false;
+      state.isBusy = false;
     }
   }
 
   async exportGlossary(outputPath: string): Promise<void> {
+    const { state, project } = this.getActiveWorkspaceContext();
     await this.runAction('导出术语表', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      await this.project.exportGlossary(outputPath);
+      if (!project) throw new Error('当前没有已初始化的项目');
+      await project.exportGlossary(outputPath);
       this.log('success', `术语表已导出到：${outputPath}`);
-    });
+    }, state);
   }
 
   // ─── Plot Summary ───────────────────────────────────
@@ -2669,20 +2692,21 @@ export class ProjectService {
   async exportProject(
     formatName: string,
   ): Promise<ProjectExportResult | null> {
-    if (!this.project) {
+    const { state, project } = this.getActiveWorkspaceContext();
+    if (!project) {
       this.log('warning', '当前没有已初始化的项目');
       return null;
     }
 
     let result: ProjectExportResult | null = null;
     await this.runAction('导出翻译文件', async () => {
-      const exported = await this.project!.exportProject(formatName);
+      const exported = await project.exportProject(formatName);
       result = exported;
       this.log(
         'success',
         `导出完成：${exported.totalChapters} 章节，${exported.totalUnits} 翻译单元 → ${exported.exportDir}`,
       );
-    });
+    }, state);
     return result;
   }
 
@@ -2690,7 +2714,8 @@ export class ProjectService {
     chapterIds: number[],
     formatName: string,
   ): Promise<ProjectExportResult | null> {
-    if (!this.project) {
+    const { state, project } = this.getActiveWorkspaceContext();
+    if (!project) {
       this.log('warning', '当前没有已初始化的项目');
       return null;
     }
@@ -2698,17 +2723,17 @@ export class ProjectService {
     let result: ProjectExportResult | null = null;
     await this.runAction('导出章节', async () => {
       const handler = TranslationFileHandlerFactory.getHandler(formatName);
-      const exportRootDir = `${this.project!.getWorkspaceFileManifest().projectDir}/export`;
+      const exportRootDir = `${project.getWorkspaceFileManifest().projectDir}/export`;
       await mkdir(exportRootDir, { recursive: true });
 
       const results: TranslationExportResult[] = [];
       for (const chapterId of chapterIds) {
-        const chapter = this.project!.getChapterDescriptor(chapterId);
+        const chapter = project.getChapterDescriptor(chapterId);
         if (!chapter) continue;
 
         const outputPath = join(exportRootDir, chapter.filePath);
         await mkdir(dirname(outputPath), { recursive: true });
-        await this.project!.exportChapter(chapterId, outputPath, { fileHandler: handler });
+        await project.exportChapter(chapterId, outputPath, { fileHandler: handler });
         results.push({ chapterId, outputPath, unitCount: chapter.fragmentCount });
       }
 
@@ -2731,7 +2756,7 @@ export class ProjectService {
         'success',
         `章节导出完成：${totalChapters} 章节，${totalUnits} 翻译单元 → ${exportRootDir}`,
       );
-    });
+    }, state);
     return result;
   }
 
@@ -2741,23 +2766,24 @@ export class ProjectService {
     filePath: string,
     options?: { format?: string; importTranslation?: boolean },
   ): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('添加章节', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      const descriptors = this.project.getChapterDescriptors();
+      if (!project) throw new Error('当前没有已初始化的项目');
+      const descriptors = project.getChapterDescriptors();
       const nextId =
         descriptors.length > 0
           ? Math.max(...descriptors.map((d) => d.id)) + 1
           : 1;
-      const result = await this.project.addChapter(nextId, filePath, options);
-      this.refreshSnapshot();
-      this.markChaptersChanged();
-      this.markTopologyChanged();
-      this.markRepeatedPatternsChanged();
+      const result = await project.addChapter(nextId, filePath, options);
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markTopologyChanged(state);
+      this.markRepeatedPatternsChanged(state);
       this.log(
         'success',
         `已添加章节 ${result.chapterId}（${result.fragmentCount} 文本块）`,
       );
-    });
+    }, state);
   }
 
   async importChaptersFromArchive(input: {
@@ -2767,17 +2793,17 @@ export class ProjectService {
     importPattern?: string;
     importTranslation?: boolean;
   }): Promise<ImportArchiveChaptersResult> {
-    if (this.isBusy) {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
       throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
     }
-    if (!this.project) {
+    if (!project) {
       throw new ProjectServiceUserInputError('当前没有已初始化的项目');
     }
 
-    this.isBusy = true;
+    state.isBusy = true;
     this.log('info', '正在从压缩包追加章节...');
 
-    const project = this.project;
     const workspaceDir = project.getWorkspaceFileManifest().projectDir;
     const importRootRelativePath = `Data/.archive-import/${Date.now()}`;
     const importRootAbsolutePath = join(workspaceDir, ...importRootRelativePath.split('/'));
@@ -2855,10 +2881,10 @@ export class ProjectService {
         };
       }
 
-      this.refreshSnapshot();
-      this.markChaptersChanged();
-      this.markTopologyChanged();
-      this.markRepeatedPatternsChanged();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markTopologyChanged(state);
+      this.markRepeatedPatternsChanged(state);
 
       if (failedFiles.length > 0) {
         this.log(
@@ -2881,45 +2907,48 @@ export class ProjectService {
       throw error;
     } finally {
       await rm(importRootAbsolutePath, { recursive: true, force: true }).catch(() => undefined);
-      this.isBusy = false;
+      state.isBusy = false;
     }
   }
 
   async removeChapter(chapterId: number): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('删除章节', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      await this.project.removeChapter(chapterId);
-      this.refreshSnapshot();
-      this.markChaptersChanged();
-      this.markTopologyChanged();
-      this.markRepeatedPatternsChanged();
+      if (!project) throw new Error('当前没有已初始化的项目');
+      await project.removeChapter(chapterId);
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markTopologyChanged(state);
+      this.markRepeatedPatternsChanged(state);
       this.log('success', `章节 ${chapterId} 已移除`);
-    });
+    }, state);
   }
 
   async removeChapters(
     chapterIds: number[],
     options: { cascadeBranches?: boolean } = {},
   ): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('批量删除章节', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      await this.project.removeChapters(chapterIds, options);
-      this.refreshSnapshot();
-      this.markChaptersChanged();
-      this.markTopologyChanged();
-      this.markRepeatedPatternsChanged();
+      if (!project) throw new Error('当前没有已初始化的项目');
+      await project.removeChapters(chapterIds, options);
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markTopologyChanged(state);
+      this.markRepeatedPatternsChanged(state);
       this.log('success', `已批量移除 ${chapterIds.length} 个章节`);
-    });
+    }, state);
   }
 
   async reorderChapters(chapterIds: number[]): Promise<void> {
+    const { state, project } = this.getActiveWorkspaceContext();
     await this.runAction('保存章节排序', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      await this.project.reorderChapters(chapterIds);
-      this.markChaptersChanged();
-      this.markTopologyChanged();
-      this.markRepeatedPatternsChanged();
-    });
+      if (!project) throw new Error('当前没有已初始化的项目');
+      await project.reorderChapters(chapterIds);
+      this.markChaptersChanged(state);
+      this.markTopologyChanged(state);
+      this.markRepeatedPatternsChanged(state);
+    }, state);
   }
 
   async createStoryBranch(input: {
@@ -2928,60 +2957,64 @@ export class ProjectService {
     forkAfterChapterId: number;
     chapterIds?: number[];
   }): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('创建剧情分支', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
+      if (!project) throw new Error('当前没有已初始化的项目');
       const routeId = this.createNextBranchRouteId();
-      await this.project.createStoryBranch({
+      await project.createStoryBranch({
         id: routeId,
         name: input.name,
         parentRouteId: input.parentRouteId,
         forkAfterChapterId: input.forkAfterChapterId,
         chapterIds: input.chapterIds,
       });
-      this.refreshSnapshot();
-      this.markChaptersChanged();
-      this.markTopologyChanged();
-      this.markRepeatedPatternsChanged();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markTopologyChanged(state);
+      this.markRepeatedPatternsChanged(state);
       this.log('success', `已创建分支“${input.name}”`);
-    });
+    }, state);
   }
 
   async updateStoryRoute(
     routeId: string,
     patch: { name?: string; forkAfterChapterId?: number },
   ): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('更新剧情路线', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      await this.project.updateStoryRoute(routeId, patch);
-      this.refreshSnapshot();
-      this.markChaptersChanged();
-      this.markTopologyChanged();
-      this.markRepeatedPatternsChanged();
+      if (!project) throw new Error('当前没有已初始化的项目');
+      await project.updateStoryRoute(routeId, patch);
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markTopologyChanged(state);
+      this.markRepeatedPatternsChanged(state);
       this.log('success', `路线 ${routeId} 已更新`);
-    });
+    }, state);
   }
 
   async removeStoryRoute(routeId: string): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('删除剧情路线', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      await this.project.removeStoryRoute(routeId);
-      this.refreshSnapshot();
-      this.markChaptersChanged();
-      this.markTopologyChanged();
-      this.markRepeatedPatternsChanged();
+      if (!project) throw new Error('当前没有已初始化的项目');
+      await project.removeStoryRoute(routeId);
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markTopologyChanged(state);
+      this.markRepeatedPatternsChanged(state);
       this.log('success', `路线 ${routeId} 已删除`);
-    });
+    }, state);
   }
 
   async reorderStoryRouteChapters(routeId: string, chapterIds: number[]): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('保存路线章节顺序', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      await this.project.reorderStoryRouteChapters(routeId, chapterIds);
-      this.refreshSnapshot();
-      this.markChaptersChanged();
-      this.markTopologyChanged();
-      this.markRepeatedPatternsChanged();
-    });
+      if (!project) throw new Error('当前没有已初始化的项目');
+      await project.reorderStoryRouteChapters(routeId, chapterIds);
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markTopologyChanged(state);
+      this.markRepeatedPatternsChanged(state);
+    }, state);
   }
 
   async moveChapterToRoute(
@@ -2989,30 +3022,32 @@ export class ProjectService {
     targetRouteId: string,
     targetIndex: number,
   ): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('移动章节到路线', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      await this.project.moveChapterToRoute(chapterId, targetRouteId, targetIndex);
-      this.refreshSnapshot();
-      this.markChaptersChanged();
-      this.markTopologyChanged();
-      this.markRepeatedPatternsChanged();
-    });
+      if (!project) throw new Error('当前没有已初始化的项目');
+      await project.moveChapterToRoute(chapterId, targetRouteId, targetIndex);
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markTopologyChanged(state);
+      this.markRepeatedPatternsChanged(state);
+    }, state);
   }
 
   // ─── Config ─────────────────────────────────────────
 
   async updateWorkspaceConfig(patch: WorkspaceConfigPatch): Promise<void> {
-    if (this.isBusy) {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
       throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
     }
-    if (!this.project) {
+    if (!project) {
       throw new ProjectServiceUserInputError('当前没有已初始化的项目');
     }
 
-    this.isBusy = true;
+    state.isBusy = true;
     this.log('info', '保存工作区配置...');
     try {
-      const currentProject = this.project;
+      const currentProject = project;
       const currentConfig = currentProject.getWorkspaceConfig();
       const nextConfig = applyWorkspaceConfigPatch(currentConfig, patch);
       const previousPipelineStrategy = resolveWorkspacePipelineStrategy(
@@ -3031,27 +3066,34 @@ export class ProjectService {
 
       await validateStyleTransferWorkspaceConfig(nextConfig);
 
-      await this.project.updateWorkspaceConfig(patch);
+      await currentProject.updateWorkspaceConfig(patch);
 
       if (previousPipelineStrategy !== nextPipelineStrategy) {
-        await clearWorkspaceSupportData(this.project);
-        this.project = await reopenProjectWithStrategy(
-          this.project.getWorkspaceFileManifest().projectDir,
+        await clearWorkspaceSupportData(currentProject);
+        const reopenedProject = await reopenProjectWithStrategy(
+          currentProject.getWorkspaceFileManifest().projectDir,
           nextPipelineStrategy,
         );
-        this.topology = this.project.getStoryTopology() ?? null;
-        this.plotSummaryReady = this.project.hasPlotSummaries();
+        if (runtime) {
+          runtime.project = reopenedProject;
+          runtime.topology = reopenedProject.getStoryTopology() ?? null;
+          runtime.plotSummaryReady = reopenedProject.hasPlotSummaries();
+        } else {
+          this.project = reopenedProject;
+          this.topology = reopenedProject.getStoryTopology() ?? null;
+          this.plotSummaryReady = reopenedProject.hasPlotSummaries();
+        }
         this.log('warning', '工作流已切换，已清除相关支持数据，请重新构建后再启动翻译');
       }
 
-      this.refreshSnapshot();
-      this.markWorkspaceConfigChanged();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markWorkspaceConfigChanged(state);
       this.log('success', '工作区配置已保存');
     } catch (error) {
       this.log('error', `保存工作区配置失败：${toMsg(error)}`);
       throw error;
     } finally {
-      this.isBusy = false;
+      state.isBusy = false;
     }
   }
 
@@ -3059,25 +3101,25 @@ export class ProjectService {
     vectorStoreType: ContextNetworkVectorStoreType;
     minEdgeStrength?: number;
   }): Promise<ContextNetworkBuildResult> {
-    if (this.isBusy) {
+    const { state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
       throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
     }
-    if (!this.project) {
+    if (!project) {
       throw new ProjectServiceUserInputError('当前没有已初始化的项目');
     }
 
-    const project = this.project;
     const workspaceConfig = project.getWorkspaceConfig();
     if (resolveWorkspacePipelineStrategy(workspaceConfig.pipelineStrategy) !== 'context-network') {
       throw new ProjectServiceUserInputError('当前工作区未启用上下文网络工作流');
     }
 
-    this.isBusy = true;
+    state.isBusy = true;
     this.log('info', '开始构建上下文网络...');
 
     const minEdgeStrength = input.minEdgeStrength ?? 0.5;
     if (!(minEdgeStrength > 0)) {
-      this.isBusy = false;
+      state.isBusy = false;
       throw new ProjectServiceUserInputError('最小连接强度阈值必须是正数');
     }
 
@@ -3156,7 +3198,7 @@ export class ProjectService {
       this.log('error', `构建上下文网络失败：${toMsg(error)}`);
       throw error;
     } finally {
-      this.isBusy = false;
+      state.isBusy = false;
       await provider?.closeAll();
     }
   }
@@ -3169,40 +3211,42 @@ export class ProjectService {
     clearGlossaryTranslations?: boolean;
     clearPlotSummaries?: boolean;
   }): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('重置项目', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
+      if (!project) throw new Error('当前没有已初始化的项目');
 
       if (options.clearAllTranslations) {
-        await this.project.clearAllTranslations();
-        this.markChaptersChanged();
+        await project.clearAllTranslations();
+        this.markChaptersChanged(state);
         this.log('success', '已清空所有译文');
       }
       if (options.clearGlossary) {
-        await this.project.clearGlossary();
-        this.markDictionaryChanged();
+        await project.clearGlossary();
+        this.markDictionaryChanged(state);
         this.log('success', '已清除术语表');
       } else if (options.clearGlossaryTranslations) {
-        await this.project.clearGlossaryTranslations();
-        this.markDictionaryChanged();
+        await project.clearGlossaryTranslations();
+        this.markDictionaryChanged(state);
         this.log('success', '已清除术语表译文');
       }
       if (options.clearPlotSummaries) {
-        await this.project.clearPlotSummaries();
-        this.plotSummaryReady = false;
+        await project.clearPlotSummaries();
+        state.plotSummaryReady = false;
         this.log('success', '已清除情节大纲');
       }
-      this.refreshSnapshot();
-    });
+      this.refreshSnapshot(runtime ?? undefined);
+    }, state);
   }
 
   async clearChapterTranslations(chapterIds: number[]): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('清除章节译文', async () => {
-      if (!this.project) throw new Error('当前没有已初始化的项目');
-      await this.project.clearChapterTranslations(chapterIds);
-      this.refreshSnapshot();
-      this.markChaptersChanged();
+      if (!project) throw new Error('当前没有已初始化的项目');
+      await project.clearChapterTranslations(chapterIds);
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
       this.log('success', `已清除 ${chapterIds.length} 个章节的译文`);
-    });
+    }, state);
   }
 
   // ─── Workspace Close / Remove ───────────────────────
@@ -3475,18 +3519,19 @@ export class ProjectService {
   }
 
   async runBatchPostProcess(chapterIds: number[], processorIds: string[]): Promise<void> {
-    if (!this.project) {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    if (!project) {
       throw new Error('未加载项目');
     }
 
-    if (this.isBusy) {
+    if (state.isBusy) {
       throw new Error('当前正在运行其他任务，请稍后再试');
     }
 
-    this.isBusy = true;
+    state.isBusy = true;
     try {
       const pipeline = TextPostProcessorRegistry.createPipeline(processorIds);
-      const docManager = this.project.getDocumentManager();
+      const docManager = project.getDocumentManager();
 
       for (const chapterId of chapterIds) {
         const chapter = docManager.getChapterById(chapterId);
@@ -3515,10 +3560,10 @@ export class ProjectService {
         }
       }
 
-      this.refreshSnapshot();
-      this.markChaptersChanged();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
     } finally {
-      this.isBusy = false;
+      state.isBusy = false;
     }
   }
 
@@ -3552,7 +3597,9 @@ export class ProjectService {
     project: TranslationProject;
     llmProfileName: string;
     tasks: RepetitionPatternFixTask[];
+    runtime?: WorkspaceRuntime | null;
   }): Promise<void> {
+    const state = params.runtime ?? this.getStateForProject(params.project);
     let provider: ReturnType<TranslationGlobalConfig['createProvider']> | undefined;
 
     try {
@@ -3586,11 +3633,11 @@ export class ProjectService {
       const syncProgress = (
         patch: Partial<RepetitionPatternConsistencyFixProgress> = {},
       ): void => {
-        if (!this.repetitionPatternConsistencyFixProgress) {
+        if (!state.repetitionPatternConsistencyFixProgress) {
           return;
         }
-        this.repetitionPatternConsistencyFixProgress = {
-          ...this.repetitionPatternConsistencyFixProgress,
+        state.repetitionPatternConsistencyFixProgress = {
+          ...state.repetitionPatternConsistencyFixProgress,
           ...patch,
           runningPatterns: [...runningPatterns],
         };
@@ -3607,8 +3654,7 @@ export class ProjectService {
               entry.value,
             );
             syncProgress({
-              completedPatterns:
-                this.repetitionPatternConsistencyFixProgress!.completedPatterns + 1,
+              completedPatterns: state.repetitionPatternConsistencyFixProgress!.completedPatterns + 1,
               lastAppliedPatternText: entry.value.task.patternText,
             });
             this.log(
@@ -3617,8 +3663,7 @@ export class ProjectService {
             );
           } else {
             syncProgress({
-              failedPatterns:
-                this.repetitionPatternConsistencyFixProgress!.failedPatterns + 1,
+              failedPatterns: state.repetitionPatternConsistencyFixProgress!.failedPatterns + 1,
             });
             this.log(
               'error',
@@ -3672,7 +3717,7 @@ export class ProjectService {
       await Promise.all(Array.from({ length: concurrency }, () => worker()));
       await flushChain;
 
-      const failedPatterns = this.repetitionPatternConsistencyFixProgress?.failedPatterns ?? 0;
+      const failedPatterns = state.repetitionPatternConsistencyFixProgress?.failedPatterns ?? 0;
       const finalStatus = failedPatterns > 0 ? 'error' : 'done';
       syncProgress({
         status: finalStatus,
@@ -3688,9 +3733,9 @@ export class ProjectService {
           : `表达统一修复已结束，成功 ${params.tasks.length - failedPatterns} 个，失败 ${failedPatterns} 个`,
       );
     } catch (error) {
-      if (this.repetitionPatternConsistencyFixProgress) {
-        this.repetitionPatternConsistencyFixProgress = {
-          ...this.repetitionPatternConsistencyFixProgress,
+      if (state.repetitionPatternConsistencyFixProgress) {
+        state.repetitionPatternConsistencyFixProgress = {
+          ...state.repetitionPatternConsistencyFixProgress,
           status: 'error',
           errorMessage: toMsg(error),
           runningPatterns: [],
@@ -3698,7 +3743,7 @@ export class ProjectService {
       }
       this.log('error', `表达统一修复执行失败：${toMsg(error)}`);
     } finally {
-      this.isBusy = false;
+      state.isBusy = false;
       await provider?.closeAll();
     }
   }
