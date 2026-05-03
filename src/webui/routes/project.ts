@@ -4,7 +4,7 @@
 
 import { readdir } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import JSZip from 'jszip';
 import {
   ProjectServiceUserInputError,
@@ -19,35 +19,62 @@ export function createProjectRoutes(
 ): Hono {
   const app = new Hono();
 
+  const readWorkspaceId = (c: Context): string | Response | undefined => {
+    const workspaceId = normalizeWorkspaceIdQuery(c.req.query('workspaceId'));
+    if (!workspaceId) {
+      return undefined;
+    }
+    if (!projectService.hasWorkspace(workspaceId)) {
+      return c.json({ error: '指定工作区未在当前进程中打开' }, 404);
+    }
+    return workspaceId;
+  };
+
   // ─── 快照与状态 ─────────────────────────────────
 
   app.get('/snapshot', (c) => {
-    if (readIncludeEntriesQuery(c.req.query('includeEntries'))) {
-      return c.json(projectService.getSnapshotWithEntries());
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
     }
-    return c.json(projectService.getSnapshot());
+    if (readIncludeEntriesQuery(c.req.query('includeEntries'))) {
+      return c.json(projectService.getSnapshotWithEntries(workspaceId));
+    }
+    return c.json(projectService.getSnapshot(workspaceId));
   });
 
   app.get('/status', (c) => {
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
+    }
     if (readIncludeEntriesQuery(c.req.query('includeEntries'))) {
-      const status = projectService.getStatus();
+      const status = projectService.getStatus(workspaceId);
       return c.json({
         ...status,
-        snapshot: projectService.getSnapshotWithEntries(),
+        snapshot: projectService.getSnapshotWithEntries(workspaceId),
       });
     }
-    return c.json(projectService.getStatus());
+    return c.json(projectService.getStatus(workspaceId));
   });
 
   app.get('/resources/versions', (c) => {
-    return c.json(projectService.getResourceVersions());
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
+    }
+    return c.json(projectService.getResourceVersions(workspaceId));
   });
 
   app.get('/queue/:stepId/entries', (c) => {
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
+    }
     const stepId = c.req.param('stepId');
     return c.json({
       stepId,
-      entries: projectService.getQueueEntries(stepId),
+      entries: projectService.getQueueEntries(stepId, workspaceId),
     });
   });
 
@@ -76,7 +103,11 @@ export function createProjectRoutes(
   // ─── 字典 / 术语表 ──────────────────────────────
 
   app.get('/dictionary', (c) => {
-    return c.json({ terms: projectService.getGlossaryTerms() });
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
+    }
+    return c.json({ terms: projectService.getGlossaryTerms(workspaceId) });
   });
 
   app.put('/dictionary', async (c) => {
@@ -276,16 +307,28 @@ export function createProjectRoutes(
   // ─── 章节管理 ───────────────────────────────────
 
   app.get('/chapters', (c) => {
-    return c.json({ chapters: projectService.getChapterDescriptors() });
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
+    }
+    return c.json({ chapters: projectService.getChapterDescriptors(workspaceId) });
   });
 
   app.get('/topology', (c) => {
-    return c.json({ topology: projectService.getTopology() });
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
+    }
+    return c.json({ topology: projectService.getTopology(workspaceId) });
   });
 
   app.get('/preview/chapters/:id', (c) => {
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
+    }
     const id = Number(c.req.param('id'));
-    const preview = projectService.getChapterPreview(id);
+    const preview = projectService.getChapterPreview(id, workspaceId);
     if (!preview) {
       return c.json({ error: '当前没有可预览的工作区章节' }, 404);
     }
@@ -293,12 +336,16 @@ export function createProjectRoutes(
   });
 
   app.get('/editor/chapters/:id', (c) => {
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
+    }
     const id = Number(c.req.param('id'));
     const format = normalizeEditorFormat(c.req.query('format'));
     if (!format) {
       return c.json({ error: 'format 必须是 naturedialog 或 m3t' }, 400);
     }
-    const draft = projectService.getChapterTranslationEditorDocument(id, format);
+    const draft = projectService.getChapterTranslationEditorDocument(id, format, workspaceId);
     if (!draft) {
       return c.json({ error: '当前没有可编辑的工作区章节' }, 404);
     }
@@ -371,9 +418,13 @@ export function createProjectRoutes(
 
   app.get('/repetition-patterns', (c) => {
     try {
+      const workspaceId = readWorkspaceId(c);
+      if (workspaceId instanceof Response) {
+        return workspaceId;
+      }
       const result = projectService.getRepeatedPatterns({
         chapterIds: readOptionalPositiveIntegerListQuery(c.req.query('chapterIds')),
-      });
+      }, workspaceId);
       if (!result) {
         return c.json({ error: '当前没有已初始化的项目' }, 404);
       }
@@ -454,6 +505,10 @@ export function createProjectRoutes(
   });
 
   app.get('/repetition-patterns/context', (c) => {
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
+    }
     const chapterId = readOptionalPositiveIntegerQuery(c.req.query('chapterId'));
     const unitIndex = readOptionalPositiveIntegerQuery(c.req.query('unitIndex'));
     if (chapterId === undefined || unitIndex === undefined) {
@@ -463,7 +518,7 @@ export function createProjectRoutes(
     const context = projectService.getRepeatedPatternTranslationContext({
       chapterId,
       unitIndex: unitIndex - 1,
-    });
+    }, workspaceId);
     if (!context) {
       return c.json({ error: '未找到对应的一致性分析上下文' }, 404);
     }
@@ -490,7 +545,11 @@ export function createProjectRoutes(
   });
 
   app.get('/repetition-patterns/consistency-fix/status', (c) => {
-    return c.json(projectService.getRepetitionPatternConsistencyFixProgress());
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
+    }
+    return c.json(projectService.getRepetitionPatternConsistencyFixProgress(workspaceId));
   });
 
   app.post('/repetition-patterns/consistency-fix/clear', (c) => {
@@ -679,7 +738,11 @@ export function createProjectRoutes(
   // ─── 工作区配置 ─────────────────────────────────
 
   app.get('/config', (c) => {
-    return c.json(projectService.getWorkspaceConfig());
+    const workspaceId = readWorkspaceId(c);
+    if (workspaceId instanceof Response) {
+      return workspaceId;
+    }
+    return c.json(projectService.getWorkspaceConfig(workspaceId));
   });
 
   app.put('/config', async (c) => {
@@ -809,6 +872,11 @@ function readOptionalPositiveIntegerQuery(value: string | undefined): number | u
     return undefined;
   }
   return parsed;
+}
+
+function normalizeWorkspaceIdQuery(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
 }
 
 function readOptionalPositiveIntegerListQuery(value: string | undefined): number[] | undefined {

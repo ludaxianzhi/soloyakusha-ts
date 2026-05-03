@@ -5,6 +5,7 @@ import type {
   ProofreadProgress,
   ScanDictionaryProgress,
   TranslationProjectSnapshot,
+  WorkspaceEventEnvelope,
 } from './types.ts';
 
 type EventHandlers = {
@@ -18,57 +19,65 @@ type EventHandlers = {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
-export function useEventStream(handlers: EventHandlers) {
+type UseEventStreamOptions = {
+  workspaceId?: string;
+  includeWorkspace?: boolean;
+  includeLogs?: boolean;
+};
+
+export function useEventStream(
+  handlers: EventHandlers,
+  options: UseEventStreamOptions = {},
+) {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const source = new window.EventSource(`${API_BASE}/api/events?includeLogs=0`);
+    const query = new URLSearchParams();
+    query.set('includeLogs', options.includeLogs ? '1' : '0');
+    if (options.workspaceId) {
+      query.set('workspaceId', options.workspaceId);
+    }
+    if (options.includeWorkspace) {
+      query.set('includeWorkspace', '1');
+    }
+
+    const source = new window.EventSource(`${API_BASE}/api/events?${query.toString()}`);
+
+    const parseEvent = <T,>(event: Event): T => {
+      const raw = JSON.parse((event as MessageEvent<string>).data) as
+        | T
+        | WorkspaceEventEnvelope<T>;
+      if (options.includeWorkspace && raw && typeof raw === 'object' && 'data' in raw) {
+        return (raw as WorkspaceEventEnvelope<T>).data;
+      }
+      return raw as T;
+    };
 
     source.addEventListener('open', () => setConnected(true));
     source.addEventListener('error', () => setConnected(false));
     source.addEventListener('snapshot', (event) => {
-      handlers.onSnapshot?.(
-        JSON.parse((event as MessageEvent<string>).data) as
-          | TranslationProjectSnapshot
-          | null,
-      );
+      handlers.onSnapshot?.(parseEvent<TranslationProjectSnapshot | null>(event));
     });
     source.addEventListener('log', (event) => {
-      handlers.onLog?.(
-        JSON.parse((event as MessageEvent<string>).data) as LogEntry,
-      );
+      handlers.onLog?.(parseEvent<LogEntry>(event));
     });
     source.addEventListener('scanProgress', (event) => {
-      handlers.onScanProgress?.(
-        JSON.parse((event as MessageEvent<string>).data) as
-          | ScanDictionaryProgress
-          | null,
-      );
+      handlers.onScanProgress?.(parseEvent<ScanDictionaryProgress | null>(event));
     });
     source.addEventListener('proofreadProgress', (event) => {
-      handlers.onProofreadProgress?.(
-        JSON.parse((event as MessageEvent<string>).data) as
-          | ProofreadProgress
-          | null,
-      );
+      handlers.onProofreadProgress?.(parseEvent<ProofreadProgress | null>(event));
     });
     source.addEventListener('plotProgress', (event) => {
-      handlers.onPlotProgress?.(
-        JSON.parse((event as MessageEvent<string>).data) as
-          | PlotSummaryProgress
-          | null,
-      );
+      handlers.onPlotProgress?.(parseEvent<PlotSummaryProgress | null>(event));
     });
     source.addEventListener('chaptersChanged', (event) => {
-      handlers.onChaptersChanged?.(
-        JSON.parse((event as MessageEvent<string>).data) as number,
-      );
+      handlers.onChaptersChanged?.(parseEvent<number>(event));
     });
 
     return () => {
       source.close();
     };
-  }, [handlers]);
+  }, [handlers, options.includeLogs, options.includeWorkspace, options.workspaceId]);
 
   return { connected };
 }

@@ -99,7 +99,7 @@ import {
   TextPostProcessorRegistry, 
   type TextPostProcessorDescriptor 
 } from '../../utils/text-post-processor.ts';
-import type { EventBus } from './event-bus.ts';
+import type { BusEventType, EventBus } from './event-bus.ts';
 import { extractArchiveToDirectory } from './archive-extractor.ts';
 import type { RequestHistoryService } from './request-history-service.ts';
 import type { UsageStatsService } from './usage-stats-service.ts';
@@ -249,6 +249,8 @@ export interface TranslationProjectProgressSnapshot
 }
 
 export interface ProjectStatus {
+  workspaceId: string | null;
+  isActiveWorkspace: boolean;
   hasProject: boolean;
   isBusy: boolean;
   plotSummaryReady: boolean;
@@ -256,6 +258,17 @@ export interface ProjectStatus {
   scanDictionaryProgress: ScanDictionaryProgress | null;
   proofreadProgress: ProofreadProgress | null;
   snapshot: TranslationProjectProgressSnapshot | null;
+}
+
+export interface OpenWorkspaceStatus {
+  workspaceId: string;
+  projectDir: string;
+  projectName: string;
+  isActive: boolean;
+  isBusy: boolean;
+  plotSummaryReady: boolean;
+  snapshot: TranslationProjectProgressSnapshot | null;
+  resourceVersions: ProjectResourceVersions;
 }
 
 export interface TranslationPreviewUnit {
@@ -503,6 +516,31 @@ export class ProjectService {
     };
   }
 
+  private getWorkspaceContext(workspaceId?: string | null): {
+    runtime: WorkspaceRuntime | null;
+    state: WorkspaceRuntimeState;
+    project: TranslationProject | null;
+  } {
+    if (!workspaceId) {
+      return this.getActiveWorkspaceContext();
+    }
+
+    const runtime = this.getRuntime(workspaceId) ?? null;
+    return {
+      runtime,
+      state: runtime ?? this.detachedState,
+      project: runtime?.project ?? null,
+    };
+  }
+
+  private isWorkspaceRuntimeState(state: WorkspaceRuntimeState): state is WorkspaceRuntime {
+    return 'workspaceId' in state;
+  }
+
+  private getWorkspaceIdForState(state: WorkspaceRuntimeState): string | null {
+    return this.isWorkspaceRuntimeState(state) ? state.workspaceId : null;
+  }
+
   private setActiveWorkspace(workspaceId: string | null): void {
     this.activeWorkspaceId = workspaceId;
   }
@@ -648,71 +686,116 @@ export class ProjectService {
 
   // ─── Queries ────────────────────────────────────────
 
-  getStatus(): ProjectStatus {
+  hasWorkspace(workspaceId: string): boolean {
+    return this.runtimes.has(workspaceId);
+  }
+
+  toWorkspaceId(projectDir: string): string {
+    return toWorkspaceRuntimeId(projectDir);
+  }
+
+  getActiveWorkspaceId(): string | null {
+    return this.activeRuntime?.workspaceId ?? null;
+  }
+
+  listOpenWorkspaces(): OpenWorkspaceStatus[] {
+    return Array.from(this.runtimes.values()).map((runtime) => ({
+      workspaceId: runtime.workspaceId,
+      projectDir: runtime.project.getWorkspaceFileManifest().projectDir,
+      projectName: runtime.project.getProjectSnapshot().projectName,
+      isActive: runtime.workspaceId === this.activeWorkspaceId,
+      isBusy: runtime.isBusy,
+      plotSummaryReady: runtime.plotSummaryReady,
+      snapshot: runtime.snapshot,
+      resourceVersions: { ...runtime.resourceVersions },
+    }));
+  }
+
+  activateWorkspace(workspaceId: string): ProjectStatus | null {
+    const runtime = this.getRuntime(workspaceId);
+    if (!runtime) {
+      return null;
+    }
+
+    this.setActiveWorkspace(workspaceId);
+    this.refreshSnapshot(runtime);
+    return this.getStatus(workspaceId);
+  }
+
+  getStatus(workspaceId?: string): ProjectStatus {
+    const { runtime, state, project } = this.getWorkspaceContext(workspaceId);
     return {
-      hasProject: this.project !== null,
-      isBusy: this.isBusy,
-      plotSummaryReady: this.plotSummaryReady,
-      plotSummaryProgress: this.plotSummaryProgress,
-      scanDictionaryProgress: this.scanDictionaryProgress,
-      proofreadProgress: this.proofreadProgress,
-      snapshot: this.snapshot,
+      workspaceId: runtime?.workspaceId ?? null,
+      isActiveWorkspace:
+        runtime !== null && runtime.workspaceId === this.activeRuntime?.workspaceId,
+      hasProject: project !== null,
+      isBusy: state.isBusy,
+      plotSummaryReady: state.plotSummaryReady,
+      plotSummaryProgress: state.plotSummaryProgress,
+      scanDictionaryProgress: state.scanDictionaryProgress,
+      proofreadProgress: state.proofreadProgress,
+      snapshot: state.snapshot,
     };
   }
 
-  getSnapshot(): TranslationProjectProgressSnapshot | null {
-    return this.snapshot;
+  getSnapshot(workspaceId?: string): TranslationProjectProgressSnapshot | null {
+    return this.getWorkspaceContext(workspaceId).state.snapshot;
   }
 
-  getSnapshotWithEntries(): TranslationProjectSnapshot | null {
-    if (!this.project) {
+  getSnapshotWithEntries(workspaceId?: string): TranslationProjectSnapshot | null {
+    const { project } = this.getWorkspaceContext(workspaceId);
+    if (!project) {
       return null;
     }
-    return this.project.getProjectSnapshot();
+    return project.getProjectSnapshot();
   }
 
-  getQueueEntries(stepId: string): TranslationStepQueueEntrySnapshot[] {
-    if (!this.project) {
+  getQueueEntries(stepId: string, workspaceId?: string): TranslationStepQueueEntrySnapshot[] {
+    const { project } = this.getWorkspaceContext(workspaceId);
+    if (!project) {
       return [];
     }
-    return this.project.getQueueSnapshot(stepId).entries;
+    return project.getQueueSnapshot(stepId).entries;
   }
 
-  getWorkspaceConfig(): WorkspaceConfig | null {
-    return this.project?.getWorkspaceConfig() ?? null;
+  getWorkspaceConfig(workspaceId?: string): WorkspaceConfig | null {
+    return this.getWorkspaceContext(workspaceId).project?.getWorkspaceConfig() ?? null;
   }
 
-  getChapterDescriptors(): WorkspaceChapterDescriptor[] {
-    return this.project?.getChapterDescriptors() ?? [];
+  getChapterDescriptors(workspaceId?: string): WorkspaceChapterDescriptor[] {
+    return this.getWorkspaceContext(workspaceId).project?.getChapterDescriptors() ?? [];
   }
 
-  getTopology(): StoryTopologyDescriptor | null {
-    return this.project?.getStoryTopologyDescriptor() ?? null;
+  getTopology(workspaceId?: string): StoryTopologyDescriptor | null {
+    return this.getWorkspaceContext(workspaceId).project?.getStoryTopologyDescriptor() ?? null;
   }
 
   getPostProcessorDescriptors(): TextPostProcessorDescriptor[] {
     return TextPostProcessorRegistry.getAllDescriptors();
   }
 
-  getResourceVersions(): ProjectResourceVersions {
-    return { ...this.resourceVersions };
+  getResourceVersions(workspaceId?: string): ProjectResourceVersions {
+    return { ...this.getWorkspaceContext(workspaceId).state.resourceVersions };
   }
 
-  getChapterPreview(chapterId: number): TranslationPreviewChapter | null {
-    if (!this.project?.getChapterDescriptor(chapterId)) {
+  getChapterPreview(chapterId: number, workspaceId?: string): TranslationPreviewChapter | null {
+    const { project } = this.getWorkspaceContext(workspaceId);
+    if (!project?.getChapterDescriptor(chapterId)) {
       return null;
     }
-    return this.project.getChapterTranslationPreview(chapterId);
+    return project.getChapterTranslationPreview(chapterId);
   }
 
   getChapterTranslationEditorDocument(
     chapterId: number,
     format: EditableTranslationFormat,
+    workspaceId?: string,
   ): ChapterTranslationEditorDocument | null {
-    if (!this.project?.getChapterDescriptor(chapterId)) {
+    const { project } = this.getWorkspaceContext(workspaceId);
+    if (!project?.getChapterDescriptor(chapterId)) {
       return null;
     }
-    return this.project.getChapterTranslationEditorDocument(chapterId, format);
+    return project.getChapterTranslationEditorDocument(chapterId, format);
   }
 
   validateChapterTranslationEditorContent(input: {
@@ -764,8 +847,11 @@ export class ProjectService {
     }
   }
 
-  getRepeatedPatterns(options: { chapterIds?: number[] } = {}): SavedRepetitionPatternAnalysisResult | null {
-    return this.project?.getSavedRepeatedPatterns(options) ?? null;
+  getRepeatedPatterns(
+    options: { chapterIds?: number[] } = {},
+    workspaceId?: string,
+  ): SavedRepetitionPatternAnalysisResult | null {
+    return this.getWorkspaceContext(workspaceId).project?.getSavedRepeatedPatterns(options) ?? null;
   }
 
   async scanRepeatedPatterns(
@@ -794,8 +880,8 @@ export class ProjectService {
   hydrateRepeatedPatterns(input: {
     chapterIds?: number[];
     patternTexts?: string[];
-  }): RepetitionPatternAnalysisResult | null {
-    return this.project?.hydrateSavedRepeatedPatterns(input) ?? null;
+  }, workspaceId?: string): RepetitionPatternAnalysisResult | null {
+    return this.getWorkspaceContext(workspaceId).project?.hydrateSavedRepeatedPatterns(input) ?? null;
   }
 
   async updateRepeatedPatternTranslation(input: {
@@ -835,7 +921,7 @@ export class ProjectService {
   getRepeatedPatternTranslationContext(input: {
     chapterId: number;
     unitIndex: number;
-  }): {
+  }, workspaceId?: string): {
     chapterId: number;
     unitIndex: number;
     startUnitIndex: number;
@@ -846,11 +932,12 @@ export class ProjectService {
       isFocus: boolean;
     }>;
   } | null {
-    if (!this.project?.getChapterDescriptor(input.chapterId)) {
+    const { project } = this.getWorkspaceContext(workspaceId);
+    if (!project?.getChapterDescriptor(input.chapterId)) {
       return null;
     }
 
-    const preview = this.project.getChapterTranslationPreview(input.chapterId);
+    const preview = project.getChapterTranslationPreview(input.chapterId);
     const contextRadius = 3;
     const startUnitIndex = Math.max(0, input.unitIndex - contextRadius);
     const endUnitIndexExclusive = Math.min(
@@ -977,11 +1064,14 @@ export class ProjectService {
     return { assistantText: assistantText.trim() };
   }
 
-  getRepetitionPatternConsistencyFixProgress(): RepetitionPatternConsistencyFixProgress | null {
-    return this.repetitionPatternConsistencyFixProgress
+  getRepetitionPatternConsistencyFixProgress(
+    workspaceId?: string,
+  ): RepetitionPatternConsistencyFixProgress | null {
+    const progress = this.getWorkspaceContext(workspaceId).state.repetitionPatternConsistencyFixProgress;
+    return progress
       ? {
-          ...this.repetitionPatternConsistencyFixProgress,
-          runningPatterns: [...this.repetitionPatternConsistencyFixProgress.runningPatterns],
+          ...progress,
+          runningPatterns: [...progress.runningPatterns],
         }
       : null;
   }
@@ -1057,7 +1147,7 @@ export class ProjectService {
     state.repetitionPatternConsistencyFixProgress = null;
   }
 
-  getGlossaryTerms(): Array<{
+  getGlossaryTerms(workspaceId?: string): Array<{
     term: string;
     translation: string;
     description?: string;
@@ -1066,7 +1156,7 @@ export class ProjectService {
     totalOccurrenceCount?: number;
     textBlockOccurrenceCount?: number;
   }> {
-    const glossary = this.project?.getGlossary();
+    const glossary = this.getWorkspaceContext(workspaceId).project?.getGlossary();
     if (!glossary) return [];
     return glossary.getAllTerms().map((t) => ({
       term: t.term,
@@ -1079,10 +1169,11 @@ export class ProjectService {
     }));
   }
 
-  async getRequestHistory(): Promise<LlmRequestHistoryEntry[]> {
-    if (!this.project) return [];
+  async getRequestHistory(workspaceId?: string): Promise<LlmRequestHistoryEntry[]> {
+    const { project } = this.getWorkspaceContext(workspaceId);
+    if (!project) return [];
     try {
-      const projectDir = this.project.getWorkspaceFileManifest().projectDir;
+      const projectDir = project.getWorkspaceFileManifest().projectDir;
       return await readHistoryEntriesFromLogDir(join(projectDir, 'logs'));
     } catch {
       return [];
@@ -3251,18 +3342,34 @@ export class ProjectService {
 
   // ─── Workspace Close / Remove ───────────────────────
 
-  closeWorkspace(): void {
-    this.closeInternal();
-    this.log('info', '已关闭当前工作区');
+  closeWorkspace(workspaceId?: string): void {
+    const targetWorkspaceId = workspaceId ?? this.activeWorkspaceId;
+    if (!targetWorkspaceId) {
+      return;
+    }
+
+    const wasActive = targetWorkspaceId === this.activeWorkspaceId;
+    this.closeInternal(targetWorkspaceId);
+    this.emitWorkspaceEvent('snapshot', targetWorkspaceId, null);
+    this.log(
+      wasActive ? 'info' : 'warning',
+      wasActive ? '已关闭当前工作区' : '已关闭指定工作区',
+      targetWorkspaceId,
+    );
     this.broadcastSnapshot();
   }
 
-  async removeWorkspace(): Promise<void> {
-    const dir = this.project?.getWorkspaceFileManifest().projectDir;
-    this.closeInternal();
+  async removeWorkspace(workspaceId?: string): Promise<void> {
+    const targetWorkspaceId = workspaceId ?? this.activeWorkspaceId;
+    const { project } = this.getWorkspaceContext(targetWorkspaceId);
+    const dir = project?.getWorkspaceFileManifest().projectDir;
+    this.closeInternal(targetWorkspaceId ?? undefined);
+    if (targetWorkspaceId) {
+      this.emitWorkspaceEvent('snapshot', targetWorkspaceId, null);
+    }
     if (dir) {
       await this.workspaceManager.removeWorkspace(dir);
-      this.log('success', `工作区已移除：${dir}`);
+      this.log('success', `工作区已移除：${dir}`, targetWorkspaceId ?? null);
     }
     this.broadcastSnapshot();
   }
@@ -3458,9 +3565,7 @@ export class ProjectService {
     if (elapsedMs >= 200) {
       this.log('warning', `刷新运行态快照耗时较高：${elapsedMs}ms`);
     }
-    if (runtime === this.activeRuntime) {
-      this.broadcastSnapshot();
-    }
+    this.broadcastSnapshot(runtime);
   }
 
   private createNextBranchRouteId(): string {
@@ -3473,41 +3578,40 @@ export class ProjectService {
     return `branch-${sequence}`;
   }
 
-  private broadcastSnapshot(): void {
+  private emitWorkspaceEvent(type: BusEventType, workspaceId: string | null, data: unknown): void {
     this.eventBus.emit({
-      type: 'snapshot',
-      data: this.snapshot,
+      type,
+      workspaceId,
+      data,
     });
+  }
+
+  private broadcastSnapshot(runtime = this.activeRuntime): void {
+    this.emitWorkspaceEvent('snapshot', runtime?.workspaceId ?? null, runtime?.snapshot ?? null);
   }
 
   private broadcastScanProgress(state: WorkspaceRuntimeState = this.currentState): void {
-    if (!this.isCurrentVisibleState(state)) {
-      return;
-    }
-    this.eventBus.emit({
-      type: 'scanProgress',
-      data: state.scanDictionaryProgress,
-    });
+    this.emitWorkspaceEvent(
+      'scanProgress',
+      this.getWorkspaceIdForState(state),
+      state.scanDictionaryProgress,
+    );
   }
 
   private broadcastPlotProgress(state: WorkspaceRuntimeState = this.currentState): void {
-    if (!this.isCurrentVisibleState(state)) {
-      return;
-    }
-    this.eventBus.emit({
-      type: 'plotProgress',
-      data: state.plotSummaryProgress,
-    });
+    this.emitWorkspaceEvent(
+      'plotProgress',
+      this.getWorkspaceIdForState(state),
+      state.plotSummaryProgress,
+    );
   }
 
   private broadcastProofreadProgress(state: WorkspaceRuntimeState = this.currentState): void {
-    if (!this.isCurrentVisibleState(state)) {
-      return;
-    }
-    this.eventBus.emit({
-      type: 'proofreadProgress',
-      data: state.proofreadProgress,
-    });
+    this.emitWorkspaceEvent(
+      'proofreadProgress',
+      this.getWorkspaceIdForState(state),
+      state.proofreadProgress,
+    );
   }
 
   private resetResourceVersions(value: number, runtime: WorkspaceRuntimeState = this.currentState): void {
@@ -3569,16 +3673,15 @@ export class ProjectService {
 
   private markChaptersChanged(runtime: WorkspaceRuntimeState = this.currentState): void {
     runtime.resourceVersions.chaptersRevision += 1;
-    if (runtime === this.activeRuntime) {
-      this.broadcastChaptersChanged();
-    }
+    this.broadcastChaptersChanged(runtime);
   }
 
-  private broadcastChaptersChanged(): void {
-    this.eventBus.emit({
-      type: 'chaptersChanged',
-      data: this.resourceVersions.chaptersRevision,
-    });
+  private broadcastChaptersChanged(state: WorkspaceRuntimeState = this.currentState): void {
+    this.emitWorkspaceEvent(
+      'chaptersChanged',
+      this.getWorkspaceIdForState(state),
+      state.resourceVersions.chaptersRevision,
+    );
   }
 
   private markTopologyChanged(runtime: WorkspaceRuntimeState = this.currentState): void {
@@ -4219,8 +4322,12 @@ export class ProjectService {
     })();
   }
 
-  private log(level: 'error' | 'warning' | 'info' | 'success', message: string): void {
-    this.eventBus.addLog(level, message);
+  private log(
+    level: 'error' | 'warning' | 'info' | 'success',
+    message: string,
+    workspaceId: string | null = this.getActiveWorkspaceId(),
+  ): void {
+    this.eventBus.addLog(level, message, workspaceId);
   }
 
   private createLogger(): Logger {

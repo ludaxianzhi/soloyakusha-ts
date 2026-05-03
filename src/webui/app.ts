@@ -62,7 +62,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.route('/api/activity', createActivityRoutes(requestHistoryService, usageStatsService));
   app.route('/api/config', createConfigRoutes(configService));
   app.route('/api/style-libraries', createStyleLibraryRoutes(styleLibraryService));
-  app.route('/api/events', createEventsRoute(eventBus));
+  app.route('/api/events', createEventsRoute(eventBus, projectService));
 
   const clientDistDir = options.clientDistDir ?? join(process.cwd(), 'dist', 'webui');
   app.get('*', async (c) => {

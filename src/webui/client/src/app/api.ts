@@ -20,6 +20,7 @@ import type {
   LogPage,
   LogSession,
   ManagedWorkspace,
+  OpenWorkspaceStatus,
   PlotSummaryConfig,
   ProjectResourceVersions,
   ProjectStatus,
@@ -156,9 +157,19 @@ async function requestBlob(path: string, init?: ApiRequestInit): Promise<Blob> {
 export const api = {
   listWorkspaces: () =>
     request<{ workspaces: ManagedWorkspace[] }>('/api/workspaces'),
+  listOpenedWorkspaces: () =>
+    request<{
+      activeWorkspaceId: string | null;
+      workspaces: OpenWorkspaceStatus[];
+    }>('/api/workspaces/opened'),
   getActiveProject: () => request<ProjectStatus>('/api/workspaces/active'),
+  activateWorkspace: (input: { workspaceId?: string; dir?: string }) =>
+    request<ProjectStatus>('/api/workspaces/active', {
+      method: 'POST',
+      body: input,
+    }),
   openWorkspace: (dir: string, projectName?: string) =>
-    request<{ snapshot: TranslationProjectSnapshot | null }>(
+    request<{ workspaceId: string | null; snapshot: TranslationProjectSnapshot | null }>(
       '/api/workspaces/open',
       {
         method: 'POST',
@@ -168,6 +179,7 @@ export const api = {
   createWorkspace: (formData: FormData) =>
     request<{
       workspaceDir: string;
+      workspaceId: string | null;
       extractedFiles: string[];
       chapterFiles: string[];
       snapshot: TranslationProjectSnapshot | null;
@@ -192,14 +204,23 @@ export const api = {
       method: 'DELETE',
       body: { dir },
     }),
-  closeWorkspace: () =>
-    request<{ ok: boolean }>('/api/workspaces/close', { method: 'POST' }),
-  removeCurrentWorkspace: () =>
-    request<{ ok: boolean }>('/api/workspaces/remove', { method: 'POST' }),
+  closeWorkspace: (input?: { workspaceId?: string; dir?: string }) =>
+    request<{ ok: boolean; activeWorkspaceId: string | null }>('/api/workspaces/close', {
+      method: 'POST',
+      body: input ?? {},
+    }),
+  removeCurrentWorkspace: (input?: { workspaceId?: string; dir?: string }) =>
+    request<{ ok: boolean; activeWorkspaceId: string | null }>('/api/workspaces/remove', {
+      method: 'POST',
+      body: input ?? {},
+    }),
 
-  getProjectStatus: () => request<ProjectStatus>('/api/project/status'),
-  getProjectResourceVersions: () =>
-    request<ProjectResourceVersions>('/api/project/resources/versions'),
+  getProjectStatus: (workspaceId?: string) =>
+    request<ProjectStatus>(`/api/project/status${buildWorkspaceQueryString(workspaceId)}`),
+  getProjectResourceVersions: (workspaceId?: string) =>
+    request<ProjectResourceVersions>(
+      `/api/project/resources/versions${buildWorkspaceQueryString(workspaceId)}`,
+    ),
   getPostProcessors: () =>
     request<{ processors: TextPostProcessorDescriptor[] }>('/api/project/post-processors'),
   runBatchPostProcess: (chapterIds: number[], processorIds: string[]) =>
@@ -207,17 +228,21 @@ export const api = {
       method: 'POST',
       body: { chapterIds, processorIds },
     }),
-  getSnapshot: () =>
-    request<TranslationProjectSnapshot | null>('/api/project/snapshot'),
-  getSnapshotWithEntries: () =>
-    request<TranslationProjectSnapshot | null>('/api/project/snapshot?includeEntries=1'),
+  getSnapshot: (workspaceId?: string) =>
+    request<TranslationProjectSnapshot | null>(
+      `/api/project/snapshot${buildWorkspaceQueryString(workspaceId)}`,
+    ),
+  getSnapshotWithEntries: (workspaceId?: string) =>
+    request<TranslationProjectSnapshot | null>(
+      `/api/project/snapshot${buildQueryString({ includeEntries: 1, workspaceId })}`,
+    ),
   startTranslation: () => request('/api/project/start', { method: 'POST' }),
   pauseTranslation: () => request('/api/project/pause', { method: 'POST' }),
   resumeTranslation: () => request('/api/project/resume', { method: 'POST' }),
   abortTranslation: () => request('/api/project/abort', { method: 'POST' }),
-  getQueueEntries: (stepId: string) =>
+  getQueueEntries: (stepId: string, workspaceId?: string) =>
     request<{ stepId: string; entries: TranslationStepQueueEntryDetail[] }>(
-      `/api/project/queue/${encodeURIComponent(stepId)}/entries`,
+      `/api/project/queue/${encodeURIComponent(stepId)}/entries${buildWorkspaceQueryString(workspaceId)}`,
     ),
   getRepeatedPatterns: (options?: { chapterIds?: number[] }) =>
     request<SavedRepetitionPatternAnalysisResult>(
@@ -668,4 +693,8 @@ function buildQueryString(
   }
   const query = searchParams.toString();
   return query ? `?${query}` : '';
+}
+
+function buildWorkspaceQueryString(workspaceId?: string): string {
+  return buildQueryString({ workspaceId });
 }

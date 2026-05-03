@@ -54,3 +54,41 @@ test('EventBus exposes runtime log session metadata and formatted exports', () =
   expect(jsonExport.content).toContain('"items"');
   expect(jsonExport.content).toContain('"runId"');
 });
+
+test('EventBus filters logs by workspace and emits workspace metadata', () => {
+  const eventBus = new EventBus();
+  const received: Array<{ type: string; workspaceId: string | null }> = [];
+
+  const unsubscribe = eventBus.subscribe((event) => {
+    received.push({
+      type: event.type,
+      workspaceId: event.workspaceId,
+    });
+  });
+
+  eventBus.addLog('info', 'shared');
+  eventBus.addLog('warning', 'workspace-a', 'workspace-a');
+  eventBus.addLog('warning', 'workspace-b', 'workspace-b');
+  unsubscribe();
+
+  expect(received).toEqual([
+    { type: 'log', workspaceId: null },
+    { type: 'log', workspaceId: 'workspace-a' },
+    { type: 'log', workspaceId: 'workspace-b' },
+  ]);
+
+  expect(eventBus.getLogDigest()).toEqual({
+    total: 3,
+    latestId: 3,
+  });
+  expect(eventBus.getLogDigest('workspace-a')).toEqual({
+    total: 1,
+    latestId: 2,
+  });
+  expect(eventBus.getLogPage({ workspaceId: 'workspace-a' }).items).toHaveLength(1);
+
+  const exportText = eventBus.formatLogExport('text', 'workspace-a');
+  expect(exportText.content).toContain('Workspace: workspace-a');
+  expect(exportText.content).toContain('workspace-a');
+  expect(exportText.content).not.toContain('workspace-b');
+});

@@ -3,6 +3,7 @@ export interface LogEntry {
   level: 'error' | 'warning' | 'info' | 'success';
   message: string;
   timestamp: string;
+  workspaceId?: string | null;
 }
 
 export interface LogDigest {
@@ -176,6 +177,8 @@ export interface ProofreadProgress {
 }
 
 export interface ProjectStatus {
+  workspaceId?: string | null;
+  isActiveWorkspace?: boolean;
   hasProject: boolean;
   isBusy: boolean;
   plotSummaryReady: boolean;
@@ -183,6 +186,22 @@ export interface ProjectStatus {
   scanDictionaryProgress: ScanDictionaryProgress | null;
   proofreadProgress: ProofreadProgress | null;
   snapshot: TranslationProjectSnapshot | null;
+}
+
+export interface OpenWorkspaceStatus {
+  workspaceId: string;
+  projectDir: string;
+  projectName: string;
+  isActive: boolean;
+  isBusy: boolean;
+  plotSummaryReady: boolean;
+  snapshot: TranslationProjectSnapshot | null;
+  resourceVersions: ProjectResourceVersions;
+}
+
+export interface WorkspaceEventEnvelope<T> {
+  workspaceId: string | null;
+  data: T;
 }
 
 export interface TranslationProjectSnapshot {

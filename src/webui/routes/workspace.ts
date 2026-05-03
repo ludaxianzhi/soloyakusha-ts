@@ -6,7 +6,7 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { TranslationUnit, WorkspacePipelineStrategy } from '../../project/types.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import type { ProjectService } from '../services/project-service.ts';
 import type { WorkspaceManager } from '../services/workspace-manager.ts';
 import type { BranchImportInput } from '../services/project-service.ts';
@@ -21,6 +21,13 @@ export function createWorkspaceRoutes(
   app.get('/', async (c) => {
     const workspaces = await workspaceManager.listWorkspaces();
     return c.json({ workspaces });
+  });
+
+  app.get('/opened', (c) => {
+    return c.json({
+      activeWorkspaceId: projectService.getActiveWorkspaceId(),
+      workspaces: projectService.listOpenWorkspaces(),
+    });
   });
 
   /** 从压缩包创建新工作区 */
@@ -134,6 +141,7 @@ export function createWorkspaceRoutes(
 
       return c.json({
         workspaceDir,
+        workspaceId: projectService.getActiveWorkspaceId(),
         extractedFiles,
         chapterFiles,
         snapshot: projectService.getSnapshot(),
@@ -203,8 +211,24 @@ export function createWorkspaceRoutes(
     }
 
     return c.json({
+      workspaceId: projectService.getActiveWorkspaceId(),
       snapshot: projectService.getSnapshot(),
     });
+  });
+
+  app.post('/active', async (c) => {
+    const body = await c.req.json<WorkspaceSelectorBody>();
+    const workspaceId = resolveWorkspaceId(projectService, body);
+    if (!workspaceId) {
+      return c.json({ error: '缺少 workspaceId 或 dir 参数，或指定工作区未在当前进程中打开' }, 400);
+    }
+
+    const status = projectService.activateWorkspace(workspaceId);
+    if (!status) {
+      return c.json({ error: '指定工作区未在当前进程中打开' }, 404);
+    }
+
+    return c.json(status);
   });
 
   /** 删除工作区 */
@@ -228,15 +252,27 @@ export function createWorkspaceRoutes(
   });
 
   /** 关闭当前工作区 */
-  app.post('/close', (c) => {
-    projectService.closeWorkspace();
-    return c.json({ ok: true });
+  app.post('/close', async (c) => {
+    const body = await readOptionalWorkspaceSelectorBody(c);
+    const workspaceId = resolveWorkspaceId(projectService, body);
+    if ((body.workspaceId || body.dir) && !workspaceId) {
+      return c.json({ error: '指定工作区未在当前进程中打开' }, 404);
+    }
+
+    projectService.closeWorkspace(workspaceId);
+    return c.json({ ok: true, activeWorkspaceId: projectService.getActiveWorkspaceId() });
   });
 
   /** 删除当前工作区 */
   app.post('/remove', async (c) => {
-    await projectService.removeWorkspace();
-    return c.json({ ok: true });
+    const body = await readOptionalWorkspaceSelectorBody(c);
+    const workspaceId = resolveWorkspaceId(projectService, body);
+    if ((body.workspaceId || body.dir) && !workspaceId) {
+      return c.json({ error: '指定工作区未在当前进程中打开' }, 404);
+    }
+
+    await projectService.removeWorkspace(workspaceId);
+    return c.json({ ok: true, activeWorkspaceId: projectService.getActiveWorkspaceId() });
   });
 
   return app;
@@ -256,6 +292,11 @@ type UploadedWorkspaceManifest = {
 };
 
 type TranslationImportMode = 'source-only' | 'with-translation';
+
+type WorkspaceSelectorBody = {
+  workspaceId?: string;
+  dir?: string;
+};
 
 function isVisibleWorkspaceFile(filePath: string): boolean {
   const lower = filePath.toLowerCase();
@@ -302,6 +343,34 @@ function parsePipelineStrategy(value: unknown): WorkspacePipelineStrategy | unde
     return value;
   }
   throw new Error('pipelineStrategy 必须是 default 或 context-network');
+}
+
+async function readOptionalWorkspaceSelectorBody(
+  c: Context,
+): Promise<WorkspaceSelectorBody> {
+  return c.req.json<WorkspaceSelectorBody>().catch(() => ({} as WorkspaceSelectorBody));
+}
+
+function resolveWorkspaceId(
+  projectService: ProjectService,
+  body: WorkspaceSelectorBody,
+): string | undefined {
+  const normalizedWorkspaceId = body.workspaceId?.trim();
+  if (normalizedWorkspaceId) {
+    return projectService.hasWorkspace(normalizedWorkspaceId)
+      ? normalizedWorkspaceId
+      : undefined;
+  }
+
+  const normalizedDir = body.dir?.trim();
+  if (!normalizedDir) {
+    return undefined;
+  }
+
+  const derivedWorkspaceId = projectService.toWorkspaceId(normalizedDir);
+  return projectService.hasWorkspace(derivedWorkspaceId)
+    ? derivedWorkspaceId
+    : undefined;
 }
 
 async function resolveImportedChapterFiles(

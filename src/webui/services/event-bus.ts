@@ -9,6 +9,7 @@ export interface LogEntry {
   level: LogLevel;
   message: string;
   timestamp: string;
+  workspaceId: string | null;
 }
 
 export interface LogDigest {
@@ -39,6 +40,7 @@ export type BusEventType =
 
 export interface BusEvent {
   type: BusEventType;
+  workspaceId: string | null;
   data: unknown;
 }
 
@@ -68,43 +70,46 @@ export class EventBus {
     }
   }
 
-  addLog(level: LogLevel, message: string): LogEntry {
+  addLog(level: LogLevel, message: string, workspaceId: string | null = null): LogEntry {
     const entry: LogEntry = {
       id: ++this.logIdCounter,
       level,
       message,
       timestamp: new Date().toISOString(),
+      workspaceId,
     };
     this.logs.push(entry);
     if (this.logs.length > 500) {
       this.logs = this.logs.slice(-300);
     }
-    this.emit({ type: 'log', data: entry });
+    this.emit({ type: 'log', workspaceId, data: entry });
     return entry;
   }
 
-  getLogs(): LogEntry[] {
-    return [...this.logs];
+  getLogs(workspaceId?: string): LogEntry[] {
+    return this.filterLogs(workspaceId);
   }
 
-  getLogDigest(): LogDigest {
+  getLogDigest(workspaceId?: string): LogDigest {
+    const logs = this.filterLogs(workspaceId);
     return {
-      total: this.logs.length,
-      latestId: this.logs[this.logs.length - 1]?.id ?? 0,
+      total: logs.length,
+      latestId: logs[logs.length - 1]?.id ?? 0,
     };
   }
 
-  getLogPage(options: { limit?: number; beforeId?: number } = {}): LogPage {
+  getLogPage(options: { limit?: number; beforeId?: number; workspaceId?: string } = {}): LogPage {
     const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
     const beforeId = options.beforeId;
+    const logs = this.filterLogs(options.workspaceId);
     const filtered = beforeId
-      ? this.logs.filter((entry) => entry.id < beforeId)
-      : this.logs;
+      ? logs.filter((entry) => entry.id < beforeId)
+      : logs;
     const items = filtered.slice(-limit).reverse();
     const oldestEntry = items[items.length - 1];
     return {
       items,
-      ...this.getLogDigest(),
+      ...this.getLogDigest(options.workspaceId),
       nextBeforeId: items.length === limit ? oldestEntry?.id : undefined,
     };
   }
@@ -113,17 +118,22 @@ export class EventBus {
     return { ...this.logSession };
   }
 
-  formatLogExport(format: 'json' | 'text' = 'text'): {
+  formatLogExport(
+    format: 'json' | 'text' = 'text',
+    workspaceId?: string,
+  ): {
     content: string;
     contentType: string;
     fileName: string;
   } {
+    const logs = this.filterLogs(workspaceId);
     if (format === 'json') {
       return {
         content: JSON.stringify(
           {
             session: this.getLogSession(),
-            items: this.getLogs(),
+            workspaceId: workspaceId ?? null,
+            items: logs,
           },
           null,
           2,
@@ -136,10 +146,11 @@ export class EventBus {
     const content = [
       `Run ID: ${this.logSession.runId}`,
       `Started At: ${this.logSession.startedAt}`,
+      `Workspace: ${workspaceId ?? 'all'}`,
       '',
-      ...this.logs.map(
+      ...logs.map(
         (entry) =>
-          `[${entry.timestamp}] [${entry.level.toUpperCase()}] ${entry.message}`,
+          `[${entry.timestamp}] [${entry.level.toUpperCase()}]${entry.workspaceId ? ` [${entry.workspaceId}]` : ''} ${entry.message}`,
       ),
     ].join('\n');
     return {
@@ -152,5 +163,12 @@ export class EventBus {
   clearLogs(): void {
     this.logs = [];
     this.logIdCounter = 0;
+  }
+
+  private filterLogs(workspaceId?: string): LogEntry[] {
+    if (!workspaceId) {
+      return [...this.logs];
+    }
+    return this.logs.filter((entry) => entry.workspaceId === workspaceId);
   }
 }

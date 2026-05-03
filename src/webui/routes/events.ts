@@ -4,24 +4,35 @@
 
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import type { EventBus } from '../services/event-bus.ts';
+import type { BusEvent, EventBus } from '../services/event-bus.ts';
+import type { ProjectService } from '../services/project-service.ts';
 
-export function createEventsRoute(eventBus: EventBus): Hono {
+export function createEventsRoute(eventBus: EventBus, projectService: ProjectService): Hono {
   const app = new Hono();
 
   app.get('/', (c) => {
     const includeLogs = readBooleanQuery(c.req.query('includeLogs'), false);
+    const includeWorkspace = readBooleanQuery(c.req.query('includeWorkspace'), false);
+    const workspaceId = readOptionalWorkspaceIdQuery(c.req.query('workspaceId'));
     return streamSSE(c, async (stream) => {
       let eventId = 0;
 
       const unsubscribe = eventBus.subscribe((event) => {
-        if (!includeLogs && event.type === 'log') {
+        if (!shouldIncludeEvent(event, {
+          includeLogs,
+          includeWorkspaceId: workspaceId,
+          activeWorkspaceId: projectService.getActiveWorkspaceId(),
+        })) {
           return;
         }
         void stream.writeSSE({
           id: String(++eventId),
           event: event.type,
-          data: JSON.stringify(event.data),
+          data: JSON.stringify(
+            includeWorkspace
+              ? { workspaceId: event.workspaceId, data: event.data }
+              : event.data,
+          ),
         });
       });
 
@@ -80,6 +91,29 @@ export function createEventsRoute(eventBus: EventBus): Hono {
   return app;
 }
 
+function shouldIncludeEvent(
+  event: BusEvent,
+  options: {
+    includeLogs: boolean;
+    includeWorkspaceId?: string;
+    activeWorkspaceId: string | null;
+  },
+): boolean {
+  if (!options.includeLogs && event.type === 'log') {
+    return false;
+  }
+
+  if (options.includeWorkspaceId) {
+    return event.workspaceId === options.includeWorkspaceId;
+  }
+
+  if (event.workspaceId === null) {
+    return true;
+  }
+
+  return event.workspaceId === options.activeWorkspaceId;
+}
+
 function readBooleanQuery(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) {
     return fallback;
@@ -112,6 +146,11 @@ function readOptionalPositiveIntegerQuery(value: string | undefined): number | u
     return undefined;
   }
   return parsed;
+}
+
+function readOptionalWorkspaceIdQuery(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
 }
 
 function readLogExportFormatQuery(value: string | undefined): 'json' | 'text' {
