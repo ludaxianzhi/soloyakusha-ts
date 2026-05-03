@@ -324,6 +324,8 @@ function ChapterInfoTable({
   const [importArchiveForm] = Form.useForm<ImportArchiveFormValues>();
   const [importGroupsModalOpen, setImportGroupsModalOpen] = useState(false);
   const [postProcessModalOpen, setPostProcessModalOpen] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [searchMode, setSearchMode] = useState<'keyword' | 'regex'>('keyword');
   const selectedParentRouteId = Form.useWatch('parentRouteId', attachForm);
   const selectedForkAfterChapterId = Form.useWatch('forkAfterChapterId', attachForm);
 
@@ -395,6 +397,22 @@ function ChapterInfoTable({
       .map((chapterId) => chapterById.get(chapterId))
       .filter((chapter): chapter is WorkspaceChapterDescriptor => Boolean(chapter));
   }, [chapterById, selectedRouteCandidate]);
+
+  const filteredChapters = useMemo(() => {
+    if (!searchText.trim()) return chapters;
+    if (searchMode === 'regex') {
+      try {
+        const regex = new RegExp(searchText, 'i');
+        return chapters.filter((ch) => regex.test(ch.filePath));
+      } catch {
+        return chapters;
+      }
+    }
+    const terms = searchText.trim().split(/\s+/);
+    return chapters.filter((ch) =>
+      terms.some((term) => ch.filePath.toLowerCase().includes(term.toLowerCase())),
+    );
+  }, [chapters, searchText, searchMode]);
 
   useEffect(() => {
     setSelectedChapterIds((previous) =>
@@ -657,6 +675,23 @@ function ChapterInfoTable({
   return (
     <>
       <div className="chapter-batch-toolbar">
+        <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Input.Search
+            placeholder="搜索章节 (空格分隔表示「或」)"
+            allowClear
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            style={{ maxWidth: 360 }}
+          />
+          <Button
+            size="small"
+            title={searchMode === 'keyword' ? '当前：关键词模式，空格分隔表示「或」' : '当前：正则模式'}
+            type={searchMode === 'regex' ? 'primary' : 'default'}
+            onClick={() => setSearchMode((prev) => (prev === 'keyword' ? 'regex' : 'keyword'))}
+          >
+            {searchMode === 'keyword' ? '关键词' : 'Regex'}
+          </Button>
+        </div>
         <Space wrap size={[8, 8]}>
           <Button type="primary" size="small" onClick={openImportArchiveModal}>
             追加压缩包
@@ -704,7 +739,7 @@ function ChapterInfoTable({
       <div className="chapters-scroll-body" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
       <Table
         rowKey="id"
-        dataSource={chapters}
+        dataSource={filteredChapters}
         pagination={false}
         size="small"
         scroll={{ x: 1100 }}
