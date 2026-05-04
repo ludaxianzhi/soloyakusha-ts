@@ -58,6 +58,24 @@ export function TaskActivityPanels({
       continue;
     }
 
+    if (task === 'transcribe' && projectStatus?.transcribeDictionaryProgress) {
+      visibleTasks.push({
+        key: 'transcribe',
+        title: '术语解释翻译',
+        progress: projectStatus.transcribeDictionaryProgress,
+        details: (
+          <Space wrap>
+            <Tag>{`批次 ${projectStatus.transcribeDictionaryProgress.completedBatches}/${projectStatus.transcribeDictionaryProgress.totalBatches}`}</Tag>
+            <Tag>{`跳过 ${projectStatus.transcribeDictionaryProgress.skippedBatches}`}</Tag>
+            {projectStatus.transcribeDictionaryProgress.currentBatchIndex != null ? (
+              <Tag color="processing">{`下一批次 ${projectStatus.transcribeDictionaryProgress.currentBatchIndex}`}</Tag>
+            ) : null}
+          </Space>
+        ),
+      });
+      continue;
+    }
+
     if (task === 'plot' && projectStatus?.plotSummaryProgress) {
       const plotProgress = projectStatus.plotSummaryProgress;
       visibleTasks.push({

@@ -50,6 +50,7 @@ import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 import { NatureDialogKeepNameFileHandler } from '../../file-handlers/nature-dialog-file-handler.ts';
 import { restoreBlankText } from '../../file-handlers/base.ts';
 import { FullTextGlossaryScanner, type FullTextGlossaryScanBatch, type FullTextGlossaryScanLine } from '../../glossary/scanner.ts';
+import { FullTextGlossaryTranscriber } from '../../glossary/transcriber.ts';
 import { GlossaryPersisterFactory } from '../../glossary/persister.ts';
 import { Glossary } from '../../glossary/glossary.ts';
 import type { GlossaryTerm, GlossaryTermCategory } from '../../glossary/glossary.ts';
@@ -156,6 +157,16 @@ export interface ScanDictionaryProgress {
   errorMessage?: string;
 }
 
+export interface TranscribeDictionaryProgress {
+  status: 'running' | 'paused' | 'done' | 'error';
+  totalBatches: number;
+  completedBatches: number;
+  skippedBatches: number;
+  totalLines: number;
+  currentBatchIndex?: number;
+  errorMessage?: string;
+}
+
 export interface ProofreadProgress {
   status: 'running' | 'paused' | 'done' | 'error';
   mode: ProofreadTaskMode;
@@ -220,6 +231,22 @@ interface ScanDictionaryTaskState {
   errorMessage?: string;
 }
 
+interface TranscribeDictionaryTaskState {
+  status: ResumableTaskStatus;
+  totalLines: number;
+  totalBatches: number;
+  completedBatches: number;
+  skippedBatches: number;
+  nextBatchIndex: number;
+  lines: FullTextGlossaryScanLine[];
+  batches: FullTextGlossaryScanBatch[];
+  glossary: Glossary;
+  requestOptions?: ChatRequestOptions;
+  maxCharsPerBatch?: number;
+  abortRequested: boolean;
+  errorMessage?: string;
+}
+
 interface PlotSummaryTaskState {
   status: ResumableTaskStatus;
   totalChapters: number;
@@ -257,6 +284,7 @@ export interface ProjectStatus {
   plotSummaryReady: boolean;
   plotSummaryProgress: PlotSummaryProgress | null;
   scanDictionaryProgress: ScanDictionaryProgress | null;
+  transcribeDictionaryProgress: TranscribeDictionaryProgress | null;
   proofreadProgress: ProofreadProgress | null;
   snapshot: TranslationProjectProgressSnapshot | null;
 }
@@ -375,8 +403,10 @@ type WorkspaceRuntimeState = {
   pollTimer: ReturnType<typeof setInterval> | null;
   plotSummaryProgress: PlotSummaryProgress | null;
   scanDictionaryProgress: ScanDictionaryProgress | null;
+  transcribeDictionaryProgress: TranscribeDictionaryProgress | null;
   proofreadProgress: ProofreadProgress | null;
   scanTaskState: ScanDictionaryTaskState | null;
+  transcribeTaskState: TranscribeDictionaryTaskState | null;
   plotTaskState: PlotSummaryTaskState | null;
   proofreadTaskState: ProofreadTaskState | null;
   repetitionPatternConsistencyFixProgress: RepetitionPatternConsistencyFixProgress | null;
@@ -409,8 +439,10 @@ function createWorkspaceRuntimeState(): WorkspaceRuntimeState {
     pollTimer: null,
     plotSummaryProgress: null,
     scanDictionaryProgress: null,
+    transcribeDictionaryProgress: null,
     proofreadProgress: null,
     scanTaskState: null,
+    transcribeTaskState: null,
     plotTaskState: null,
     proofreadTaskState: null,
     repetitionPatternConsistencyFixProgress: null,
@@ -687,6 +719,14 @@ export class ProjectService {
     this.currentState.scanDictionaryProgress = value;
   }
 
+  private get transcribeDictionaryProgress(): TranscribeDictionaryProgress | null {
+    return this.currentState.transcribeDictionaryProgress;
+  }
+
+  private set transcribeDictionaryProgress(value: TranscribeDictionaryProgress | null) {
+    this.currentState.transcribeDictionaryProgress = value;
+  }
+
   private get proofreadProgress(): ProofreadProgress | null {
     return this.currentState.proofreadProgress;
   }
@@ -701,6 +741,14 @@ export class ProjectService {
 
   private set scanTaskState(value: ScanDictionaryTaskState | null) {
     this.currentState.scanTaskState = value;
+  }
+
+  private get transcribeTaskState(): TranscribeDictionaryTaskState | null {
+    return this.currentState.transcribeTaskState;
+  }
+
+  private set transcribeTaskState(value: TranscribeDictionaryTaskState | null) {
+    this.currentState.transcribeTaskState = value;
   }
 
   private get plotTaskState(): PlotSummaryTaskState | null {
@@ -794,6 +842,7 @@ export class ProjectService {
       plotSummaryReady: state.plotSummaryReady,
       plotSummaryProgress: state.plotSummaryProgress,
       scanDictionaryProgress: state.scanDictionaryProgress,
+      transcribeDictionaryProgress: state.transcribeDictionaryProgress,
       proofreadProgress: state.proofreadProgress,
       snapshot: state.snapshot,
     };
@@ -2041,6 +2090,250 @@ export class ProjectService {
     this.log('warning', '已提交术语扫描中止请求');
   }
 
+  // ─── Transcribe Dictionary ────────────────────────
+
+  async transcribeDictionary(): Promise<void> {
+    const runtime = this.activeRuntime;
+    const state = runtime ?? this.currentState;
+    const project = runtime?.project ?? this.project;
+    if (state.isBusy) {
+      this.log('warning', '正在执行其他操作，请稍候');
+      return;
+    }
+    if (!project) {
+      this.log('warning', '当前没有已初始化的项目');
+      return;
+    }
+    if (state.transcribeTaskState?.status === 'running') {
+      throw new ProjectServiceUserInputError('术语解释翻译任务正在运行');
+    }
+
+    const { transcriber, updaterConfig } = await this.createGlossaryTranscriber(project);
+    const isFreshRun = !state.transcribeTaskState || state.transcribeTaskState.status === 'done';
+
+    if (isFreshRun) {
+      this.clearTaskProgressUi('transcribe');
+      state.transcribeTaskState = this.createGlossaryTranscribeTask(project, updaterConfig);
+      state.transcribeTaskState.status = 'running';
+    } else {
+      state.transcribeTaskState!.requestOptions = updaterConfig.requestOptions;
+      state.transcribeTaskState!.maxCharsPerBatch = updaterConfig.maxCharsPerBatch;
+      state.transcribeTaskState!.abortRequested = false;
+      state.transcribeTaskState!.errorMessage = undefined;
+      state.transcribeTaskState!.status = 'running';
+    }
+
+    const task = state.transcribeTaskState!;
+    this.log(
+      'info',
+      isFreshRun
+        ? `术语解释翻译开始，共 ${task.totalLines} 行，分 ${task.totalBatches} 个批次`
+        : `继续术语解释翻译，已完成 ${task.completedBatches}/${task.totalBatches} 个批次`,
+    );
+    state.isBusy = true;
+    this.syncTranscribeDictionaryProgress(task, state);
+    this.broadcastTranscribeProgress(state);
+    void this.runGlossaryTranscribeTask(project, transcriber, task, runtime);
+  }
+
+  async abortGlossaryTranscribe(): Promise<void> {
+    const state = this.activeRuntime ?? this.currentState;
+    if (state.transcribeTaskState?.status !== 'running') {
+      throw new ProjectServiceUserInputError('当前没有正在运行的术语解释翻译任务');
+    }
+
+    state.transcribeTaskState.abortRequested = true;
+    this.log('warning', '已提交术语解释翻译中止请求');
+  }
+
+  async resumeGlossaryTranscribe(): Promise<void> {
+    await this.transcribeDictionary();
+  }
+
+  private createGlossaryTranscribeTask(
+    project: TranslationProject,
+    config: {
+      maxCharsPerBatch?: number;
+      requestOptions?: ChatRequestOptions;
+    },
+  ): TranscribeDictionaryTaskState {
+    const scanner = new FullTextGlossaryScanner({ singleTurnRequest: async () => '' } as never);
+    const lines = scanner.collectLinesFromDocumentManager(project.getDocumentManager());
+    const batches = scanner.buildBatches(lines, {
+      maxCharsPerBatch: config.maxCharsPerBatch,
+    });
+    return {
+      status: 'paused',
+      totalLines: lines.length,
+      totalBatches: batches.length,
+      completedBatches: 0,
+      skippedBatches: 0,
+      nextBatchIndex: 0,
+      lines,
+      batches,
+      glossary: project.getGlossary() ?? new Glossary(),
+      requestOptions: config.requestOptions,
+      maxCharsPerBatch: config.maxCharsPerBatch,
+      abortRequested: false,
+    };
+  }
+
+  private async createGlossaryTranscriber(project: TranslationProject): Promise<{
+    transcriber: FullTextGlossaryTranscriber;
+    updaterConfig: {
+      maxCharsPerBatch?: number;
+      requestOptions?: ChatRequestOptions;
+    };
+  }> {
+    const manager = new GlobalConfigManager();
+    const globalConfig = await manager.getTranslationGlobalConfig();
+    const extractorConfig = globalConfig.getGlossaryExtractorConfig();
+    const updaterConfig = globalConfig.getGlossaryUpdaterConfig();
+    if (!extractorConfig || extractorConfig.modelNames.length === 0) {
+      throw new Error('未配置术语提取 LLM，请先设置术语提取模型');
+    }
+
+    const provider = new TranslationGlobalConfig({
+      llm: globalConfig.llm,
+    }).createProvider();
+    provider.setHistoryLogger(
+      this.createRequestHistoryLogger('glossary_transcribe_requests', project),
+    );
+
+    return {
+      transcriber: new FullTextGlossaryTranscriber(
+        provider.getChatClientWithFallback(updaterConfig?.modelNames ?? extractorConfig.modelNames),
+        this.createLogger(),
+      ),
+      updaterConfig: {
+        maxCharsPerBatch: extractorConfig.maxCharsPerBatch,
+        requestOptions: extractorConfig.requestOptions,
+      },
+    };
+  }
+
+  private async runGlossaryTranscribeTask(
+    project: TranslationProject,
+    transcriber: FullTextGlossaryTranscriber,
+    task: TranscribeDictionaryTaskState,
+    runtime: WorkspaceRuntime | null = this.getRuntimeForProject(project),
+  ): Promise<void> {
+    const state = runtime ?? this.getStateForProject(project);
+    const taskToken = state.processingToken;
+
+    try {
+      while (task.nextBatchIndex < task.batches.length) {
+        if (taskToken !== state.processingToken) {
+          return;
+        }
+        if (task.abortRequested) {
+          break;
+        }
+
+        const batch = task.batches[task.nextBatchIndex]!;
+        const untranslatedTerms = task.glossary.getUntranslatedTermsForText(batch.text);
+
+        if (untranslatedTerms.length === 0) {
+          task.skippedBatches += 1;
+          task.completedBatches = batch.batchIndex + 1;
+          task.nextBatchIndex = batch.batchIndex + 1;
+          this.syncTranscribeDictionaryProgress(task, state);
+          this.broadcastTranscribeProgress(state);
+          this.log(
+            'info',
+            `术语解释翻译批次 ${task.completedBatches}/${task.totalBatches} 无未翻译术语，跳过`,
+          );
+          continue;
+        }
+
+        const transcribedTerms = await transcriber.transcribeBatch(batch, untranslatedTerms, {
+          requestOptions: task.requestOptions,
+        });
+
+        if (taskToken !== state.processingToken) {
+          return;
+        }
+
+        transcriber.applyTranscribedTerms(task.glossary, transcribedTerms);
+
+        task.completedBatches = batch.batchIndex + 1;
+        task.nextBatchIndex = batch.batchIndex + 1;
+        this.syncTranscribeDictionaryProgress(task, state);
+        this.broadcastTranscribeProgress(state);
+        this.log(
+          'info',
+          `术语解释翻译批次 ${task.completedBatches}/${task.totalBatches} 完成`,
+        );
+      }
+
+      if (taskToken !== state.processingToken) {
+        return;
+      }
+
+      if (task.abortRequested) {
+        task.status = 'paused';
+        task.errorMessage = undefined;
+        this.syncTranscribeDictionaryProgress(task, state);
+        this.broadcastTranscribeProgress(state);
+        this.log(
+          'warning',
+          `术语解释翻译已中止，已完成 ${task.completedBatches}/${task.totalBatches} 个批次`,
+        );
+        return;
+      }
+
+      if ("bumpGlossaryDependencyRevision" in project) {
+        await project.bumpGlossaryDependencyRevision();
+      }
+      await project.saveProgress();
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markDictionaryChanged(state);
+
+      task.status = 'done';
+      task.errorMessage = undefined;
+      task.completedBatches = task.totalBatches;
+      task.nextBatchIndex = task.totalBatches;
+      this.syncTranscribeDictionaryProgress(task, state);
+      this.broadcastTranscribeProgress(state);
+      this.log(
+        'success',
+        `术语解释翻译完成，跳过 ${task.skippedBatches} 个批次`,
+      );
+    } catch (error) {
+      if (taskToken !== state.processingToken) {
+        return;
+      }
+
+      task.status = 'error';
+      task.errorMessage = toMsg(error);
+      this.syncTranscribeDictionaryProgress(task, state);
+      this.broadcastTranscribeProgress(state);
+      this.log('error', `术语解释翻译失败：${task.errorMessage}`);
+    } finally {
+      if (taskToken === state.processingToken) {
+        state.isBusy = false;
+      }
+    }
+  }
+
+  private syncTranscribeDictionaryProgress(
+    task: TranscribeDictionaryTaskState,
+    state: WorkspaceRuntimeState = this.currentState,
+  ): void {
+    state.transcribeDictionaryProgress = {
+      status: task.status,
+      totalBatches: task.totalBatches,
+      completedBatches: task.completedBatches,
+      skippedBatches: task.skippedBatches,
+      totalLines: task.totalLines,
+      currentBatchIndex:
+        task.nextBatchIndex > 0 && task.nextBatchIndex < task.totalBatches
+          ? task.nextBatchIndex + 1
+          : undefined,
+      errorMessage: task.errorMessage,
+    };
+  }
+
   private createGlossaryScanTask(
     project: TranslationProject,
     scanner: FullTextGlossaryScanner,
@@ -2824,10 +3117,14 @@ export class ProjectService {
     };
   }
 
-  clearTaskProgressUi(task: 'scan' | 'plot' | 'proofread' | 'all' = 'all'): void {
+  clearTaskProgressUi(task: 'scan' | 'transcribe' | 'plot' | 'proofread' | 'all' = 'all'): void {
     if (task === 'scan' || task === 'all') {
       this.scanDictionaryProgress = null;
       this.broadcastScanProgress();
+    }
+    if (task === 'transcribe' || task === 'all') {
+      this.transcribeDictionaryProgress = null;
+      this.broadcastTranscribeProgress();
     }
     if (task === 'plot' || task === 'all') {
       this.plotSummaryProgress = null;
@@ -3462,8 +3759,10 @@ export class ProjectService {
     runtime.topology = null;
     runtime.plotSummaryProgress = null;
     runtime.scanDictionaryProgress = null;
+    runtime.transcribeDictionaryProgress = null;
     runtime.proofreadProgress = null;
     runtime.scanTaskState = null;
+    runtime.transcribeTaskState = null;
     runtime.plotTaskState = null;
     runtime.proofreadTaskState = null;
     runtime.repetitionPatternConsistencyFixProgress = null;
@@ -3487,8 +3786,10 @@ export class ProjectService {
       this.detachedState.pollTimer = null;
       this.detachedState.plotSummaryProgress = null;
       this.detachedState.scanDictionaryProgress = null;
+      this.detachedState.transcribeDictionaryProgress = null;
       this.detachedState.proofreadProgress = null;
       this.detachedState.scanTaskState = null;
+      this.detachedState.transcribeTaskState = null;
       this.detachedState.plotTaskState = null;
       this.detachedState.proofreadTaskState = null;
       this.detachedState.repetitionPatternConsistencyFixProgress = null;
@@ -3656,6 +3957,14 @@ export class ProjectService {
       'scanProgress',
       this.getWorkspaceIdForState(state),
       state.scanDictionaryProgress,
+    );
+  }
+
+  private broadcastTranscribeProgress(state: WorkspaceRuntimeState = this.currentState): void {
+    this.emitWorkspaceEvent(
+      'transcribeProgress',
+      this.getWorkspaceIdForState(state),
+      state.transcribeDictionaryProgress,
     );
   }
 

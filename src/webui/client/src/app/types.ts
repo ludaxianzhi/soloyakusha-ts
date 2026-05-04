@@ -162,6 +162,16 @@ export interface ScanDictionaryProgress {
   errorMessage?: string;
 }
 
+export interface TranscribeDictionaryProgress {
+  status: 'running' | 'paused' | 'done' | 'error';
+  totalBatches: number;
+  completedBatches: number;
+  skippedBatches: number;
+  totalLines: number;
+  currentBatchIndex?: number;
+  errorMessage?: string;
+}
+
 export interface ProofreadProgress {
   status: 'running' | 'paused' | 'done' | 'error';
   mode: 'linear' | 'simultaneous';
@@ -184,6 +194,7 @@ export interface ProjectStatus {
   plotSummaryReady: boolean;
   plotSummaryProgress: PlotSummaryProgress | null;
   scanDictionaryProgress: ScanDictionaryProgress | null;
+  transcribeDictionaryProgress: TranscribeDictionaryProgress | null;
   proofreadProgress: ProofreadProgress | null;
   snapshot: TranslationProjectSnapshot | null;
 }

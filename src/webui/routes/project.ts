@@ -163,6 +163,35 @@ export function createProjectRoutes(
     }
   });
 
+  app.post('/dictionary/transcribe', async (c) => {
+    await projectService.transcribeDictionary();
+    return c.json({ ok: true });
+  });
+
+  app.post('/dictionary/transcribe/abort', async (c) => {
+    try {
+      await projectService.abortGlossaryTranscribe();
+      return c.json({ ok: true, snapshot: projectService.getSnapshot() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/dictionary/transcribe/resume', async (c) => {
+    try {
+      await projectService.resumeGlossaryTranscribe();
+      return c.json({ ok: true, snapshot: projectService.getSnapshot() });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
   app.post('/dictionary/import', async (c) => {
     const body = await c.req.json<{ filePath: string }>();
     await projectService.importGlossary(body.filePath);
@@ -287,7 +316,7 @@ export function createProjectRoutes(
   });
 
   app.post('/task-ui/clear', (c) => {
-    return c.req.json<{ task?: 'scan' | 'plot' | 'proofread' | 'all' }>().then((body) => {
+    return c.req.json<{ task?: 'scan' | 'transcribe' | 'plot' | 'proofread' | 'all' }>().then((body) => {
       projectService.clearTaskProgressUi(body.task ?? 'all');
       return c.json({ ok: true });
     });

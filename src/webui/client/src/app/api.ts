@@ -323,6 +323,12 @@ export const api = {
     request(`/api/project/dictionary/scan/abort${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
   resumeScanDictionary: (workspaceId?: string) =>
     request(`/api/project/dictionary/scan/resume${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  transcribeDictionary: (workspaceId?: string) =>
+    request(`/api/project/dictionary/transcribe${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  abortTranscribeDictionary: (workspaceId?: string) =>
+    request(`/api/project/dictionary/transcribe/abort${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  resumeTranscribeDictionary: (workspaceId?: string) =>
+    request(`/api/project/dictionary/transcribe/resume${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
   importDictionaryFromContent: (content: string, format: 'csv' | 'tsv', workspaceId?: string) =>
     request<DictionaryImportResult>(`/api/project/dictionary/import-content${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
@@ -351,7 +357,7 @@ export const api = {
     request(`/api/project/proofread/resume${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
   removeProofreadTask: (workspaceId?: string) =>
     request(`/api/project/proofread/remove${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
-  clearTaskProgress: (task: 'scan' | 'plot' | 'proofread' | 'all', workspaceId?: string) =>
+  clearTaskProgress: (task: 'scan' | 'transcribe' | 'plot' | 'proofread' | 'all', workspaceId?: string) =>
     request(`/api/project/task-ui/clear${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: { task },

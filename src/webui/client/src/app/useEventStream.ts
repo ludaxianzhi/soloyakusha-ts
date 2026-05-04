@@ -4,6 +4,7 @@ import type {
   PlotSummaryProgress,
   ProofreadProgress,
   ScanDictionaryProgress,
+  TranscribeDictionaryProgress,
   TranslationProjectSnapshot,
   WorkspaceEventEnvelope,
 } from './types.ts';
@@ -12,6 +13,7 @@ type EventHandlers = {
   onSnapshot?: (snapshot: TranslationProjectSnapshot | null) => void;
   onLog?: (entry: LogEntry) => void;
   onScanProgress?: (progress: ScanDictionaryProgress | null) => void;
+  onTranscribeProgress?: (progress: TranscribeDictionaryProgress | null) => void;
   onProofreadProgress?: (progress: ProofreadProgress | null) => void;
   onPlotProgress?: (progress: PlotSummaryProgress | null) => void;
   onChaptersChanged?: (revision: number) => void;
@@ -63,6 +65,9 @@ export function useEventStream(
     });
     source.addEventListener('scanProgress', (event) => {
       handlers.onScanProgress?.(parseEvent<ScanDictionaryProgress | null>(event));
+    });
+    source.addEventListener('transcribeProgress', (event) => {
+      handlers.onTranscribeProgress?.(parseEvent<TranscribeDictionaryProgress | null>(event));
     });
     source.addEventListener('proofreadProgress', (event) => {
       handlers.onProofreadProgress?.(parseEvent<ProofreadProgress | null>(event));

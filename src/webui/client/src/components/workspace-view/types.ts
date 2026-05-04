@@ -22,11 +22,12 @@ export type ProjectCommand =
   | 'resume'
   | 'abort'
   | 'scan'
+  | 'transcribe'
   | 'plot'
   | 'close'
   | 'remove';
 
-export type TaskActivityKind = 'scan' | 'plot' | 'proofread';
+export type TaskActivityKind = 'scan' | 'transcribe' | 'plot' | 'proofread';
 export type ProofreadTaskMode = 'linear' | 'simultaneous';
 
 export interface WorkspaceViewProps {

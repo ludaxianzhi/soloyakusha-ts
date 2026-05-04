@@ -57,6 +57,33 @@ prompts:
           {% if term.description %}description: {{ term.description }}{% endif %}
         {% endfor %}
 
+  glossary.termTranscribe:
+    system:
+      type: static
+      template: |
+        你是术语表解释与翻译助手。
+        任务：根据原文上下文，为每个候选术语提供简短的语境解释（description）和准确的译文（translation）。
+        - description 用中文写，控制在 50 字以内，描述该术语在当前语境中的含义和特征，涉及原文相关设定或其他名词时，则使用原始语言写。
+        - translation 给出该术语在当前上下文中最合适的译文
+        只输出 JSON，格式为 {"terms":[{"term":"...","translation":"...","description":"..."}]}
+        只输出候选术语列表中出现的术语，不要新增术语。
+        不要输出 Markdown、解释或代码块。
+        不要输出已经翻译过的术语。
+    user:
+      type: liquid
+      template: |
+        以下是当前批次的原文行内容：
+
+        {% for line in lines %}
+        {{ line }}
+        {% endfor %}
+
+        候选术语列表（需要为其中在当前原文中出现的术语补全解释和翻译）：
+        {% for term in untranslatedTerms %}
+        - term: {{ term.term }}
+          {% if term.description %}description: {{ term.description }}{% endif %}
+        {% endfor %}
+
   # Core alignment repair prompt shared by output line repair tools.
   utils.alignmentRepair:
     system:

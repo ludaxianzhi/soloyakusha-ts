@@ -123,6 +123,7 @@ export function WorkspaceDictionaryTab({
         extra={
           <Space>
             <Button onClick={() => void onProjectCommand('scan')}>重新扫描</Button>
+            <Button onClick={() => void onProjectCommand('transcribe')}>解释翻译</Button>
             <Button onClick={openImportModal}>粘贴导入</Button>
             <Button type="primary" onClick={() => onOpenDictionaryEditor()}>
               新建条目
@@ -132,7 +133,7 @@ export function WorkspaceDictionaryTab({
       >
         <TaskActivityPanels
           projectStatus={projectStatus}
-          tasks={['scan']}
+          tasks={['scan', 'transcribe']}
           onAbortTaskActivity={onAbortTaskActivity}
           onForceAbortTaskActivity={onForceAbortTaskActivity}
           onRemoveTaskActivity={onRemoveTaskActivity}

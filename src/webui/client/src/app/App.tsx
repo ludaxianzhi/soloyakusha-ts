@@ -168,6 +168,10 @@ function WorkspaceEventBridge(props: {
     workspaceId: string,
     progress: ProjectStatus['scanDictionaryProgress'],
   ) => void;
+  onTranscribeProgress: (
+    workspaceId: string,
+    progress: ProjectStatus['transcribeDictionaryProgress'],
+  ) => void;
   onProofreadProgress: (
     workspaceId: string,
     progress: ProjectStatus['proofreadProgress'],
@@ -183,6 +187,7 @@ function WorkspaceEventBridge(props: {
     onConnectedChange,
     onSnapshot,
     onScanProgress,
+    onTranscribeProgress,
     onProofreadProgress,
     onPlotProgress,
     onChaptersChanged,
@@ -195,6 +200,9 @@ function WorkspaceEventBridge(props: {
       },
       onScanProgress: (progress: ProjectStatus['scanDictionaryProgress']) => {
         onScanProgress(workspaceId, progress);
+      },
+      onTranscribeProgress: (progress: ProjectStatus['transcribeDictionaryProgress']) => {
+        onTranscribeProgress(workspaceId, progress);
       },
       onProofreadProgress: (progress: ProjectStatus['proofreadProgress']) => {
         onProofreadProgress(workspaceId, progress);
@@ -211,6 +219,7 @@ function WorkspaceEventBridge(props: {
       onPlotProgress,
       onProofreadProgress,
       onScanProgress,
+      onTranscribeProgress,
       onSnapshot,
       workspaceId,
     ],
@@ -266,6 +275,7 @@ function createProjectStatus(
     plotSummaryReady: false,
     plotSummaryProgress: null,
     scanDictionaryProgress: null,
+    transcribeDictionaryProgress: null,
     proofreadProgress: null,
     snapshot,
     ...overrides,
@@ -1043,6 +1053,28 @@ export function AppShell() {
     [patchWorkspaceStatus, refreshProjectStatus],
   );
 
+  const handleWorkspaceTranscribeProgress = useCallback(
+    (workspaceId: string, progress: ProjectStatus['transcribeDictionaryProgress']) => {
+      patchWorkspaceStatus(workspaceId, (prev) =>
+        prev
+          ? {
+              ...prev,
+              isBusy: progress?.status === 'running',
+              transcribeDictionaryProgress: progress,
+            }
+          : createProjectStatus(null, {
+              workspaceId,
+              isBusy: progress?.status === 'running',
+              transcribeDictionaryProgress: progress,
+            }),
+      );
+      if (progress && progress.status !== 'running') {
+        void refreshProjectStatus(workspaceId).catch(() => undefined);
+      }
+    },
+    [patchWorkspaceStatus, refreshProjectStatus],
+  );
+
   const handleWorkspaceProofreadProgress = useCallback(
     (workspaceId: string, progress: ProjectStatus['proofreadProgress']) => {
       patchWorkspaceStatus(workspaceId, (prev) =>
@@ -1450,6 +1482,11 @@ export function AppShell() {
             await api.scanDictionary(workspaceId);
             await refreshProjectStatus();
             message.success('已开始扫描术语表');
+            break;
+          case 'transcribe':
+            await api.transcribeDictionary(workspaceId);
+            await refreshProjectStatus();
+            message.success('已开始术语解释翻译');
             break;
           case 'plot':
             await api.startPlotSummary(workspaceId);
@@ -1871,6 +1908,8 @@ export function AppShell() {
         const workspaceId = getSelectedWorkspaceId();
         if (task === 'scan') {
           await api.abortScanDictionary(workspaceId);
+        } else if (task === 'transcribe') {
+          await api.abortTranscribeDictionary(workspaceId);
         } else if (task === 'proofread') {
           await api.abortProofread(workspaceId);
         } else {
@@ -1914,6 +1953,8 @@ export function AppShell() {
         const workspaceId = getSelectedWorkspaceId();
         if (task === 'scan') {
           await api.resumeScanDictionary(workspaceId);
+        } else if (task === 'transcribe') {
+          await api.resumeTranscribeDictionary(workspaceId);
         } else if (task === 'proofread') {
           await api.resumeProofread(workspaceId);
         } else {
@@ -2403,6 +2444,7 @@ export function AppShell() {
             onConnectedChange={handleWorkspaceConnectedChange}
             onSnapshot={handleWorkspaceSnapshot}
             onScanProgress={handleWorkspaceScanProgress}
+            onTranscribeProgress={handleWorkspaceTranscribeProgress}
             onProofreadProgress={handleWorkspaceProofreadProgress}
             onPlotProgress={handleWorkspacePlotProgress}
             onChaptersChanged={handleWorkspaceChaptersChanged}

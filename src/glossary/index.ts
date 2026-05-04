@@ -14,4 +14,5 @@
 export * from "./glossary.ts";
 export * from "./persister.ts";
 export * from "./scanner.ts";
+export * from "./transcriber.ts";
 export * from "./updater.ts";

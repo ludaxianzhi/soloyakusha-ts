@@ -126,12 +126,6 @@ export function WorkspaceDashboardTab({
             <>
               <Button
                 disabled={projectStatus?.isBusy === true}
-                onClick={() => void onProjectCommand('scan')}
-              >
-                扫描术语
-              </Button>
-              <Button
-                disabled={projectStatus?.isBusy === true}
                 onClick={() => void onProjectCommand('plot')}
               >
                 生成情节大纲
