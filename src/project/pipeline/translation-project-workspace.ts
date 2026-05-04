@@ -436,6 +436,7 @@ export function buildInitialWorkspaceConfig(
     translator: {},
     slidingWindow: {},
     textSplitMaxChars: config.textSplitMaxChars,
+    batchFragmentCount: config.batchFragmentCount,
     customRequirements: [...(config.customRequirements ?? [])],
     editorRequirementsText: config.editorRequirementsText?.trim() || undefined,
     styleGuidanceMode,
@@ -481,6 +482,7 @@ export function mergePersistedWorkspaceConfig(
       ...persisted.slidingWindow,
     },
     textSplitMaxChars: persisted.textSplitMaxChars ?? current.textSplitMaxChars,
+    batchFragmentCount: persisted.batchFragmentCount ?? current.batchFragmentCount,
     contextSize: persisted.contextSize ?? current.contextSize,
     customRequirements: [...(persisted.customRequirements ?? current.customRequirements)],
     editorRequirementsText:
@@ -534,6 +536,10 @@ export function applyWorkspaceConfigPatch(
       patch.textSplitMaxChars === null
         ? undefined
         : (patch.textSplitMaxChars ?? config.textSplitMaxChars),
+    batchFragmentCount:
+      patch.batchFragmentCount === null
+        ? undefined
+        : (patch.batchFragmentCount ?? config.batchFragmentCount),
     contextSize:
       patch.contextSize === null
         ? undefined

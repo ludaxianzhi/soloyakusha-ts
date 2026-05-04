@@ -66,8 +66,11 @@ export function WorkspaceCreateSummaryPanel({
                     ? '上下文网络工作流'
                     : '默认工作流'}
                 </Descriptions.Item>
-                <Descriptions.Item label="文本切分长度">
-                  {values.textSplitMaxChars ?? 2000}
+                <Descriptions.Item label="文本块大小">
+                  {values.textSplitMaxChars ?? 800}
+                </Descriptions.Item>
+                <Descriptions.Item label="处理批次">
+                  {values.batchFragmentCount ?? 3}
                 </Descriptions.Item>
                 <Descriptions.Item label="Manifest">
                   {manifestState.hasValue ? (

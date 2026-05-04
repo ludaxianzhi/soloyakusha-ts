@@ -1,4 +1,4 @@
-import { Alert, Card, Col, Form, Input, InputNumber, Row, Select } from 'antd';
+import { Alert, Card, Col, Form, Input, InputNumber, Row, Select, Space } from 'antd';
 import {
   DEFAULT_ARCHIVE_IMPORT_PATTERN,
   IMPORT_FORMAT_OPTIONS,
@@ -31,14 +31,28 @@ export function WorkspaceImportOptionsSection() {
           </Form.Item>
         </Col>
       </Row>
-      <Form.Item
-        label="文本切分长度"
-        name="textSplitMaxChars"
-        rules={[{ required: true, message: '请输入文本切分长度' }]}
-        extra="按原文字符数切分文本块，默认 2000。只有整块全部行都有译文时，才会按已翻译导入。"
-      >
-        <InputNumber min={1} precision={0} style={{ width: '100%' }} />
-      </Form.Item>
+      <Row gutter={12}>
+        <Col xs={24} md={12}>
+          <Form.Item
+            label="文本块大小"
+            name="textSplitMaxChars"
+            rules={[{ required: true, message: '请输入文本块大小' }]}
+            extra="按原文字符数切分文本块，默认 800。只有整块全部行都有译文时，才会按已翻译导入。"
+          >
+            <InputNumber min={1} precision={0} style={{ width: '100%' }} />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={12}>
+          <Form.Item
+            label="处理批次"
+            name="batchFragmentCount"
+            rules={[{ required: true, message: '请输入处理批次大小' }]}
+            extra="翻译/校对时将多少个连续文本块合并为一次 LLM 调用，默认 3。"
+          >
+            <InputNumber min={1} max={20} precision={0} style={{ width: '100%' }} />
+          </Form.Item>
+        </Col>
+      </Row>
     </Card>
   );
 }

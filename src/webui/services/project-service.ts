@@ -22,6 +22,7 @@ import {
   type TranslationProcessorConfig,
 } from '../../project/config.ts';
 import { buildContextNetworkDataFromTinyChunkGraph } from '../../project/context/context-network-builder.ts';
+import { createBatchContextView } from '../../project/context/context-view.ts';
 import {
   collectSourceTextBlocks,
   collectSourceTextTinyChunks,
@@ -125,6 +126,7 @@ export interface InitializeProjectInput {
   translatorName?: string;
   pipelineStrategy?: WorkspacePipelineStrategy;
   textSplitMaxChars?: number;
+  batchFragmentCount?: number;
   importTranslation?: boolean;
   branches?: BranchImportInput[];
 }
@@ -1381,6 +1383,7 @@ export class ProjectService {
               ? { path: input.glossaryPath.trim(), autoFilter: true }
               : undefined,
             textSplitMaxChars: input.textSplitMaxChars,
+            batchFragmentCount: input.batchFragmentCount,
             customRequirements: [],
           },
           {
@@ -1761,6 +1764,8 @@ export class ProjectService {
       let nextWorkItemIndex = 0;
       let workerFailure: unknown;
       let persistChain = Promise.resolve();
+      const workspaceConfig = project.getWorkspaceConfig();
+      const batchFragmentCount = workspaceConfig.batchFragmentCount ?? 1;
 
       this.syncDerivedProofreadTaskState(task);
       this.syncProofreadProgress(task, state);
@@ -1810,72 +1815,168 @@ export class ProjectService {
         this.broadcastProofreadProgress(state);
       };
 
-      const takeNextWorkItem = () => {
-        const workItem = pendingWorkItems[nextWorkItemIndex];
-        if (!workItem) {
-          return undefined;
+      const takeNextBatchOfWorkItems = () => {
+        const batch: Array<{
+          chapterIndex: number;
+          chapterId: number;
+          fragmentIndex: number;
+        }> = [];
+        let firstChapterId: number | undefined;
+        while (
+          batch.length < batchFragmentCount &&
+          nextWorkItemIndex < pendingWorkItems.length
+        ) {
+          const item = pendingWorkItems[nextWorkItemIndex]!;
+          if (firstChapterId !== undefined && item.chapterId !== firstChapterId) {
+            break;
+          }
+          if (
+            batch.length > 0 &&
+            item.fragmentIndex !== batch[batch.length - 1]!.fragmentIndex + 1
+          ) {
+            break;
+          }
+          firstChapterId = item.chapterId;
+          batch.push(item);
+          nextWorkItemIndex += 1;
         }
-        nextWorkItemIndex += 1;
-        return workItem;
+        return batch.length > 0 ? batch : undefined;
       };
 
       const worker = async () => {
         while (taskToken === state.processingToken && !task.abortRequested && !workerFailure) {
-          const workItem = takeNextWorkItem();
-          if (!workItem) {
+          const batch = takeNextBatchOfWorkItems();
+          if (!batch) {
             return;
           }
 
-          beginActiveChapter(workItem.chapterId);
+          const firstItem = batch[0]!;
+          const isBatch = batch.length > 1;
+          beginActiveChapter(firstItem.chapterId);
+
           try {
-            const prepared = project.buildProofreadFragmentInput(
-              workItem.chapterId,
-              workItem.fragmentIndex,
-            );
-            if (prepared.blockedReason) {
-              this.appendProofreadWarning(
-                task,
-                `章节 ${workItem.chapterId} / 片段 ${workItem.fragmentIndex + 1} 的依赖上下文不可用（${prepared.blockedReason}），已忽略该上下文继续校对`,
+            if (isBatch) {
+              // Batched proofread processing
+              const fragmentIndices = batch.map((item) => item.fragmentIndex);
+              const mergedSourceText = batch
+                .map((item) => project.buildProofreadFragmentInput(item.chapterId, item.fragmentIndex).sourceText)
+                .join("\n");
+              const mergedTranslationText = batch
+                .map((item) => project.buildProofreadFragmentInput(item.chapterId, item.fragmentIndex).currentTranslationText)
+                .join("\n");
+              const firstPrepared = project.buildProofreadFragmentInput(firstItem.chapterId, firstItem.fragmentIndex);
+
+              const batchContextView = firstPrepared.contextView
+                ? createBatchContextView(
+                    firstItem.chapterId,
+                    fragmentIndices,
+                    {
+                      documentManager: project.getDocumentManager(),
+                      stepId: project.getPipeline().finalStepId,
+                      dependencyMode: "previousTranslations",
+                      traversalChapters: project.getWorkspaceConfig().chapters ?? [],
+                      glossary: project.getGlossary(),
+                      glossaryConfig: project.getWorkspaceConfig().glossary,
+                      plotSummaryEntries: project.getPlotSummaryEntries?.(),
+                      storyTopology: project.getStoryTopology?.(),
+                      maxPlotSummaryEntries: 20,
+                    },
+                  )
+                : undefined;
+
+              const result = await proofreadRuntime.processor.process({
+                sourceText: mergedSourceText,
+                currentTranslationText: mergedTranslationText,
+                contextView: batchContextView,
+                glossary: project.getGlossary(),
+                requirements: firstPrepared.requirements,
+                editorRequirementsText: firstPrepared.editorRequirementsText,
+                documentManager: project.getDocumentManager(),
+                workItemRef: {
+                  chapterId: firstItem.chapterId,
+                  fragmentIndex: firstItem.fragmentIndex,
+                  stepId: 'proofread',
+                },
+                fragmentAuxData: firstPrepared.fragmentAuxData,
+              });
+
+              if (
+                taskToken !== state.processingToken ||
+                task.abortRequested ||
+                workerFailure !== undefined
+              ) {
+                return;
+              }
+
+              // Split output back to fragments
+              const outputLines = (result.outputText ?? "").split("\n");
+              let lineOffset = 0;
+              for (const item of batch) {
+                const sourceText = project.getDocumentManager().getSourceText(item.chapterId, item.fragmentIndex);
+                const sourceLineCount = sourceText.split("\n").length;
+                const fragmentOutputLines = outputLines.slice(lineOffset, lineOffset + sourceLineCount);
+                const fragmentOutput = fragmentOutputLines.join("\n");
+                lineOffset += sourceLineCount;
+
+                await project.getDocumentManager().updateTranslation(
+                  item.chapterId,
+                  item.fragmentIndex,
+                  fragmentOutput,
+                );
+                this.markProofreadFragmentCompleted(task, item.chapterIndex, item.fragmentIndex);
+              }
+            } else {
+              // Single fragment processing (original logic)
+              const prepared = project.buildProofreadFragmentInput(
+                firstItem.chapterId,
+                firstItem.fragmentIndex,
               );
-              await flushTaskState(false);
+              if (prepared.blockedReason) {
+                this.appendProofreadWarning(
+                  task,
+                  `章节 ${firstItem.chapterId} / 片段 ${firstItem.fragmentIndex + 1} 的依赖上下文不可用（${prepared.blockedReason}），已忽略该上下文继续校对`,
+                );
+                await flushTaskState(false);
+              }
+
+              const result = await proofreadRuntime.processor.process({
+                sourceText: prepared.sourceText,
+                currentTranslationText: prepared.currentTranslationText,
+                contextView: prepared.contextView,
+                glossary: project.getGlossary(),
+                requirements: prepared.requirements,
+                editorRequirementsText: prepared.editorRequirementsText,
+                documentManager: project.getDocumentManager(),
+                workItemRef: {
+                  chapterId: firstItem.chapterId,
+                  fragmentIndex: firstItem.fragmentIndex,
+                  stepId: 'proofread',
+                },
+                fragmentAuxData: prepared.fragmentAuxData,
+              });
+
+              if (
+                taskToken !== state.processingToken ||
+                task.abortRequested ||
+                workerFailure !== undefined
+              ) {
+                return;
+              }
+
+              await project.getDocumentManager().updateTranslation(
+                firstItem.chapterId,
+                firstItem.fragmentIndex,
+                result.outputText,
+              );
+              this.markProofreadFragmentCompleted(task, firstItem.chapterIndex, firstItem.fragmentIndex);
             }
 
-            const result = await proofreadRuntime.processor.process({
-              sourceText: prepared.sourceText,
-              currentTranslationText: prepared.currentTranslationText,
-              contextView: prepared.contextView,
-              glossary: project.getGlossary(),
-              requirements: prepared.requirements,
-              editorRequirementsText: prepared.editorRequirementsText,
-              documentManager: project.getDocumentManager(),
-              workItemRef: {
-                chapterId: workItem.chapterId,
-                fragmentIndex: workItem.fragmentIndex,
-                stepId: 'proofread',
-              },
-              fragmentAuxData: prepared.fragmentAuxData,
-            });
-
-            if (
-              taskToken !== state.processingToken ||
-              task.abortRequested ||
-              workerFailure !== undefined
-            ) {
-              return;
-            }
-
-            await project.getDocumentManager().updateTranslation(
-              workItem.chapterId,
-              workItem.fragmentIndex,
-              result.outputText,
-            );
-            this.markProofreadFragmentCompleted(task, workItem.chapterIndex, workItem.fragmentIndex);
             await flushTaskState(true);
           } catch (error) {
             workerFailure ??= error;
             return;
           } finally {
-            endActiveChapter(workItem.chapterId);
+            endActiveChapter(firstItem.chapterId);
           }
         }
       };
@@ -4458,6 +4559,7 @@ export class ProjectService {
             fragmentIndex: item.fragmentIndex,
             outputText: result.outputText,
             fragmentAuxDataPatch: result.fragmentAuxDataPatch,
+            batchFragmentIndices: item.batchFragmentIndices,
           });
           scheduleProgressPersist(result);
           void this.usageStatsService
@@ -4515,6 +4617,7 @@ export class ProjectService {
               fragmentIndex: item.fragmentIndex,
               success: false,
               errorMessage: toMsg(error),
+              batchFragmentIndices: item.batchFragmentIndices,
             });
           } catch {
             // ignore

@@ -89,6 +89,8 @@ export type TranslationWorkItem = TranslationStepQueueEntry & {
   contextView?: TranslationContextView;
   requirements: string[];
   metadata: WorkItemMetadata;
+  /** 批次模式下包含的所有 fragment index（同一 chapter），非批次时为 undefined。 */
+  batchFragmentIndices?: number[];
 };
 
 export type TranslationWorkResult = {
@@ -101,6 +103,8 @@ export type TranslationWorkResult = {
   errorMessage?: string;
   /** 处理器返回的辅助数据补丁，将合并到文本块的 aux_data_json。 */
   fragmentAuxDataPatch?: FragmentAuxDataPatch;
+  /** 批次模式下包含的所有 fragment index（同一 chapter），非批次时为 undefined。 */
+  batchFragmentIndices?: number[];
 };
 
 export type TranslationWorkQueueRuntime = {

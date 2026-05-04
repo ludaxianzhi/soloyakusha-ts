@@ -44,7 +44,7 @@ export function WorkspaceManifestSection({
           }
           description={
             manifestState.isValid
-              ? '可选字段包括 chapterPaths / branches / glossaryPath / textSplitMaxChars / translationImportMode 等。'
+              ? '可选字段包括 chapterPaths / branches / glossaryPath / textSplitMaxChars / batchFragmentCount / translationImportMode 等。'
               : manifestState.error
           }
         />

@@ -129,6 +129,7 @@ export type TranslationProjectConfig = {
   chapters: Chapter[];
   glossary?: GlossarySettings;
   textSplitMaxChars?: number;
+  batchFragmentCount?: number;
   customRequirements?: string[];
   editorRequirementsText?: string;
   styleGuidanceMode?: StyleGuidanceMode;
@@ -454,6 +455,7 @@ export type WorkspaceConfig = {
   translator: WorkspaceTranslatorConfig;
   slidingWindow: WorkspaceSlidingWindowConfig;
   textSplitMaxChars?: number;
+  batchFragmentCount?: number;
   contextSize?: number;
   customRequirements: string[];
   editorRequirementsText?: string;
@@ -476,6 +478,7 @@ export type WorkspaceConfigPatch = {
   translator?: { translatorName?: string | null };
   slidingWindow?: Partial<WorkspaceSlidingWindowConfig>;
   textSplitMaxChars?: number | null;
+  batchFragmentCount?: number | null;
   contextSize?: number | null;
   customRequirements?: string[];
   editorRequirementsText?: string | null;

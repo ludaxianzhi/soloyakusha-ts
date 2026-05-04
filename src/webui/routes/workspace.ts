@@ -45,6 +45,10 @@ export function createWorkspaceRoutes(
       formData.get('textSplitMaxChars'),
       'textSplitMaxChars',
     );
+    const batchFragmentCount = readOptionalPositiveInteger(
+      formData.get('batchFragmentCount'),
+      'batchFragmentCount',
+    );
     const translationImportMode = parseTranslationImportMode(
       formData.get('translationImportMode'),
       'translationImportMode',
@@ -69,6 +73,7 @@ export function createWorkspaceRoutes(
       const { extractedFiles } = createdWorkspace;
       const resolvedImportFormat = manifest?.importFormat ?? importFormat;
       const resolvedTextSplitMaxChars = manifest?.textSplitMaxChars ?? textSplitMaxChars;
+      const resolvedBatchFragmentCount = manifest?.batchFragmentCount ?? batchFragmentCount;
       const resolvedTranslationImportMode =
         manifest?.translationImportMode ?? translationImportMode;
 
@@ -128,6 +133,7 @@ export function createWorkspaceRoutes(
         translatorName: resolvedTranslatorName,
         pipelineStrategy: resolvedPipelineStrategy,
         textSplitMaxChars: resolvedTextSplitMaxChars,
+        batchFragmentCount: resolvedBatchFragmentCount,
         importTranslation: resolvedTranslationImportMode === 'with-translation',
         glossaryPath: manifest?.glossaryPath,
         branches: manifest?.branches,
@@ -287,6 +293,7 @@ type UploadedWorkspaceManifest = {
   importFormat?: string;
   translatorName?: string;
   textSplitMaxChars?: number;
+  batchFragmentCount?: number;
   translationImportMode?: TranslationImportMode;
   branches?: BranchImportInput[];
 };
@@ -321,6 +328,12 @@ function parseWorkspaceManifest(raw: string): UploadedWorkspaceManifest {
     parsed.textSplitMaxChars = readOptionalPositiveInteger(
       parsed.textSplitMaxChars,
       'manifest.textSplitMaxChars',
+    );
+  }
+  if (parsed.batchFragmentCount !== undefined) {
+    parsed.batchFragmentCount = readOptionalPositiveInteger(
+      parsed.batchFragmentCount,
+      'manifest.batchFragmentCount',
     );
   }
   if (parsed.translationImportMode !== undefined) {

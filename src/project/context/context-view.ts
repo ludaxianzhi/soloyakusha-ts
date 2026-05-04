@@ -49,13 +49,18 @@ export class TranslationContextView {
       plotSummaryEntries?: ReadonlyArray<PlotSummaryEntry>;
       storyTopology?: StoryTopology;
       maxPlotSummaryEntries?: number;
+      /** 覆盖 sourceText getter，供批次上下文使用。 */
+      sourceTextOverride?: string;
     },
   ) {}
 
   get sourceText(): string {
-    return this.options.documentManager.getSourceText(
-      this.chapterId,
-      this.fragmentIndex,
+    return (
+      this.options.sourceTextOverride ??
+      this.options.documentManager.getSourceText(
+        this.chapterId,
+        this.fragmentIndex,
+      )
     );
   }
 
@@ -471,4 +476,127 @@ function dedupeFragmentRefs(refs: OrderedFragmentRef[]): OrderedFragmentRef[] {
     result.push(ref);
   }
   return result;
+}
+
+/**
+ * 批次翻译上下文视图：将多个连续文本块的上文依赖合并为统一的上下文。
+ *
+ * 规则：
+ * - 术语表/风格库等按合并后的大文本块查询（通过 sourceTextOverride）。
+ * - 上下文网络依赖按每个 fragment 分别查询，去重并按全局顺序排序，
+ *   排除批次内 fragment。
+ * - 直接前序上下文仅注入紧邻批次前 2 个 chunk。
+ *
+ * @param perFragmentNetworkRefs - 每个 fragment 的上下文网络引用，按 fragmentIndices 顺序对应。
+ *   如果某个 fragment 没有引用，传入空数组。
+ */
+export function createBatchContextView(
+  chapterId: number,
+  fragmentIndices: number[],
+  baseOptions: {
+    documentManager: TranslationDocumentManager;
+    stepId: string;
+    dependencyMode: TranslationDependencyMode;
+    traversalChapters: Chapter[];
+    glossary?: Glossary;
+    glossaryConfig?: GlossarySettings;
+    plotSummaryEntries?: ReadonlyArray<PlotSummaryEntry>;
+    storyTopology?: StoryTopology;
+    maxPlotSummaryEntries?: number;
+    networkContextRefs?: OrderedFragmentRef[];
+  },
+): TranslationContextView {
+  if (fragmentIndices.length <= 1) {
+    return new TranslationContextView(chapterId, fragmentIndices[0]!, baseOptions);
+  }
+
+  const batchFragmentKeySet = new Set(
+    fragmentIndices.map((fi) => `${chapterId}:${fi}`),
+  );
+
+  const mergedSourceText = fragmentIndices
+    .map((fi) => baseOptions.documentManager.getSourceText(chapterId, fi))
+    .join("\n");
+
+  const orderedFragments = baseOptions.traversalChapters.flatMap((ch) =>
+    baseOptions.documentManager.getChapterFragmentRefs(ch.id),
+  );
+
+  const firstIndex = fragmentIndices[0]!;
+  const firstIndexGlobal = orderedFragments.findIndex(
+    (f) => f.chapterId === chapterId && f.fragmentIndex === firstIndex,
+  );
+
+  // 收集每个 fragment 的依赖对
+  const allRefs: OrderedFragmentRef[] = [];
+  for (const fi of fragmentIndices) {
+    const singleView = new TranslationContextView(chapterId, fi, {
+      ...baseOptions,
+      sourceTextOverride: baseOptions.documentManager.getSourceText(chapterId, fi),
+    });
+    const pairs = singleView.getDependencyPairs();
+    for (const pair of pairs) {
+      allRefs.push({
+        chapterId: pair.chapterId,
+        fragmentIndex: pair.fragmentIndex,
+      });
+    }
+  }
+
+  // 额外收集 baseOptions.networkContextRefs（来自 ordering strategy 的全局上下文网络引用）
+  for (const ref of baseOptions.networkContextRefs ?? []) {
+    allRefs.push(ref);
+  }
+
+  // 去重、排除批次内 fragment、按全局顺序排序
+  const uniqueRefs = dedupeFragmentRefs(allRefs).filter(
+    (ref) => !batchFragmentKeySet.has(`${ref.chapterId}:${ref.fragmentIndex}`),
+  );
+
+  const globalIndexMap = new Map<string, number>();
+  for (let i = 0; i < orderedFragments.length; i++) {
+    const f = orderedFragments[i]!;
+    globalIndexMap.set(`${f.chapterId}:${f.fragmentIndex}`, i);
+  }
+
+  uniqueRefs.sort((a, b) => {
+    const ai = globalIndexMap.get(`${a.chapterId}:${a.fragmentIndex}`) ?? Infinity;
+    const bi = globalIndexMap.get(`${b.chapterId}:${b.fragmentIndex}`) ?? Infinity;
+    return ai - bi;
+  });
+
+  // 直接前序上下文：仅注入紧邻批次前 2 个 fragment（排除批次内、排除未完成的）
+  const predecessorRefs: OrderedFragmentRef[] = [];
+  for (let offset = 1; offset <= 2; offset++) {
+    const ref = orderedFragments[firstIndexGlobal - offset];
+    if (!ref) continue;
+    const key = `${ref.chapterId}:${ref.fragmentIndex}`;
+    if (batchFragmentKeySet.has(key)) continue;
+    if (!isStepCompleted(ref, baseOptions)) continue;
+    predecessorRefs.push(ref);
+  }
+
+  const effectiveNetworkRefs =
+    baseOptions.dependencyMode === "previousTranslations"
+      ? predecessorRefs
+      : uniqueRefs;
+
+  return new TranslationContextView(chapterId, firstIndex, {
+    ...baseOptions,
+    sourceTextOverride: mergedSourceText,
+    networkContextRefs: effectiveNetworkRefs,
+  });
+}
+
+function isStepCompleted(
+  ref: OrderedFragmentRef,
+  options: { documentManager: TranslationDocumentManager; stepId: string },
+): boolean {
+  return (
+    options.documentManager.getPipelineStepState(
+      ref.chapterId,
+      ref.fragmentIndex,
+      options.stepId,
+    )?.status === "completed"
+  );
 }

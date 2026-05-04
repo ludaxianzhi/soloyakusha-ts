@@ -7,6 +7,7 @@ export interface WorkspaceCreateFormValues {
   importFormat?: string;
   importPattern?: string;
   textSplitMaxChars?: number;
+  batchFragmentCount?: number;
   translatorName?: string;
   manifestJson?: string;
 }
@@ -31,7 +32,8 @@ export const WORKSPACE_CREATE_INITIAL_VALUES: WorkspaceCreateFormValues = {
   projectName: '新建项目',
   pipelineStrategy: 'default',
   importPattern: DEFAULT_ARCHIVE_IMPORT_PATTERN,
-  textSplitMaxChars: 2000,
+  textSplitMaxChars: 800,
+  batchFragmentCount: 3,
 };
 
 export const WORKSPACE_MANIFEST_EXAMPLE = `{
@@ -40,7 +42,8 @@ export const WORKSPACE_MANIFEST_EXAMPLE = `{
   "translatorName": "ja-zhCN-default",
   "importFormat": "naturedialog",
   "importPattern": "scenario/**/*.txt",
-  "textSplitMaxChars": 1800,
+  "textSplitMaxChars": 800,
+  "batchFragmentCount": 3,
   "translationImportMode": "source-only"
 }`;
 
@@ -53,6 +56,7 @@ const MANIFEST_OVERRIDE_KEYS = [
   'importFormat',
   'importPattern',
   'textSplitMaxChars',
+  'batchFragmentCount',
   'translationImportMode',
   'translatorName',
 ] as const;

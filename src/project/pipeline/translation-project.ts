@@ -57,6 +57,7 @@ import {
   type TranslationWorkResult,
 } from "./pipeline.ts";
 import type { TranslationContextView } from "../context/context-view.ts";
+import { createBatchContextView } from "../context/context-view.ts";
 import { TranslationDocumentManager } from "../document/translation-document-manager.ts";
 import type {
   Chapter,
@@ -70,6 +71,7 @@ import type {
   ProjectExportResult,
   ProjectProgressSnapshot,
   RouteExportResult,
+  TranslationDependencyMode,
   TranslationExportResult,
   TranslationImportResult,
   TranslationProjectConfig,
@@ -86,6 +88,7 @@ import type {
   WorkspaceConfig,
   WorkspaceConfigPatch,
   WorkspaceFileManifest,
+  WorkItemMetadata,
 } from "../types.ts";
 import { createTextFragment, type TextFragment } from "../types.ts";
 import {
@@ -135,6 +138,7 @@ export class TranslationProject
   private projectState: TranslationProjectState;
   private workspaceConfig!: WorkspaceConfig;
   private initialized = false;
+  private readonly batchFragmentCount: number;
 
   constructor(
     private readonly config: TranslationProjectConfig,
@@ -150,6 +154,7 @@ export class TranslationProject
   ) {
     this.projectDir = resolve(config.projectDir);
     this.chapters = [...config.chapters];
+    this.batchFragmentCount = config.batchFragmentCount ?? 1;
     this.documentManager =
       options.documentManager ??
       new TranslationDocumentManager(this.projectDir, {
@@ -350,6 +355,7 @@ export class TranslationProject
         chapters: workspaceConfig.chapters,
         glossary: workspaceConfig.glossary,
         textSplitMaxChars: workspaceConfig.textSplitMaxChars,
+        batchFragmentCount: workspaceConfig.batchFragmentCount,
         customRequirements: workspaceConfig.customRequirements,
         editorRequirementsText: workspaceConfig.editorRequirementsText,
         styleGuidanceMode: workspaceConfig.styleGuidanceMode,
@@ -1122,6 +1128,15 @@ export class TranslationProject
     this.ensureInitialized();
     this.ensureAcceptingResults(result.runId);
 
+    if (result.batchFragmentIndices && result.batchFragmentIndices.length > 1) {
+      await this.submitBatchWorkResult(result);
+      return;
+    }
+
+    await this.submitSingleWorkResult(result);
+  }
+
+  private async submitSingleWorkResult(result: TranslationWorkResult): Promise<void> {
     const stepState = this.documentManager.getPipelineStepState(
       result.chapterId,
       result.fragmentIndex,
@@ -1174,7 +1189,6 @@ export class TranslationProject
     };
 
     if (result.stepId === this.pipeline.finalStepId) {
-      // 原子写入：步骤状态与译文在同一次落盘，避免崩溃导致步骤已完成但译文丢失
       const hasPatch =
         result.fragmentAuxDataPatch != null &&
         Object.keys(result.fragmentAuxDataPatch).length > 0;
@@ -1197,7 +1211,6 @@ export class TranslationProject
         );
       }
     } else {
-      // 非最终步骤：不有译文落盘，单独处理步骤状态和可能的 aux data patch
       await this.documentManager.updatePipelineStepState(
         result.chapterId,
         result.fragmentIndex,
@@ -1226,6 +1239,102 @@ export class TranslationProject
       result.chapterId,
       result.fragmentIndex,
     );
+    await this.lifecycleManager.refreshLifecycleState();
+  }
+
+  private async submitBatchWorkResult(result: TranslationWorkResult): Promise<void> {
+    const batchIndices = result.batchFragmentIndices!;
+    const failAll = result.success === false;
+
+    if (failAll) {
+      const now = new Date().toISOString();
+      for (const fi of batchIndices) {
+        const stepState = this.documentManager.getPipelineStepState(
+          result.chapterId,
+          fi,
+          result.stepId,
+        );
+        if (!stepState) continue;
+        await this.documentManager.updatePipelineStepState(
+          result.chapterId,
+          fi,
+          result.stepId,
+          {
+            ...stepState,
+            status: "queued",
+            queuedAt: now,
+            updatedAt: now,
+            errorMessage: result.errorMessage,
+          },
+        );
+        this.orderingStrategy.onItemRequeued(result.stepId, result.chapterId, fi);
+      }
+      await this.lifecycleManager.refreshLifecycleState();
+      return;
+    }
+
+    const outputLines = (result.outputText ?? "").split("\n");
+    let lineOffset = 0;
+
+    for (const fi of batchIndices) {
+      const sourceText = this.documentManager.getSourceText(result.chapterId, fi);
+      const sourceLineCount = sourceText.split("\n").length;
+      const fragmentOutputLines = outputLines.slice(lineOffset, lineOffset + sourceLineCount);
+      const fragmentOutput = createTextFragment(fragmentOutputLines.join("\n"));
+      lineOffset += sourceLineCount;
+
+      const stepState = this.documentManager.getPipelineStepState(
+        result.chapterId,
+        fi,
+        result.stepId,
+      );
+      if (!stepState) {
+        throw new Error(
+          `步骤状态不存在: step=${result.stepId}, chapter=${result.chapterId}, fragment=${fi}`,
+        );
+      }
+
+      if (stepState.status !== "running") {
+        throw new Error(
+          `步骤未处于运行中，无法提交结果: step=${result.stepId}, chapter=${result.chapterId}, fragment=${fi}`,
+        );
+      }
+
+      const now = new Date().toISOString();
+      const completedStepState = {
+        ...stepState,
+        status: "completed" as const,
+        completedAt: now,
+        updatedAt: now,
+        output: fragmentOutput,
+        errorMessage: undefined,
+      };
+
+      if (result.stepId === this.pipeline.finalStepId) {
+        await this.documentManager.updateStepStateAndTranslation(
+          result.chapterId,
+          fi,
+          result.stepId,
+          completedStepState,
+          fragmentOutput,
+        );
+      } else {
+        await this.documentManager.updatePipelineStepState(
+          result.chapterId,
+          fi,
+          result.stepId,
+          completedStepState,
+        );
+      }
+
+      const nextStepId = this.pipeline.getNextStepId(result.stepId);
+      if (nextStepId) {
+        await this.enqueueStepIfNeeded(result.chapterId, fi, nextStepId);
+      }
+
+      this.orderingStrategy.onItemCompleted(result.stepId, result.chapterId, fi);
+    }
+
     await this.lifecycleManager.refreshLifecycleState();
   }
 
@@ -1821,36 +1930,158 @@ export class TranslationProject
       return [];
     }
 
+    const batchedItems = this.batchFragmentCount > 1
+      ? this.groupIntoBatchWorkItems(stepId, readyItems)
+      : readyItems;
+
     const now = new Date().toISOString();
     await this.documentManager.updatePipelineStepStates(
-      readyItems.map((item) => {
-        const currentState = this.documentManager.getPipelineStepState(
-          item.chapterId,
-          item.fragmentIndex,
-          item.stepId,
-        )!;
-        return {
-          chapterId: item.chapterId,
-          fragmentIndex: item.fragmentIndex,
-          stepId: item.stepId,
-          state: {
-            ...currentState,
-            status: "running",
-            attemptCount: (currentState.attemptCount ?? 0) + 1,
-            startedAt: now,
-            updatedAt: now,
-            lastRunId: item.runId,
-            errorMessage: undefined,
-          },
-        };
+      batchedItems.flatMap((item) => {
+        const indices = item.batchFragmentIndices ?? [item.fragmentIndex];
+        return indices.map((fi) => {
+          const currentState = this.documentManager.getPipelineStepState(
+            item.chapterId,
+            fi,
+            item.stepId,
+          )!;
+          return {
+            chapterId: item.chapterId,
+            fragmentIndex: fi,
+            stepId: item.stepId,
+            state: {
+              ...currentState,
+              status: "running",
+              attemptCount: (currentState.attemptCount ?? 0) + 1,
+              startedAt: now,
+              updatedAt: now,
+              lastRunId: item.runId,
+              errorMessage: undefined,
+            },
+          };
+        });
       }),
     );
 
-    for (const item of readyItems) {
-      this.orderingStrategy.onItemStarted(item.stepId, item.chapterId, item.fragmentIndex);
+    for (const item of batchedItems) {
+      const indices = item.batchFragmentIndices ?? [item.fragmentIndex];
+      for (const fi of indices) {
+        this.orderingStrategy.onItemStarted(item.stepId, item.chapterId, fi);
+      }
     }
 
-    return readyItems;
+    return batchedItems;
+  }
+
+  private groupIntoBatchWorkItems(
+    stepId: string,
+    readyItems: TranslationWorkItem[],
+  ): TranslationWorkItem[] {
+    const sorted = [...readyItems].sort(
+      (a, b) => a.chapterId - b.chapterId || a.fragmentIndex - b.fragmentIndex,
+    );
+
+    const batches: TranslationWorkItem[] = [];
+    let currentBatch: TranslationWorkItem[] = [];
+    let currentChapterId: number | undefined;
+
+    const flushBatch = () => {
+      if (currentBatch.length === 0) return;
+      if (currentBatch.length === 1) {
+        batches.push(currentBatch[0]!);
+      } else {
+        batches.push(this.buildBatchWorkItem(stepId, currentBatch));
+      }
+      currentBatch = [];
+    };
+
+    for (const item of sorted) {
+      if (
+        currentChapterId !== undefined &&
+        item.chapterId !== currentChapterId
+      ) {
+        flushBatch();
+        currentChapterId = undefined;
+      }
+
+      if (
+        currentBatch.length > 0 &&
+        currentBatch.length >= this.batchFragmentCount
+      ) {
+        flushBatch();
+      }
+
+      if (currentBatch.length > 0) {
+        const last = currentBatch[currentBatch.length - 1]!;
+        if (item.fragmentIndex !== last.fragmentIndex + 1) {
+          flushBatch();
+        }
+      }
+
+      currentChapterId = item.chapterId;
+      currentBatch.push(item);
+    }
+
+    flushBatch();
+    return batches;
+  }
+
+  private buildBatchWorkItem(
+    stepId: string,
+    items: TranslationWorkItem[],
+  ): TranslationWorkItem {
+    const first = items[0]!;
+    const fragmentIndices = items.map((item) => item.fragmentIndex);
+
+    const mergedInputText = items.map((item) => item.inputText).join("\n");
+    const mergedRequirements = [...new Set(items.flatMap((item) => item.requirements))];
+    const mergedMetadata: WorkItemMetadata = { ...first.metadata };
+
+    const contextView = this.buildBatchContextViewForItems(
+      first.chapterId,
+      stepId,
+      items,
+    );
+
+    return {
+      stepId: first.stepId,
+      chapterId: first.chapterId,
+      fragmentIndex: first.fragmentIndex,
+      queueSequence: first.queueSequence,
+      status: first.status,
+      runId: first.runId,
+      inputText: mergedInputText,
+      contextView,
+      requirements: mergedRequirements,
+      metadata: mergedMetadata,
+      batchFragmentIndices: fragmentIndices,
+    };
+  }
+
+  private buildBatchContextViewForItems(
+    chapterId: number,
+    stepId: string,
+    items: TranslationWorkItem[],
+  ): TranslationContextView | undefined {
+    const first = items[0]!;
+    if (!first.contextView) return undefined;
+
+    const fragmentIndices = items.map((item) => item.fragmentIndex);
+
+    const dependencyMode = (
+      first.metadata.dependencyMode as TranslationDependencyMode
+    ) ?? "previousTranslations";
+
+    return createBatchContextView(chapterId, fragmentIndices, {
+      documentManager: this.documentManager,
+      stepId,
+      dependencyMode,
+      traversalChapters: this.getTraversalChapters(),
+      glossary: this.glossary,
+      glossaryConfig: this.config.glossary,
+      plotSummaryEntries: this.plotSummaryEntries,
+      storyTopology: this.getEffectiveStoryTopology().topology,
+      maxPlotSummaryEntries: 20,
+    });
   }
 
   private buildWorkItemsFromOrderingItems(

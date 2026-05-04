@@ -86,6 +86,9 @@ export function useWorkspaceCreateController({
           if (values.textSplitMaxChars !== undefined && values.textSplitMaxChars !== null) {
             formData.set('textSplitMaxChars', String(values.textSplitMaxChars));
           }
+          if (values.batchFragmentCount !== undefined && values.batchFragmentCount !== null) {
+            formData.set('batchFragmentCount', String(values.batchFragmentCount));
+          }
           if (values.manifestJson) {
             formData.set('manifestJson', String(values.manifestJson));
           }

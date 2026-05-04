@@ -80,7 +80,7 @@ import {
  * - 简单的分批翻译处理
  */
 export class DefaultTextSplitter implements TranslationUnitSplitter {
-  constructor(private readonly maxChars = 2000) {}
+  constructor(private readonly maxChars = 800) {}
 
   split(units: TranslationUnit[]): TranslationUnit[][] {
     if (units.length === 0) {
