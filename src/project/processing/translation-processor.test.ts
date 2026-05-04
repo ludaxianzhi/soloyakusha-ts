@@ -297,10 +297,15 @@ describe("TranslationProcessor", () => {
 
   test("runs dedicated proofreading flow without analysis context", async () => {
     const client = new FakeChatClient([
-      "[1] 表达稍显生硬，建议润色语气。",
-      "[1] 原意准确，无需事实性修正。",
       JSON.stringify({
-        translations: [{ id: "1", translation: "勇者凝视着王都" }],
+        modifications: [
+          { id: "1", reason: "表达稍显生硬，建议润色语气。", translation: "勇者凝望着王都" },
+        ],
+      }),
+      JSON.stringify({
+        modifications: [
+          { id: "1", reason: "原意准确，稍作微调。", translation: "勇者凝视着王都" },
+        ],
       }),
     ]);
     const logger = new MemoryLogger();
@@ -318,7 +323,7 @@ describe("TranslationProcessor", () => {
 
     expect(result.outputText).toBe("勇者凝视着王都");
     expect(result.glossaryUpdates).toEqual([]);
-    expect(client.requests).toHaveLength(3);
+    expect(client.requests).toHaveLength(2);
     expect(client.requests[0]?.prompt).toContain("待审读译文");
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain(
       "避免欧化长句。",
@@ -328,14 +333,21 @@ describe("TranslationProcessor", () => {
     expect(
       logger.entries.some(
         (entry) =>
-          entry.message === "校对并发请求开始：同时进行 2 个任务" &&
-          entry.metadata?.concurrentTaskCount === 2,
+          entry.message === "编辑修订阶段" &&
+          entry.metadata?.round === 1,
       ),
     ).toBe(true);
-    expect(client.requests[2]?.options?.meta).toMatchObject({
-      label: "校对-校对修订",
+    expect(
+      logger.entries.some(
+        (entry) =>
+          entry.message === "校对修订阶段" &&
+          entry.metadata?.round === 1,
+      ),
+    ).toBe(true);
+    expect(client.requests[0]?.options?.meta).toMatchObject({
+      label: "校对-编辑修订",
       feature: "校对",
-      operation: "校对修订",
+      operation: "编辑修订",
       component: "MultiStageProofreadProcessor",
       workflow: "proofread-multi-stage",
     });

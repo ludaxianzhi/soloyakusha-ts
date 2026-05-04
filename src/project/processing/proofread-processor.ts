@@ -28,7 +28,7 @@ import type {
 import type { ChatClient } from "../../llm/base.ts";
 import type { SlidingWindowFragment, SlidingWindowOptions, FragmentAuxData, FragmentAuxDataContract } from "../types.ts";
 
-export const PROOFREAD_STEP_NAMES = ["editor", "proofreader", "reviser"] as const;
+export const PROOFREAD_STEP_NAMES = ["editor", "proofreader"] as const;
 
 export type ProofreadStepName = (typeof PROOFREAD_STEP_NAMES)[number];
 
@@ -44,6 +44,12 @@ export const PROOFREAD_AUX_DATA_CONTRACT: FragmentAuxDataContract = {
       required: false,
     },
   ],
+};
+
+type ProofreadModification = {
+  id: string;
+  reason: string;
+  translation: string;
 };
 
 export type ProofreadProcessorRequest = {
@@ -153,8 +159,6 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
       id: unit.id,
       translation: unit.text,
     }));
-    let lastEditorFeedback = "";
-    let lastProofreaderFeedback = "";
     let lastResponseText = "";
     let lastSystemPrompt = "";
     let lastUserPrompt = "";
@@ -170,6 +174,44 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
         editorRequirementsText: request.editorRequirementsText,
       });
 
+      this.logger.info?.("编辑修订阶段", {
+        processorName: this.processorName,
+        round: round + 1,
+        reviewIterations: this.reviewIterations,
+      });
+
+      const editorClient = this.resolveClient("editor");
+      const editorResponseText = await editorClient.singleTurnRequest(
+        editorPrompt.userPrompt,
+        withRequestMeta(
+          withOutputValidator(
+            buildJsonSchemaChatRequestOptions(
+              this.buildStepRequestOptions("editor", request.requestOptions),
+              {
+                name: editorPrompt.name,
+                systemPrompt: editorPrompt.systemPrompt,
+                responseSchema: editorPrompt.responseSchema,
+              },
+              editorClient.supportsStructuredOutput,
+            ),
+            (candidateResponseText) => {
+              parseProofreadModificationResponse(
+                candidateResponseText,
+                sourceUnits.map((unit) => unit.id),
+              );
+            },
+          ),
+          this.buildStepRequestMeta("editor", request, round),
+        ),
+      );
+      latestTranslations = applyProofreadModifications(
+        latestTranslations,
+        parseProofreadModificationResponse(
+          editorResponseText,
+          sourceUnits.map((unit) => unit.id),
+        ),
+      );
+
       const proofreaderPrompt = await this.promptManager.renderProofreadProofreaderPrompt({
         sourceUnits,
         currentTranslations: toPromptUnits(latestTranslations),
@@ -180,87 +222,48 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
         analysisText: request.fragmentAuxData?.["styleTransfer.analysis.v1"] as string | undefined,
       });
 
-      const concurrentTaskNames = ["editor", "proofreader"] as const;
-      this.logger.info?.(`校对并发请求开始：同时进行 ${concurrentTaskNames.length} 个任务`, {
+      this.logger.info?.("校对修订阶段", {
         processorName: this.processorName,
-        concurrentTaskCount: concurrentTaskNames.length,
-        concurrentTaskNames: [...concurrentTaskNames],
         round: round + 1,
         reviewIterations: this.reviewIterations,
       });
 
-      const [editorFeedback, proofreaderFeedback] = await Promise.all([
-        this.resolveClient("editor").singleTurnRequest(
-          editorPrompt.userPrompt,
-          withRequestMeta(
-            withSystemPrompt(
-              this.buildStepRequestOptions("editor", request.requestOptions),
-              editorPrompt.systemPrompt,
-            ),
-            this.buildStepRequestMeta("editor", request, round),
-          ),
-        ),
-        this.resolveClient("proofreader").singleTurnRequest(
-          proofreaderPrompt.userPrompt,
-          withRequestMeta(
-            withSystemPrompt(
-              this.buildStepRequestOptions("proofreader", request.requestOptions),
-              proofreaderPrompt.systemPrompt,
-            ),
-            this.buildStepRequestMeta("proofreader", request, round),
-          ),
-        ),
-      ]);
-
-      lastEditorFeedback = editorFeedback;
-      lastProofreaderFeedback = proofreaderFeedback;
-
-      const reviserPrompt = await this.promptManager.renderMultiStageReviserPrompt({
-        sourceUnits,
-        currentTranslations: toPromptUnits(latestTranslations),
-        referenceSourceTexts: referenceContext.referenceSourceTexts,
-        referenceTranslations: referenceContext.referenceTranslations,
-        plotSummaries: referenceContext.plotSummaries,
-        translatedGlossaryTerms,
-        editorFeedback,
-        proofreaderFeedback,
-        requirements,
-      });
-
-      const reviserClient = this.resolveClient("reviser");
-      const responseText = await reviserClient.singleTurnRequest(
-        reviserPrompt.userPrompt,
+      const proofreaderClient = this.resolveClient("proofreader");
+      const proofreaderResponseText = await proofreaderClient.singleTurnRequest(
+        proofreaderPrompt.userPrompt,
         withRequestMeta(
           withOutputValidator(
             buildJsonSchemaChatRequestOptions(
-              this.buildStepRequestOptions("reviser", request.requestOptions),
+              this.buildStepRequestOptions("proofreader", request.requestOptions),
               {
-                name: reviserPrompt.name,
-                systemPrompt: reviserPrompt.systemPrompt,
-                responseSchema: reviserPrompt.responseSchema,
+                name: proofreaderPrompt.name,
+                systemPrompt: proofreaderPrompt.systemPrompt,
+                responseSchema: proofreaderPrompt.responseSchema,
               },
-              reviserClient.supportsStructuredOutput,
+              proofreaderClient.supportsStructuredOutput,
             ),
             (candidateResponseText) => {
-              parseTranslationResponse(
+              parseProofreadModificationResponse(
                 candidateResponseText,
                 sourceUnits.map((unit) => unit.id),
               );
             },
           ),
-          this.buildStepRequestMeta("reviser", request, round),
+          this.buildStepRequestMeta("proofreader", request, round),
         ),
       );
-
-      latestTranslations = parseTranslationResponse(
-        responseText,
-        sourceUnits.map((unit) => unit.id),
+      latestTranslations = applyProofreadModifications(
+        latestTranslations,
+        parseProofreadModificationResponse(
+          proofreaderResponseText,
+          sourceUnits.map((unit) => unit.id),
+        ),
       );
-      lastResponseText = responseText;
-      lastSystemPrompt = reviserPrompt.systemPrompt;
-      lastUserPrompt = reviserPrompt.userPrompt;
-      lastPromptName = reviserPrompt.name;
-      lastResponseSchema = reviserPrompt.responseSchema;
+      lastResponseText = proofreaderResponseText;
+      lastSystemPrompt = proofreaderPrompt.systemPrompt;
+      lastUserPrompt = proofreaderPrompt.userPrompt;
+      lastPromptName = proofreaderPrompt.name;
+      lastResponseSchema = proofreaderPrompt.responseSchema;
     }
 
     let outputText = buildOutputText(latestTranslations, window);
@@ -352,10 +355,8 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
 function getProofreadOperationLabel(step: ProofreadStepName): string {
   switch (step) {
     case "editor":
-      return "编辑建议";
+      return "编辑修订";
     case "proofreader":
-      return "校对建议";
-    case "reviser":
       return "校对修订";
   }
 }
@@ -445,10 +446,10 @@ function buildSourceUnitsFromLines(lines: ReadonlyArray<string>): PromptTranslat
   }));
 }
 
-function parseTranslationResponse(
+function parseProofreadModificationResponse(
   responseText: string,
   expectedIds: ReadonlyArray<string>,
-): TranslationProcessorTranslation[] {
+): ProofreadModification[] {
   let parsed: unknown;
   try {
     parsed = parseJsonResponseText(responseText);
@@ -462,44 +463,57 @@ function parseTranslationResponse(
     throw new Error("校对结果必须是 JSON 对象");
   }
 
-  const translationValues = parsed.translations;
-  if (!Array.isArray(translationValues)) {
-    throw new Error("校对结果缺少 translations 数组");
+  const modificationValues = parsed.modifications;
+  if (!Array.isArray(modificationValues)) {
+    throw new Error("校对结果缺少 modifications 数组");
   }
 
   const expectedIdSet = new Set(expectedIds);
   const seenIds = new Set<string>();
-  const translationMap = new Map<string, string>();
 
-  const translations = translationValues.map<TranslationProcessorTranslation>((entry, index) => {
+  return modificationValues.map<ProofreadModification>((entry, index) => {
     if (!isRecord(entry)) {
-      throw new Error(`translations[${index}] 必须是对象`);
+      throw new Error(`modifications[${index}] 必须是对象`);
     }
 
     const id = typeof entry.id === "string" ? entry.id.trim() : "";
+    const reason = typeof entry.reason === "string" ? entry.reason.trim() : "";
     const translation = typeof entry.translation === "string" ? entry.translation.trim() : "";
 
     if (!id || !expectedIdSet.has(id)) {
-      throw new Error(`translations[${index}].id 无效或未请求: ${id}`);
+      throw new Error(`modifications[${index}].id 无效或未请求: ${id}`);
     }
     if (seenIds.has(id)) {
-      throw new Error(`translations[${index}].id 重复: ${id}`);
+      throw new Error(`modifications[${index}].id 重复: ${id}`);
+    }
+    if (!reason) {
+      throw new Error(`modifications[${index}].reason 不能为空`);
     }
     if (!translation) {
-      throw new Error(`translations[${index}].translation 不能为空`);
+      throw new Error(`modifications[${index}].translation 不能为空`);
     }
 
     seenIds.add(id);
-    translationMap.set(id, translation);
-    return { id, translation };
+    return { id, reason, translation };
   });
+}
 
-  const missingIds = expectedIds.filter((id) => !translationMap.has(id));
-  if (missingIds.length > 0) {
-    throw new Error(`校对结果缺少 id: ${missingIds.join(", ")}`);
+function applyProofreadModifications(
+  translations: ReadonlyArray<TranslationProcessorTranslation>,
+  modifications: ReadonlyArray<ProofreadModification>,
+): TranslationProcessorTranslation[] {
+  if (modifications.length === 0) {
+    return [...translations];
   }
 
-  return translations;
+  const modificationMap = new Map(
+    modifications.map((modification) => [modification.id, modification.translation]),
+  );
+
+  return translations.map((translation) => ({
+    id: translation.id,
+    translation: modificationMap.get(translation.id) ?? translation.translation,
+  }));
 }
 
 function buildOutputText(
@@ -534,19 +548,6 @@ function resolveSlidingWindow(
     request.workItemRef.fragmentIndex,
     slidingWindow,
   );
-}
-
-function withSystemPrompt(
-  base: ChatRequestOptions | undefined,
-  systemPrompt: string,
-): ChatRequestOptions {
-  return {
-    ...base,
-    requestConfig: {
-      ...(base?.requestConfig ?? {}),
-      systemPrompt,
-    },
-  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

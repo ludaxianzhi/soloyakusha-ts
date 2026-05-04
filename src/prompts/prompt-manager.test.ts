@@ -19,7 +19,6 @@ describe("PromptManager", () => {
     expect(promptIds).toContain("project.multiStage.translator.ja-zhCN");
     expect(promptIds).toContain("project.styleTransfer.transfer.ja-zhCN");
     expect(promptIds).toContain("project.proofread.editor.ja-zhCN");
-    expect(promptIds).toContain("project.proofread.reviser.ja-zhCN");
     expect(promptIds).toContain("project.chapterEditorAssistant.ja-zhCN");
     expect(promptIds).toContain("project.plotSummary");
     expect(promptIds).toContain("utils.alignmentRepair");
@@ -200,27 +199,12 @@ prompts:
       translatedGlossaryTerms: [{ term: "勇者", translation: "勇者", status: "translated" }],
       requirements: ["保持文学语气"],
     });
-    const reviserPrompt = manager.renderPrompt("project.proofread.reviser.ja-zhCN", {
-      sourceUnits: [{ id: "1", text: "勇者が扉を開けた。" }],
-      currentTranslations: [{ id: "1", text: "勇者推开了门。" }],
-      referenceSourceTexts: ["扉の先には長い廊下があった。"],
-      referenceTranslations: ["门后是一条长廊。"],
-      plotSummaries: ["上一段：勇者已经潜入城堡。"],
-      translatedGlossaryTerms: [{ term: "勇者", translation: "勇者", status: "translated" }],
-      editorFeedback: "[1] 语气可更紧凑。",
-      proofreaderFeedback: "[1] 无明显误译。",
-      requirements: ["保持文学语气"],
-      responseSchemaJson: '{"type":"object","properties":{"translations":{"type":"array"}}}',
-    });
 
     expect(analyzerPrompt.userPrompt).toContain("全量参考（前序文段，原文与译文合并展示）");
     expect(analyzerPrompt.userPrompt).toContain("原文: 扉の先には長い廊下があった。");
     expect(analyzerPrompt.userPrompt).toContain("译文: 门后是一条长廊。");
     expect(analyzerPrompt.userPrompt).toContain("历史总结");
     expect(analyzerPrompt.userPrompt).toContain("上一段：勇者已经潜入城堡。");
-    expect(reviserPrompt.userPrompt).toContain("中文编辑反馈");
-    expect(reviserPrompt.userPrompt).toContain("校对专家反馈");
-    expect(reviserPrompt.userPrompt).toContain("JSON Schema");
   });
 
   test("renders proofreader prompt with plot summaries instead of reference source texts", async () => {

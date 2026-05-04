@@ -186,9 +186,6 @@ test('proofread processor config can be listed and persisted', async () => {
       proofreader: {
         modelNames: ['proofreader-primary'],
       },
-      reviser: {
-        modelNames: ['reviser-primary'],
-      },
     },
   });
 
@@ -202,9 +199,6 @@ test('proofread processor config can be listed and persisted', async () => {
       },
       proofreader: {
         modelNames: ['proofreader-primary'],
-      },
-      reviser: {
-        modelNames: ['reviser-primary'],
       },
     },
   });

@@ -4825,7 +4825,6 @@ async function createProofreadProcessorForProject(
       steps: {
         editor: entry.steps?.editor ?? { modelNames: [...entry.modelNames] },
         proofreader: entry.steps?.proofreader ?? { modelNames: [...entry.modelNames] },
-        reviser: entry.steps?.reviser ?? { modelNames: [...entry.modelNames] },
       },
     };
     log('warning', '未配置独立校对器，已临时复用当前翻译器的模型链执行校对流程');

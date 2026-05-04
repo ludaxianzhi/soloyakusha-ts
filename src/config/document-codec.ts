@@ -384,7 +384,14 @@ function normalizeTranslationProcessorStepConfigs(
       !STYLE_TRANSFER_STEP_NAMES.includes(stepName as StyleTransferStepName) &&
       !PROOFREAD_STEP_NAMES.includes(stepName as ProofreadStepName)
     ) {
-      throw new Error(`${sourceLabel}.${stepName} 不是受支持的步骤`);
+      if (proofreadMode) {
+        continue;
+      }
+      if (stepName === "reviser") {
+        // Legacy reviser step for style-transfer migration; handled below.
+      } else {
+        throw new Error(`${sourceLabel}.${stepName} 不是受支持的步骤`);
+      }
     }
     if (!isRecord(stepValue)) {
       throw new Error(`${sourceLabel}.${stepName} 必须是对象`);

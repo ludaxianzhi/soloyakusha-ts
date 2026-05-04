@@ -147,6 +147,9 @@ prompts:
     expect(rendered.userPrompt).toContain("proofread-user");
     expect(rendered.userPrompt).toContain("原文");
     expect(rendered.userPrompt).toContain("译文");
+    expect(rendered.responseSchema).toBeDefined();
+    expect(rendered.responseSchema.type).toBe("object");
+    expect(rendered.responseSchema).toHaveProperty("required", ["modifications"]);
   });
 
   test("renders multi-stage editor prompt with default and custom editor requirements", async () => {
@@ -184,5 +187,7 @@ prompts:
 
     expect(renderedWithDefault.systemPrompt).toContain(DEFAULT_EDITOR_REQUIREMENTS_TEXT);
     expect(renderedWithCustom.systemPrompt).toContain("避免文白夹杂。");
+    expect(renderedWithDefault.responseSchema).toBeDefined();
+    expect(renderedWithDefault.responseSchema).toHaveProperty("required", ["modifications"]);
   });
 });

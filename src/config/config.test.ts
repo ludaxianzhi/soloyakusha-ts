@@ -723,9 +723,6 @@ describe("GlobalConfigManager", () => {
         proofreader: {
           modelNames: ["reviewer"],
         },
-        reviser: {
-          modelNames: ["reviewer"],
-        },
       },
     });
     await manager.setGlossaryExtractorConfig({
@@ -801,10 +798,6 @@ describe("GlobalConfigManager", () => {
           requestOptions: undefined,
         },
         proofreader: {
-          modelNames: ["reviewer"],
-          requestOptions: undefined,
-        },
-        reviser: {
           modelNames: ["reviewer"],
           requestOptions: undefined,
         },
@@ -968,9 +961,6 @@ describe("GlobalConfigManager", () => {
               modelNames: ["reviewer"],
             },
             proofreader: {
-              modelNames: ["reviewer"],
-            },
-            reviser: {
               modelNames: ["reviewer"],
             },
           },

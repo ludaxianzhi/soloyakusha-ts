@@ -78,17 +78,6 @@ export type ProofreadProofreaderPromptInput = {
   analysisText?: string;
 };
 
-export type MultiStageReviserPromptInput = {
-  sourceUnits: PromptTranslationUnit[];
-  currentTranslations: PromptTranslationUnit[];
-  referenceSourceTexts: string[];
-  referenceTranslations: string[];
-  plotSummaries: string[];
-  translatedGlossaryTerms: ResolvedGlossaryTerm[];
-  editorFeedback: string;
-  proofreaderFeedback: string;
-  requirements: string[];
-};
 
 export type ChapterTranslationAssistantMode = "question" | "modify" | "polish";
 
@@ -137,8 +126,7 @@ const PROOFREAD_EDITOR_PROMPT_NAME = "proofread_editor";
 const PROOFREAD_EDITOR_PROMPT_ID = "project.proofread.editor";
 const PROOFREAD_PROOFREADER_PROMPT_NAME = "proofread_proofreader";
 const PROOFREAD_PROOFREADER_PROMPT_ID = "project.proofread.proofreader";
-const PROOFREAD_REVISER_PROMPT_NAME = "proofread_reviser";
-const PROOFREAD_REVISER_PROMPT_ID = "project.proofread.reviser";
+
 const CHAPTER_EDITOR_ASSISTANT_PROMPT_NAME = "chapter_editor_assistant";
 const CHAPTER_EDITOR_ASSISTANT_PROMPT_ID = "project.chapterEditorAssistant";
 const DEFAULT_TRANSLATION_PROMPT_SET = "ja-zhCN";
@@ -243,25 +231,29 @@ export class PromptManager {
 
   async renderMultiStageEditorPrompt(
     input: MultiStageEditorPromptInput,
-  ): Promise<RenderedTextPrompt> {
+  ): Promise<RenderedPrompt> {
+    const responseSchema = buildProofreadModificationResponseSchema(input.currentTranslations);
     const renderedPrompt = await this.renderPrompt(PROOFREAD_EDITOR_PROMPT_ID, {
       currentTranslations: input.currentTranslations,
       referenceTranslations: input.referenceTranslations,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
       requirements: input.requirements,
       editorRequirementsText: resolveEditorRequirementsText(input.editorRequirementsText),
+      responseSchemaJson: JSON.stringify(responseSchema, null, 2),
     });
 
     return {
       name: PROOFREAD_EDITOR_PROMPT_NAME,
       systemPrompt: renderedPrompt.systemPrompt,
       userPrompt: renderedPrompt.userPrompt,
+      responseSchema,
     };
   }
 
   async renderProofreadProofreaderPrompt(
     input: ProofreadProofreaderPromptInput,
-  ): Promise<RenderedTextPrompt> {
+  ): Promise<RenderedPrompt> {
+    const responseSchema = buildProofreadModificationResponseSchema(input.currentTranslations);
     const renderedPrompt = await this.renderPrompt(PROOFREAD_PROOFREADER_PROMPT_ID, {
       sourceUnits: input.sourceUnits,
       currentTranslations: input.currentTranslations,
@@ -270,34 +262,11 @@ export class PromptManager {
       translatedGlossaryTerms: input.translatedGlossaryTerms,
       requirements: input.requirements,
       analysisText: input.analysisText,
-    });
-
-    return {
-      name: PROOFREAD_PROOFREADER_PROMPT_NAME,
-      systemPrompt: renderedPrompt.systemPrompt,
-      userPrompt: renderedPrompt.userPrompt,
-    };
-  }
-
-  async renderMultiStageReviserPrompt(
-    input: MultiStageReviserPromptInput,
-  ): Promise<RenderedPrompt> {
-    const responseSchema = buildTranslationStepResponseSchema(input.sourceUnits);
-    const renderedPrompt = await this.renderPrompt(PROOFREAD_REVISER_PROMPT_ID, {
-      sourceUnits: input.sourceUnits,
-      currentTranslations: input.currentTranslations,
-      referenceSourceTexts: input.referenceSourceTexts,
-      referenceTranslations: input.referenceTranslations,
-      plotSummaries: input.plotSummaries,
-      translatedGlossaryTerms: input.translatedGlossaryTerms,
-      editorFeedback: input.editorFeedback,
-      proofreaderFeedback: input.proofreaderFeedback,
-      requirements: input.requirements,
       responseSchemaJson: JSON.stringify(responseSchema, null, 2),
     });
 
     return {
-      name: PROOFREAD_REVISER_PROMPT_NAME,
+      name: PROOFREAD_PROOFREADER_PROMPT_NAME,
       systemPrompt: renderedPrompt.systemPrompt,
       userPrompt: renderedPrompt.userPrompt,
       responseSchema,
@@ -399,6 +368,41 @@ function buildStyleTransferResponseSchema(
             },
           },
           required: ["id", "styleAnalysis", "translation"],
+        },
+      },
+    },
+    required: ["modifications"],
+  };
+}
+
+function buildProofreadModificationResponseSchema(
+  sourceUnits: ReadonlyArray<PromptTranslationUnit>,
+): JsonObject {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      modifications: {
+        type: "array",
+        minItems: 0,
+        maxItems: sourceUnits.length,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            id: {
+              type: "string",
+            },
+            reason: {
+              type: "string",
+              minLength: 1,
+            },
+            translation: {
+              type: "string",
+              minLength: 1,
+            },
+          },
+          required: ["id", "reason", "translation"],
         },
       },
     },

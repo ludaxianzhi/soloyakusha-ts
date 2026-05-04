@@ -158,7 +158,5 @@ function getProofreadStepLabel(step: ProofreadStepName): string {
       return "编辑器";
     case "proofreader":
       return "校对器";
-    case "reviser":
-      return "修订器";
   }
 }
