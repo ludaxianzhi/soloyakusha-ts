@@ -103,7 +103,7 @@ export function createDefaultTranslationPipelineDefinition(
   };
 }
 
-function resolveContextNetworkRefs(
+export function resolveContextNetworkRefs(
   encodedIndices: string | number | boolean | undefined,
   dependencyMode: string | number | boolean | undefined,
   orderedFragments: OrderedFragmentSnapshot[],

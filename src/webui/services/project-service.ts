@@ -97,6 +97,7 @@ import type {
   WorkspaceConfig,
   WorkspaceConfigPatch,
   WorkspacePipelineStrategy,
+  type FragmentAuxData,
 } from '../../project/types.ts';
 import { 
   TextPostProcessorRegistry, 
@@ -1858,13 +1859,22 @@ export class ProjectService {
             if (isBatch) {
               // Batched proofread processing
               const fragmentIndices = batch.map((item) => item.fragmentIndex);
-              const mergedSourceText = batch
-                .map((item) => project.buildProofreadFragmentInput(item.chapterId, item.fragmentIndex).sourceText)
-                .join("\n");
-              const mergedTranslationText = batch
-                .map((item) => project.buildProofreadFragmentInput(item.chapterId, item.fragmentIndex).currentTranslationText)
-                .join("\n");
-              const firstPrepared = project.buildProofreadFragmentInput(firstItem.chapterId, firstItem.fragmentIndex);
+              const preparedItems = batch.map((item) =>
+                project.buildProofreadFragmentInput(item.chapterId, item.fragmentIndex),
+              );
+              const mergedSourceText = preparedItems.map((p) => p.sourceText).join("\n");
+              const mergedTranslationText = preparedItems.map((p) => p.currentTranslationText).join("\n");
+              const firstPrepared = preparedItems[0]!;
+
+              // Merge aux data from all batch fragments.
+              // String fields (e.g. styleTransfer.analysis.v1) are concatenated
+              // with a fragment index prefix so the proofreader can correlate.
+              const mergedAuxData = mergeBatchFragmentAuxData(
+                preparedItems.map((p, i) => ({
+                  fragmentIndex: fragmentIndices[i]!,
+                  auxData: p.fragmentAuxData,
+                })),
+              );
 
               const batchContextView = firstPrepared.contextView
                 ? createBatchContextView(
@@ -1897,7 +1907,7 @@ export class ProjectService {
                   fragmentIndex: firstItem.fragmentIndex,
                   stepId: 'proofread',
                 },
-                fragmentAuxData: firstPrepared.fragmentAuxData,
+                fragmentAuxData: mergedAuxData,
               });
 
               if (
@@ -5314,5 +5324,41 @@ async function resolveTranslatorMaxConcurrentWorkItems(
   }
 
   return DEFAULT_TRANSLATION_MAX_CONCURRENT_WORK_ITEMS;
+}
+
+function mergeBatchFragmentAuxData(
+  entries: Array<{ fragmentIndex: number; auxData: FragmentAuxData | undefined }>,
+): FragmentAuxData | undefined {
+  const nonEmpty = entries.filter((e) => e.auxData && Object.keys(e.auxData).length > 0);
+  if (nonEmpty.length === 0) return undefined;
+  if (nonEmpty.length === 1) return nonEmpty[0]!.auxData;
+
+  const merged: FragmentAuxData = {};
+  const allKeys = new Set(nonEmpty.flatMap((e) => Object.keys(e.auxData!)));
+
+  for (const key of allKeys) {
+    const values = nonEmpty
+      .map((e) => e.auxData![key])
+      .filter((v) => v !== undefined);
+
+    if (values.length === 0) continue;
+
+    if (values.every((v) => typeof v === "string")) {
+      // String fields (e.g. styleTransfer.analysis.v1): concatenate with
+      // fragment-index labelled separators so the proofreader can correlate.
+      merged[key] = nonEmpty
+        .filter((e) => typeof e.auxData![key] === "string")
+        .map((e) => `[F${e.fragmentIndex}] ${e.auxData![key]}`)
+        .join("\n");
+    } else if (values.every((v) => typeof v === "number" || typeof v === "boolean")) {
+      // Scalar fields: take the first value (consistent within a batch).
+      merged[key] = values[0];
+    } else {
+      // Object/array fields: take the first non-null value.
+      merged[key] = values[0];
+    }
+  }
+
+  return merged;
 }
 
