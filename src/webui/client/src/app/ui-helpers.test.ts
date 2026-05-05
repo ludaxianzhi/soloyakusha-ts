@@ -361,6 +361,56 @@ describe('WebUI LLM request config helpers', () => {
     });
   });
 
+  test('parses proofread request options with llm request config semantics', () => {
+    const workflow = {
+      workflow: 'proofread-multi-stage',
+      title: 'Proofread',
+      fields: [
+        {
+          key: 'steps.editor.modelNames',
+          label: '编辑器模型链',
+          input: 'llm-profile' as const,
+          required: true,
+        },
+        {
+          key: 'steps.editor.requestOptions',
+          label: '编辑器请求选项',
+          input: 'yaml' as const,
+          yamlShape: 'object' as const,
+        },
+      ],
+    } satisfies TranslationProcessorWorkflowMetadata;
+
+    const payload = buildTranslationProcessorConfigPayload(
+      {
+        [translatorFieldName('steps.editor.modelNames')]: ['editor-primary'],
+        [translatorFieldName('steps.editor.requestOptions')]:
+          'temperature: 0.15\nchat_template_kwargs:\n  enable_thinking: false\n',
+      },
+      workflow,
+    );
+
+    expect(payload).toEqual({
+      workflow: 'proofread-multi-stage',
+      modelNames: ['editor-primary'],
+      steps: {
+        editor: {
+          modelNames: ['editor-primary'],
+          requestOptions: {
+            requestConfig: {
+              temperature: 0.15,
+              extraBody: {
+                chat_template_kwargs: {
+                  enable_thinking: false,
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
   test('serializes workspace workflow fields and clears removed fields', () => {
     const previousWorkflow = {
       workflow: 'style-transfer',

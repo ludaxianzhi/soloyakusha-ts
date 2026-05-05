@@ -575,7 +575,9 @@ function serializeWorkflowFieldValue(
     case 'llm-profile':
       return normalizeModelChain(value);
     case 'yaml':
-      return stringifyYaml(value);
+      return field.key.endsWith('requestOptions')
+        ? stringifyWorkflowRequestOptions(value)
+        : stringifyYaml(value);
     case 'select':
       return optionalString(value);
     default:
@@ -595,10 +597,54 @@ function parseWorkflowFieldValue(
     case 'select':
       return optionalString(value);
     case 'yaml':
-      return field.yamlShape === 'string-map' ? parseYamlStringMap(value) : parseYamlObject(value);
+      if (field.yamlShape === 'string-map') {
+        return parseYamlStringMap(value);
+      }
+      return field.key.endsWith('requestOptions')
+        ? parseWorkflowRequestOptions(value)
+        : parseYamlObject(value);
     default:
       return optionalString(value);
   }
+}
+
+function parseWorkflowRequestOptions(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  const parsed = parseYamlObject(value);
+  if (!parsed) {
+    return undefined;
+  }
+
+  if (
+    parsed.requestConfig !== undefined ||
+    parsed.outputValidationContext !== undefined ||
+    parsed.meta !== undefined ||
+    parsed.outputValidator !== undefined
+  ) {
+    return parsed;
+  }
+
+  const requestConfig = parseLlmRequestConfigYaml(value);
+  return requestConfig ? { requestConfig } : undefined;
+}
+
+function stringifyWorkflowRequestOptions(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return stringifyYaml(value);
+  }
+
+  const chatRequestOptions = value as Record<string, unknown>;
+  const requestConfig = chatRequestOptions.requestConfig;
+  const hasOtherTopLevelFields = Object.keys(chatRequestOptions).some(
+    (key) => key !== 'requestConfig',
+  );
+
+  if (!hasOtherTopLevelFields && requestConfig && typeof requestConfig === 'object' && !Array.isArray(requestConfig)) {
+    return formatLlmRequestConfigYaml(requestConfig as Record<string, unknown>);
+  }
+
+  return stringifyYaml(value);
 }
 
 function resolveWorkflowModelNames(

@@ -391,6 +391,86 @@ describe("TranslationProcessor", () => {
     });
   });
 
+  test("createProofreadProcessor routes editor and proofreader to their own model chains", async () => {
+    const defaultClient = new FakeChatClient([]);
+    const editorClient = new FakeChatClient([
+      JSON.stringify({
+        modifications: [
+          { id: "1", reason: "润色表达。", translation: "勇者凝望着王都" },
+        ],
+      }),
+    ]);
+    const proofreaderClient = new FakeChatClient([
+      JSON.stringify({
+        modifications: [
+          { id: "1", reason: "终稿微调。", translation: "勇者凝视着王都" },
+        ],
+      }),
+    ]);
+
+    const config = new TranslationGlobalConfig({
+      llm: {
+        profiles: {
+          "default-chat": {
+            provider: "openai",
+            modelType: "chat",
+            modelName: "default-model",
+            endpoint: "https://example.test/v1",
+            apiKey: "test-key",
+          },
+          "editor-chat": {
+            provider: "openai",
+            modelType: "chat",
+            modelName: "editor-model",
+            endpoint: "https://example.test/v1",
+            apiKey: "test-key",
+          },
+          "proofreader-chat": {
+            provider: "openai",
+            modelType: "chat",
+            modelName: "proofreader-model",
+            endpoint: "https://example.test/v1",
+            apiKey: "test-key",
+          },
+        },
+      },
+      translation: {
+        proofreadProcessor: {
+          workflow: "proofread-multi-stage",
+          modelNames: ["default-chat"],
+          reviewIterations: 1,
+          steps: {
+            editor: {
+              modelNames: ["editor-chat"],
+            },
+            proofreader: {
+              modelNames: ["proofreader-chat"],
+            },
+          },
+        },
+      },
+    });
+
+    const processor = config.createProofreadProcessor({
+      provider: new FakeLlmClientProvider({
+        "default-chat": defaultClient,
+        "editor-chat": editorClient,
+        "proofreader-chat": proofreaderClient,
+      }),
+      logger: new MemoryLogger(),
+    });
+
+    const result = await processor.process({
+      sourceText: "勇者は王都を見つめていた",
+      currentTranslationText: "勇者看着王都",
+    });
+
+    expect(result.outputText).toBe("勇者凝视着王都");
+    expect(defaultClient.requests).toHaveLength(0);
+    expect(editorClient.requests).toHaveLength(1);
+    expect(proofreaderClient.requests).toHaveLength(1);
+  });
+
   test("injects style requirements into the style-transfer step system prompt", async () => {
     const client = new FakeChatClient([
       "分析结果",
