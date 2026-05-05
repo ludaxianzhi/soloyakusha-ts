@@ -297,7 +297,7 @@ export function ChapterKanbanBoard({
     (parentRouteId: string, forkAfterChapterId: number) => {
       const chapter = chapterMap.get(forkAfterChapterId);
       const defaultName = chapter
-        ? `分支-${chapter.filePath.split('/').pop()?.split('.')[0] ?? forkAfterChapterId}`
+        ? `分支-${chapter.displayName ?? forkAfterChapterId}`
         : `分支-${forkAfterChapterId}`;
       setBranchModal({ parentRouteId, forkAfterChapterId });
       setBranchName(defaultName);
@@ -681,7 +681,7 @@ function KanbanCard({
           />
         )}
         <KanbanCardContent
-          chapter={chapter ?? { id: chapterId, filePath: `章节 ${chapterId}`, fragmentCount: 0, sourceLineCount: 0, translatedLineCount: 0, hasTranslationData: false }}
+          chapter={chapter ?? { id: chapterId, filePath: `章节 ${chapterId}`, displayName: `章节 ${chapterId}`, sourceLineCount: 0, translatedLineCount: 0 }}
           isForkPoint={isForkPoint}
           branchCount={branchCount}
         />
@@ -729,11 +729,10 @@ function KanbanCardContent({
   isForkPoint,
   branchCount,
 }: {
-  chapter: Pick<WorkspaceChapterDescriptor, 'id' | 'filePath' | 'sourceLineCount' | 'translatedLineCount'>;
+  chapter: Pick<WorkspaceChapterDescriptor, 'id' | 'filePath' | 'displayName' | 'sourceLineCount' | 'translatedLineCount'>;
   isForkPoint: boolean;
   branchCount: number;
 }) {
-  const fileName = chapter.filePath.split('/').pop() ?? chapter.filePath;
   const progress =
     chapter.sourceLineCount > 0
       ? Math.round((chapter.translatedLineCount / chapter.sourceLineCount) * 100)
@@ -750,7 +749,7 @@ function KanbanCardContent({
           style={{ fontSize: 12, flex: 1, marginLeft: 4, color: 'var(--text-secondary)' }}
           title={chapter.filePath}
         >
-          {fileName}
+          {chapter.displayName}
         </Typography.Text>
         {isForkPoint ? (
           <Tag

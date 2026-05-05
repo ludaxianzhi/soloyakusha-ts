@@ -43,6 +43,7 @@ import type { ProofreadProcessor } from '../../project/processing/proofread-proc
 import { TranslationProject } from '../../project/pipeline/translation-project.ts';
 import {
   applyWorkspaceConfigPatch,
+  buildChapterExportRelativePath,
   DEFAULT_WORKSPACE_PIPELINE_STRATEGY,
   openWorkspaceConfig,
 } from '../../project/pipeline/translation-project-workspace.ts';
@@ -97,7 +98,7 @@ import type {
   WorkspaceConfig,
   WorkspaceConfigPatch,
   WorkspacePipelineStrategy,
-  type FragmentAuxData,
+  FragmentAuxData,
 } from '../../project/types.ts';
 import { 
   TextPostProcessorRegistry, 
@@ -3320,11 +3321,18 @@ export class ProjectService {
       await mkdir(exportRootDir, { recursive: true });
 
       const results: TranslationExportResult[] = [];
+      const preserveDirectories = chapterIds.length > 1;
       for (const chapterId of chapterIds) {
         const chapter = project.getChapterDescriptor(chapterId);
         if (!chapter) continue;
 
-        const outputPath = join(exportRootDir, chapter.filePath);
+        const outputPath = join(
+          exportRootDir,
+          buildChapterExportRelativePath(chapter.filePath, {
+            format: formatName,
+            preserveDirectories,
+          }),
+        );
         await mkdir(dirname(outputPath), { recursive: true });
         await project.exportChapter(chapterId, outputPath, { fileHandler: handler });
         results.push({ chapterId, outputPath, unitCount: chapter.fragmentCount });
@@ -5375,6 +5383,7 @@ function mergeBatchFragmentAuxData(
       .filter((v) => v !== undefined);
 
     if (values.length === 0) continue;
+    const firstValue = values[0]!;
 
     if (values.every((v) => typeof v === "string")) {
       // String fields (e.g. styleTransfer.analysis.v1): concatenate with
@@ -5385,10 +5394,10 @@ function mergeBatchFragmentAuxData(
         .join("\n");
     } else if (values.every((v) => typeof v === "number" || typeof v === "boolean")) {
       // Scalar fields: take the first value (consistent within a batch).
-      merged[key] = values[0];
+      merged[key] = firstValue;
     } else {
       // Object/array fields: take the first non-null value.
-      merged[key] = values[0];
+      merged[key] = firstValue;
     }
   }
 

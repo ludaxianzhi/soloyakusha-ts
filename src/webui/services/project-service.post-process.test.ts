@@ -23,6 +23,9 @@ describe('ProjectService batch post process', () => {
       updateTranslation: async (chapterId: number, fragmentIndex: number, lines: string[]) => {
         updates.push({ chapterId, fragmentIndex, lines });
         const fragment = chapter.fragments[fragmentIndex];
+        if (!fragment) {
+          throw new Error(`fragment ${fragmentIndex} not found`);
+        }
         fragment.translation = createTextFragment(lines);
       },
     };

@@ -26,6 +26,14 @@ import type {
 export const WORKSPACE_BOOTSTRAP_SCHEMA_VERSION = 2;
 export const DEFAULT_WORKSPACE_DATABASE_FILE_PATH = "Data\\project.sqlite";
 
+const FORMAT_FILE_EXTENSIONS: Record<string, string> = {
+  plain_text: ".txt",
+  naturedialog: ".nd",
+  naturedialog_keepname: ".nd",
+  m3t: ".m3t",
+  galtransl_json: ".json",
+};
+
 export type WorkspaceBootstrapDocument = {
   schemaVersion: typeof WORKSPACE_BOOTSTRAP_SCHEMA_VERSION;
   storage: "sqlite";
@@ -222,11 +230,15 @@ export class TranslationProjectWorkspace {
     const results: TranslationExportResult[] = [];
 
     for (const chapter of this.chapters) {
-      const ext =
-        options?.fileExtension ??
-        getExportFileExtension(chapter.filePath, options?.format);
-      const base = basename(chapter.filePath, extname(chapter.filePath));
-      const outputPath = join(resolvedDir, `${base}${ext}`);
+      const outputPath = join(
+        resolvedDir,
+        buildChapterExportRelativePath(chapter.filePath, {
+          format: options?.format,
+          fileExtension: options?.fileExtension,
+          preserveDirectories: true,
+        }),
+      );
+      await mkdir(dirname(outputPath), { recursive: true });
       results.push(await this.exportChapter(chapter.id, outputPath, options));
     }
 
@@ -370,6 +382,7 @@ export class TranslationProjectWorkspace {
     return {
       id: chapterId,
       filePath: chapterConfig.filePath,
+      displayName: getChapterDisplayName(chapterConfig.filePath),
       fragmentCount: chapter.fragments.length,
       sourceLineCount,
       translatedLineCount,
@@ -713,14 +726,6 @@ function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
-const FORMAT_FILE_EXTENSIONS: Record<string, string> = {
-  plain_text: ".txt",
-  naturedialog: ".txt",
-  naturedialog_keepname: ".txt",
-  m3t: ".m3t",
-  galtransl_json: ".json",
-};
-
 export function getExportFileExtension(
   originalFilePath: string,
   format?: string,
@@ -730,4 +735,27 @@ export function getExportFileExtension(
   }
 
   return extname(originalFilePath) || ".txt";
+}
+
+export function getChapterDisplayName(filePath: string): string {
+  return basename(filePath, extname(filePath));
+}
+
+export function buildChapterExportRelativePath(
+  chapterFilePath: string,
+  options?: {
+    format?: string;
+    fileExtension?: string;
+    preserveDirectories?: boolean;
+  },
+): string {
+  const extension =
+    options?.fileExtension ?? getExportFileExtension(chapterFilePath, options?.format);
+  const fileName = `${getChapterDisplayName(chapterFilePath)}${extension}`;
+  if (options?.preserveDirectories === false) {
+    return fileName;
+  }
+
+  const chapterDir = dirname(chapterFilePath);
+  return chapterDir === "." ? fileName : join(chapterDir, fileName);
 }

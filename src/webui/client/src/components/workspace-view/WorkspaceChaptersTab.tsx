@@ -402,14 +402,20 @@ function ChapterInfoTable({
     if (searchMode === 'regex') {
       try {
         const regex = new RegExp(searchText, 'i');
-        return chapters.filter((ch) => regex.test(ch.filePath));
+        return chapters.filter((ch) => regex.test(ch.filePath) || regex.test(ch.displayName));
       } catch {
         return chapters;
       }
     }
     const terms = searchText.trim().split(/\s+/);
     return chapters.filter((ch) =>
-      terms.some((term) => ch.filePath.toLowerCase().includes(term.toLowerCase())),
+      terms.some((term) => {
+        const normalizedTerm = term.toLowerCase();
+        return (
+          ch.filePath.toLowerCase().includes(normalizedTerm) ||
+          ch.displayName.toLowerCase().includes(normalizedTerm)
+        );
+      }),
     );
   }, [chapters, searchText, searchMode]);
 
@@ -628,13 +634,17 @@ function ChapterInfoTable({
                 <Card
                   key={chapter.id}
                   size="small"
-                  title={`Ch${chapter.id}`}
+                  title={`Ch${chapter.id} · ${chapter.displayName}`}
                   extra={
                     <Tag color={pct >= 100 && total > 0 ? 'success' : 'processing'}>{pct}%</Tag>
                   }
                 >
                   <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                    <Typography.Text>{chapter.filePath}</Typography.Text>
+                    <div>
+                      <Typography.Text strong>{chapter.displayName}</Typography.Text>
+                      <br />
+                      <Typography.Text type="secondary">{chapter.filePath}</Typography.Text>
+                    </div>
                     <Space wrap size={[8, 8]}>
                       <Tag color={chapter.routeId === 'main' ? 'blue' : 'purple'}>
                         {chapter.routeName ?? '主线'}
@@ -753,7 +763,25 @@ function ChapterInfoTable({
         }}
         columns={[
           { title: 'ID', dataIndex: 'id', width: 60 },
-          { title: '文件路径', dataIndex: 'filePath', width: 260, ellipsis: true },
+          {
+            title: '章节名',
+            width: 280,
+            render: (_, record: WorkspaceChapterDescriptor) => (
+              <div>
+                <Typography.Text strong ellipsis={{ tooltip: record.displayName }}>
+                  {record.displayName}
+                </Typography.Text>
+                <br />
+                <Typography.Text
+                  type="secondary"
+                  style={{ fontSize: 12 }}
+                  ellipsis={{ tooltip: record.filePath }}
+                >
+                  {record.filePath}
+                </Typography.Text>
+              </div>
+            ),
+          },
           {
             title: '路线',
             width: 100,

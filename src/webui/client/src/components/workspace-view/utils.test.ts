@@ -104,9 +104,12 @@ describe('buildChapterImportGroups', () => {
 });
 
 function asChapter(id: number, filePath: string) {
+  const fileName = filePath.split('/').pop() ?? filePath;
+  const displayName = fileName.replace(/\.[^.]+$/, '');
   return {
     id,
     filePath,
+    displayName,
     fragmentCount: 0,
     sourceLineCount: 0,
     translatedLineCount: 0,

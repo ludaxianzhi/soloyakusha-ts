@@ -22,6 +22,14 @@ export const IMPORT_FORMAT_OPTIONS = [
   { label: 'GalTransl JSON', value: 'galtransl_json' },
 ];
 
+export const EXPORT_FORMAT_EXTENSIONS: Record<string, string> = {
+  plain_text: '.txt',
+  naturedialog: '.nd',
+  naturedialog_keepname: '.nd',
+  m3t: '.m3t',
+  galtransl_json: '.json',
+};
+
 export const DEFAULT_ARCHIVE_IMPORT_PATTERN = '**/*';
 export const DEFAULT_TRANSLATOR_SOURCE_LANGUAGE = 'ja';
 export const DEFAULT_TRANSLATOR_TARGET_LANGUAGE = 'zh-CN';
@@ -152,6 +160,10 @@ export function splitLines(value?: string): string[] {
 export function optionalString(value: unknown): string | undefined {
   const next = String(value ?? '').trim();
   return next ? next : undefined;
+}
+
+export function getExportFormatExtension(format: string): string {
+  return EXPORT_FORMAT_EXTENSIONS[format] ?? `.${format}`;
 }
 
 export function optionalNumber(value: unknown): number | undefined {

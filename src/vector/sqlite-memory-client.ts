@@ -36,9 +36,14 @@ type PendingRequest = {
   reject: (reason?: unknown) => void;
 };
 
+type WorkerMessageListener = (event: MessageEvent<SqliteMemoryWorkerResponse>) => void;
+type WorkerErrorListener = (event: ErrorEvent) => void;
+
 type WorkerLike = {
-  addEventListener: Worker["addEventListener"];
-  removeEventListener: Worker["removeEventListener"];
+  addEventListener(type: "message", listener: WorkerMessageListener): void;
+  addEventListener(type: "error", listener: WorkerErrorListener): void;
+  removeEventListener(type: "message", listener: WorkerMessageListener): void;
+  removeEventListener(type: "error", listener: WorkerErrorListener): void;
   postMessage: Worker["postMessage"];
   terminate: Worker["terminate"];
 };
@@ -394,8 +399,8 @@ export class SqliteMemoryVectorStoreClient extends VectorStoreClient {
 }
 
 function createInProcessSqliteMemoryWorker(): WorkerLike {
-  const messageListeners = new Set<(event: MessageEvent<SqliteMemoryWorkerResponse>) => void>();
-  const errorListeners = new Set<(event: ErrorEvent) => void>();
+  const messageListeners = new Set<WorkerMessageListener>();
+  const errorListeners = new Set<WorkerErrorListener>();
   let terminated = false;
   const runtime = createSqliteMemoryWorkerRuntime((response) => {
     if (terminated) {
@@ -413,22 +418,22 @@ function createInProcessSqliteMemoryWorker(): WorkerLike {
   });
 
   return {
-    addEventListener(type, listener) {
+    addEventListener(type: "message" | "error", listener: WorkerMessageListener | WorkerErrorListener) {
       if (type === "message") {
-        messageListeners.add(listener as (event: MessageEvent<SqliteMemoryWorkerResponse>) => void);
+        messageListeners.add(listener as WorkerMessageListener);
         return;
       }
       if (type === "error") {
-        errorListeners.add(listener as (event: ErrorEvent) => void);
+        errorListeners.add(listener as WorkerErrorListener);
       }
     },
-    removeEventListener(type, listener) {
+    removeEventListener(type: "message" | "error", listener: WorkerMessageListener | WorkerErrorListener) {
       if (type === "message") {
-        messageListeners.delete(listener as (event: MessageEvent<SqliteMemoryWorkerResponse>) => void);
+        messageListeners.delete(listener as WorkerMessageListener);
         return;
       }
       if (type === "error") {
-        errorListeners.delete(listener as (event: ErrorEvent) => void);
+        errorListeners.delete(listener as WorkerErrorListener);
       }
     },
     postMessage(message) {

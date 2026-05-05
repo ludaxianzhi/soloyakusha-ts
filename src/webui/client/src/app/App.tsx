@@ -30,6 +30,7 @@ import {
   buildTranslatorPayload,
   buildWorkspaceWorkflowPatch,
   formatTranslatorLanguagePair,
+  getExportFormatExtension,
   getTranslatorWorkflowFields,
   normalizeModelChain,
   parseLlmRequestConfigYaml,
@@ -1851,8 +1852,10 @@ export function AppShell() {
         const link = document.createElement('a');
         if (chapterIds.length === 1) {
           const chapter = chapters.find((c) => c.id === chapterIds[0]);
-          const originalName = chapter?.filePath.split('/').pop();
-          link.download = originalName ?? `chapter-${chapterIds[0]}-${format}`;
+          const fileName = chapter
+            ? `${chapter.displayName}${getExportFormatExtension(format)}`
+            : `chapter-${chapterIds[0]}${getExportFormatExtension(format)}`;
+          link.download = fileName;
         } else {
           link.download = `${snapshot?.projectName ?? 'soloyakusha'}-chapters-${format}.zip`;
         }

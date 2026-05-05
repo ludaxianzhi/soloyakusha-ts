@@ -10,7 +10,7 @@ import { TranslationFileHandlerFactory } from "../../file-handlers/factory.ts";
 import { Glossary, GlossaryPersisterFactory } from "../../glossary/index.ts";
 import { mkdir, writeFile } from "node:fs/promises";
 import { access } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   getPlotSummariesForPosition,
   loadPlotSummaryEntriesFromFile,
@@ -105,6 +105,7 @@ import {
 import { TranslationProjectSnapshotBuilder } from "./translation-project-snapshot.ts";
 import { DefaultTextSplitter } from "../document/translation-document-manager.ts";
 import {
+  buildChapterExportRelativePath,
   buildInitialWorkspaceConfig,
   mergePersistedWorkspaceConfig,
   openWorkspaceConfig,
@@ -1003,9 +1004,14 @@ export class TranslationProject
         continue;
       }
 
-      const base = basename(chapter.filePath, extname(chapter.filePath));
-      const ext = extname(chapter.filePath) || ".txt";
-      const outputPath = join(outputDir, `${base}${ext}`);
+      const outputPath = join(
+        outputDir,
+        buildChapterExportRelativePath(chapter.filePath, {
+          format: handler.formatName,
+          preserveDirectories: true,
+        }),
+      );
+      await mkdir(dirname(outputPath), { recursive: true });
       await this.documentManager.exportChapter(chapter.id, outputPath, handler);
 
       const unitCount = this.documentManager.getChapterTranslationUnits(chapter.id).length;

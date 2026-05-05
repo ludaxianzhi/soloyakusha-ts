@@ -51,7 +51,10 @@ export function TranslationPreviewModal({
   const chapterOptions = useMemo(
     () =>
       chapters.map((chapter) => ({
-        label: `Ch${chapter.id} · ${chapter.filePath}`,
+        label:
+          chapter.displayName === chapter.filePath
+            ? `Ch${chapter.id} · ${chapter.displayName}`
+            : `Ch${chapter.id} · ${chapter.displayName} · ${chapter.filePath}`,
         value: chapter.id,
       })),
     [chapters],

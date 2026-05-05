@@ -1,7 +1,9 @@
 import type { WorkspaceChapterDescriptor } from '../../app/types.ts';
 
 export function formatChapterLabel(chapter: WorkspaceChapterDescriptor): string {
-  return `#${chapter.id} ${chapter.filePath}`;
+  return chapter.displayName === chapter.filePath
+    ? `#${chapter.id} ${chapter.displayName}`
+    : `#${chapter.id} ${chapter.displayName} (${chapter.filePath})`;
 }
 
 export interface ChapterImportGroupDescriptor {

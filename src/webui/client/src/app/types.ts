@@ -434,6 +434,7 @@ export interface DictionaryImportResult {
 export interface WorkspaceChapterDescriptor {
   id: number;
   filePath: string;
+  displayName: string;
   fragmentCount: number;
   sourceLineCount: number;
   translatedLineCount: number;

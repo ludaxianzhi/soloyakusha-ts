@@ -495,6 +495,7 @@ export type WorkspaceConfigPatch = {
 export type WorkspaceChapterDescriptor = {
   id: number;
   filePath: string;
+  displayName: string;
   fragmentCount: number;
   sourceLineCount: number;
   translatedLineCount: number;

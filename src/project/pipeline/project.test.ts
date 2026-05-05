@@ -2,12 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { TranslationFileHandlerFactory } from "../../file-handlers/factory.ts";
 import { Glossary } from "../../glossary/glossary.ts";
 import { GlossaryPersisterFactory } from "../../glossary/persister.ts";
 import type { TranslationPipelineDefinition } from "./pipeline.ts";
 import { SqliteProjectStorage } from "../storage/sqlite-project-storage.ts";
 import { TranslationProject } from "./translation-project.ts";
 import {
+  buildChapterExportRelativePath,
   buildWorkspaceBootstrapDocument,
   saveWorkspaceBootstrap,
 } from "./translation-project-workspace.ts";
@@ -1694,6 +1696,79 @@ describe("TranslationProject", () => {
     expect(project.getWorkspaceFileManifest().glossaryPath).toBe(glossaryPath);
   });
 
+  test("builds chapter export paths with dynamic target extensions", () => {
+    expect(
+      buildChapterExportRelativePath("story/main/scene.json", {
+        format: "naturedialog",
+        preserveDirectories: false,
+      }),
+    ).toBe("scene.nd");
+
+    expect(
+      buildChapterExportRelativePath("story/main/scene.json", {
+        format: "m3t",
+        preserveDirectories: true,
+      }),
+    ).toBe(join("story/main", "scene.m3t"));
+  });
+
+  test("exports chapters with target format extensions while preserving relative directories", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-export-"));
+    cleanupTargets.push(workspaceDir);
+
+    const mainDir = join(workspaceDir, "story", "main");
+    const sideDir = join(workspaceDir, "story", "side");
+    await mkdir(mainDir, { recursive: true });
+    await mkdir(sideDir, { recursive: true });
+    await writeFile(
+      join(mainDir, "scene.json"),
+      JSON.stringify([{ name: "Alice", message: "你好" }], null, 2),
+      "utf8",
+    );
+    await writeFile(join(sideDir, "extra.txt"), "旁白一行\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "export-project",
+        projectDir: workspaceDir,
+        chapters: [
+          { id: 1, filePath: "story\\main\\scene.json" },
+          { id: 2, filePath: "story\\side\\extra.txt" },
+        ],
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+        fileHandlerResolver: TranslationFileHandlerFactory.createExtensionResolver({
+          ".json": "galtransl_json",
+        }),
+      },
+    );
+
+    await project.initialize();
+    await applyTranslations(project);
+
+    expect(project.getChapterDescriptor(1)?.displayName).toBe("scene");
+    expect(project.getChapterDescriptor(2)?.displayName).toBe("extra");
+
+    const result = await project.exportProject("m3t");
+    expect(result.totalChapters).toBe(2);
+
+    const mainExportPath = join(workspaceDir, "export", "story", "main", "scene.m3t");
+    const sideExportPath = join(workspaceDir, "export", "story", "side", "extra.m3t");
+    expect(await fileExists(mainExportPath)).toBe(true);
+    expect(await fileExists(sideExportPath)).toBe(true);
+    expect(
+      await fileExists(join(workspaceDir, "export", "story", "main", "scene.json")),
+    ).toBe(false);
+    expect(
+      await fileExists(join(workspaceDir, "export", "story", "side", "extra.txt")),
+    ).toBe(false);
+  });
+
   test("rejects deprecated JSON workspaces and asks users to delete them", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-legacy-"));
     cleanupTargets.push(workspaceDir);
@@ -1725,6 +1800,19 @@ async function fileExists(path: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function applyTranslations(project: TranslationProject): Promise<void> {
+  for (const chapter of project.getChapterDescriptors()) {
+    const editor = project.getChapterTranslationEditorDocument(chapter.id, "naturedialog");
+    const nextContent = editor.content.replace(/^●\s*$/m, `● 译文-${chapter.id}`);
+    const result = await project.applyChapterTranslationEditorContent(
+      chapter.id,
+      "naturedialog",
+      nextContent,
+    );
+    expect(result.canApply).toBe(true);
   }
 }
 
