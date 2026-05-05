@@ -152,6 +152,26 @@ export async function retryAsync<T>(
   }
 }
 
+export async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
 export type SseReadResult<T> = {
   rawLines: string[];
   parseErrors: string[];
@@ -161,6 +181,9 @@ export type SseReadResult<T> = {
 export async function collectJsonSse<T>(
   response: Response,
   onEvent: (event: T) => void | Promise<void>,
+  options: {
+    idleTimeoutMs?: number;
+  } = {},
 ): Promise<SseReadResult<T>> {
   if (!response.body) {
     throw new Error("响应体为空，无法读取流式结果");
@@ -175,7 +198,7 @@ export async function collectJsonSse<T>(
   const events: T[] = [];
 
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithIdleTimeout(reader, options.idleTimeoutMs);
     if (done) {
       buffer += decoder.decode();
       break;
@@ -247,6 +270,53 @@ export async function collectJsonSse<T>(
     }
     return lines;
   }
+}
+
+async function readWithIdleTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  idleTimeoutMs?: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (!idleTimeoutMs || idleTimeoutMs <= 0) {
+    return reader.read();
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeoutHandle = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      void reader.cancel("idle-timeout");
+      reject(
+        new ApiConnectionError(
+          `流式响应在 ${Math.ceil(idleTimeoutMs / 1000)} 秒内未收到新数据`,
+        ),
+      );
+    }, idleTimeoutMs);
+
+    reader.read().then(
+      (result) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timeoutHandle);
+        resolve(result);
+      },
+      (error) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timeoutHandle);
+        reject(error);
+      },
+    );
+  });
 }
 
 export function parseJsonResponseText<T = unknown>(responseText: string): T {

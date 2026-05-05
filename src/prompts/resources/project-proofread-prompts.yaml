@@ -17,8 +17,8 @@ prompts:
         校对-编辑要求：
         {{ editorRequirementsText }}
         必须遵守：
-        - 只输出需要修改的句子；若某行无需修改，不要输出该行的对象。
-        - 如果全部句子都不需要修改，返回 {"modifications":[]}。
+        - 尽可能为每个句子都提出修改意见。
+        - 可跳过无意义的纯语气句子、短句等。
         - 每个 modifications 对象包含 id（行号）、reason（修改理由）、translation（修改后的译文）。
         - reason 需要清晰说明为什么需要修改，以及修改的方向。
         - 输出必须是严格 JSON，并符合给定 schema。

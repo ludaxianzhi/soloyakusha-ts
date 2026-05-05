@@ -34,6 +34,7 @@ import {
   collectJsonSse,
   createHttpError,
   estimateTokensFromText,
+  fetchWithTimeout,
   getDurationSeconds,
   isRecord,
   joinUrl,
@@ -112,15 +113,18 @@ export class OpenAIChatClient extends ChatClient {
 
             let response: Response;
             try {
-              response = await fetch(joinUrl(this.config.endpoint, "/chat/completions"), {
+              response = await fetchWithTimeout(
+                joinUrl(this.config.endpoint, "/chat/completions"),
+                {
                 method: "POST",
                 headers: {
                   Authorization: `Bearer ${this.config.apiKey}`,
                   "Content-Type": "application/json",
                 },
                 body: JSON.stringify(requestBody),
-                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-              });
+                },
+                REQUEST_TIMEOUT_MS,
+              );
             } catch (error) {
               throw new ApiConnectionError(
                 `OpenAI API 连接失败: ${error instanceof Error ? error.message : String(error)}`,
@@ -191,6 +195,9 @@ export class OpenAIChatClient extends ChatClient {
                     });
                   }
                 }
+              },
+              {
+                idleTimeoutMs: REQUEST_TIMEOUT_MS,
               },
             );
 

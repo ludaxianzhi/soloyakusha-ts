@@ -33,6 +33,7 @@ import {
   ApiHttpError,
   collectJsonSse,
   createHttpError,
+  fetchWithTimeout,
   getDurationSeconds,
   isRecord,
   joinUrl,
@@ -104,7 +105,9 @@ export class AnthropicChatClient extends ChatClient {
 
             let response: Response;
             try {
-              response = await fetch(joinUrl(this.config.endpoint, "/messages"), {
+              response = await fetchWithTimeout(
+                joinUrl(this.config.endpoint, "/messages"),
+                {
                 method: "POST",
                 headers: {
                   "x-api-key": this.config.apiKey,
@@ -112,8 +115,9 @@ export class AnthropicChatClient extends ChatClient {
                   "anthropic-version": "2023-06-01",
                 },
                 body: JSON.stringify(requestBody),
-                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-              });
+                },
+                REQUEST_TIMEOUT_MS,
+              );
             } catch (error) {
               throw new ApiConnectionError(
                 `Anthropic API 连接失败: ${error instanceof Error ? error.message : String(error)}`,
@@ -129,58 +133,64 @@ export class AnthropicChatClient extends ChatClient {
             let usageInfo: Record<string, unknown> = {};
             let reasoning = "";
 
-            await collectJsonSse<Record<string, unknown>>(response, async (data) => {
-              if (data.type === "content_block_delta") {
-                const delta = isRecord(data.delta) ? data.delta : undefined;
-                if (delta?.type === "text_delta" && typeof delta.text === "string") {
-                  content += delta.text;
-                  this.requestObserver?.onRequestProgress?.({
-                    requestId,
-                    completionTextDelta: delta.text,
-                  });
-                }
-                if (delta?.type === "thinking_delta") {
-                  const thinkingText = extractAnthropicReasoningDelta(delta);
-                  if (thinkingText) {
-                    thinkingLoopDetector.addThinkingText(thinkingText);
-                    reasoning += thinkingText;
+            await collectJsonSse<Record<string, unknown>>(
+              response,
+              async (data) => {
+                if (data.type === "content_block_delta") {
+                  const delta = isRecord(data.delta) ? data.delta : undefined;
+                  if (delta?.type === "text_delta" && typeof delta.text === "string") {
+                    content += delta.text;
+                    this.requestObserver?.onRequestProgress?.({
+                      requestId,
+                      completionTextDelta: delta.text,
+                    });
                   }
-                }
-                return;
-              }
-
-              if (data.type === "content_block_start") {
-                const contentBlock = isRecord(data.content_block)
-                  ? data.content_block
-                  : undefined;
-                if (contentBlock?.type === "thinking") {
-                  const thinkingText = extractAnthropicReasoningDelta(contentBlock);
-                  if (thinkingText) {
-                    thinkingLoopDetector.addThinkingText(thinkingText);
-                    reasoning += thinkingText;
+                  if (delta?.type === "thinking_delta") {
+                    const thinkingText = extractAnthropicReasoningDelta(delta);
+                    if (thinkingText) {
+                      thinkingLoopDetector.addThinkingText(thinkingText);
+                      reasoning += thinkingText;
+                    }
                   }
+                  return;
                 }
-                return;
-              }
 
-              if (data.type === "message_delta" && isRecord(data.usage)) {
-                usageInfo = {
-                  ...usageInfo,
-                  ...data.usage,
-                };
-                return;
-              }
+                if (data.type === "content_block_start") {
+                  const contentBlock = isRecord(data.content_block)
+                    ? data.content_block
+                    : undefined;
+                  if (contentBlock?.type === "thinking") {
+                    const thinkingText = extractAnthropicReasoningDelta(contentBlock);
+                    if (thinkingText) {
+                      thinkingLoopDetector.addThinkingText(thinkingText);
+                      reasoning += thinkingText;
+                    }
+                  }
+                  return;
+                }
 
-              if (data.type === "message_start" && isRecord(data.message)) {
-                const usage = isRecord(data.message.usage) ? data.message.usage : undefined;
-                if (usage) {
+                if (data.type === "message_delta" && isRecord(data.usage)) {
                   usageInfo = {
                     ...usageInfo,
-                    ...usage,
+                    ...data.usage,
                   };
+                  return;
                 }
-              }
-            });
+
+                if (data.type === "message_start" && isRecord(data.message)) {
+                  const usage = isRecord(data.message.usage) ? data.message.usage : undefined;
+                  if (usage) {
+                    usageInfo = {
+                      ...usageInfo,
+                      ...usage,
+                    };
+                  }
+                }
+              },
+              {
+                idleTimeoutMs: REQUEST_TIMEOUT_MS,
+              },
+            );
 
             if (!content.trim()) {
               throw new AnthropicEmptyResponseError();
