@@ -906,6 +906,7 @@ export function AppShell() {
       translatorName: configRes.translator.translatorName,
       defaultImportFormat: configRes.defaultImportFormat,
       defaultExportFormat: configRes.defaultExportFormat,
+      batchFragmentCount: configRes.batchFragmentCount,
       customRequirements: configRes.customRequirements.join('\n'),
       editorRequirementsText: configRes.editorRequirementsText,
     });
@@ -1648,6 +1649,10 @@ export function AppShell() {
             },
             defaultImportFormat: String(values.defaultImportFormat ?? '') || null,
             defaultExportFormat: String(values.defaultExportFormat ?? '') || null,
+            batchFragmentCount:
+              typeof values.batchFragmentCount === 'number'
+                ? values.batchFragmentCount
+                : null,
             customRequirements: splitLines(String(values.customRequirements ?? '')),
             editorRequirementsText: String(values.editorRequirementsText ?? '').trim() || null,
             ...buildClearedWorkspaceWorkflowPatch(previousWorkflow, nextWorkflow),

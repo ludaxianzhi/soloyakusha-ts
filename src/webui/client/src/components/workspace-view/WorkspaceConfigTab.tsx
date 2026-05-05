@@ -7,6 +7,7 @@ import {
   Col,
   Form,
   Input,
+  InputNumber,
   Row,
   Select,
   Space,
@@ -129,7 +130,16 @@ export function WorkspaceConfigTab({
                 <Select options={IMPORT_FORMAT_OPTIONS} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={6}>
+              <Form.Item
+                name="batchFragmentCount"
+                label="处理批次"
+                extra="翻译/校对时合并的连续文本块数"
+              >
+                <InputNumber min={1} max={20} precision={0} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
               <Alert
                 type="info"
                 showIcon

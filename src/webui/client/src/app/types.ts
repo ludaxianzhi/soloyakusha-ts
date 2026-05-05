@@ -644,6 +644,7 @@ export interface WorkspaceConfig {
   styleLibraryName?: string;
   defaultImportFormat?: string;
   defaultExportFormat?: string;
+  batchFragmentCount?: number;
 }
 
 export interface LlmProfileConfig {
