@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   App as AntdApp,
@@ -271,6 +271,258 @@ function resolveAttachableChapterIds(
   );
 }
 
+function resolveChapterSelectionRange(
+  chapters: WorkspaceChapterDescriptor[],
+  startChapterId: number,
+  endChapterId: number,
+): number[] {
+  const startIndex = chapters.findIndex((chapter) => chapter.id === startChapterId);
+  const endIndex = chapters.findIndex((chapter) => chapter.id === endChapterId);
+  if (startIndex === -1 || endIndex === -1) {
+    return [];
+  }
+
+  const [fromIndex, toIndex] = startIndex < endIndex
+    ? [startIndex, endIndex]
+    : [endIndex, startIndex];
+  return chapters.slice(fromIndex, toIndex + 1).map((chapter) => chapter.id);
+}
+
+function isInteractiveSelectionTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest(
+      'button, a, input, textarea, select, label, [role="button"], .ant-btn, .ant-btn-icon-only, .ant-dropdown-trigger, .ant-checkbox-wrapper, .ant-checkbox-input',
+    ),
+  );
+}
+
+const ChapterTableSection = memo(function ChapterTableSection({
+  chapters,
+  selectedChapterIds,
+  setSelectedChapterIds,
+  lastSelectedChapterId,
+  setLastSelectedChapterId,
+  setPreviewChapterId,
+  setPreviewOpen,
+  onClearChapterTranslations,
+  onRemoveChapters,
+  onDownloadChapters,
+}: {
+  chapters: WorkspaceChapterDescriptor[];
+  selectedChapterIds: number[];
+  setSelectedChapterIds: React.Dispatch<React.SetStateAction<number[]>>;
+  lastSelectedChapterId?: number;
+  setLastSelectedChapterId: React.Dispatch<React.SetStateAction<number | undefined>>;
+  setPreviewChapterId: React.Dispatch<React.SetStateAction<number | undefined>>;
+  setPreviewOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onRemoveChapters: (
+    chapterIds: number[],
+    options?: { cascadeBranches?: boolean },
+  ) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
+}) {
+  const navigate = useNavigate();
+
+  return (
+    <Table
+      rowKey="id"
+      dataSource={chapters}
+      pagination={false}
+      size="small"
+      scroll={{ x: 1100 }}
+      rowSelection={{
+        selectedRowKeys: selectedChapterIds,
+        onSelect: (record) => {
+          setLastSelectedChapterId(record.id);
+        },
+        onChange: (selectedRowKeys) => {
+          const ids = selectedRowKeys
+            .map((key) => Number(key))
+            .filter((chapterId) => Number.isFinite(chapterId));
+          setSelectedChapterIds(ids);
+        },
+      }}
+      onRow={(record) => ({
+        onClick: (event) => {
+          if (isInteractiveSelectionTarget(event.target)) {
+            return;
+          }
+
+          if (event.shiftKey && typeof lastSelectedChapterId === 'number') {
+            const rangeIds = resolveChapterSelectionRange(
+              chapters,
+              lastSelectedChapterId,
+              record.id,
+            );
+            if (rangeIds.length > 0) {
+              setSelectedChapterIds((previous) =>
+                Array.from(new Set([...previous, ...rangeIds])),
+              );
+              setLastSelectedChapterId(record.id);
+              return;
+            }
+          }
+
+          setSelectedChapterIds((previous) => {
+            if (previous.includes(record.id)) {
+              return previous.filter((chapterId) => chapterId !== record.id);
+            }
+            return [...previous, record.id];
+          });
+          setLastSelectedChapterId(record.id);
+        },
+      })}
+      columns={[
+        { title: 'ID', dataIndex: 'id', width: 60 },
+        {
+          title: '章节名',
+          width: 280,
+          render: (_, record: WorkspaceChapterDescriptor) => (
+            <div>
+              <Typography.Text strong ellipsis={{ tooltip: record.displayName }}>
+                {record.displayName}
+              </Typography.Text>
+              <br />
+              <Typography.Text
+                type="secondary"
+                style={{ fontSize: 12 }}
+                ellipsis={{ tooltip: record.filePath }}
+              >
+                {record.filePath}
+              </Typography.Text>
+            </div>
+          ),
+        },
+        {
+          title: '路线',
+          width: 100,
+          render: (_, record: WorkspaceChapterDescriptor) => (
+            <Tag
+              color={record.routeId === 'main' ? 'blue' : 'purple'}
+              style={{ margin: 0 }}
+            >
+              {record.routeName ?? '主线'}
+            </Tag>
+          ),
+        },
+        { title: '片段', dataIndex: 'fragmentCount', width: 60, align: 'right' as const },
+        {
+          title: '翻译进度',
+          width: 160,
+          render: (_, record: WorkspaceChapterDescriptor) => {
+            const total = record.sourceLineCount;
+            const done = record.translatedLineCount;
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+            const isComplete = done >= total && total > 0;
+            return (
+              <div className="chapter-info-progress">
+                <div className="chapter-info-bar">
+                  <div
+                    className={`chapter-info-bar-fill${isComplete ? ' complete' : ''}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>
+                  {done}/{total}
+                </span>
+              </div>
+            );
+          },
+        },
+        {
+          title: '拓扑',
+          width: 120,
+          render: (_, record: WorkspaceChapterDescriptor) => (
+            <Space wrap size={[4, 4]}>
+              {record.isForkPoint ? (
+                <Tag color="gold" style={{ margin: 0 }}>
+                  ⑂ 分叉点
+                </Tag>
+              ) : null}
+            </Space>
+          ),
+        },
+        {
+          title: '操作',
+          width: 320,
+          render: (_, record: WorkspaceChapterDescriptor) => (
+            <Space wrap size={[8, 8]}>
+              <Button
+                size="small"
+                onClick={() => {
+                  setPreviewChapterId(record.id);
+                  setPreviewOpen(true);
+                }}
+              >
+                预览
+              </Button>
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                onClick={() => navigate(`/workspace/editor/${record.id}`)}
+              >
+                在线编辑
+              </Button>
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: 'download',
+                      icon: <DownloadOutlined />,
+                      label: '下载章节',
+                      children: [
+                        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([record.id], 'plain_text') },
+                        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([record.id], 'naturedialog') },
+                        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([record.id], 'm3t') },
+                        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([record.id], 'galtransl_json') },
+                      ],
+                    },
+                    { type: 'divider' as const },
+                    {
+                      key: 'clear',
+                      label: '清空译文',
+                      onClick: () => {
+                        Modal.confirm({
+                          title: '确认清空该章节的译文？',
+                          okText: '清空',
+                          cancelText: '取消',
+                          onOk: () => onClearChapterTranslations([record.id]),
+                        });
+                      },
+                    },
+                    {
+                      key: 'remove',
+                      label: <span style={{ color: '#ff7875' }}>移除</span>,
+                      onClick: () => {
+                        Modal.confirm({
+                          title: '确认移除该章节？',
+                          okText: '移除',
+                          cancelText: '取消',
+                          okButtonProps: { danger: true },
+                          onOk: () => onRemoveChapters([record.id], { cascadeBranches: false }),
+                        });
+                      },
+                    },
+                  ],
+                }}
+                trigger={['click']}
+              >
+                <Button size="small" icon={<MoreOutlined />} />
+              </Dropdown>
+            </Space>
+          ),
+        },
+      ]}
+    />
+  );
+});
+
 function ChapterInfoTable({
   mobileMode,
   chapters,
@@ -306,8 +558,8 @@ function ChapterInfoTable({
   onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
 }) {
   const { message } = AntdApp.useApp();
-  const navigate = useNavigate();
   const [selectedChapterIds, setSelectedChapterIds] = useState<number[]>([]);
+  const [lastSelectedChapterId, setLastSelectedChapterId] = useState<number>();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewChapterId, setPreviewChapterId] = useState<number>();
   const [attachGroup, setAttachGroup] = useState<ChapterImportGroupDescriptor | null>(null);
@@ -325,6 +577,8 @@ function ChapterInfoTable({
   const [postProcessModalOpen, setPostProcessModalOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchMode, setSearchMode] = useState<'keyword' | 'regex'>('keyword');
+  const deferredSearchText = useDeferredValue(searchText);
+  const deferredSearchMode = useDeferredValue(searchMode);
   const selectedParentRouteId = Form.useWatch('parentRouteId', attachForm);
   const selectedForkAfterChapterId = Form.useWatch('forkAfterChapterId', attachForm);
 
@@ -398,16 +652,16 @@ function ChapterInfoTable({
   }, [chapterById, selectedRouteCandidate]);
 
   const filteredChapters = useMemo(() => {
-    if (!searchText.trim()) return chapters;
-    if (searchMode === 'regex') {
+    if (!deferredSearchText.trim()) return chapters;
+    if (deferredSearchMode === 'regex') {
       try {
-        const regex = new RegExp(searchText, 'i');
+        const regex = new RegExp(deferredSearchText, 'i');
         return chapters.filter((ch) => regex.test(ch.filePath) || regex.test(ch.displayName));
       } catch {
         return chapters;
       }
     }
-    const terms = searchText.trim().split(/\s+/);
+    const terms = deferredSearchText.trim().split(/\s+/);
     return chapters.filter((ch) =>
       terms.some((term) => {
         const normalizedTerm = term.toLowerCase();
@@ -417,13 +671,23 @@ function ChapterInfoTable({
         );
       }),
     );
-  }, [chapters, searchText, searchMode]);
+  }, [chapters, deferredSearchMode, deferredSearchText]);
+
+  const searchRefreshPending =
+    searchText !== deferredSearchText || searchMode !== deferredSearchMode;
 
   useEffect(() => {
     setSelectedChapterIds((previous) =>
       previous.filter((chapterId) => chapterIdSet.has(chapterId)),
     );
   }, [chapterIdSet]);
+
+  useEffect(() => {
+    if (typeof lastSelectedChapterId === 'number' && chapterIdSet.has(lastSelectedChapterId)) {
+      return;
+    }
+    setLastSelectedChapterId(undefined);
+  }, [chapterIdSet, lastSelectedChapterId]);
 
   useEffect(() => {
     const currentForkAfterChapterId = attachForm.getFieldValue('forkAfterChapterId');
@@ -702,12 +966,14 @@ function ChapterInfoTable({
           </Button>
         </div>
         <Space wrap size={[8, 8]}>
+          <Typography.Text type="secondary">Shift + 点击可区间选中</Typography.Text>
           <Button type="primary" size="small" onClick={openImportArchiveModal}>
             追加压缩包
           </Button>
           <Button size="small" onClick={() => setImportGroupsModalOpen(true)}>
             导入分组
           </Button>
+          {searchRefreshPending ? <Tag color="processing">筛选更新中</Tag> : null}
           <Tag color={selectedChapterIds.length > 0 ? 'processing' : undefined}>
             已选 {selectedChapterIds.length} 章节
           </Tag>
@@ -746,158 +1012,18 @@ function ChapterInfoTable({
       </div>
 
       <div className="chapters-scroll-body" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-      <Table
-        rowKey="id"
-        dataSource={filteredChapters}
-        pagination={false}
-        size="small"
-        scroll={{ x: 1100 }}
-        rowSelection={{
-          selectedRowKeys: selectedChapterIds,
-          onChange: (selectedRowKeys) => {
-            const ids = selectedRowKeys
-              .map((key) => Number(key))
-              .filter((chapterId) => Number.isFinite(chapterId));
-            setSelectedChapterIds(ids);
-          },
-        }}
-        columns={[
-          { title: 'ID', dataIndex: 'id', width: 60 },
-          {
-            title: '章节名',
-            width: 280,
-            render: (_, record: WorkspaceChapterDescriptor) => (
-              <div>
-                <Typography.Text strong ellipsis={{ tooltip: record.displayName }}>
-                  {record.displayName}
-                </Typography.Text>
-                <br />
-                <Typography.Text
-                  type="secondary"
-                  style={{ fontSize: 12 }}
-                  ellipsis={{ tooltip: record.filePath }}
-                >
-                  {record.filePath}
-                </Typography.Text>
-              </div>
-            ),
-          },
-          {
-            title: '路线',
-            width: 100,
-            render: (_, record: WorkspaceChapterDescriptor) => (
-              <Tag
-                color={record.routeId === 'main' ? 'blue' : 'purple'}
-                style={{ margin: 0 }}
-              >
-                {record.routeName ?? '主线'}
-              </Tag>
-            ),
-          },
-          { title: '片段', dataIndex: 'fragmentCount', width: 60, align: 'right' as const },
-          {
-            title: '翻译进度',
-            width: 160,
-            render: (_, record: WorkspaceChapterDescriptor) => {
-              const total = record.sourceLineCount;
-              const done = record.translatedLineCount;
-              const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-              const isComplete = done >= total && total > 0;
-              return (
-                <div className="chapter-info-progress">
-                  <div className="chapter-info-bar">
-                    <div
-                      className={`chapter-info-bar-fill${isComplete ? ' complete' : ''}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>
-                    {done}/{total}
-                  </span>
-                </div>
-              );
-            },
-          },
-          {
-            title: '拓扑',
-            width: 120,
-            render: (_, record: WorkspaceChapterDescriptor) => (
-              <Space wrap size={[4, 4]}>
-                {record.isForkPoint ? (
-                  <Tag color="gold" style={{ margin: 0 }}>
-                    ⑂ 分叉点
-                  </Tag>
-                ) : null}
-              </Space>
-            ),
-          },
-          {
-            title: '操作',
-            width: 320,
-            render: (_, record: WorkspaceChapterDescriptor) => (
-              <Space wrap size={[8, 8]}>
-                <Button size="small" onClick={() => openPreview(record.id)}>
-                  预览
-                </Button>
-                <Button
-                  size="small"
-                  type="primary"
-                  ghost
-                  onClick={() => navigate(`/workspace/editor/${record.id}`)}
-                >
-                  在线编辑
-                </Button>
-                <Dropdown
-                  menu={{
-                    items: [
-                      {
-                        key: 'download',
-                        icon: <DownloadOutlined />,
-                        label: '下载章节',
-                        children: [
-                          { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([record.id], 'plain_text') },
-                          { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([record.id], 'naturedialog') },
-                          { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([record.id], 'm3t') },
-                          { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([record.id], 'galtransl_json') },
-                        ],
-                        },
-                        { type: 'divider' as const },
-                      {
-                        key: 'clear',
-                        label: '清空译文',
-                        onClick: () => {
-                          Modal.confirm({
-                            title: '确认清空该章节的译文？',
-                            okText: '清空',
-                            cancelText: '取消',
-                            onOk: () => onClearChapterTranslations([record.id]),
-                          });
-                        },
-                      },
-                      {
-                        key: 'remove',
-                        label: <span style={{ color: '#ff7875' }}>移除</span>,
-                        onClick: () => {
-                          Modal.confirm({
-                            title: '确认移除该章节？',
-                            okText: '移除',
-                            cancelText: '取消',
-                            okButtonProps: { danger: true },
-                            onOk: () => onRemoveChapters([record.id], { cascadeBranches: false }),
-                          });
-                        },
-                      },
-                    ],
-                  }}
-                  trigger={['click']}
-                >
-                  <Button size="small" icon={<MoreOutlined />} />
-                </Dropdown>
-              </Space>
-            ),
-          },
-        ]}
-      />
+        <ChapterTableSection
+          chapters={filteredChapters}
+          selectedChapterIds={selectedChapterIds}
+          setSelectedChapterIds={setSelectedChapterIds}
+          lastSelectedChapterId={lastSelectedChapterId}
+          setLastSelectedChapterId={setLastSelectedChapterId}
+          setPreviewChapterId={setPreviewChapterId}
+          setPreviewOpen={setPreviewOpen}
+          onClearChapterTranslations={onClearChapterTranslations}
+          onRemoveChapters={onRemoveChapters}
+          onDownloadChapters={onDownloadChapters}
+        />
       </div>
 
       <Modal
