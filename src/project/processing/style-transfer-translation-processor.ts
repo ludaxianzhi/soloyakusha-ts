@@ -125,6 +125,9 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       | "styleLibraryName"
     > = {},
   ): Promise<TranslationProcessorResult> {
+    const shouldUseSlidingWindow =
+      (workItem.batchFragmentIndices?.length ?? 0) <= 1;
+
     return this.process({
       sourceText: workItem.inputText,
       contextView: workItem.contextView,
@@ -134,8 +137,8 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       styleRequirementsText: options.styleRequirementsText,
       styleLibraryName: options.styleLibraryName,
       requestOptions: options.requestOptions,
-      documentManager: options.documentManager,
-      slidingWindow: options.slidingWindow,
+      documentManager: shouldUseSlidingWindow ? options.documentManager : undefined,
+      slidingWindow: shouldUseSlidingWindow ? options.slidingWindow : undefined,
       workItemRef: {
         chapterId: workItem.chapterId,
         fragmentIndex: workItem.fragmentIndex,

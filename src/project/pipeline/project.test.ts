@@ -172,6 +172,77 @@ describe("TranslationProject", () => {
     }
   });
 
+  test("does not batch translation items with different dependency modes", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-glossary-batch-modes-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(
+      join(sourceDir, "chapter-1.txt"),
+      [
+        "王都公告正式发布",
+        "王都教会钟声回荡",
+        "没有词汇表支持的等待片段",
+        "王都广场开始集合",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const glossary = new Glossary([
+      {
+        term: "王都",
+        translation: "",
+      },
+    ]);
+
+    const project = new TranslationProject(
+      {
+        projectName: "glossary-batch-modes",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+        batchFragmentCount: 2,
+      },
+      {
+        glossary,
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.startTranslation();
+
+    const translationQueue = project.getWorkQueue("translation");
+    const firstBatch = await translationQueue.dispatchReadyItems();
+    await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Royal capital bulletin",
+    });
+
+    const secondBatch = await translationQueue.dispatchReadyItems();
+    await project.submitWorkResult({
+      runId: secondBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 1,
+      outputText: "Church bells of the royal capital",
+    });
+
+    const thirdBatch = await translationQueue.dispatchReadyItems();
+    expect(thirdBatch).toHaveLength(2);
+    expect(thirdBatch.map((item) => [item.fragmentIndex, item.metadata.dependencyMode])).toEqual([
+      [2, "previousTranslations"],
+      [3, "glossaryTerms"],
+    ]);
+    expect(thirdBatch.every((item) => item.batchFragmentIndices === undefined)).toBe(true);
+  });
+
   test("prevents concurrent dispatch of items sharing the same untranslated glossary term", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-glossary-term-lock-"));
     cleanupTargets.push(workspaceDir);

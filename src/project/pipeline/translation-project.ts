@@ -2019,7 +2019,10 @@ export class TranslationProject
 
       if (currentBatch.length > 0) {
         const last = currentBatch[currentBatch.length - 1]!;
-        if (item.fragmentIndex !== last.fragmentIndex + 1) {
+        if (
+          item.fragmentIndex !== last.fragmentIndex + 1 ||
+          !this.canBatchWorkItemsTogether(last, item)
+        ) {
           flushBatch();
         }
       }
@@ -2030,6 +2033,17 @@ export class TranslationProject
 
     flushBatch();
     return batches;
+  }
+
+  private canBatchWorkItemsTogether(
+    left: TranslationWorkItem,
+    right: TranslationWorkItem,
+  ): boolean {
+    return (
+      (left.metadata.dependencyMode ?? undefined) ===
+        (right.metadata.dependencyMode ?? undefined) &&
+      Boolean(left.contextView) === Boolean(right.contextView)
+    );
   }
 
   private buildBatchWorkItem(

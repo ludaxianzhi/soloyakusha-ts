@@ -1902,7 +1902,6 @@ export class ProjectService {
                 glossary: project.getGlossary(),
                 requirements: firstPrepared.requirements,
                 editorRequirementsText: firstPrepared.editorRequirementsText,
-                documentManager: project.getDocumentManager(),
                 workItemRef: {
                   chapterId: firstItem.chapterId,
                   fragmentIndex: firstItem.fragmentIndex,

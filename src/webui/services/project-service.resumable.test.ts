@@ -538,6 +538,85 @@ describe("ProjectService resumable batch tasks", () => {
     });
   });
 
+  test("proofread batch mode writes back every fragment without resolving sliding window", async () => {
+    const requests: Array<{ sourceText: string; documentManager?: unknown }> = [];
+    const service = createService({
+      createProofreadRuntime: async () => ({
+        processor: {
+          process: async (input: { sourceText: string; documentManager?: unknown }) => {
+            requests.push(input);
+            return {
+              outputText: input.documentManager ? "校对后-0" : "校对后-0\n校对后-1",
+              translations: [],
+              glossaryUpdates: [],
+              responseText: "proofread",
+              responseSchema: { type: "object" },
+              promptName: "proofread",
+              systemPrompt: "",
+              userPrompt: "",
+            };
+          },
+        },
+        maxConcurrentWorkItems: 1,
+        close: async () => undefined,
+      }),
+    });
+    const serviceAny = service as any;
+
+    const updates: Array<[number, number, string]> = [];
+    let persistedTask: any;
+    const project = {
+      getGlossary: () => new Glossary(),
+      getWorkspaceConfig: () => ({ batchFragmentCount: 2 }),
+      getChapterDescriptors: () => [
+        { id: 1, sourceLineCount: 2, translatedLineCount: 2 },
+      ],
+      getOrderedFragments: () => [{ chapterId: 1 }, { chapterId: 1 }],
+      getDocumentManager: () => ({
+        getChapterFragmentCount: () => 2,
+        getSourceText: (_chapterId: number, fragmentIndex: number) => `原文-${fragmentIndex}`,
+        updateTranslation: async (chapterId: number, fragmentIndex: number, text: string) => {
+          updates.push([chapterId, fragmentIndex, text]);
+        },
+      }),
+      buildProofreadFragmentInput: (_chapterId: number, fragmentIndex: number) => ({
+        sourceText: `原文-${fragmentIndex}`,
+        currentTranslationText: `旧译文-${fragmentIndex}`,
+        requirements: [],
+      }),
+      saveProofreadTaskState: async (task: unknown) => {
+        persistedTask = task;
+      },
+      getProofreadTaskState: () => persistedTask,
+      getProjectSnapshot: () => createProjectSnapshot(),
+      getStoryTopology: () => null,
+      hasPlotSummaries: () => false,
+    };
+
+    serviceAny.project = project;
+    serviceAny.refreshSnapshot = () => undefined;
+    serviceAny.markChaptersChanged = () => undefined;
+    serviceAny.markRepeatedPatternsChanged = () => undefined;
+
+    await service.startProofread({ chapterIds: [1], mode: "linear" });
+    await waitFor(() => service.getStatus().proofreadProgress?.status === "done");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.sourceText).toBe("原文-0\n原文-1");
+    expect(requests[0]?.documentManager).toBeUndefined();
+    expect(updates).toEqual([
+      [1, 0, "校对后-0"],
+      [1, 1, "校对后-1"],
+    ]);
+    expect(service.getStatus().proofreadProgress).toMatchObject({
+      status: "done",
+      completedBatches: 2,
+      completedChapters: 1,
+      totalBatches: 2,
+      totalChapters: 1,
+    });
+  });
+
   test("proofread task can be removed from persisted state", async () => {
     const service = createService();
     const serviceAny = service as any;

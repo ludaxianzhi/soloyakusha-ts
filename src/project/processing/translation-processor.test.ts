@@ -16,6 +16,7 @@ import { DefaultTextSplitter } from "../document/translation-document-manager.ts
 import type { TranslationOutputRepairer } from "./translation-output-repair.ts";
 import type { Logger, LoggerMetadata } from "../logger.ts";
 import { TranslationProject } from "../pipeline/translation-project.ts";
+import type { TranslationWorkItem } from "../pipeline/pipeline.ts";
 
 const cleanupTargets: string[] = [];
 
@@ -293,6 +294,43 @@ describe("TranslationProcessor", () => {
     expect(client.requests[0]?.options?.requestConfig?.maxTokens).toBe(321);
     expect(logger.entries.some((entry) => entry.message === "开始执行翻译处理")).toBe(true);
     expect(logger.entries.some((entry) => entry.message === "翻译处理完成")).toBe(true);
+  });
+
+  test("ignores sliding window for batched translation work items", async () => {
+    const client = new FakeChatClient([
+      JSON.stringify({
+        translations: [
+          { id: "1", translation: "A1" },
+          { id: "2", translation: "B1" },
+        ],
+      }),
+    ]);
+    const processor = new DefaultTranslationProcessor(client, {
+      defaultSlidingWindow: { overlapChars: 4 },
+    });
+    const batchedWorkItem: TranslationWorkItem = {
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      queueSequence: 1,
+      status: "queued",
+      runId: "run-1",
+      inputText: "aaaa\nbbbb",
+      requirements: [],
+      metadata: {},
+      batchFragmentIndices: [0, 1],
+    };
+
+    const result = await processor.processWorkItem(batchedWorkItem, {
+      documentManager: {
+        getSlidingWindowFragment() {
+          throw new Error("batched work item should not resolve a sliding window");
+        },
+      } as any,
+    });
+
+    expect(result.window).toBeUndefined();
+    expect(result.outputText).toBe("A1\nB1");
   });
 
   test("runs dedicated proofreading flow without analysis context", async () => {

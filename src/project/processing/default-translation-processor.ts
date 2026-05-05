@@ -90,6 +90,9 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
       "glossary" | "requestOptions" | "documentManager" | "slidingWindow" | "editorRequirementsText"
     > = {},
   ): Promise<TranslationProcessorResult> {
+    const shouldUseSlidingWindow =
+      (workItem.batchFragmentIndices?.length ?? 0) <= 1;
+
     return this.process({
       sourceText: workItem.inputText,
       contextView: workItem.contextView,
@@ -97,8 +100,8 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
       requirements: workItem.requirements,
       editorRequirementsText: options.editorRequirementsText,
       requestOptions: options.requestOptions,
-      documentManager: options.documentManager,
-      slidingWindow: options.slidingWindow,
+      documentManager: shouldUseSlidingWindow ? options.documentManager : undefined,
+      slidingWindow: shouldUseSlidingWindow ? options.slidingWindow : undefined,
       workItemRef: {
         chapterId: workItem.chapterId,
         fragmentIndex: workItem.fragmentIndex,
