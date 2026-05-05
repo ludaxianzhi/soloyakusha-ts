@@ -2282,7 +2282,7 @@ export class ProjectService {
       nextBatchIndex: 0,
       lines,
       batches,
-      glossary: project.getGlossary() ?? new Glossary(),
+      glossary: new Glossary(project.getGlossary()?.getAllTerms() ?? []),
       requestOptions: config.requestOptions,
       maxCharsPerBatch: config.maxCharsPerBatch,
       abortRequested: false,
@@ -2300,9 +2300,7 @@ export class ProjectService {
     const globalConfig = await manager.getTranslationGlobalConfig();
     const extractorConfig = globalConfig.getGlossaryExtractorConfig();
     const updaterConfig = globalConfig.getGlossaryUpdaterConfig();
-    if (!extractorConfig || extractorConfig.modelNames.length === 0) {
-      throw new Error('未配置术语提取 LLM，请先设置术语提取模型');
-    }
+    const resolvedConfig = this.resolveGlossaryTranscribeConfig(extractorConfig, updaterConfig);
 
     const provider = new TranslationGlobalConfig({
       llm: globalConfig.llm,
@@ -2313,13 +2311,47 @@ export class ProjectService {
 
     return {
       transcriber: new FullTextGlossaryTranscriber(
-        provider.getChatClientWithFallback(updaterConfig?.modelNames ?? extractorConfig.modelNames),
+        provider.getChatClientWithFallback(resolvedConfig.modelNames),
         this.createLogger(),
       ),
       updaterConfig: {
-        maxCharsPerBatch: extractorConfig.maxCharsPerBatch,
-        requestOptions: extractorConfig.requestOptions,
+        maxCharsPerBatch: resolvedConfig.maxCharsPerBatch,
+        requestOptions: resolvedConfig.requestOptions,
       },
+    };
+  }
+
+  private resolveGlossaryTranscribeConfig(
+    extractorConfig:
+      | {
+          modelNames: string[];
+          maxCharsPerBatch?: number;
+          requestOptions?: ChatRequestOptions;
+        }
+      | undefined,
+    updaterConfig:
+      | {
+          modelNames: string[];
+          requestOptions?: ChatRequestOptions;
+        }
+      | undefined,
+  ): {
+    modelNames: string[];
+    maxCharsPerBatch?: number;
+    requestOptions?: ChatRequestOptions;
+  } {
+    const modelNames =
+      updaterConfig && updaterConfig.modelNames.length > 0
+        ? updaterConfig.modelNames
+        : extractorConfig?.modelNames;
+    if (!modelNames || modelNames.length === 0) {
+      throw new Error('未配置术语解释翻译 LLM，请先设置术语更新模型');
+    }
+
+    return {
+      modelNames: [...modelNames],
+      maxCharsPerBatch: extractorConfig?.maxCharsPerBatch,
+      requestOptions: updaterConfig ? updaterConfig.requestOptions : extractorConfig?.requestOptions,
     };
   }
 
@@ -2393,6 +2425,7 @@ export class ProjectService {
         return;
       }
 
+      project.replaceGlossary(task.glossary);
       if ("bumpGlossaryDependencyRevision" in project) {
         await project.bumpGlossaryDependencyRevision();
       }
