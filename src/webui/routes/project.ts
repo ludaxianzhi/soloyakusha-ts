@@ -136,7 +136,14 @@ export function createProjectRoutes(
   });
 
   app.post('/dictionary/scan', async (c) => {
-    await projectService.scanDictionary();
+    const body = await c.req
+      .json<{
+        maxCharsPerBatch?: number;
+        occurrenceTopK?: number;
+        occurrenceTopP?: number;
+      }>()
+      .catch(() => ({}));
+    await projectService.scanDictionary(body);
     return c.json({ ok: true });
   });
 
@@ -165,7 +172,13 @@ export function createProjectRoutes(
   });
 
   app.post('/dictionary/transcribe', async (c) => {
-    await projectService.transcribeDictionary();
+    const body = await c.req
+      .json<{
+        maxCharsPerBatch?: number;
+        maxTermsPerRequest?: number;
+      }>()
+      .catch(() => ({}));
+    await projectService.transcribeDictionary(body);
     return c.json({ ok: true });
   });
 

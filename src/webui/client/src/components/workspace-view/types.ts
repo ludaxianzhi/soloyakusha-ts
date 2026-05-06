@@ -31,6 +31,17 @@ export type TaskActivityKind = 'scan' | 'transcribe' | 'plot' | 'proofread';
 export type ProofreadTaskMode = 'linear' | 'simultaneous';
 export type DictionaryFileFormat = 'json' | 'csv' | 'tsv' | 'yaml' | 'yml' | 'xml';
 
+export type DictionaryScanStartOptions = {
+  maxCharsPerBatch?: number;
+  occurrenceTopK?: number;
+  occurrenceTopP?: number;
+};
+
+export type DictionaryTranscribeStartOptions = {
+  maxCharsPerBatch?: number;
+  maxTermsPerRequest?: number;
+};
+
 export interface WorkspaceViewProps {
   workspaceId?: string | null;
   snapshot: TranslationProjectSnapshot | null;
@@ -82,6 +93,8 @@ export interface WorkspaceViewProps {
   onRefreshWorkspaceConfig: () => void | Promise<void>;
   onRefreshStyleLibraryOptions: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
+  onStartDictionaryScan: (options: DictionaryScanStartOptions) => void | Promise<void>;
+  onStartDictionaryTranscribe: (options: DictionaryTranscribeStartOptions) => void | Promise<void>;
   onBuildContextNetwork: (
     input: {
       vectorStoreType: 'registered' | 'memory';
@@ -98,6 +111,8 @@ export interface WorkspaceViewProps {
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
+  dictionaryScanDefaults?: DictionaryScanStartOptions;
+  dictionaryTranscribeDefaults?: DictionaryTranscribeStartOptions;
   onImportDictionaryFile: (file: File) => void | Promise<void>;
   onImportDictionaryFromContent: (
     content: string,

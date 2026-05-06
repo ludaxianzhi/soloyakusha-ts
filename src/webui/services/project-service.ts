@@ -168,6 +168,10 @@ export interface TranscribeDictionaryProgress {
   skippedBatches: number;
   totalLines: number;
   currentBatchIndex?: number;
+  currentChunkIndex?: number;
+  totalChunksInBatch?: number;
+  currentChunkTermCount?: number;
+  maxTermsPerRequest?: number;
   errorMessage?: string;
 }
 
@@ -247,9 +251,24 @@ interface TranscribeDictionaryTaskState {
   glossary: Glossary;
   requestOptions?: ChatRequestOptions;
   maxCharsPerBatch?: number;
+  maxTermsPerRequest: number;
+  currentChunkIndex?: number;
+  totalChunksInBatch?: number;
+  currentChunkTermCount?: number;
   abortRequested: boolean;
   errorMessage?: string;
 }
+
+type ScanDictionaryStartOptions = {
+  maxCharsPerBatch?: number;
+  occurrenceTopK?: number;
+  occurrenceTopP?: number;
+};
+
+type TranscribeDictionaryStartOptions = {
+  maxCharsPerBatch?: number;
+  maxTermsPerRequest?: number;
+};
 
 interface PlotSummaryTaskState {
   status: ResumableTaskStatus;
@@ -2142,7 +2161,7 @@ export class ProjectService {
 
   // ─── Dictionary / Glossary ──────────────────────────
 
-  async scanDictionary(): Promise<void> {
+  async scanDictionary(options: ScanDictionaryStartOptions = {}): Promise<void> {
     const runtime = this.activeRuntime;
     const state = runtime ?? this.currentState;
     const project = runtime?.project ?? this.project;
@@ -2163,13 +2182,21 @@ export class ProjectService {
 
     if (isFreshRun) {
       this.clearTaskProgressUi('scan');
-      state.scanTaskState = this.createGlossaryScanTask(project, scanner, extractorConfig);
+      state.scanTaskState = this.createGlossaryScanTask(project, scanner, {
+        ...extractorConfig,
+        maxCharsPerBatch: options.maxCharsPerBatch ?? extractorConfig.maxCharsPerBatch,
+        occurrenceTopK: options.occurrenceTopK ?? extractorConfig.occurrenceTopK,
+        occurrenceTopP: options.occurrenceTopP ?? extractorConfig.occurrenceTopP,
+      });
       state.scanTaskState.status = 'running';
     } else {
       state.scanTaskState!.requestOptions = extractorConfig.requestOptions;
-      state.scanTaskState!.maxCharsPerBatch = extractorConfig.maxCharsPerBatch;
-      state.scanTaskState!.occurrenceTopK = extractorConfig.occurrenceTopK;
-      state.scanTaskState!.occurrenceTopP = extractorConfig.occurrenceTopP;
+      state.scanTaskState!.maxCharsPerBatch =
+        options.maxCharsPerBatch ?? state.scanTaskState!.maxCharsPerBatch;
+      state.scanTaskState!.occurrenceTopK =
+        options.occurrenceTopK ?? state.scanTaskState!.occurrenceTopK;
+      state.scanTaskState!.occurrenceTopP =
+        options.occurrenceTopP ?? state.scanTaskState!.occurrenceTopP;
       state.scanTaskState!.abortRequested = false;
       state.scanTaskState!.errorMessage = undefined;
       state.scanTaskState!.status = 'running';
@@ -2204,7 +2231,7 @@ export class ProjectService {
 
   // ─── Transcribe Dictionary ────────────────────────
 
-  async transcribeDictionary(): Promise<void> {
+  async transcribeDictionary(options: TranscribeDictionaryStartOptions = {}): Promise<void> {
     const runtime = this.activeRuntime;
     const state = runtime ?? this.currentState;
     const project = runtime?.project ?? this.project;
@@ -2225,11 +2252,18 @@ export class ProjectService {
 
     if (isFreshRun) {
       this.clearTaskProgressUi('transcribe');
-      state.transcribeTaskState = this.createGlossaryTranscribeTask(project, updaterConfig);
+      state.transcribeTaskState = this.createGlossaryTranscribeTask(project, {
+        ...updaterConfig,
+        maxCharsPerBatch: options.maxCharsPerBatch ?? updaterConfig.maxCharsPerBatch,
+        maxTermsPerRequest: options.maxTermsPerRequest ?? updaterConfig.maxTermsPerRequest,
+      });
       state.transcribeTaskState.status = 'running';
     } else {
       state.transcribeTaskState!.requestOptions = updaterConfig.requestOptions;
-      state.transcribeTaskState!.maxCharsPerBatch = updaterConfig.maxCharsPerBatch;
+      state.transcribeTaskState!.maxCharsPerBatch =
+        options.maxCharsPerBatch ?? state.transcribeTaskState!.maxCharsPerBatch;
+      state.transcribeTaskState!.maxTermsPerRequest =
+        options.maxTermsPerRequest ?? state.transcribeTaskState!.maxTermsPerRequest;
       state.transcribeTaskState!.abortRequested = false;
       state.transcribeTaskState!.errorMessage = undefined;
       state.transcribeTaskState!.status = 'running';
@@ -2266,6 +2300,7 @@ export class ProjectService {
     project: TranslationProject,
     config: {
       maxCharsPerBatch?: number;
+      maxTermsPerRequest?: number;
       requestOptions?: ChatRequestOptions;
     },
   ): TranscribeDictionaryTaskState {
@@ -2286,6 +2321,10 @@ export class ProjectService {
       glossary: new Glossary(project.getGlossary()?.getAllTerms() ?? []),
       requestOptions: config.requestOptions,
       maxCharsPerBatch: config.maxCharsPerBatch,
+      maxTermsPerRequest: config.maxTermsPerRequest ?? 10,
+      currentChunkIndex: undefined,
+      totalChunksInBatch: undefined,
+      currentChunkTermCount: undefined,
       abortRequested: false,
     };
   }
@@ -2294,6 +2333,7 @@ export class ProjectService {
     transcriber: FullTextGlossaryTranscriber;
     updaterConfig: {
       maxCharsPerBatch?: number;
+      maxTermsPerRequest?: number;
       requestOptions?: ChatRequestOptions;
     };
   }> {
@@ -2317,6 +2357,7 @@ export class ProjectService {
       ),
       updaterConfig: {
         maxCharsPerBatch: resolvedConfig.maxCharsPerBatch,
+        maxTermsPerRequest: resolvedConfig.maxTermsPerRequest,
         requestOptions: resolvedConfig.requestOptions,
       },
     };
@@ -2328,6 +2369,8 @@ export class ProjectService {
           modelNames: string[];
           maxCharsPerBatch?: number;
           requestOptions?: ChatRequestOptions;
+          transcribeModelNames?: string[];
+          transcribeMaxCharsPerBatch?: number;
         }
       | undefined,
     updaterConfig:
@@ -2339,10 +2382,13 @@ export class ProjectService {
   ): {
     modelNames: string[];
     maxCharsPerBatch?: number;
+    maxTermsPerRequest?: number;
     requestOptions?: ChatRequestOptions;
   } {
     const modelNames =
-      updaterConfig && updaterConfig.modelNames.length > 0
+      extractorConfig?.transcribeModelNames && extractorConfig.transcribeModelNames.length > 0
+        ? extractorConfig.transcribeModelNames
+        : updaterConfig && updaterConfig.modelNames.length > 0
         ? updaterConfig.modelNames
         : extractorConfig?.modelNames;
     if (!modelNames || modelNames.length === 0) {
@@ -2351,7 +2397,9 @@ export class ProjectService {
 
     return {
       modelNames: [...modelNames],
-      maxCharsPerBatch: extractorConfig?.maxCharsPerBatch,
+      maxCharsPerBatch:
+        extractorConfig?.transcribeMaxCharsPerBatch ?? extractorConfig?.maxCharsPerBatch,
+      maxTermsPerRequest: undefined,
       requestOptions: updaterConfig ? updaterConfig.requestOptions : extractorConfig?.requestOptions,
     };
   }
@@ -2381,6 +2429,9 @@ export class ProjectService {
           task.skippedBatches += 1;
           task.completedBatches = batch.batchIndex + 1;
           task.nextBatchIndex = batch.batchIndex + 1;
+          task.currentChunkIndex = undefined;
+          task.totalChunksInBatch = undefined;
+          task.currentChunkTermCount = undefined;
           this.syncTranscribeDictionaryProgress(task, state);
           this.broadcastTranscribeProgress(state);
           this.log(
@@ -2390,18 +2441,29 @@ export class ProjectService {
           continue;
         }
 
-        const transcribedTerms = await transcriber.transcribeBatch(batch, untranslatedTerms, {
+        const transcribeResult = await transcriber.transcribeBatchInChunks(batch, task.glossary, {
           requestOptions: task.requestOptions,
+          maxTermsPerRequest: task.maxTermsPerRequest,
+          onChunkProgress: ({ chunkIndex, totalChunks, termCount }) => {
+            task.currentChunkIndex = chunkIndex;
+            task.totalChunksInBatch = totalChunks;
+            task.currentChunkTermCount = termCount;
+            this.syncTranscribeDictionaryProgress(task, state);
+            this.broadcastTranscribeProgress(state);
+          },
         });
 
         if (taskToken !== state.processingToken) {
           return;
         }
 
-        const applied = transcriber.applyTranscribedTerms(task.glossary, transcribedTerms);
+        const applied = transcribeResult.appliedTermCount;
 
         task.completedBatches = batch.batchIndex + 1;
         task.nextBatchIndex = batch.batchIndex + 1;
+        task.currentChunkIndex = undefined;
+        task.totalChunksInBatch = undefined;
+        task.currentChunkTermCount = undefined;
         if (applied > 0) {
           this.markDictionaryChanged(state);
         }
@@ -2409,7 +2471,7 @@ export class ProjectService {
         this.broadcastTranscribeProgress(state);
         this.log(
           'info',
-          `术语解释翻译批次 ${task.completedBatches}/${task.totalBatches} 完成`,
+          `术语解释翻译批次 ${task.completedBatches}/${task.totalBatches} 完成（${transcribeResult.chunkCount} 个子批次）`,
         );
       }
 
@@ -2420,6 +2482,9 @@ export class ProjectService {
       if (task.abortRequested) {
         task.status = 'paused';
         task.errorMessage = undefined;
+        task.currentChunkIndex = undefined;
+        task.totalChunksInBatch = undefined;
+        task.currentChunkTermCount = undefined;
         this.syncTranscribeDictionaryProgress(task, state);
         this.broadcastTranscribeProgress(state);
         this.log(
@@ -2441,6 +2506,9 @@ export class ProjectService {
       task.errorMessage = undefined;
       task.completedBatches = task.totalBatches;
       task.nextBatchIndex = task.totalBatches;
+      task.currentChunkIndex = undefined;
+      task.totalChunksInBatch = undefined;
+      task.currentChunkTermCount = undefined;
       this.syncTranscribeDictionaryProgress(task, state);
       this.broadcastTranscribeProgress(state);
       this.log(
@@ -2454,6 +2522,9 @@ export class ProjectService {
 
       task.status = 'error';
       task.errorMessage = toMsg(error);
+      task.currentChunkIndex = undefined;
+      task.totalChunksInBatch = undefined;
+      task.currentChunkTermCount = undefined;
       this.syncTranscribeDictionaryProgress(task, state);
       this.broadcastTranscribeProgress(state);
       this.log('error', `术语解释翻译失败：${task.errorMessage}`);
@@ -2478,6 +2549,10 @@ export class ProjectService {
         task.nextBatchIndex > 0 && task.nextBatchIndex < task.totalBatches
           ? task.nextBatchIndex + 1
           : undefined,
+      currentChunkIndex: task.currentChunkIndex,
+      totalChunksInBatch: task.totalChunksInBatch,
+      currentChunkTermCount: task.currentChunkTermCount,
+      maxTermsPerRequest: task.maxTermsPerRequest,
       errorMessage: task.errorMessage,
     };
   }
@@ -2584,9 +2659,6 @@ export class ProjectService {
 
         task.completedBatches = batch.batchIndex + 1;
         task.nextBatchIndex = batch.batchIndex + 1;
-        if (extractedEntities.length > 0) {
-          this.markDictionaryChanged(state);
-        }
         this.syncScanDictionaryProgress(task, state);
         this.broadcastScanProgress(state);
         this.log(
@@ -4170,9 +4242,6 @@ export class ProjectService {
   ): Glossary | null {
     if (state.transcribeTaskState && this.shouldExposeTaskGlossary(state.transcribeTaskState.status)) {
       return state.transcribeTaskState.glossary;
-    }
-    if (state.scanTaskState && this.shouldExposeTaskGlossary(state.scanTaskState.status)) {
-      return state.scanTaskState.glossary;
     }
     return project?.getGlossary() ?? null;
   }

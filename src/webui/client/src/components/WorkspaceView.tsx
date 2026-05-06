@@ -8,7 +8,12 @@ import { WorkspaceDashboardTab } from './workspace-view/WorkspaceDashboardTab.ts
 import { WorkspaceDictionaryTab } from './workspace-view/WorkspaceDictionaryTab.tsx';
 import type { WorkspaceViewProps } from './workspace-view/types.ts';
 
-export type { ProjectCommand, TaskActivityKind } from './workspace-view/types.ts';
+export type {
+  DictionaryScanStartOptions,
+  DictionaryTranscribeStartOptions,
+  ProjectCommand,
+  TaskActivityKind,
+} from './workspace-view/types.ts';
 
 export function WorkspaceView({
   workspaceId,
@@ -43,10 +48,14 @@ export function WorkspaceView({
   onRefreshWorkspaceConfig,
   onRefreshStyleLibraryOptions,
   onProjectCommand,
+  onStartDictionaryScan,
+  onStartDictionaryTranscribe,
   onBuildContextNetwork,
   onStartProofread,
   onOpenDictionaryEditor,
   onDeleteDictionary,
+  dictionaryScanDefaults,
+  dictionaryTranscribeDefaults,
   onImportDictionaryFile,
   onImportDictionaryFromContent,
   onDownloadDictionaryExport,
@@ -161,12 +170,16 @@ export function WorkspaceView({
                 onRefreshProjectStatus={onRefreshProjectStatus}
                 onRefreshDictionary={onRefreshDictionary}
                 onProjectCommand={onProjectCommand}
+                onStartDictionaryScan={onStartDictionaryScan}
+                onStartDictionaryTranscribe={onStartDictionaryTranscribe}
                 onAbortTaskActivity={onAbortTaskActivity}
                 onForceAbortTaskActivity={onForceAbortTaskActivity}
                 onRemoveTaskActivity={onRemoveTaskActivity}
                 onResumeTaskActivity={onResumeTaskActivity}
                 onOpenDictionaryEditor={onOpenDictionaryEditor}
                 onDeleteDictionary={onDeleteDictionary}
+                dictionaryScanDefaults={dictionaryScanDefaults}
+                dictionaryTranscribeDefaults={dictionaryTranscribeDefaults}
                 onImportDictionaryFile={onImportDictionaryFile}
                 onImportDictionaryFromContent={onImportDictionaryFromContent}
                 onDownloadDictionaryExport={onDownloadDictionaryExport}

@@ -74,7 +74,12 @@ import type {
 import { useEventStream } from './useEventStream.ts';
 import { DictionaryEditorModal } from '../components/DictionaryEditorModal.tsx';
 import { ActivityCenterDrawer } from '../components/activity/ActivityCenterDrawer.tsx';
-import type { ProjectCommand, TaskActivityKind } from '../components/WorkspaceView.tsx';
+import type {
+  DictionaryScanStartOptions,
+  DictionaryTranscribeStartOptions,
+  ProjectCommand,
+  TaskActivityKind,
+} from '../components/WorkspaceView.tsx';
 
 const LazyActivityCenterPage = lazy(async () => {
   const { ActivityCenterPage } = await import('../components/activity/ActivityCenterPage.tsx');
@@ -1048,7 +1053,7 @@ export function AppShell() {
               scanDictionaryProgress: progress,
             }),
       );
-      if (workspaceId === activeWorkspaceIdRef.current && progress) {
+      if (workspaceId === activeWorkspaceIdRef.current && progress?.status === 'done') {
         void refreshDictionary().catch(() => undefined);
       }
       if (progress && progress.status !== 'running') {
@@ -1487,12 +1492,12 @@ export function AppShell() {
             message.success('翻译已中止');
             break;
           case 'scan':
-            await api.scanDictionary(workspaceId);
+            await api.scanDictionary({}, workspaceId);
             await refreshProjectStatus();
             message.success('已开始扫描术语表');
             break;
           case 'transcribe':
-            await api.transcribeDictionary(workspaceId);
+            await api.transcribeDictionary({}, workspaceId);
             await refreshProjectStatus();
             message.success('已开始术语解释翻译');
             break;
@@ -1526,6 +1531,41 @@ export function AppShell() {
       resetWorkspaceDataCaches,
       runAction,
     ],
+  );
+
+  const handleStartDictionaryScan = useCallback(
+    async (options: DictionaryScanStartOptions) => {
+      await runAction(async () => {
+        await api.scanDictionary(
+          {
+            maxCharsPerBatch: optionalNumber(options.maxCharsPerBatch),
+            occurrenceTopK: optionalNumber(options.occurrenceTopK),
+            occurrenceTopP: optionalNumber(options.occurrenceTopP),
+          },
+          getSelectedWorkspaceId(),
+        );
+        await refreshProjectStatus();
+        message.success('已开始扫描术语表');
+      });
+    },
+    [getSelectedWorkspaceId, message, refreshProjectStatus, runAction],
+  );
+
+  const handleStartDictionaryTranscribe = useCallback(
+    async (options: DictionaryTranscribeStartOptions) => {
+      await runAction(async () => {
+        await api.transcribeDictionary(
+          {
+            maxCharsPerBatch: optionalNumber(options.maxCharsPerBatch),
+            maxTermsPerRequest: optionalNumber(options.maxTermsPerRequest),
+          },
+          getSelectedWorkspaceId(),
+        );
+        await refreshProjectStatus();
+        message.success('已开始术语解释翻译');
+      });
+    },
+    [getSelectedWorkspaceId, message, refreshProjectStatus, runAction],
   );
 
   const handleStartProofread = useCallback(
@@ -2313,9 +2353,8 @@ export function AppShell() {
         if (kind === 'extractor') {
           const payload: GlossaryExtractorConfig = {
             modelNames: normalizeModelChain(values.modelNames),
-            maxCharsPerBatch: optionalNumber(values.maxCharsPerBatch),
-            occurrenceTopK: optionalNumber(values.occurrenceTopK),
-            occurrenceTopP: optionalNumber(values.occurrenceTopP),
+            transcribeModelNames: normalizeModelChain(values.transcribeModelNames),
+            transcribeMaxCharsPerBatch: optionalNumber(values.transcribeMaxCharsPerBatch),
             requestOptions: parseYamlObject(values.requestOptionsYaml),
           };
           await runSettingsAction(['extractor'], async () => {
@@ -2631,10 +2670,21 @@ export function AppShell() {
                       onRefreshWorkspaceConfig={refreshWorkspaceConfig}
                       onRefreshStyleLibraryOptions={refreshStyleLibraryOptions}
                       onProjectCommand={handleProjectCommand}
+                      onStartDictionaryScan={handleStartDictionaryScan}
+                      onStartDictionaryTranscribe={handleStartDictionaryTranscribe}
                       onBuildContextNetwork={handleBuildContextNetwork}
                       onStartProofread={handleStartProofread}
                       onOpenDictionaryEditor={openDictionaryEditor}
                       onDeleteDictionary={handleDeleteDictionary}
+                      dictionaryScanDefaults={{
+                        maxCharsPerBatch: extractorConfig?.maxCharsPerBatch,
+                        occurrenceTopK: extractorConfig?.occurrenceTopK,
+                        occurrenceTopP: extractorConfig?.occurrenceTopP,
+                      }}
+                      dictionaryTranscribeDefaults={{
+                        maxCharsPerBatch: extractorConfig?.transcribeMaxCharsPerBatch,
+                        maxTermsPerRequest: 10,
+                      }}
                       onImportDictionaryFile={handleImportDictionaryFile}
                       onImportDictionaryFromContent={handleImportDictionaryFromContent}
                       onDownloadDictionaryExport={handleDownloadDictionaryExport}

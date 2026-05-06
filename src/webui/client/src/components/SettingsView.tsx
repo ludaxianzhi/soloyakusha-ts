@@ -744,23 +744,14 @@ export function SettingsView({
                     <AuxiliaryModelChainField llmProfileOptions={llmProfileOptions} />
                   </Col>
                   <Col xs={24} lg={12}>
-                    <Row gutter={8}>
-                      <Col span={8}>
-                        <Form.Item name="maxCharsPerBatch" label="每批最长" labelCol={{span:12}}>
-                          <Input type="number" />
-                        </Form.Item>
-                      </Col>
-                      <Col span={8}>
-                        <Form.Item name="occurrenceTopK" label="Top K" labelCol={{span:12}}>
-                          <Input type="number" />
-                        </Form.Item>
-                      </Col>
-                      <Col span={8}>
-                        <Form.Item name="occurrenceTopP" label="Top P" labelCol={{span:12}}>
-                          <Input type="number" />
-                        </Form.Item>
-                      </Col>
-                    </Row>
+                    <AuxiliaryModelChainField
+                      name="transcribeModelNames"
+                      label="解释翻译模型链"
+                      llmProfileOptions={llmProfileOptions}
+                    />
+                    <Form.Item name="transcribeMaxCharsPerBatch" label="解释翻译分块长度">
+                      <Input type="number" placeholder="例如 8192" />
+                    </Form.Item>
                   </Col>
                 </Row>
                 <AuxiliaryYamlCollapse name="requestOptionsYaml" placeholder="temperature: 0.2" />
@@ -853,16 +844,20 @@ export function SettingsView({
 }
 
 function AuxiliaryModelChainField({
+  name = 'modelNames',
+  label = '模型链',
   llmProfileOptions,
 }: {
+  name?: string;
+  label?: string;
   llmProfileOptions: Array<{ label: string; value: string }>;
 }) {
   return (
     <Form.Item
-      name="modelNames"
-      label="模型链"
+      name={name}
+      label={label}
       tooltip="按选择顺序执行；后面的模型会作为前面的 Fallback。"
-      rules={[buildModelChainRule('模型链')]}
+      rules={[buildModelChainRule(label)]}
     >
       <Select
         mode="multiple"

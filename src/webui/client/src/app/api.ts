@@ -317,14 +317,33 @@ export const api = {
       method: 'DELETE',
       body: { term },
     }),
-  scanDictionary: (workspaceId?: string) =>
-    request(`/api/project/dictionary/scan${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  scanDictionary: (
+    input?: {
+      maxCharsPerBatch?: number;
+      occurrenceTopK?: number;
+      occurrenceTopP?: number;
+    },
+    workspaceId?: string,
+  ) =>
+    request(`/api/project/dictionary/scan${buildWorkspaceQueryString(workspaceId)}`, {
+      method: 'POST',
+      body: input ?? {},
+    }),
   abortScanDictionary: (workspaceId?: string) =>
     request(`/api/project/dictionary/scan/abort${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
   resumeScanDictionary: (workspaceId?: string) =>
     request(`/api/project/dictionary/scan/resume${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
-  transcribeDictionary: (workspaceId?: string) =>
-    request(`/api/project/dictionary/transcribe${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  transcribeDictionary: (
+    input?: {
+      maxCharsPerBatch?: number;
+      maxTermsPerRequest?: number;
+    },
+    workspaceId?: string,
+  ) =>
+    request(`/api/project/dictionary/transcribe${buildWorkspaceQueryString(workspaceId)}`, {
+      method: 'POST',
+      body: input ?? {},
+    }),
   abortTranscribeDictionary: (workspaceId?: string) =>
     request(`/api/project/dictionary/transcribe/abort${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
   resumeTranscribeDictionary: (workspaceId?: string) =>

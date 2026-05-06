@@ -5,7 +5,9 @@ import {
   App as AntdApp,
   Button,
   Card,
+  Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
   Select,
@@ -21,9 +23,11 @@ import type {
 import { usePollingTask } from '../../app/usePollingTask.ts';
 import { TaskActivityPanels } from './TaskActivityPanels.tsx';
 import type {
+  DictionaryScanStartOptions,
   DictionaryFileFormat,
   ProjectCommand,
   TaskActivityKind,
+  DictionaryTranscribeStartOptions,
 } from './types.ts';
 
 const { TextArea } = Input;
@@ -35,8 +39,12 @@ interface WorkspaceDictionaryTabProps {
   onRefreshProjectStatus: () => void | Promise<void>;
   onRefreshDictionary: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
+  onStartDictionaryScan: (options: DictionaryScanStartOptions) => void | Promise<void>;
+  onStartDictionaryTranscribe: (options: DictionaryTranscribeStartOptions) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
+  dictionaryScanDefaults?: DictionaryScanStartOptions;
+  dictionaryTranscribeDefaults?: DictionaryTranscribeStartOptions;
   onImportDictionaryFile: (file: File) => void | Promise<void>;
   onImportDictionaryFromContent: (
     content: string,
@@ -57,8 +65,12 @@ export function WorkspaceDictionaryTab({
   onRefreshProjectStatus,
   onRefreshDictionary,
   onProjectCommand,
+  onStartDictionaryScan,
+  onStartDictionaryTranscribe,
   onOpenDictionaryEditor,
   onDeleteDictionary,
+  dictionaryScanDefaults,
+  dictionaryTranscribeDefaults,
   onImportDictionaryFile,
   onImportDictionaryFromContent,
   onDownloadDictionaryExport,
@@ -75,7 +87,13 @@ export function WorkspaceDictionaryTab({
   const [importContent, setImportContent] = useState('');
   const [importResult, setImportResult] = useState<DictionaryImportResult | null>(null);
   const [exportFormat, setExportFormat] = useState<DictionaryFileFormat>('json');
+  const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [scanSubmitting, setScanSubmitting] = useState(false);
+  const [transcribeModalOpen, setTranscribeModalOpen] = useState(false);
+  const [transcribeSubmitting, setTranscribeSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [scanForm] = Form.useForm<DictionaryScanStartOptions>();
+  const [transcribeForm] = Form.useForm<DictionaryTranscribeStartOptions>();
 
   const openImportModal = () => {
     setImportModalOpen(true);
@@ -87,6 +105,59 @@ export function WorkspaceDictionaryTab({
       return;
     }
     setImportModalOpen(false);
+  };
+
+  const openScanModal = () => {
+    scanForm.setFieldsValue({
+      maxCharsPerBatch: dictionaryScanDefaults?.maxCharsPerBatch,
+      occurrenceTopK: dictionaryScanDefaults?.occurrenceTopK,
+      occurrenceTopP: dictionaryScanDefaults?.occurrenceTopP,
+    });
+    setScanModalOpen(true);
+  };
+
+  const closeScanModal = () => {
+    if (scanSubmitting) {
+      return;
+    }
+    setScanModalOpen(false);
+  };
+
+  const openTranscribeModal = () => {
+    transcribeForm.setFieldsValue({
+      maxCharsPerBatch: dictionaryTranscribeDefaults?.maxCharsPerBatch,
+      maxTermsPerRequest: dictionaryTranscribeDefaults?.maxTermsPerRequest ?? 10,
+    });
+    setTranscribeModalOpen(true);
+  };
+
+  const closeTranscribeModal = () => {
+    if (transcribeSubmitting) {
+      return;
+    }
+    setTranscribeModalOpen(false);
+  };
+
+  const handleStartScan = async () => {
+    const values = await scanForm.validateFields();
+    setScanSubmitting(true);
+    try {
+      await onStartDictionaryScan(values);
+      setScanModalOpen(false);
+    } finally {
+      setScanSubmitting(false);
+    }
+  };
+
+  const handleStartTranscribe = async () => {
+    const values = await transcribeForm.validateFields();
+    setTranscribeSubmitting(true);
+    try {
+      await onStartDictionaryTranscribe(values);
+      setTranscribeModalOpen(false);
+    } finally {
+      setTranscribeSubmitting(false);
+    }
   };
 
   const handleImport = async () => {
@@ -142,8 +213,8 @@ export function WorkspaceDictionaryTab({
         }
         extra={
           <Space>
-            <Button onClick={() => void onProjectCommand('scan')}>重新扫描</Button>
-            <Button onClick={() => void onProjectCommand('transcribe')}>解释翻译</Button>
+            <Button onClick={openScanModal}>重新扫描</Button>
+            <Button onClick={openTranscribeModal}>解释翻译</Button>
             <Button
               icon={<UploadOutlined />}
               onClick={() => fileInputRef.current?.click()}
@@ -194,6 +265,24 @@ export function WorkspaceDictionaryTab({
           onResumeTaskActivity={onResumeTaskActivity}
           onDismissTaskActivity={onDismissTaskActivity}
         />
+        {projectStatus?.transcribeDictionaryProgress?.status === 'running' ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={
+              projectStatus.transcribeDictionaryProgress.currentChunkIndex != null &&
+              projectStatus.transcribeDictionaryProgress.totalChunksInBatch != null
+                ? `当前正在处理本批次的第 ${projectStatus.transcribeDictionaryProgress.currentChunkIndex}/${projectStatus.transcribeDictionaryProgress.totalChunksInBatch} 个术语子批次`
+                : '当前正在处理术语解释翻译'
+            }
+            description={
+              projectStatus.transcribeDictionaryProgress.currentChunkTermCount != null
+                ? `本次提交 ${projectStatus.transcribeDictionaryProgress.currentChunkTermCount} 个术语，单次上限 ${projectStatus.transcribeDictionaryProgress.maxTermsPerRequest ?? '-'}。`
+                : `单次上限 ${projectStatus.transcribeDictionaryProgress.maxTermsPerRequest ?? '-'} 个术语。`
+            }
+          />
+        ) : null}
         <Table
           rowKey="term"
           dataSource={dictionary}
@@ -251,6 +340,53 @@ export function WorkspaceDictionaryTab({
           ]}
         />
       </Card>
+
+      <Modal
+        open={scanModalOpen}
+        title="术语扫描配置"
+        okText="开始扫描"
+        cancelText="取消"
+        confirmLoading={scanSubmitting}
+        onOk={() => void handleStartScan()}
+        onCancel={closeScanModal}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="扫描结果会在全部批次完成并应用 TopK/TopP 过滤后一次性写回术语表。"
+        />
+        <Form form={scanForm} layout="vertical" className="compact-form">
+          <Form.Item name="maxCharsPerBatch" label="每批最长字符数">
+            <InputNumber min={1} style={{ width: '100%' }} placeholder="留空使用默认值" />
+          </Form.Item>
+          <Form.Item name="occurrenceTopK" label="Top K">
+            <InputNumber min={1} style={{ width: '100%' }} placeholder="留空表示不过滤" />
+          </Form.Item>
+          <Form.Item name="occurrenceTopP" label="Top P">
+            <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} placeholder="0 - 1" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        open={transcribeModalOpen}
+        title="术语解释翻译配置"
+        okText="开始解释翻译"
+        cancelText="取消"
+        confirmLoading={transcribeSubmitting}
+        onOk={() => void handleStartTranscribe()}
+        onCancel={closeTranscribeModal}
+      >
+        <Form form={transcribeForm} layout="vertical" className="compact-form">
+          <Form.Item name="maxCharsPerBatch" label="每批最长字符数">
+            <InputNumber min={1} style={{ width: '100%' }} placeholder="留空使用设置页默认值" />
+          </Form.Item>
+          <Form.Item name="maxTermsPerRequest" label="每次解释翻译术语数">
+            <InputNumber min={1} style={{ width: '100%' }} placeholder="默认 10" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         open={importModalOpen}

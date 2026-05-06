@@ -61,6 +61,8 @@ export type GlossaryExtractorConfig = {
   maxCharsPerBatch?: number;
   occurrenceTopK?: number;
   occurrenceTopP?: number;
+  transcribeModelNames?: string[];
+  transcribeMaxCharsPerBatch?: number;
   requestOptions?: ChatRequestOptions;
 };
 

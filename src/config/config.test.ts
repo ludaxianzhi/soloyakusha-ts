@@ -730,6 +730,8 @@ describe("GlobalConfigManager", () => {
       maxCharsPerBatch: 4096,
       occurrenceTopK: 128,
       occurrenceTopP: 0.25,
+      transcribeModelNames: ["glossary-transcribe"],
+      transcribeMaxCharsPerBatch: 2048,
     });
     await manager.setGlossaryUpdaterConfig({
       modelNames: ["glossary"],
@@ -812,6 +814,8 @@ describe("GlobalConfigManager", () => {
       maxCharsPerBatch: 4096,
       occurrenceTopK: 128,
       occurrenceTopP: 0.25,
+      transcribeModelNames: ["glossary-transcribe"],
+      transcribeMaxCharsPerBatch: 2048,
       requestOptions: undefined,
     });
     expect(await reloaded.getGlossaryUpdaterConfig()).toEqual({
@@ -840,6 +844,8 @@ describe("GlobalConfigManager", () => {
       modelNames: ["glossary", "summary"],
       occurrenceTopK: 128,
       occurrenceTopP: 0.25,
+      transcribeModelNames: ["glossary-transcribe"],
+      transcribeMaxCharsPerBatch: 2048,
     });
     expect(translationGlobalConfig.getGlossaryUpdaterConfig()?.modelNames).toEqual(["glossary"]);
     expect(translationGlobalConfig.getPlotSummaryConfig()?.modelNames).toEqual(["summary", "translator"]);
@@ -864,6 +870,8 @@ describe("GlobalConfigManager", () => {
           modelNames: string[];
           occurrenceTopK?: number;
           occurrenceTopP?: number;
+          transcribeModelNames?: string[];
+          transcribeMaxCharsPerBatch?: number;
         };
         glossaryUpdater?: { modelNames: string[] };
         plotSummary?: { modelNames: string[] };
@@ -878,6 +886,8 @@ describe("GlobalConfigManager", () => {
     expect(saved.translation?.glossaryExtractor?.modelNames).toEqual(["glossary", "summary"]);
     expect(saved.translation?.glossaryExtractor?.occurrenceTopK).toBe(128);
     expect(saved.translation?.glossaryExtractor?.occurrenceTopP).toBe(0.25);
+    expect(saved.translation?.glossaryExtractor?.transcribeModelNames).toEqual(["glossary-transcribe"]);
+    expect(saved.translation?.glossaryExtractor?.transcribeMaxCharsPerBatch).toBe(2048);
     expect(saved.translation?.glossaryUpdater?.modelNames).toEqual(["glossary"]);
     expect(saved.translation?.plotSummary?.modelNames).toEqual(["summary", "translator"]);
   });

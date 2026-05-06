@@ -25,6 +25,12 @@ import {
 export type FullTextGlossaryTranscribeOptions = {
   requestOptions?: ChatRequestOptions;
   onBatchProgress?: (completed: number, total: number) => void;
+  maxTermsPerRequest?: number;
+  onChunkProgress?: (progress: {
+    chunkIndex: number;
+    totalChunks: number;
+    termCount: number;
+  }) => void;
 };
 
 export type TranscribedTerm = {
@@ -40,11 +46,18 @@ export type FullTextGlossaryTranscribeResult = {
   skippedBatches: number;
 };
 
+export type TranscribeBatchChunksResult = {
+  appliedTermCount: number;
+  chunkCount: number;
+};
+
 type RawTranscribedTerm = {
   term: string;
   translation: string;
   description: string;
 };
+
+export const DEFAULT_GLOSSARY_TRANSCRIBE_MAX_TERMS_PER_REQUEST = 10;
 
 export class FullTextGlossaryTranscriber {
   private readonly logger: Logger;
@@ -85,11 +98,11 @@ export class FullTextGlossaryTranscriber {
         `处理批次 ${batch.batchIndex + 1}/${batches.length}（${untranslatedTerms.length} 个未翻译术语）`,
       );
 
-      const transcribedTerms = await this.transcribeBatch(batch, untranslatedTerms, {
+      const result = await this.transcribeBatchInChunks(batch, glossary, {
         requestOptions: options.requestOptions,
+        maxTermsPerRequest: options.maxTermsPerRequest,
       });
-
-      const applied = this.applyTranscribedTerms(glossary, transcribedTerms);
+      const applied = result.appliedTermCount;
       appliedTermCount += applied;
       completedBatches += 1;
       options.onBatchProgress?.(completedBatches, batches.length);
@@ -108,6 +121,57 @@ export class FullTextGlossaryTranscriber {
       totalBatches: batches.length,
       completedBatches,
       skippedBatches,
+    };
+  }
+
+  async transcribeBatchInChunks(
+    batch: FullTextGlossaryScanBatch,
+    glossary: Glossary,
+    options: Pick<
+      FullTextGlossaryTranscribeOptions,
+      "requestOptions" | "maxTermsPerRequest" | "onChunkProgress"
+    > = {},
+  ): Promise<TranscribeBatchChunksResult> {
+    const untranslatedTerms = glossary.getUntranslatedTermsForText(batch.text);
+    const maxTermsPerRequest = options.maxTermsPerRequest ?? DEFAULT_GLOSSARY_TRANSCRIBE_MAX_TERMS_PER_REQUEST;
+    if (untranslatedTerms.length === 0) {
+      return {
+        appliedTermCount: 0,
+        chunkCount: 0,
+      };
+    }
+
+    if (!Number.isInteger(maxTermsPerRequest) || maxTermsPerRequest <= 0) {
+      throw new Error("maxTermsPerRequest 必须为正整数");
+    }
+
+    const termChunks = chunkTerms(untranslatedTerms, maxTermsPerRequest);
+    let appliedTermCount = 0;
+
+    for (const [chunkIndex, termChunk] of termChunks.entries()) {
+      const pendingChunkTerms = termChunk.filter((term) => glossary.getTerm(term.term)?.status === "untranslated");
+      if (pendingChunkTerms.length === 0) {
+        continue;
+      }
+
+      // TODO: 未来可在这里实现基于滑动窗口的上下文优化，而不是直接复用整块文本。
+      this.logger.info?.(
+        `处理术语解释翻译子批次 ${chunkIndex + 1}/${termChunks.length}（${pendingChunkTerms.length} 个术语）`,
+      );
+      options.onChunkProgress?.({
+        chunkIndex: chunkIndex + 1,
+        totalChunks: termChunks.length,
+        termCount: pendingChunkTerms.length,
+      });
+      const transcribedTerms = await this.transcribeBatch(batch, pendingChunkTerms, {
+        requestOptions: options.requestOptions,
+      });
+      appliedTermCount += this.applyTranscribedTerms(glossary, transcribedTerms);
+    }
+
+    return {
+      appliedTermCount,
+      chunkCount: termChunks.length,
     };
   }
 
@@ -207,6 +271,17 @@ export class FullTextGlossaryTranscriber {
       },
     };
   }
+}
+
+function chunkTerms(
+  terms: ReadonlyArray<ResolvedGlossaryTerm>,
+  chunkSize: number,
+): ResolvedGlossaryTerm[][] {
+  const result: ResolvedGlossaryTerm[][] = [];
+  for (let index = 0; index < terms.length; index += chunkSize) {
+    result.push(terms.slice(index, index + chunkSize));
+  }
+  return result;
 }
 
 function buildTranscribeRequestOptions(

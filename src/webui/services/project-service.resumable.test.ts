@@ -92,7 +92,7 @@ describe("ProjectService resumable batch tasks", () => {
     });
   });
 
-  test("resolveGlossaryTranscribeConfig prefers updater config and supports updater-only setup", async () => {
+  test("resolveGlossaryTranscribeConfig prefers extractor transcribe fields and keeps updater fallback", async () => {
     const service = createService();
     const serviceAny = service as any;
 
@@ -101,6 +101,24 @@ describe("ProjectService resumable batch tasks", () => {
         temperature: 0.1,
       },
     };
+    expect(
+      serviceAny.resolveGlossaryTranscribeConfig(
+        {
+          modelNames: ["scan-model"],
+          transcribeModelNames: ["manual-transcribe"],
+          transcribeMaxCharsPerBatch: 2048,
+        },
+        {
+          modelNames: ["glossary-updater"],
+          requestOptions: updaterRequestOptions,
+        },
+      ),
+    ).toEqual({
+      modelNames: ["manual-transcribe"],
+      maxCharsPerBatch: 2048,
+      requestOptions: updaterRequestOptions,
+    });
+
     expect(
       serviceAny.resolveGlossaryTranscribeConfig(undefined, {
         modelNames: ["glossary-updater"],
@@ -199,7 +217,7 @@ describe("ProjectService resumable batch tasks", () => {
     ]);
   });
 
-  test("getGlossaryTerms returns in-flight scan glossary while scanning", async () => {
+  test("getGlossaryTerms hides in-flight scan glossary until final ranking finishes", async () => {
     const service = createService();
     const serviceAny = service as any;
 
@@ -263,20 +281,66 @@ describe("ProjectService resumable batch tasks", () => {
     firstBatch.resolve([{ term: "勇者", category: "personName" }]);
     await waitFor(() => service.getStatus().scanDictionaryProgress?.completedBatches === 1);
 
+    expect(service.getGlossaryTerms()).toEqual([]);
+
+    secondBatch.resolve([{ term: "王都", category: "placeName" }]);
+    await waitFor(() => service.getStatus().scanDictionaryProgress?.status === "done");
+  });
+
+  test("getGlossaryTerms returns in-flight transcribe glossary while transcribing", async () => {
+    const service = createService();
+    const serviceAny = service as any;
+
+    const firstBatch = deferred<Array<{ term: string; translation: string; description: string }>>();
+    let activeGlossary = new Glossary([{ term: "王都", translation: "" }]);
+    serviceAny.project = {
+      getGlossary: () => activeGlossary,
+      replaceGlossary: (glossary: Glossary) => {
+        activeGlossary = glossary;
+      },
+      saveProgress: async () => undefined,
+      getProjectSnapshot: () => createProjectSnapshot(),
+      getStoryTopology: () => null,
+      hasPlotSummaries: () => false,
+      getDocumentManager: () => ({
+        getAllChapters: () => [
+          {
+            id: 1,
+            fragments: [{ source: { lines: ["王都召见众人"] } }],
+          },
+        ],
+      }),
+    };
+    serviceAny.refreshSnapshot = () => undefined;
+    const realTranscriber = new FullTextGlossaryTranscriber(
+      { singleTurnRequest: async () => "" } as any,
+    );
+    realTranscriber.transcribeBatch = async () => firstBatch.promise;
+    serviceAny.createGlossaryTranscriber = async () => ({
+      transcriber: realTranscriber,
+      updaterConfig: {
+        maxCharsPerBatch: 32,
+        requestOptions: undefined,
+      },
+    });
+
+    void service.transcribeDictionary();
+    await waitFor(() => service.getStatus().transcribeDictionaryProgress?.status === "running");
+
+    firstBatch.resolve([{ term: "王都", translation: "Royal Capital", description: "都城" }]);
+    await waitFor(() => service.getStatus().transcribeDictionaryProgress?.completedBatches === 1);
+
     expect(service.getGlossaryTerms()).toEqual([
       {
-        term: "勇者",
-        translation: "",
-        description: undefined,
-        category: "personName",
-        status: "untranslated",
+        term: "王都",
+        translation: "Royal Capital",
+        description: "都城",
+        category: undefined,
+        status: "translated",
         totalOccurrenceCount: 0,
         textBlockOccurrenceCount: 0,
       },
     ]);
-
-    secondBatch.resolve([{ term: "王都", category: "placeName" }]);
-    await waitFor(() => service.getStatus().scanDictionaryProgress?.status === "done");
   });
 
   test("transcribeDictionary publishes cloned glossary updates on success", async () => {
@@ -342,6 +406,151 @@ describe("ProjectService resumable batch tasks", () => {
       completedBatches: 1,
       totalBatches: 1,
     });
+  });
+
+  test("transcribeDictionary splits oversized term lists within a batch before advancing", async () => {
+    const service = createService();
+    const serviceAny = service as any;
+
+    let activeGlossary = new Glossary([
+      { term: "王都", translation: "" },
+      { term: "勇者", translation: "" },
+      { term: "魔王", translation: "" },
+    ]);
+    const seenTermChunks: string[][] = [];
+    const project = {
+      getGlossary: () => activeGlossary,
+      replaceGlossary: (glossary: Glossary) => {
+        activeGlossary = glossary;
+      },
+      saveProgress: async () => undefined,
+      getProjectSnapshot: () => createProjectSnapshot(),
+      getStoryTopology: () => null,
+      hasPlotSummaries: () => false,
+      getDocumentManager: () => ({
+        getAllChapters: () => [
+          {
+            id: 1,
+            fragments: [{ source: { lines: ["王都、勇者与魔王齐聚一堂"] } }],
+          },
+        ],
+      }),
+    };
+
+    const realTranscriber = new FullTextGlossaryTranscriber(
+      { singleTurnRequest: async () => "" } as any,
+    );
+    realTranscriber.transcribeBatch = async (_batch, terms) => {
+      seenTermChunks.push(terms.map((term) => term.term));
+      return terms.map((term) => ({
+        term: term.term,
+        translation: `${term.term}-译文`,
+        description: `${term.term}-说明`,
+      }));
+    };
+
+    serviceAny.project = project;
+    serviceAny.refreshSnapshot = () => undefined;
+    serviceAny.createGlossaryTranscriber = async () => ({
+      transcriber: realTranscriber,
+      updaterConfig: {
+        maxCharsPerBatch: 64,
+        maxTermsPerRequest: undefined,
+        requestOptions: undefined,
+      },
+    });
+
+    await service.transcribeDictionary({ maxTermsPerRequest: 2 });
+    await waitFor(() => service.getStatus().transcribeDictionaryProgress?.status === "done");
+
+    expect(seenTermChunks).toEqual([
+      ["王都", "勇者"],
+      ["魔王"],
+    ]);
+    expect(activeGlossary.getTerm("王都")?.translation).toBe("王都-译文");
+    expect(activeGlossary.getTerm("勇者")?.translation).toBe("勇者-译文");
+    expect(activeGlossary.getTerm("魔王")?.translation).toBe("魔王-译文");
+    expect(service.getStatus().transcribeDictionaryProgress).toMatchObject({
+      status: "done",
+      completedBatches: 1,
+      totalBatches: 1,
+    });
+  });
+
+  test("transcribeDictionary publishes current sub-batch progress while processing", async () => {
+    const service = createService();
+    const serviceAny = service as any;
+
+    const firstChunk = deferred<Array<{ term: string; translation: string; description: string }>>();
+    let activeGlossary = new Glossary([
+      { term: "王都", translation: "" },
+      { term: "勇者", translation: "" },
+      { term: "魔王", translation: "" },
+    ]);
+    const project = {
+      getGlossary: () => activeGlossary,
+      replaceGlossary: (glossary: Glossary) => {
+        activeGlossary = glossary;
+      },
+      saveProgress: async () => undefined,
+      getProjectSnapshot: () => createProjectSnapshot(),
+      getStoryTopology: () => null,
+      hasPlotSummaries: () => false,
+      getDocumentManager: () => ({
+        getAllChapters: () => [
+          {
+            id: 1,
+            fragments: [{ source: { lines: ["王都、勇者与魔王齐聚一堂"] } }],
+          },
+        ],
+      }),
+    };
+
+    const realTranscriber = new FullTextGlossaryTranscriber(
+      { singleTurnRequest: async () => "" } as any,
+    );
+    let callCount = 0;
+    realTranscriber.transcribeBatch = async (_batch, terms) => {
+      callCount += 1;
+      if (callCount === 1) {
+        return firstChunk.promise;
+      }
+      return terms.map((term) => ({
+        term: term.term,
+        translation: `${term.term}-译文`,
+        description: `${term.term}-说明`,
+      }));
+    };
+
+    serviceAny.project = project;
+    serviceAny.refreshSnapshot = () => undefined;
+    serviceAny.createGlossaryTranscriber = async () => ({
+      transcriber: realTranscriber,
+      updaterConfig: {
+        maxCharsPerBatch: 64,
+        maxTermsPerRequest: undefined,
+        requestOptions: undefined,
+      },
+    });
+
+    void service.transcribeDictionary({ maxTermsPerRequest: 2 });
+    await waitFor(
+      () => service.getStatus().transcribeDictionaryProgress?.currentChunkIndex === 1,
+    );
+
+    expect(service.getStatus().transcribeDictionaryProgress).toMatchObject({
+      status: "running",
+      currentChunkIndex: 1,
+      totalChunksInBatch: 2,
+      currentChunkTermCount: 2,
+      maxTermsPerRequest: 2,
+    });
+
+    firstChunk.resolve([
+      { term: "王都", translation: "王都-译文", description: "王都-说明" },
+      { term: "勇者", translation: "勇者-译文", description: "勇者-说明" },
+    ]);
+    await waitFor(() => service.getStatus().transcribeDictionaryProgress?.status === "done");
   });
 
   test("startPlotSummary can abort and resume from the last checkpoint", async () => {

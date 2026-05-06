@@ -681,6 +681,16 @@ export function normalizeGlossaryExtractorConfig(
       value.occurrenceTopP,
       `${sourceLabel}.occurrenceTopP`,
     ),
+    transcribeModelNames: readOptionalModelNames(
+      value,
+      sourceLabel,
+      "transcribeModelNames",
+      "transcribeModelName",
+    ),
+    transcribeMaxCharsPerBatch: readOptionalPositiveInteger(
+      value.transcribeMaxCharsPerBatch,
+      `${sourceLabel}.transcribeMaxCharsPerBatch`,
+    ),
     requestOptions:
       value.requestOptions === undefined
         ? undefined
@@ -1011,6 +1021,10 @@ export function cloneGlossaryExtractorConfig(
     maxCharsPerBatch: config.maxCharsPerBatch,
     occurrenceTopK: config.occurrenceTopK,
     occurrenceTopP: config.occurrenceTopP,
+    transcribeModelNames: config.transcribeModelNames
+      ? [...config.transcribeModelNames]
+      : undefined,
+    transcribeMaxCharsPerBatch: config.transcribeMaxCharsPerBatch,
     requestOptions: config.requestOptions
       ? clonePersistedChatRequestOptions(config.requestOptions)
       : undefined,
@@ -1555,6 +1569,23 @@ function readRequiredModelNames(
   }
 
   return [readRequiredString(value.modelName, `${sourceLabel}.modelName`)];
+}
+
+function readOptionalModelNames(
+  value: Record<string, unknown>,
+  sourceLabel: string,
+  pluralFieldName: string,
+  singularFieldName: string,
+): string[] | undefined {
+  if (value[pluralFieldName] !== undefined) {
+    return readRequiredStringArray(value[pluralFieldName], `${sourceLabel}.${pluralFieldName}`);
+  }
+
+  if (value[singularFieldName] !== undefined) {
+    return [readRequiredString(value[singularFieldName], `${sourceLabel}.${singularFieldName}`)];
+  }
+
+  return undefined;
 }
 
 function readOptionalString(value: unknown, sourceLabel: string): string | undefined {

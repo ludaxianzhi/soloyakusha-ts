@@ -169,6 +169,10 @@ export interface TranscribeDictionaryProgress {
   skippedBatches: number;
   totalLines: number;
   currentBatchIndex?: number;
+  currentChunkIndex?: number;
+  totalChunksInBatch?: number;
+  currentChunkTermCount?: number;
+  maxTermsPerRequest?: number;
   errorMessage?: string;
 }
 
@@ -840,6 +844,8 @@ export interface GlossaryExtractorConfig {
   maxCharsPerBatch?: number;
   occurrenceTopK?: number;
   occurrenceTopP?: number;
+  transcribeModelNames?: string[];
+  transcribeMaxCharsPerBatch?: number;
   requestOptions?: Record<string, unknown>;
 }
 

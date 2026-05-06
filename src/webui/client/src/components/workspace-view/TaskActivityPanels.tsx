@@ -59,16 +59,33 @@ export function TaskActivityPanels({
     }
 
     if (task === 'transcribe' && projectStatus?.transcribeDictionaryProgress) {
+      const transcribeProgress = projectStatus.transcribeDictionaryProgress;
       visibleTasks.push({
         key: 'transcribe',
         title: '术语解释翻译',
-        progress: projectStatus.transcribeDictionaryProgress,
+        progress: transcribeProgress,
         details: (
-          <Space wrap>
-            <Tag>{`批次 ${projectStatus.transcribeDictionaryProgress.completedBatches}/${projectStatus.transcribeDictionaryProgress.totalBatches}`}</Tag>
-            <Tag>{`跳过 ${projectStatus.transcribeDictionaryProgress.skippedBatches}`}</Tag>
-            {projectStatus.transcribeDictionaryProgress.currentBatchIndex != null ? (
-              <Tag color="processing">{`下一批次 ${projectStatus.transcribeDictionaryProgress.currentBatchIndex}`}</Tag>
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            <Space wrap>
+              <Tag>{`批次 ${transcribeProgress.completedBatches}/${transcribeProgress.totalBatches}`}</Tag>
+              <Tag>{`跳过 ${transcribeProgress.skippedBatches}`}</Tag>
+              {transcribeProgress.currentBatchIndex != null ? (
+                <Tag color="processing">{`下一批次 ${transcribeProgress.currentBatchIndex}`}</Tag>
+              ) : null}
+            </Space>
+            {(transcribeProgress.currentChunkIndex != null || transcribeProgress.maxTermsPerRequest != null) ? (
+              <Space wrap>
+                {transcribeProgress.currentChunkIndex != null &&
+                transcribeProgress.totalChunksInBatch != null ? (
+                  <Tag color="cyan">{`当前子批次 ${transcribeProgress.currentChunkIndex}/${transcribeProgress.totalChunksInBatch}`}</Tag>
+                ) : null}
+                {transcribeProgress.currentChunkTermCount != null ? (
+                  <Tag color="blue">{`当前术语数 ${transcribeProgress.currentChunkTermCount}`}</Tag>
+                ) : null}
+                {transcribeProgress.maxTermsPerRequest != null ? (
+                  <Tag>{`单次上限 ${transcribeProgress.maxTermsPerRequest}`}</Tag>
+                ) : null}
+              </Space>
             ) : null}
           </Space>
         ),
