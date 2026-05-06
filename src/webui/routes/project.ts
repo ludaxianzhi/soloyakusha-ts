@@ -2,8 +2,9 @@
  * 项目操作 REST API：翻译控制、字典、导出、章节管理、重置。
  */
 
-import { readdir } from 'node:fs/promises';
-import { basename, join, relative } from 'node:path';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, extname, join, relative } from 'node:path';
 import { Hono, type Context } from 'hono';
 import JSZip from 'jszip';
 import {
@@ -194,8 +195,41 @@ export function createProjectRoutes(
 
   app.post('/dictionary/import', async (c) => {
     const body = await c.req.json<{ filePath: string }>();
-    await projectService.importGlossary(body.filePath);
-    return c.json({ ok: true });
+    const result = await projectService.importGlossary(body.filePath);
+    return c.json(result);
+  });
+
+  app.post('/dictionary/import-file', async (c) => {
+    const formData = await c.req.formData();
+    const file = formData.get('file');
+    if (!(file instanceof File)) {
+      return c.json({ error: '缺少文件字段 file' }, 400);
+    }
+
+    const suffix = extname(file.name).toLowerCase();
+    if (!suffix) {
+      return c.json({ error: '请上传带扩展名的术语文件' }, 400);
+    }
+
+    const tempDir = join(tmpdir(), 'soloyakusha-ts', 'dictionary-imports');
+    const tempPath = join(
+      tempDir,
+      `glossary-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${suffix}`,
+    );
+
+    try {
+      await mkdir(tempDir, { recursive: true });
+      await writeFile(tempPath, new Uint8Array(await file.arrayBuffer()));
+      const result = await projectService.importGlossary(tempPath);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    } finally {
+      await rm(tempPath, { force: true }).catch(() => undefined);
+    }
   });
 
   app.post('/dictionary/import-content', async (c) => {
@@ -218,6 +252,41 @@ export function createProjectRoutes(
     const body = await c.req.json<{ outputPath: string }>();
     await projectService.exportGlossary(body.outputPath);
     return c.json({ ok: true });
+  });
+
+  app.post('/dictionary/export-file', async (c) => {
+    const body = await c.req.json<{ format?: string }>();
+    const format = normalizeDictionaryFileFormat(body.format);
+    if (!format) {
+      return c.json({ error: 'format 必须是 json、csv、tsv、yaml、yml 或 xml' }, 400);
+    }
+
+    const tempDir = join(tmpdir(), 'soloyakusha-ts', 'dictionary-exports');
+    const tempPath = join(
+      tempDir,
+      `glossary-export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${format}`,
+    );
+
+    try {
+      await mkdir(tempDir, { recursive: true });
+      await projectService.exportGlossary(tempPath);
+      const buffer = await Bun.file(tempPath).arrayBuffer();
+      const projectName = projectService.getSnapshot()?.projectName ?? 'soloyakusha';
+      const fileName = `${projectName}-glossary.${format}`;
+      return new Response(new Blob([buffer]), {
+        headers: {
+          'Content-Type': getDictionaryContentType(format),
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+        },
+      });
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    } finally {
+      await rm(tempPath, { force: true }).catch(() => undefined);
+    }
   });
 
   // ─── 情节大纲 ───────────────────────────────────
@@ -893,6 +962,38 @@ function normalizeEditorFormat(format: string | undefined): 'naturedialog' | 'm3
     return format;
   }
   return undefined;
+}
+
+function normalizeDictionaryFileFormat(
+  format: string | undefined,
+): 'json' | 'csv' | 'tsv' | 'yaml' | 'yml' | 'xml' | undefined {
+  switch (format?.trim().toLowerCase()) {
+    case 'json':
+    case 'csv':
+    case 'tsv':
+    case 'yaml':
+    case 'yml':
+    case 'xml':
+      return format.trim().toLowerCase() as 'json' | 'csv' | 'tsv' | 'yaml' | 'yml' | 'xml';
+    default:
+      return undefined;
+  }
+}
+
+function getDictionaryContentType(format: 'json' | 'csv' | 'tsv' | 'yaml' | 'yml' | 'xml'): string {
+  switch (format) {
+    case 'json':
+      return 'application/json; charset=utf-8';
+    case 'csv':
+      return 'text/csv; charset=utf-8';
+    case 'tsv':
+      return 'text/tab-separated-values; charset=utf-8';
+    case 'yaml':
+    case 'yml':
+      return 'application/yaml; charset=utf-8';
+    case 'xml':
+      return 'application/xml; charset=utf-8';
+  }
 }
 
 function readPositiveIntegerQuery(

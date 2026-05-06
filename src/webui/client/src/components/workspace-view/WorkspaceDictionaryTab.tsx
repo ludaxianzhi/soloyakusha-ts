@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { BookOutlined } from '@ant-design/icons';
+import { useEffect, useRef, useState } from 'react';
+import { BookOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import {
   Alert,
   App as AntdApp,
@@ -20,7 +20,11 @@ import type {
 } from '../../app/types.ts';
 import { usePollingTask } from '../../app/usePollingTask.ts';
 import { TaskActivityPanels } from './TaskActivityPanels.tsx';
-import type { ProjectCommand, TaskActivityKind } from './types.ts';
+import type {
+  DictionaryFileFormat,
+  ProjectCommand,
+  TaskActivityKind,
+} from './types.ts';
 
 const { TextArea } = Input;
 
@@ -33,10 +37,12 @@ interface WorkspaceDictionaryTabProps {
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
+  onImportDictionaryFile: (file: File) => void | Promise<void>;
   onImportDictionaryFromContent: (
     content: string,
     format: 'csv' | 'tsv',
   ) => Promise<DictionaryImportResult>;
+  onDownloadDictionaryExport: (format: DictionaryFileFormat) => void | Promise<void>;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onForceAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onRemoveTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
@@ -53,7 +59,9 @@ export function WorkspaceDictionaryTab({
   onProjectCommand,
   onOpenDictionaryEditor,
   onDeleteDictionary,
+  onImportDictionaryFile,
   onImportDictionaryFromContent,
+  onDownloadDictionaryExport,
   onAbortTaskActivity,
   onForceAbortTaskActivity,
   onRemoveTaskActivity,
@@ -66,6 +74,8 @@ export function WorkspaceDictionaryTab({
   const [importFormat, setImportFormat] = useState<'csv' | 'tsv'>('csv');
   const [importContent, setImportContent] = useState('');
   const [importResult, setImportResult] = useState<DictionaryImportResult | null>(null);
+  const [exportFormat, setExportFormat] = useState<DictionaryFileFormat>('json');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const openImportModal = () => {
     setImportModalOpen(true);
@@ -93,6 +103,16 @@ export function WorkspaceDictionaryTab({
     } finally {
       setImporting(false);
     }
+  };
+
+  const handleFileSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+
+    await onImportDictionaryFile(file);
   };
 
   useEffect(() => {
@@ -124,13 +144,47 @@ export function WorkspaceDictionaryTab({
           <Space>
             <Button onClick={() => void onProjectCommand('scan')}>重新扫描</Button>
             <Button onClick={() => void onProjectCommand('transcribe')}>解释翻译</Button>
+            <Button
+              icon={<UploadOutlined />}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              文件导入
+            </Button>
             <Button onClick={openImportModal}>粘贴导入</Button>
+            <Space.Compact>
+              <Select<DictionaryFileFormat>
+                value={exportFormat}
+                style={{ width: 110 }}
+                options={[
+                  { label: 'JSON', value: 'json' },
+                  { label: 'CSV', value: 'csv' },
+                  { label: 'TSV', value: 'tsv' },
+                  { label: 'YAML', value: 'yaml' },
+                  { label: 'YML', value: 'yml' },
+                  { label: 'XML', value: 'xml' },
+                ]}
+                onChange={(value) => setExportFormat(value)}
+              />
+              <Button
+                icon={<DownloadOutlined />}
+                onClick={() => void onDownloadDictionaryExport(exportFormat)}
+              >
+                导出文件
+              </Button>
+            </Space.Compact>
             <Button type="primary" onClick={() => onOpenDictionaryEditor()}>
               新建条目
             </Button>
           </Space>
         }
       >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,.csv,.tsv,.yaml,.yml,.xml"
+          style={{ display: 'none' }}
+          onChange={(event) => void handleFileSelection(event)}
+        />
         <TaskActivityPanels
           projectStatus={projectStatus}
           tasks={['scan', 'transcribe']}
@@ -212,7 +266,7 @@ export function WorkspaceDictionaryTab({
             type="info"
             showIcon
             message="仅支持 term / translation / description 三列"
-            description="出现次数字段会在术语扫描时按需重算，不从粘贴内容导入。"
+            description="文件导入支持 JSON / CSV / TSV / YAML / YML / XML 全字段；粘贴导入仍只解析 term / translation / description 三列。"
           />
           <Select<'csv' | 'tsv'>
             value={importFormat}

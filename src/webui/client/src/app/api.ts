@@ -329,10 +329,29 @@ export const api = {
     request(`/api/project/dictionary/transcribe/abort${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
   resumeTranscribeDictionary: (workspaceId?: string) =>
     request(`/api/project/dictionary/transcribe/resume${buildWorkspaceQueryString(workspaceId)}`, { method: 'POST' }),
+  importDictionaryFile: (file: File, workspaceId?: string) => {
+    const formData = new FormData();
+    formData.set('file', file);
+    return request<DictionaryImportResult>(
+      `/api/project/dictionary/import-file${buildWorkspaceQueryString(workspaceId)}`,
+      {
+        method: 'POST',
+        body: formData,
+      },
+    );
+  },
   importDictionaryFromContent: (content: string, format: 'csv' | 'tsv', workspaceId?: string) =>
     request<DictionaryImportResult>(`/api/project/dictionary/import-content${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: { content, format },
+    }),
+  downloadDictionaryExport: (
+    format: 'json' | 'csv' | 'tsv' | 'yaml' | 'yml' | 'xml',
+    workspaceId?: string,
+  ) =>
+    requestBlob(`/api/project/dictionary/export-file${buildWorkspaceQueryString(workspaceId)}`, {
+      method: 'POST',
+      body: { format },
     }),
 
   startPlotSummary: (workspaceId?: string) =>

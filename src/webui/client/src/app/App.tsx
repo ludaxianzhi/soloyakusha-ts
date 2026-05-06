@@ -1599,6 +1599,19 @@ export function AppShell() {
     [getSelectedWorkspaceId, message, refreshDictionary, refreshProjectStatus],
   );
 
+  const handleImportDictionaryFile = useCallback(
+    async (file: File) => {
+      await runAction(async () => {
+        const result = await api.importDictionaryFile(file, getSelectedWorkspaceId());
+        await Promise.all([refreshDictionary(), refreshProjectStatus()]);
+        message.success(
+          `术语导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
+        );
+      });
+    },
+    [getSelectedWorkspaceId, message, refreshDictionary, refreshProjectStatus, runAction],
+  );
+
   const handleWorkspaceConfigSave = useCallback(
     async (values: Record<string, unknown>) => {
       const nextPipelineStrategy =
@@ -1840,6 +1853,22 @@ export function AppShell() {
         link.click();
         URL.revokeObjectURL(url);
         message.success('导出已开始下载');
+      });
+    },
+    [getSelectedWorkspaceId, message, runAction, snapshot?.projectName],
+  );
+
+  const handleDownloadDictionaryExport = useCallback(
+    async (format: 'json' | 'csv' | 'tsv' | 'yaml' | 'yml' | 'xml') => {
+      await runAction(async () => {
+        const blob = await api.downloadDictionaryExport(format, getSelectedWorkspaceId());
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${snapshot?.projectName ?? 'soloyakusha'}-glossary.${format}`;
+        link.click();
+        URL.revokeObjectURL(url);
+        message.success('术语表导出已开始下载');
       });
     },
     [getSelectedWorkspaceId, message, runAction, snapshot?.projectName],
@@ -2600,7 +2629,9 @@ export function AppShell() {
                       onStartProofread={handleStartProofread}
                       onOpenDictionaryEditor={openDictionaryEditor}
                       onDeleteDictionary={handleDeleteDictionary}
+                      onImportDictionaryFile={handleImportDictionaryFile}
                       onImportDictionaryFromContent={handleImportDictionaryFromContent}
+                      onDownloadDictionaryExport={handleDownloadDictionaryExport}
                       onWorkspaceConfigSave={handleWorkspaceConfigSave}
                       onClearChapterTranslations={handleClearChapterTranslations}
                       onRemoveChapters={handleRemoveChapters}

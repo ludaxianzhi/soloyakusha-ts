@@ -2828,10 +2828,18 @@ export class ProjectService {
     }, state);
   }
 
-  async importGlossary(filePath: string): Promise<void> {
+  async importGlossary(filePath: string): Promise<GlossaryImportResult> {
     const { runtime, state, project } = this.getActiveWorkspaceContext();
-    await this.runAction('导入术语表', async () => {
-      if (!project) throw new Error('当前没有已初始化的项目');
+    if (state.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    state.isBusy = true;
+    this.log('info', '导入术语表...');
+    try {
       const result = await project.importGlossary(filePath);
       await project.saveProgress();
       this.refreshSnapshot(runtime ?? undefined);
@@ -2840,7 +2848,13 @@ export class ProjectService {
         'success',
         `术语表导入完成：${result.termCount} 项（新增 ${result.newTermCount}，更新 ${result.updatedTermCount}）`,
       );
-    }, state);
+      return result;
+    } catch (error) {
+      this.log('error', `导入术语表失败：${toMsg(error)}`);
+      throw error;
+    } finally {
+      state.isBusy = false;
+    }
   }
 
   async importGlossaryFromContent(

@@ -29,6 +29,7 @@ export type ProjectCommand =
 
 export type TaskActivityKind = 'scan' | 'transcribe' | 'plot' | 'proofread';
 export type ProofreadTaskMode = 'linear' | 'simultaneous';
+export type DictionaryFileFormat = 'json' | 'csv' | 'tsv' | 'yaml' | 'yml' | 'xml';
 
 export interface WorkspaceViewProps {
   workspaceId?: string | null;
@@ -97,10 +98,12 @@ export interface WorkspaceViewProps {
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (term: string) => void | Promise<void>;
+  onImportDictionaryFile: (file: File) => void | Promise<void>;
   onImportDictionaryFromContent: (
     content: string,
     format: 'csv' | 'tsv',
   ) => Promise<DictionaryImportResult>;
+  onDownloadDictionaryExport: (format: DictionaryFileFormat) => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (

@@ -47,7 +47,9 @@ export function WorkspaceView({
   onStartProofread,
   onOpenDictionaryEditor,
   onDeleteDictionary,
+  onImportDictionaryFile,
   onImportDictionaryFromContent,
+  onDownloadDictionaryExport,
   onWorkspaceConfigSave,
   onClearChapterTranslations,
   onRemoveChapters,
@@ -165,7 +167,9 @@ export function WorkspaceView({
                 onResumeTaskActivity={onResumeTaskActivity}
                 onOpenDictionaryEditor={onOpenDictionaryEditor}
                 onDeleteDictionary={onDeleteDictionary}
+                onImportDictionaryFile={onImportDictionaryFile}
                 onImportDictionaryFromContent={onImportDictionaryFromContent}
+                onDownloadDictionaryExport={onDownloadDictionaryExport}
                 onDismissTaskActivity={onDismissTaskActivity}
               />
             ),
