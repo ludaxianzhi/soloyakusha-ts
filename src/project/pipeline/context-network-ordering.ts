@@ -410,7 +410,7 @@ export class ContextNetworkOrderingStrategy implements TranslationOrderingStrate
     );
     const startOffset = runtimeState.network.offsets[globalIndex] ?? 0;
     const endOffset = runtimeState.network.offsets[globalIndex + 1] ?? startOffset;
-    const candidates: Array<{ globalIndex: number; strength: number }> = [];
+    const candidates: Array<{ globalIndex: number }> = [];
 
     for (let offset = startOffset; offset < endOffset; offset += 1) {
       const candidateGlobalIndex = runtimeState.network.targets[offset];
@@ -432,12 +432,10 @@ export class ContextNetworkOrderingStrategy implements TranslationOrderingStrate
         continue;
       }
 
-      candidates.push({ globalIndex: candidateGlobalIndex, strength });
+      candidates.push({ globalIndex: candidateGlobalIndex });
     }
 
-    candidates.sort(
-      (left, right) => right.strength - left.strength || left.globalIndex - right.globalIndex,
-    );
+    candidates.sort((left, right) => left.globalIndex - right.globalIndex);
 
     return candidates.slice(0, this.maxContextNetworkRefs).map((candidate) => candidate.globalIndex);
   }

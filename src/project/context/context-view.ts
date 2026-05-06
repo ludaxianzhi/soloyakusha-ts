@@ -299,8 +299,11 @@ export class TranslationContextView {
       refs.push(ref);
     }
 
-    const uniqueRefs = dedupeFragmentRefs(refs).filter(
+    const uniqueRefs = sortRefsByGlobalOrder(
+      dedupeFragmentRefs(refs).filter(
       (ref) => !(ref.chapterId === this.chapterId && ref.fragmentIndex === this.fragmentIndex),
+      ),
+      buildGlobalIndexMap(this.getOrderedFragments()),
     );
     return uniqueRefs.map((ref) =>
       createContextPair(ref.chapterId, ref.fragmentIndex, this.options.documentManager),
@@ -504,6 +507,7 @@ export function createBatchContextView(
     storyTopology?: StoryTopology;
     maxPlotSummaryEntries?: number;
     networkContextRefs?: OrderedFragmentRef[];
+    perFragmentNetworkContextRefs?: OrderedFragmentRef[][];
   },
 ): TranslationContextView {
   if (fragmentIndices.length <= 1) {
@@ -527,43 +531,7 @@ export function createBatchContextView(
     (f) => f.chapterId === chapterId && f.fragmentIndex === firstIndex,
   );
 
-  // 收集每个 fragment 的依赖对
-  const allRefs: OrderedFragmentRef[] = [];
-  for (const fi of fragmentIndices) {
-    const singleView = new TranslationContextView(chapterId, fi, {
-      ...baseOptions,
-      sourceTextOverride: baseOptions.documentManager.getSourceText(chapterId, fi),
-    });
-    const pairs = singleView.getDependencyPairs();
-    for (const pair of pairs) {
-      allRefs.push({
-        chapterId: pair.chapterId,
-        fragmentIndex: pair.fragmentIndex,
-      });
-    }
-  }
-
-  // 额外收集 baseOptions.networkContextRefs（来自 ordering strategy 的全局上下文网络引用）
-  for (const ref of baseOptions.networkContextRefs ?? []) {
-    allRefs.push(ref);
-  }
-
-  // 去重、排除批次内 fragment、按全局顺序排序
-  const uniqueRefs = dedupeFragmentRefs(allRefs).filter(
-    (ref) => !batchFragmentKeySet.has(`${ref.chapterId}:${ref.fragmentIndex}`),
-  );
-
-  const globalIndexMap = new Map<string, number>();
-  for (let i = 0; i < orderedFragments.length; i++) {
-    const f = orderedFragments[i]!;
-    globalIndexMap.set(`${f.chapterId}:${f.fragmentIndex}`, i);
-  }
-
-  uniqueRefs.sort((a, b) => {
-    const ai = globalIndexMap.get(`${a.chapterId}:${a.fragmentIndex}`) ?? Infinity;
-    const bi = globalIndexMap.get(`${b.chapterId}:${b.fragmentIndex}`) ?? Infinity;
-    return ai - bi;
-  });
+  const globalIndexMap = buildGlobalIndexMap(orderedFragments);
 
   // 直接前序上下文：仅注入紧邻批次前 2 个 fragment（排除批次内、排除未完成的）
   const predecessorRefs: OrderedFragmentRef[] = [];
@@ -576,10 +544,56 @@ export function createBatchContextView(
     predecessorRefs.push(ref);
   }
 
-  const effectiveNetworkRefs =
-    baseOptions.dependencyMode === "previousTranslations"
-      ? predecessorRefs
-      : uniqueRefs;
+  let effectiveNetworkRefs: OrderedFragmentRef[];
+  if (baseOptions.dependencyMode === "previousTranslations") {
+    effectiveNetworkRefs = predecessorRefs;
+  } else if (baseOptions.dependencyMode === "contextNetwork") {
+    const perFragmentRefs = (
+      baseOptions.perFragmentNetworkContextRefs ??
+      fragmentIndices.map(() => baseOptions.networkContextRefs ?? [])
+    ).map((refs) =>
+      filterCompletedExternalRefs(
+        refs,
+        batchFragmentKeySet,
+        baseOptions,
+        globalIndexMap,
+      ),
+    );
+    const selectedNetworkRefs = selectSharedBatchNetworkRefs(
+      perFragmentRefs,
+      globalIndexMap,
+    );
+    effectiveNetworkRefs = sortRefsByGlobalOrder(
+      dedupeFragmentRefs([...predecessorRefs, ...selectedNetworkRefs]),
+      globalIndexMap,
+    );
+  } else {
+    const allRefs: OrderedFragmentRef[] = [];
+    for (const fi of fragmentIndices) {
+      const singleView = new TranslationContextView(chapterId, fi, {
+        ...baseOptions,
+        sourceTextOverride: baseOptions.documentManager.getSourceText(chapterId, fi),
+      });
+      const pairs = singleView.getDependencyPairs();
+      for (const pair of pairs) {
+        allRefs.push({
+          chapterId: pair.chapterId,
+          fragmentIndex: pair.fragmentIndex,
+        });
+      }
+    }
+
+    for (const ref of baseOptions.networkContextRefs ?? []) {
+      allRefs.push(ref);
+    }
+
+    effectiveNetworkRefs = filterCompletedExternalRefs(
+      allRefs,
+      batchFragmentKeySet,
+      baseOptions,
+      globalIndexMap,
+    );
+  }
 
   return new TranslationContextView(chapterId, firstIndex, {
     ...baseOptions,
@@ -599,4 +613,76 @@ function isStepCompleted(
       options.stepId,
     )?.status === "completed"
   );
+}
+
+function buildGlobalIndexMap(
+  orderedFragments: OrderedFragmentRef[],
+): Map<string, number> {
+  const globalIndexMap = new Map<string, number>();
+  for (let i = 0; i < orderedFragments.length; i++) {
+    const fragment = orderedFragments[i]!;
+    globalIndexMap.set(`${fragment.chapterId}:${fragment.fragmentIndex}`, i);
+  }
+  return globalIndexMap;
+}
+
+function sortRefsByGlobalOrder(
+  refs: OrderedFragmentRef[],
+  globalIndexMap: Map<string, number>,
+): OrderedFragmentRef[] {
+  return [...refs].sort((a, b) => {
+    const ai = globalIndexMap.get(`${a.chapterId}:${a.fragmentIndex}`) ?? Infinity;
+    const bi = globalIndexMap.get(`${b.chapterId}:${b.fragmentIndex}`) ?? Infinity;
+    return ai - bi;
+  });
+}
+
+function filterCompletedExternalRefs(
+  refs: ReadonlyArray<OrderedFragmentRef>,
+  batchFragmentKeySet: Set<string>,
+  options: { documentManager: TranslationDocumentManager; stepId: string },
+  globalIndexMap: Map<string, number>,
+): OrderedFragmentRef[] {
+  const filtered = dedupeFragmentRefs([...refs]).filter((ref) => {
+    if (batchFragmentKeySet.has(`${ref.chapterId}:${ref.fragmentIndex}`)) {
+      return false;
+    }
+    return isStepCompleted(ref, options);
+  });
+
+  return sortRefsByGlobalOrder(filtered, globalIndexMap);
+}
+
+function selectSharedBatchNetworkRefs(
+  perFragmentRefs: ReadonlyArray<ReadonlyArray<OrderedFragmentRef>>,
+  globalIndexMap: Map<string, number>,
+): OrderedFragmentRef[] {
+  const selected: OrderedFragmentRef[] = [];
+  const selectedKeys = new Set<string>();
+
+  for (const refs of perFragmentRefs) {
+    const targetCount = Math.min(2, refs.length);
+    let coveredCount = refs.filter((ref) =>
+      selectedKeys.has(`${ref.chapterId}:${ref.fragmentIndex}`)
+    ).length;
+
+    if (coveredCount >= targetCount) {
+      continue;
+    }
+
+    for (const ref of refs) {
+      const key = `${ref.chapterId}:${ref.fragmentIndex}`;
+      if (selectedKeys.has(key)) {
+        continue;
+      }
+      selected.push(ref);
+      selectedKeys.add(key);
+      coveredCount += 1;
+      if (coveredCount >= targetCount) {
+        break;
+      }
+    }
+  }
+
+  return sortRefsByGlobalOrder(selected, globalIndexMap);
 }

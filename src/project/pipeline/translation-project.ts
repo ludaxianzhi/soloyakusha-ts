@@ -2237,21 +2237,20 @@ export class TranslationProject
     // Each fragment may carry networkContextGlobalIndices (a comma-separated
     // string of global fragment indices), decoded via resolveContextNetworkRefs.
     const orderedFragments = this.getOrderedFragments();
-    const networkContextRefs: OrderedFragmentSnapshot[] = [];
+    const perFragmentNetworkContextRefs: OrderedFragmentSnapshot[][] = [];
     for (const item of items) {
       const encoded = item.metadata.networkContextGlobalIndices;
+      let refs: OrderedFragmentSnapshot[] = [];
       if (typeof encoded === "string") {
-        const refs = resolveContextNetworkRefs(
+        refs = resolveContextNetworkRefs(
           encoded,
           dependencyMode,
           orderedFragments,
           item.chapterId,
           item.fragmentIndex,
         );
-        for (const ref of refs) {
-          networkContextRefs.push(ref);
-        }
       }
+      perFragmentNetworkContextRefs.push(refs);
     }
 
     return createBatchContextView(chapterId, fragmentIndices, {
@@ -2264,8 +2263,7 @@ export class TranslationProject
       plotSummaryEntries: this.plotSummaryEntries,
       storyTopology: this.getEffectiveStoryTopology().topology,
       maxPlotSummaryEntries: 20,
-      networkContextRefs:
-        networkContextRefs.length > 0 ? networkContextRefs : undefined,
+      perFragmentNetworkContextRefs,
     });
   }
 
