@@ -1270,7 +1270,8 @@ export class ProjectService {
     totalOccurrenceCount?: number;
     textBlockOccurrenceCount?: number;
   }> {
-    const glossary = this.getWorkspaceContext(workspaceId).project?.getGlossary();
+    const { state, project } = this.getWorkspaceContext(workspaceId);
+    const glossary = this.getVisibleGlossary(state, project ?? undefined);
     if (!glossary) return [];
     return glossary.getAllTerms().map((t) => ({
       term: t.term,
@@ -2397,10 +2398,13 @@ export class ProjectService {
           return;
         }
 
-        transcriber.applyTranscribedTerms(task.glossary, transcribedTerms);
+        const applied = transcriber.applyTranscribedTerms(task.glossary, transcribedTerms);
 
         task.completedBatches = batch.batchIndex + 1;
         task.nextBatchIndex = batch.batchIndex + 1;
+        if (applied > 0) {
+          this.markDictionaryChanged(state);
+        }
         this.syncTranscribeDictionaryProgress(task, state);
         this.broadcastTranscribeProgress(state);
         this.log(
@@ -2580,6 +2584,9 @@ export class ProjectService {
 
         task.completedBatches = batch.batchIndex + 1;
         task.nextBatchIndex = batch.batchIndex + 1;
+        if (extractedEntities.length > 0) {
+          this.markDictionaryChanged(state);
+        }
         this.syncScanDictionaryProgress(task, state);
         this.broadcastScanProgress(state);
         this.log(
@@ -4155,6 +4162,23 @@ export class ProjectService {
 
   private markDictionaryChanged(runtime: WorkspaceRuntimeState = this.currentState): void {
     runtime.resourceVersions.dictionaryRevision += 1;
+  }
+
+  private getVisibleGlossary(
+    state: WorkspaceRuntimeState,
+    project?: TranslationProject,
+  ): Glossary | null {
+    if (state.transcribeTaskState && this.shouldExposeTaskGlossary(state.transcribeTaskState.status)) {
+      return state.transcribeTaskState.glossary;
+    }
+    if (state.scanTaskState && this.shouldExposeTaskGlossary(state.scanTaskState.status)) {
+      return state.scanTaskState.glossary;
+    }
+    return project?.getGlossary() ?? null;
+  }
+
+  private shouldExposeTaskGlossary(status: ResumableTaskStatus): boolean {
+    return status === 'running' || status === 'paused';
   }
 
   async runBatchPostProcess(chapterIds: number[], processorIds: string[]): Promise<void> {

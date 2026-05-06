@@ -1048,11 +1048,14 @@ export function AppShell() {
               scanDictionaryProgress: progress,
             }),
       );
+      if (workspaceId === activeWorkspaceIdRef.current && progress) {
+        void refreshDictionary().catch(() => undefined);
+      }
       if (progress && progress.status !== 'running') {
         void refreshProjectStatus(workspaceId).catch(() => undefined);
       }
     },
-    [patchWorkspaceStatus, refreshProjectStatus],
+    [patchWorkspaceStatus, refreshDictionary, refreshProjectStatus],
   );
 
   const handleWorkspaceTranscribeProgress = useCallback(
@@ -1070,11 +1073,14 @@ export function AppShell() {
               transcribeDictionaryProgress: progress,
             }),
       );
+      if (workspaceId === activeWorkspaceIdRef.current && progress) {
+        void refreshDictionary().catch(() => undefined);
+      }
       if (progress && progress.status !== 'running') {
         void refreshProjectStatus(workspaceId).catch(() => undefined);
       }
     },
-    [patchWorkspaceStatus, refreshProjectStatus],
+    [patchWorkspaceStatus, refreshDictionary, refreshProjectStatus],
   );
 
   const handleWorkspaceProofreadProgress = useCallback(

@@ -173,10 +173,110 @@ describe("ProjectService resumable batch tasks", () => {
     expect(projectGlossary.getTerm("王都")?.translation).toBe("");
     expect(projectGlossary.getTerm("勇者")?.translation).toBe("");
     expect(replaceGlossaryCount).toBe(0);
+    expect(service.getGlossaryTerms()).toEqual([
+      {
+        term: "王都",
+        translation: "",
+        description: undefined,
+        category: undefined,
+        status: "untranslated",
+        totalOccurrenceCount: 0,
+        textBlockOccurrenceCount: 0,
+      },
+      {
+        term: "勇者",
+        translation: "",
+        description: undefined,
+        category: undefined,
+        status: "untranslated",
+        totalOccurrenceCount: 0,
+        textBlockOccurrenceCount: 0,
+      },
+    ]);
     expect(seenRequestOptions).toEqual([
       { requestOptions: { requestConfig: { temperature: 0.25 } } },
       { requestOptions: { requestConfig: { temperature: 0.25 } } },
     ]);
+  });
+
+  test("getGlossaryTerms returns in-flight scan glossary while scanning", async () => {
+    const service = createService();
+    const serviceAny = service as any;
+
+    const firstBatch = deferred<Array<{ term: string; category?: string }>>();
+    const secondBatch = deferred<Array<{ term: string; category?: string }>>();
+    serviceAny.project = {
+      getGlossary: () => new Glossary(),
+      replaceGlossary: () => undefined,
+      saveProgress: async () => undefined,
+      getProjectSnapshot: () => createProjectSnapshot(),
+      getStoryTopology: () => null,
+      hasPlotSummaries: () => false,
+      getDocumentManager: () => ({}),
+    };
+    serviceAny.refreshSnapshot = () => undefined;
+    serviceAny.createGlossaryScanner = async () => ({
+      scanner: {
+        scanBatch: async (batch: { batchIndex: number }) =>
+          batch.batchIndex === 0 ? firstBatch.promise : secondBatch.promise,
+      },
+      extractorConfig: {
+        requestOptions: undefined,
+      },
+    });
+    serviceAny.createGlossaryScanTask = () => ({
+      status: "paused",
+      totalLines: 2,
+      totalBatches: 2,
+      completedBatches: 0,
+      nextBatchIndex: 0,
+      lines: [
+        { lineNumber: 1, text: "勇者来了", blockId: "block-1" },
+        { lineNumber: 2, text: "王都守卫戒备", blockId: "block-2" },
+      ],
+      batches: [
+        {
+          batchIndex: 0,
+          startLineNumber: 1,
+          endLineNumber: 1,
+          charCount: 4,
+          text: "勇者来了",
+          lines: [],
+        },
+        {
+          batchIndex: 1,
+          startLineNumber: 2,
+          endLineNumber: 2,
+          charCount: 6,
+          text: "王都守卫戒备",
+          lines: [],
+        },
+      ],
+      glossary: new Glossary(),
+      requestOptions: undefined,
+      abortRequested: false,
+    });
+
+    void service.scanDictionary();
+    await waitFor(() => service.getStatus().scanDictionaryProgress?.status === "running");
+
+    firstBatch.resolve([{ term: "勇者", category: "personName" }]);
+    await waitFor(() => service.getStatus().scanDictionaryProgress?.completedBatches === 1);
+
+    expect(service.getGlossaryTerms()).toEqual([
+      {
+        term: "勇者",
+        translation: "",
+        description: undefined,
+        category: "personName",
+        status: "untranslated",
+        totalOccurrenceCount: 0,
+        textBlockOccurrenceCount: 0,
+      },
+    ]);
+
+    secondBatch.resolve([{ term: "王都", category: "placeName" }]);
+    await waitFor(() => service.getStatus().scanDictionaryProgress?.status === "done");
   });
 
   test("transcribeDictionary publishes cloned glossary updates on success", async () => {
