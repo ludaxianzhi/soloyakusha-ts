@@ -17,6 +17,73 @@ afterEach(async () => {
 });
 
 describe("ContextNetworkOrderingStrategy", () => {
+  test("batches contiguous context-network fragments within the same chapter", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-context-network-batch-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "alpha\nbeta\ngamma\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "context-network-batch",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources/chapter-1.txt" }],
+        batchFragmentCount: 2,
+      },
+      {
+        orderingStrategy: new ContextNetworkOrderingStrategy(2),
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+
+    await project.saveContextNetwork({
+      manifest: {
+        schemaVersion: 2,
+        sourceRevision: project.getWorkspaceConfig().dependencyTracking?.sourceRevision ?? 0,
+        fragmentCount: 3,
+        blockSize: 1,
+        edgeCount: 2,
+        maxOutgoingPerNode: 2,
+        createdAt: "2026-05-06T00:00:00.000Z",
+      },
+      offsets: Uint32Array.from([0, 0, 1, 2]),
+      targets: Int32Array.from([0, 1]),
+      strengths: Float32Array.from([10.0, 8.0]),
+    });
+
+    await project.startTranslation();
+    const queue = project.getWorkQueue("translation");
+
+    const firstBatch = await queue.dispatchReadyItems();
+    expect(firstBatch).toHaveLength(1);
+    expect(firstBatch[0]?.chapterId).toBe(1);
+    expect(firstBatch[0]?.fragmentIndex).toBe(0);
+    expect(firstBatch[0]?.batchFragmentIndices).toEqual([0, 1]);
+    expect(firstBatch[0]?.inputText).toBe("alpha\nbeta");
+
+    await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
+      stepId: firstBatch[0]!.stepId,
+      chapterId: firstBatch[0]!.chapterId,
+      fragmentIndex: firstBatch[0]!.fragmentIndex,
+      success: true,
+      outputText: "A\nB",
+      batchFragmentIndices: firstBatch[0]!.batchFragmentIndices,
+    });
+
+    const secondBatch = await queue.dispatchReadyItems();
+    expect(secondBatch).toHaveLength(1);
+    expect(secondBatch[0]?.fragmentIndex).toBe(2);
+    expect(secondBatch[0]?.batchFragmentIndices).toBeUndefined();
+  });
+
   test("enforces route-linear order while allowing unrelated branches to dispatch concurrently", async () => {
     const project = await createProject();
     const topology = StoryTopology.createEmpty();

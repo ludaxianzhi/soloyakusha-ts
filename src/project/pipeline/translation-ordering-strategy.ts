@@ -56,6 +56,11 @@ export interface TranslationOrderingStrategy {
     stepId: string,
     entry: TranslationStepQueueEntry,
   ): PipelineDependencyResolution | undefined;
+  buildBatchCandidateMetadata?(
+    stepId: string,
+    chapterId: number,
+    fragmentIndex: number,
+  ): WorkItemMetadata | undefined;
   onItemStarted(stepId: string, chapterId: number, fragmentIndex: number): void;
   onItemCompleted(stepId: string, chapterId: number, fragmentIndex: number): void;
   onItemRequeued(stepId: string, chapterId: number, fragmentIndex: number): void;

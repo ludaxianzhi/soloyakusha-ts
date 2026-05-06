@@ -2013,7 +2013,10 @@ export class TranslationProject
     }
 
     for (const item of readyItems) {
-      if (item.metadata.dependencyMode !== "previousTranslations") {
+      if (
+        item.metadata.dependencyMode !== "previousTranslations" &&
+        item.metadata.dependencyMode !== "contextNetwork"
+      ) {
         continue;
       }
 
@@ -2050,11 +2053,22 @@ export class TranslationProject
           break;
         }
 
+        const candidateMetadata = item.metadata.dependencyMode === "contextNetwork"
+          ? this.orderingStrategy.buildBatchCandidateMetadata?.(
+              stepId,
+              candidateEntry.chapterId,
+              candidateEntry.fragmentIndex,
+            )
+          : {
+              dependencyMode: "previousTranslations",
+            };
+        if (!candidateMetadata) {
+          break;
+        }
+
         const candidateItem = this.buildWorkItem(stepId, candidateEntry, {
           ready: true,
-          metadata: {
-            dependencyMode: "previousTranslations",
-          },
+          metadata: candidateMetadata,
         });
         expandedItems.push(candidateItem);
         readyKeys.add(candidateKey);

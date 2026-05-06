@@ -150,6 +150,29 @@ export class ContextNetworkOrderingStrategy implements TranslationOrderingStrate
         };
   }
 
+  buildBatchCandidateMetadata(
+    stepId: string,
+    chapterId: number,
+    fragmentIndex: number,
+  ): WorkItemMetadata | undefined {
+    if (!this.handlesStep(stepId)) {
+      return undefined;
+    }
+
+    const runtimeState = this.getRuntimeState();
+    if (!runtimeState) {
+      return undefined;
+    }
+
+    const nodeId = createNodeId(stepId, chapterId, fragmentIndex);
+    const globalIndex = runtimeState.globalIndexByNodeId.get(nodeId);
+    if (globalIndex === undefined) {
+      return undefined;
+    }
+
+    return this.buildMetadata(runtimeState, globalIndex);
+  }
+
   onItemStarted(stepId: string, chapterId: number, fragmentIndex: number): void {
     const runtimeState = this.getRuntimeState();
     if (!runtimeState || stepId !== TRANSLATION_STEP_ID) {
