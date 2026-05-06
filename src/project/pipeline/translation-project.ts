@@ -1937,9 +1937,13 @@ export class TranslationProject
       return [];
     }
 
-    const batchedItems = this.batchFragmentCount > 1
-      ? this.groupIntoBatchWorkItems(stepId, readyItems)
+    const expandedReadyItems = this.batchFragmentCount > 1
+      ? this.expandSequentialTranslationBatchCandidates(stepId, readyItems)
       : readyItems;
+
+    const batchedItems = this.batchFragmentCount > 1
+      ? this.groupIntoBatchWorkItems(stepId, expandedReadyItems)
+      : expandedReadyItems;
 
     const now = new Date().toISOString();
     await this.documentManager.updatePipelineStepStates(
@@ -1977,6 +1981,129 @@ export class TranslationProject
     }
 
     return batchedItems;
+  }
+
+  private expandSequentialTranslationBatchCandidates(
+    stepId: string,
+    readyItems: TranslationWorkItem[],
+  ): TranslationWorkItem[] {
+    if (stepId !== "translation" || readyItems.length === 0) {
+      return readyItems;
+    }
+
+    const expandedItems = [...readyItems];
+    const queuedEntryByKey = new Map(
+      this.listStepQueueEntries(stepId)
+        .filter((entry) => entry.status === "queued")
+        .map((entry) => [this.getWorkItemKey(entry.stepId, entry.chapterId, entry.fragmentIndex), entry]),
+    );
+    const readyKeys = new Set(
+      readyItems.map((item) => this.getWorkItemKey(item.stepId, item.chapterId, item.fragmentIndex)),
+    );
+    const runningTermLocks = this.collectLockedGlossaryTerms(stepId, "running");
+    const selectedTermOwners = new Map<string, string>();
+
+    for (const item of readyItems) {
+      const ownerKey = this.getWorkItemKey(item.stepId, item.chapterId, item.fragmentIndex);
+      for (const term of this.getUntranslatedGlossaryTerms(item.chapterId, item.fragmentIndex)) {
+        if (!selectedTermOwners.has(term)) {
+          selectedTermOwners.set(term, ownerKey);
+        }
+      }
+    }
+
+    for (const item of readyItems) {
+      if (item.metadata.dependencyMode !== "previousTranslations") {
+        continue;
+      }
+
+      const ownerKey = this.getWorkItemKey(item.stepId, item.chapterId, item.fragmentIndex);
+      const batchTermLocks = new Set(
+        this.getUntranslatedGlossaryTerms(item.chapterId, item.fragmentIndex),
+      );
+      let lastFragmentIndex = item.fragmentIndex;
+      let batchSize = 1;
+
+      while (batchSize < this.batchFragmentCount) {
+        const candidateFragmentIndex = lastFragmentIndex + 1;
+        const candidateKey = this.getWorkItemKey(stepId, item.chapterId, candidateFragmentIndex);
+        if (readyKeys.has(candidateKey)) {
+          break;
+        }
+
+        const candidateEntry = queuedEntryByKey.get(candidateKey);
+        if (!candidateEntry) {
+          break;
+        }
+
+        const candidateTerms = this.getUntranslatedGlossaryTerms(
+          candidateEntry.chapterId,
+          candidateEntry.fragmentIndex,
+        );
+        const hasLockedTerm = candidateTerms.some((term) => runningTermLocks.has(term));
+        const conflictsInsideBatch = candidateTerms.some((term) => batchTermLocks.has(term));
+        const conflictsWithSelectedItem = candidateTerms.some((term) => {
+          const owner = selectedTermOwners.get(term);
+          return owner !== undefined && owner !== ownerKey;
+        });
+        if (hasLockedTerm || conflictsInsideBatch || conflictsWithSelectedItem) {
+          break;
+        }
+
+        const candidateItem = this.buildWorkItem(stepId, candidateEntry, {
+          ready: true,
+          metadata: {
+            dependencyMode: "previousTranslations",
+          },
+        });
+        expandedItems.push(candidateItem);
+        readyKeys.add(candidateKey);
+        lastFragmentIndex = candidateEntry.fragmentIndex;
+        batchSize += 1;
+
+        for (const term of candidateTerms) {
+          batchTermLocks.add(term);
+          selectedTermOwners.set(term, ownerKey);
+        }
+      }
+    }
+
+    return expandedItems.sort((left, right) => left.queueSequence - right.queueSequence);
+  }
+
+  private getWorkItemKey(stepId: string, chapterId: number, fragmentIndex: number): string {
+    return `${stepId}:${chapterId}:${fragmentIndex}`;
+  }
+
+  private collectLockedGlossaryTerms(
+    stepId: string,
+    status: TranslationStepQueueEntry["status"],
+  ): Set<string> {
+    const terms = new Set<string>();
+    for (const entry of this.listStepQueueEntries(stepId)) {
+      if (entry.status !== status) {
+        continue;
+      }
+
+      for (const term of this.getUntranslatedGlossaryTerms(entry.chapterId, entry.fragmentIndex)) {
+        terms.add(term);
+      }
+    }
+
+    return terms;
+  }
+
+  private getUntranslatedGlossaryTerms(chapterId: number, fragmentIndex: number): string[] {
+    if (!this.glossary) {
+      return [];
+    }
+
+    return [...new Set(
+      this.glossary
+        .filterTerms(this.documentManager.getSourceText(chapterId, fragmentIndex))
+        .map((term) => term.term)
+        .filter((term) => this.glossary?.getTerm(term)?.status === "untranslated"),
+    )];
   }
 
   private groupIntoBatchWorkItems(

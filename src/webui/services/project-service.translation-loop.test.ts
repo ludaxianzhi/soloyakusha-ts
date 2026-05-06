@@ -53,6 +53,103 @@ describe("ProjectService translation loop", () => {
     await waitFor(() => project.getLifecycleSnapshot().status === "completed");
     expect(project.completedIds).toEqual(["A", "B", "C"]);
   });
+
+  test("processes a batched translation work item in a single processor call", async () => {
+    const seenWorkItems: Array<{ inputText: string; batchFragmentIndices?: number[] }> = [];
+    const submittedResults: Array<{ outputText?: string; batchFragmentIndices?: number[] }> = [];
+    const service = new ProjectService(
+      { emit: () => undefined, addLog: () => undefined } as any,
+      { removeWorkspace: async () => undefined } as any,
+      {} as any,
+      { recordTranslationBlock: async () => undefined } as any,
+      {
+        createTranslationRuntime: async () => ({
+          processor: {
+            processWorkItem: async (workItem: { inputText: string; batchFragmentIndices?: number[] }) => {
+              seenWorkItems.push(workItem);
+              return {
+                outputText: "A done\nB done",
+                translations: [],
+                glossaryUpdates: [],
+                responseText: "A done\nB done",
+                responseSchema: { type: "object" },
+                promptName: "test",
+                systemPrompt: "",
+                userPrompt: "",
+              };
+            },
+            process: async () => {
+              throw new Error("not implemented");
+            },
+          },
+          maxConcurrentWorkItems: 1,
+          close: async () => undefined,
+        }),
+      },
+    );
+    const serviceAny = service as any;
+    serviceAny.refreshSnapshot = () => undefined;
+
+    let dispatched = false;
+    let lifecycleStatus: "running" | "completed" = "running";
+    const project = {
+      getLifecycleSnapshot: () => ({
+        status: lifecycleStatus,
+        queuedWorkItems: dispatched ? 0 : 2,
+        activeWorkItems: lifecycleStatus === "running" && dispatched ? 1 : 0,
+        canStart: false,
+        canStop: lifecycleStatus === "running",
+        canAbort: lifecycleStatus === "running",
+        canResume: false,
+        canSave: true,
+        hasPendingWork: lifecycleStatus === "running",
+      }),
+      dispatchReadyWorkItems: async () => {
+        if (dispatched) {
+          return [];
+        }
+        dispatched = true;
+        return [
+          {
+            runId: "run-1",
+            stepId: "translation",
+            chapterId: 1,
+            fragmentIndex: 0,
+            queueSequence: 1,
+            status: "running" as const,
+            inputText: "A\nB",
+            requirements: [],
+            metadata: { dependencyMode: "previousTranslations" },
+            batchFragmentIndices: [0, 1],
+          },
+        ];
+      },
+      submitWorkResult: async (result: { outputText?: string; batchFragmentIndices?: number[] }) => {
+        submittedResults.push(result);
+        lifecycleStatus = "completed";
+      },
+      saveProgress: async () => undefined,
+      saveTranslationRuntimeProgress: async () => undefined,
+      getGlossary: () => undefined,
+      getDocumentManager: () => ({}),
+      getProjectSnapshot: () => ({ projectName: "demo" }),
+      getWorkspaceFileManifest: () => ({ projectDir: "C:\\demo" }),
+    };
+
+    serviceAny.startTranslationLoop(project);
+
+    await waitFor(() => lifecycleStatus === "completed");
+    expect(seenWorkItems).toHaveLength(1);
+    expect(seenWorkItems[0]).toMatchObject({
+      inputText: "A\nB",
+      batchFragmentIndices: [0, 1],
+    });
+    expect(submittedResults).toHaveLength(1);
+    expect(submittedResults[0]).toMatchObject({
+      outputText: "A done\nB done",
+      batchFragmentIndices: [0, 1],
+    });
+  });
 });
 
 function createService(

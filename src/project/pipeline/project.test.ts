@@ -92,6 +92,54 @@ describe("TranslationProject", () => {
     }
   });
 
+  test("batches sequential translation fragments into one translation request", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-batch-translation-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "第一句\n第二句\n第三句\n", "utf8");
+
+    const project = new TranslationProject(
+      {
+        projectName: "batch-demo",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+        batchFragmentCount: 3,
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.startTranslation();
+
+    const translationQueue = project.getWorkQueue("translation");
+    const firstBatch = await translationQueue.dispatchReadyItems();
+    expect(firstBatch).toHaveLength(1);
+    expect(firstBatch[0]?.fragmentIndex).toBe(0);
+    expect(firstBatch[0]?.batchFragmentIndices).toEqual([0, 1, 2]);
+    expect(firstBatch[0]?.inputText).toBe("第一句\n第二句\n第三句");
+
+    const dependencyContext = firstBatch[0]?.contextView?.getContext("dependencyTranslation");
+    expect(dependencyContext).toBeUndefined();
+
+    await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Line 1\nLine 2\nLine 3",
+      batchFragmentIndices: firstBatch[0]!.batchFragmentIndices,
+    });
+
+    expect(project.getLifecycleSnapshot().status).toBe("completed");
+  });
+
   test("dispatches glossary-satisfied translation items concurrently", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-glossary-deps-"));
     cleanupTargets.push(workspaceDir);
@@ -181,10 +229,10 @@ describe("TranslationProject", () => {
     await writeFile(
       join(sourceDir, "chapter-1.txt"),
       [
-        "王都公告正式发布",
+        "王都公告与圣剑传闻正式发布",
         "王都教会钟声回荡",
-        "没有词汇表支持的等待片段",
-        "王都广场开始集合",
+        "王都城门前开始戒严",
+        "圣剑广场开始集合",
       ].join("\n"),
       "utf8",
     );
@@ -192,6 +240,10 @@ describe("TranslationProject", () => {
     const glossary = new Glossary([
       {
         term: "王都",
+        translation: "",
+      },
+      {
+        term: "圣剑",
         translation: "",
       },
     ]);
@@ -402,6 +454,64 @@ describe("TranslationProject", () => {
 
     const retryBatch = await translationQueue.dispatchReadyItems();
     expect(retryBatch.map((item) => item.fragmentIndex)).toEqual([2]);
+  });
+
+  test("does not opportunistically batch fragments sharing an untranslated glossary term", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-glossary-batch-lock-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(
+      join(sourceDir, "chapter-1.txt"),
+      [
+        "王都序章开头",
+        "王都公告正式发布",
+        "王都教会钟声回荡",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const glossary = new Glossary([
+      {
+        term: "王都",
+        translation: "",
+      },
+    ]);
+
+    const project = new TranslationProject(
+      {
+        projectName: "glossary-batch-lock",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+        batchFragmentCount: 2,
+      },
+      {
+        glossary,
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+    await project.initialize();
+    await project.startTranslation();
+
+    const translationQueue = project.getWorkQueue("translation");
+    const firstBatch = await translationQueue.dispatchReadyItems();
+    await project.submitWorkResult({
+      runId: firstBatch[0]!.runId,
+      stepId: "translation",
+      chapterId: 1,
+      fragmentIndex: 0,
+      outputText: "Prologue",
+    });
+
+    const secondBatch = await translationQueue.dispatchReadyItems();
+    expect(secondBatch).toHaveLength(1);
+    expect(secondBatch[0]?.fragmentIndex).toBe(1);
+    expect(secondBatch[0]?.batchFragmentIndices).toBeUndefined();
   });
 
   test("loads plot summaries into context view and filters branch predecessors by topology", async () => {
