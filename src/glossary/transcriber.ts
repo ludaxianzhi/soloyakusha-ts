@@ -39,6 +39,12 @@ export type TranscribedTerm = {
   description: string;
 };
 
+export type GlossaryTranscribeReferenceTerm = {
+  term: string;
+  translation: string;
+  description?: string;
+};
+
 export type FullTextGlossaryTranscribeResult = {
   appliedTermCount: number;
   totalBatches: number;
@@ -163,7 +169,9 @@ export class FullTextGlossaryTranscriber {
         totalChunks: termChunks.length,
         termCount: pendingChunkTerms.length,
       });
+      const knownTranslatedTerms = glossary.getTranslatedTermsForText(batch.text);
       const transcribedTerms = await this.transcribeBatch(batch, pendingChunkTerms, {
+        knownTranslatedTerms,
         requestOptions: options.requestOptions,
       });
       appliedTermCount += this.applyTranscribedTerms(glossary, transcribedTerms);
@@ -178,11 +186,18 @@ export class FullTextGlossaryTranscriber {
   async transcribeBatch(
     batch: FullTextGlossaryScanBatch,
     untranslatedTerms: ReadonlyArray<ResolvedGlossaryTerm>,
-    options: Pick<FullTextGlossaryTranscribeOptions, "requestOptions"> = {},
+    options: Pick<FullTextGlossaryTranscribeOptions, "requestOptions"> & {
+      knownTranslatedTerms?: ReadonlyArray<GlossaryTranscribeReferenceTerm>;
+    } = {},
   ): Promise<RawTranscribedTerm[]> {
     const promptManager = await getDefaultPromptManager();
     const renderedPrompt = promptManager.renderPrompt("glossary.termTranscribe", {
       lines: batch.lines.map((line) => line.text),
+      knownTranslatedTerms: options.knownTranslatedTerms?.map((term) => ({
+        term: term.term,
+        translation: term.translation,
+        description: term.description,
+      })) ?? [],
       untranslatedTerms: untranslatedTerms.map((term) => ({
         term: term.term,
         description: term.description,

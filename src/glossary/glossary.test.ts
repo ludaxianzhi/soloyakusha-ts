@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { FullTextGlossaryScanner } from "./scanner.ts";
 import { Glossary } from "./glossary.ts";
 import { GlossaryPersisterFactory } from "./persister.ts";
+import { FullTextGlossaryTranscriber } from "./transcriber.ts";
 import { DefaultGlossaryUpdater } from "./updater.ts";
 import { ChatClient } from "../llm/base.ts";
 import type { ChatRequestOptions, LlmClientConfig } from "../llm/types.ts";
@@ -508,6 +509,55 @@ describe("glossary", () => {
     expect(result.glossary.getTerm("勇者")).toBeUndefined();
     expect(result.glossary.getTerm("圣剑")).toBeUndefined();
     expect(result.glossary.getAllTerms()).toHaveLength(2);
+  });
+
+  test("injects already transcribed terms from the current block into later transcribe requests", async () => {
+    const glossary = new Glossary([
+      { term: "王都", translation: "" },
+      { term: "勇者", translation: "" },
+      { term: "魔王", translation: "" },
+    ]);
+    const client = new FakeChatClient([
+      JSON.stringify({
+        terms: [
+          { term: "王都", translation: "Royal Capital", description: "王国首都" },
+          { term: "勇者", translation: "Hero", description: "被选中的战士" },
+        ],
+      }),
+      JSON.stringify({
+        terms: [
+          { term: "魔王", translation: "Demon Lord", description: "故事中的最终敌人" },
+        ],
+      }),
+    ]);
+    const transcriber = new FullTextGlossaryTranscriber(client);
+
+    await transcriber.transcribeBatchInChunks(
+      {
+        batchIndex: 0,
+        startLineNumber: 1,
+        endLineNumber: 1,
+        charCount: "王都、勇者与魔王齐聚一堂".length,
+        text: "王都、勇者与魔王齐聚一堂",
+        lines: [{ lineNumber: 1, text: "王都、勇者与魔王齐聚一堂", blockId: "block-1" }],
+      },
+      glossary,
+      { maxTermsPerRequest: 2 },
+    );
+
+    expect(client.requests).toHaveLength(2);
+    expect(client.requests[1]?.prompt).toContain("当前块已确认术语表");
+    expect(client.requests[1]?.prompt).toContain("term: 王都");
+    expect(client.requests[1]?.prompt).toContain("translation: Royal Capital");
+    expect(client.requests[1]?.prompt).toContain("term: 勇者");
+    expect(client.requests[1]?.prompt).toContain("translation: Hero");
+    expect(client.requests[1]?.prompt).toContain("候选术语列表");
+    expect(client.requests[1]?.prompt).toContain("term: 魔王");
+    expect(glossary.getTerm("魔王")).toMatchObject({
+      translation: "Demon Lord",
+      description: "故事中的最终敌人",
+      status: "translated",
+    });
   });
 });
 
