@@ -174,12 +174,14 @@ prompts:
     const renderedWithDefault = await manager.renderMultiStageEditorPrompt({
       currentTranslations: [{ id: "1", text: "译文" }],
       referenceTranslations: [],
+      plotSummaries: [],
       translatedGlossaryTerms: [],
       requirements: [],
     });
     const renderedWithCustom = await manager.renderMultiStageEditorPrompt({
       currentTranslations: [{ id: "1", text: "译文" }],
       referenceTranslations: [],
+      plotSummaries: [],
       translatedGlossaryTerms: [],
       requirements: [],
       editorRequirementsText: "避免文白夹杂。",

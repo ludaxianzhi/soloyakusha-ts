@@ -391,6 +391,68 @@ describe("TranslationProcessor", () => {
     });
   });
 
+  test("proofread editor and proofreader resolve context using translator-aligned accessors", async () => {
+    const client = new FakeChatClient([
+      JSON.stringify({
+        modifications: [
+          { id: "1", reason: "润色表达。", translation: "修订译文" },
+        ],
+      }),
+      JSON.stringify({
+        modifications: [
+          { id: "1", reason: "校正细节。", translation: "终稿译文" },
+        ],
+      }),
+    ]);
+    const processor = new MultiStageProofreadProcessor(client, {}, {
+      reviewIterations: 1,
+    });
+
+    const contextView = {
+      getDependencyPairs() {
+        return [
+          {
+            chapterId: 1,
+            fragmentIndex: 0,
+            fragmentHash: "hash-1",
+            sourceText: "参考原文",
+            translatedText: "参考译文",
+          },
+        ];
+      },
+      getDependencyTranslatedTexts() {
+        return ["参考译文"];
+      },
+      getPlotSummaryTexts() {
+        return ["前情总结"];
+      },
+      getTranslatedGlossaryTerms() {
+        return [
+          {
+            term: "王都",
+            translation: "王都",
+            description: "城名",
+            status: "translated",
+          },
+        ];
+      },
+    } as any;
+
+    const result = await processor.process({
+      sourceText: "原文",
+      currentTranslationText: "旧译文",
+      contextView,
+    });
+
+    expect(result.outputText).toBe("终稿译文");
+    expect(client.requests[0]?.prompt).toContain("参考译文");
+    expect(client.requests[0]?.prompt).toContain("前情总结");
+    expect(client.requests[0]?.prompt).not.toContain("参考原文");
+    expect(client.requests[1]?.prompt).toContain("参考原文");
+    expect(client.requests[1]?.prompt).toContain("参考译文");
+    expect(client.requests[1]?.prompt).toContain("前情总结");
+  });
+
   test("createProofreadProcessor routes editor and proofreader to their own model chains", async () => {
     const defaultClient = new FakeChatClient([]);
     const editorClient = new FakeChatClient([

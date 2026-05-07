@@ -33,6 +33,13 @@ prompts:
         {% endfor %}
 
         {% endif %}
+        {% if plotSummaries.size > 0 %}
+        历史总结（用于补充当前文本对应的大纲/前情）：
+        {% for summary in plotSummaries %}
+        - {{ summary }}
+        {% endfor %}
+
+        {% endif %}
         {% if translatedGlossaryTerms.size > 0 %}
         术语表（下面的术语表中为已经翻译后的术语和其介绍，文本中出现此类术语可视为正确翻译）：
         {% for term in translatedGlossaryTerms %}

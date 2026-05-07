@@ -62,6 +62,7 @@ export type StyleTransferPromptInput = {
 export type MultiStageEditorPromptInput = {
   currentTranslations: PromptTranslationUnit[];
   referenceTranslations: string[];
+  plotSummaries: string[];
   translatedGlossaryTerms: ResolvedGlossaryTerm[];
   requirements: string[];
   editorRequirementsText?: string;
@@ -236,6 +237,7 @@ export class PromptManager {
     const renderedPrompt = await this.renderPrompt(PROOFREAD_EDITOR_PROMPT_ID, {
       currentTranslations: input.currentTranslations,
       referenceTranslations: input.referenceTranslations,
+      plotSummaries: input.plotSummaries,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
       requirements: input.requirements,
       editorRequirementsText: resolveEditorRequirementsText(input.editorRequirementsText),

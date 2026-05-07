@@ -135,13 +135,10 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
     }
 
     const requirements = [...(request.requirements ?? [])];
-    const referenceContext =
-      request.contextView?.getDependencyPromptContext() ?? {
-        referencePairs: [],
-        referenceSourceTexts: [],
-        referenceTranslations: [],
-        plotSummaries: [],
-      };
+    const referencePairs = request.contextView?.getDependencyPairs() ?? [];
+    const referenceTranslations =
+      request.contextView?.getDependencyTranslatedTexts() ?? [];
+    const plotSummaries = request.contextView?.getPlotSummaryTexts() ?? [];
     const translatedGlossaryTerms =
       request.contextView?.getTranslatedGlossaryTerms() ??
       request.glossary?.getTranslatedTermsForText(request.sourceText) ??
@@ -168,7 +165,8 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
     for (let round = 0; round < this.reviewIterations; round++) {
       const editorPrompt = await this.promptManager.renderMultiStageEditorPrompt({
         currentTranslations: toPromptUnits(latestTranslations),
-        referenceTranslations: referenceContext.referenceTranslations,
+        referenceTranslations,
+        plotSummaries,
         translatedGlossaryTerms,
         requirements,
         editorRequirementsText: request.editorRequirementsText,
@@ -215,8 +213,8 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
       const proofreaderPrompt = await this.promptManager.renderProofreadProofreaderPrompt({
         sourceUnits,
         currentTranslations: toPromptUnits(latestTranslations),
-        referencePairs: toPromptReferenceUnits(referenceContext.referencePairs),
-        plotSummaries: referenceContext.plotSummaries,
+        referencePairs: toPromptReferenceUnits(referencePairs),
+        plotSummaries,
         translatedGlossaryTerms,
         requirements,
         analysisText: request.fragmentAuxData?.["styleTransfer.analysis.v1"] as string | undefined,
