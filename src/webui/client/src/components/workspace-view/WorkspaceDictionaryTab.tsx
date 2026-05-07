@@ -80,6 +80,8 @@ export function WorkspaceDictionaryTab({
   onDismissTaskActivity,
 }: WorkspaceDictionaryTabProps) {
   const { message } = AntdApp.useApp();
+  const [dictionaryPage, setDictionaryPage] = useState(1);
+  const [dictionaryPageSize, setDictionaryPageSize] = useState(10);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedTerms, setSelectedTerms] = useState<string[]>([]);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -218,6 +220,11 @@ export function WorkspaceDictionaryTab({
     setSelectedTerms((current) => current.filter((term) => availableTerms.has(term)));
   }, [dictionary]);
 
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(dictionary.length / dictionaryPageSize));
+    setDictionaryPage((current) => Math.min(current, totalPages));
+  }, [dictionary.length, dictionaryPageSize]);
+
   usePollingTask({
     enabled: active,
     intervalMs: 5_000,
@@ -322,7 +329,16 @@ export function WorkspaceDictionaryTab({
         <Table
           rowKey="term"
           dataSource={dictionary}
-          pagination={{ pageSize: 10 }}
+          pagination={{
+            current: dictionaryPage,
+            pageSize: dictionaryPageSize,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            onChange: (page, pageSize) => {
+              setDictionaryPage(page);
+              setDictionaryPageSize(pageSize);
+            },
+          }}
           rowSelection={
             selectionMode
               ? {
