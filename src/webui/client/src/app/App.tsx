@@ -1614,11 +1614,19 @@ export function AppShell() {
   );
 
   const handleDeleteDictionary = useCallback(
-    async (term: string) => {
+    async (terms: string[]) => {
+      if (terms.length === 0) {
+        return;
+      }
+
       await runAction(async () => {
-        await api.deleteDictionaryTerm(term, getSelectedWorkspaceId());
+        for (const term of terms) {
+          await api.deleteDictionaryTerm(term, getSelectedWorkspaceId());
+        }
         await Promise.all([refreshDictionary(), refreshProjectStatus()]);
-        message.success('术语条目已删除');
+        message.success(
+          terms.length === 1 ? '术语条目已删除' : `已删除 ${terms.length} 个术语条目`,
+        );
       });
     },
     [getSelectedWorkspaceId, message, refreshDictionary, refreshProjectStatus, runAction],

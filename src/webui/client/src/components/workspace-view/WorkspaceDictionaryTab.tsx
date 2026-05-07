@@ -9,7 +9,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Table,
@@ -42,7 +41,7 @@ interface WorkspaceDictionaryTabProps {
   onStartDictionaryScan: (options: DictionaryScanStartOptions) => void | Promise<void>;
   onStartDictionaryTranscribe: (options: DictionaryTranscribeStartOptions) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
-  onDeleteDictionary: (term: string) => void | Promise<void>;
+  onDeleteDictionary: (terms: string[]) => void | Promise<void>;
   dictionaryScanDefaults?: DictionaryScanStartOptions;
   dictionaryTranscribeDefaults?: DictionaryTranscribeStartOptions;
   onImportDictionaryFile: (file: File) => void | Promise<void>;
@@ -81,6 +80,8 @@ export function WorkspaceDictionaryTab({
   onDismissTaskActivity,
 }: WorkspaceDictionaryTabProps) {
   const { message } = AntdApp.useApp();
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedTerms, setSelectedTerms] = useState<string[]>([]);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importFormat, setImportFormat] = useState<'csv' | 'tsv'>('csv');
@@ -186,6 +187,24 @@ export function WorkspaceDictionaryTab({
     await onImportDictionaryFile(file);
   };
 
+  const handleDeleteTerms = async (terms: string[]) => {
+    if (terms.length === 0) {
+      return;
+    }
+
+    await onDeleteDictionary(terms);
+    setSelectedTerms((current) => current.filter((term) => !terms.includes(term)));
+  };
+
+  const toggleSelectionMode = () => {
+    setSelectionMode((current) => {
+      if (current) {
+        setSelectedTerms([]);
+      }
+      return !current;
+    });
+  };
+
   useEffect(() => {
     if (!active) {
       return;
@@ -193,6 +212,11 @@ export function WorkspaceDictionaryTab({
 
     void Promise.all([onRefreshProjectStatus(), onRefreshDictionary()]);
   }, [active, onRefreshDictionary, onRefreshProjectStatus]);
+
+  useEffect(() => {
+    const availableTerms = new Set(dictionary.map((item) => item.term));
+    setSelectedTerms((current) => current.filter((term) => availableTerms.has(term)));
+  }, [dictionary]);
 
   usePollingTask({
     enabled: active,
@@ -215,6 +239,18 @@ export function WorkspaceDictionaryTab({
           <Space>
             <Button onClick={openScanModal}>重新扫描</Button>
             <Button onClick={openTranscribeModal}>解释翻译</Button>
+            <Button onClick={toggleSelectionMode}>
+              {selectionMode ? '退出多选' : '多选删除'}
+            </Button>
+            {selectionMode ? (
+              <Button
+                danger
+                disabled={selectedTerms.length === 0}
+                onClick={() => void handleDeleteTerms(selectedTerms)}
+              >
+                删除选中（{selectedTerms.length}）
+              </Button>
+            ) : null}
             <Button
               icon={<UploadOutlined />}
               onClick={() => fileInputRef.current?.click()}
@@ -287,6 +323,16 @@ export function WorkspaceDictionaryTab({
           rowKey="term"
           dataSource={dictionary}
           pagination={{ pageSize: 10 }}
+          rowSelection={
+            selectionMode
+              ? {
+                  selectedRowKeys: selectedTerms,
+                  onChange: (selectedRowKeys) => {
+                    setSelectedTerms(selectedRowKeys.map((key) => String(key)));
+                  },
+                }
+              : undefined
+          }
           columns={[
             { title: '术语', dataIndex: 'term', width: 180 },
             { title: '译文', dataIndex: 'translation', width: 180 },
@@ -326,14 +372,9 @@ export function WorkspaceDictionaryTab({
                   <Button type="link" onClick={() => onOpenDictionaryEditor(record)}>
                     编辑
                   </Button>
-                  <Popconfirm
-                    title="确认删除该术语？"
-                    onConfirm={() => void onDeleteDictionary(record.term)}
-                  >
-                    <Button type="link" danger>
-                      删除
-                    </Button>
-                  </Popconfirm>
+                  <Button type="link" danger onClick={() => void handleDeleteTerms([record.term])}>
+                    删除
+                  </Button>
                 </Space>
               ),
             },
