@@ -13,7 +13,9 @@ import { DefaultTranslationProcessor } from "./default-translation-processor.ts"
 import {
   ConsistencyCheckProofreadProcessor,
   MultiStageProofreadProcessor,
+  SingleStepProofreadProcessor,
 } from "./proofread-processor.ts";
+import { ProofreadProcessorFactory } from "./proofread-processor-factory.ts";
 import { StyleTransferTranslationProcessor } from "./style-transfer-translation-processor.ts";
 import { DefaultTextSplitter } from "../document/translation-document-manager.ts";
 import type { TranslationOutputRepairer } from "./translation-output-repair.ts";
@@ -534,6 +536,105 @@ describe("TranslationProcessor", () => {
     expect(defaultClient.requests).toHaveLength(0);
     expect(editorClient.requests).toHaveLength(1);
     expect(proofreaderClient.requests).toHaveLength(1);
+  });
+
+  test("single-step editor proofread uses editor prompt only", async () => {
+    const client = new FakeChatClient([
+      JSON.stringify({
+        modifications: [
+          { id: "1", reason: "润色语气。", translation: "勇者凝望着王都" },
+        ],
+      }),
+    ]);
+    const processor = new SingleStepProofreadProcessor(client, {
+      step: "editor",
+    });
+
+    const result = await processor.process({
+      sourceText: "勇者は王都を見つめていた",
+      currentTranslationText: "勇者看着王都",
+      contextView: {
+        getDependencyTranslatedTexts() {
+          return ["参考译文"];
+        },
+        getPlotSummaryTexts() {
+          return ["前情总结"];
+        },
+        getTranslatedGlossaryTerms() {
+          return [];
+        },
+      } as any,
+      editorRequirementsText: "避免直译腔。",
+    });
+
+    expect(result.outputText).toBe("勇者凝望着王都");
+    expect(client.requests).toHaveLength(1);
+    expect(client.requests[0]?.prompt).toContain("待审读译文");
+    expect(client.requests[0]?.prompt).toContain("参考译文");
+    expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("避免直译腔");
+    expect(client.requests[0]?.options?.meta).toMatchObject({
+      component: "SingleStepProofreadProcessor",
+      workflow: "proofread-editor-only",
+      operation: "编辑修订",
+    });
+  });
+
+  test("single-step proofreader proofread uses proofreader prompt only", async () => {
+    const client = new FakeChatClient([
+      JSON.stringify({
+        modifications: [
+          { id: "1", reason: "事实细节有偏差。", translation: "勇者凝视着王都" },
+        ],
+      }),
+    ]);
+    const processor = new SingleStepProofreadProcessor(client, {
+      step: "proofreader",
+    });
+
+    const result = await processor.process({
+      sourceText: "勇者は王都を見つめていた",
+      currentTranslationText: "勇者看着王都",
+      contextView: {
+        getDependencyPairs() {
+          return [
+            {
+              chapterId: 1,
+              fragmentIndex: 0,
+              fragmentHash: "hash-1",
+              sourceText: "参考原文",
+              translatedText: "参考译文",
+            },
+          ];
+        },
+        getPlotSummaryTexts() {
+          return ["前情总结"];
+        },
+        getTranslatedGlossaryTerms() {
+          return [];
+        },
+      } as any,
+      fragmentAuxData: {
+        "styleTransfer.analysis.v1": "分析报告",
+      },
+    });
+
+    expect(result.outputText).toBe("勇者凝视着王都");
+    expect(client.requests).toHaveLength(1);
+    expect(client.requests[0]?.prompt).toContain("待校对译文");
+    expect(client.requests[0]?.prompt).toContain("参考原文");
+    expect(client.requests[0]?.prompt).toContain("分析报告");
+    expect(client.requests[0]?.options?.meta).toMatchObject({
+      component: "SingleStepProofreadProcessor",
+      workflow: "proofread-proofreader-only",
+      operation: "校对修订",
+    });
+  });
+
+  test("proofread workflow metadata includes standalone editor and proofreader workflows", () => {
+    const workflows = ProofreadProcessorFactory.listWorkflowMetadata();
+    expect(workflows.map((workflow) => workflow.workflow)).toEqual(
+      expect.arrayContaining(["proofread-editor-only", "proofread-proofreader-only"]),
+    );
   });
 
   test("consistency proofread only samples predecessor contexts and deduplicates related refs", async () => {

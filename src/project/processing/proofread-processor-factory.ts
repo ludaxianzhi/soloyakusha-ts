@@ -9,6 +9,7 @@ import {
   PROOFREAD_AUX_DATA_CONTRACT,
   type ProofreadProcessor,
   type ProofreadStepName,
+  SingleStepProofreadProcessor,
 } from "./proofread-processor.ts";
 import type { PromptManager } from "./prompt-manager.ts";
 import type { TranslationProcessorClientResolver } from "./translation-processor.ts";
@@ -182,6 +183,58 @@ export class ProofreadProcessorFactory {
         },
       },
     ],
+    [
+      "proofread-editor-only",
+      {
+        builder: (options) =>
+          new SingleStepProofreadProcessor(options.clientResolver, {
+            promptManager: options.promptManager,
+            defaultRequestOptions: options.defaultRequestOptions,
+            defaultSlidingWindow: options.defaultSlidingWindow,
+            logger: options.logger,
+            processorName: options.processorName,
+            outputRepairer: options.outputRepairer,
+            step: "editor",
+          }),
+        metadata: {
+          workflow: "proofread-editor-only",
+          title: "单步编辑校对",
+          description: "只运行原校对评审流程中的“编辑”步骤，适合做润色和译风修订。",
+          sourceLanguage: "ja",
+          targetLanguage: "zh-CN",
+          promptSet: "ja-zhCN",
+          fragmentAuxDataContract: PROOFREAD_AUX_DATA_CONTRACT,
+          translatorFields: buildSingleStepProofreadFields(),
+          workspaceFields: [],
+        },
+      },
+    ],
+    [
+      "proofread-proofreader-only",
+      {
+        builder: (options) =>
+          new SingleStepProofreadProcessor(options.clientResolver, {
+            promptManager: options.promptManager,
+            defaultRequestOptions: options.defaultRequestOptions,
+            defaultSlidingWindow: options.defaultSlidingWindow,
+            logger: options.logger,
+            processorName: options.processorName,
+            outputRepairer: options.outputRepairer,
+            step: "proofreader",
+          }),
+        metadata: {
+          workflow: "proofread-proofreader-only",
+          title: "单步校对校验",
+          description: "只运行原校对评审流程中的“校对”步骤，适合做事实性和细节纠错。",
+          sourceLanguage: "ja",
+          targetLanguage: "zh-CN",
+          promptSet: "ja-zhCN",
+          fragmentAuxDataContract: PROOFREAD_AUX_DATA_CONTRACT,
+          translatorFields: buildSingleStepProofreadFields(),
+          workspaceFields: [],
+        },
+      },
+    ],
   ]);
 
   static createProcessor(
@@ -239,4 +292,42 @@ function getProofreadStepLabel(step: ProofreadStepName): string {
     case "proofreader":
       return "校对器";
   }
+}
+
+function buildSingleStepProofreadFields(): TranslationProcessorWorkflowFieldMetadata[] {
+  return [
+    {
+      key: "modelNames",
+      label: "模型链",
+      description: "按顺序选择执行该单步校对流程的 LLM Profile，后面的模型会作为前面的回退。",
+      input: "llm-profile",
+      required: true,
+      section: "basic",
+    },
+    {
+      key: "maxConcurrentWorkItems",
+      label: "文本块并发数",
+      description: "同时处理多少个文本块；未填写时会根据相关 LLM Profile 的并发上限自动推断。",
+      input: "number",
+      min: 1,
+      section: "basic",
+    },
+    {
+      key: "slidingWindow.overlapChars",
+      label: "滑窗重叠字符数",
+      description: "长文本分段校对时保留的重叠上下文字符数。",
+      input: "number",
+      min: 0,
+      section: "advanced",
+    },
+    {
+      key: "requestOptions",
+      label: "请求选项",
+      description: "附加请求参数，例如 temperature、topP 等。",
+      input: "yaml",
+      yamlShape: "object",
+      placeholder: "temperature: 0.2\nmaxTokens: 4096",
+      section: "advanced",
+    },
+  ];
 }

@@ -107,6 +107,16 @@ export type ConsistencyCheckProofreadProcessorOptions = {
   randomContextCount?: number;
 };
 
+export type SingleStepProofreadProcessorOptions = {
+  promptManager?: PromptManager;
+  defaultRequestOptions?: ChatRequestOptions;
+  defaultSlidingWindow?: SlidingWindowOptions;
+  logger?: Logger;
+  processorName?: string;
+  outputRepairer?: TranslationOutputRepairer;
+  step: ProofreadStepName;
+};
+
 export class MultiStageProofreadProcessor implements ProofreadProcessor {
   private readonly logger: Logger;
   private readonly defaultRequestOptions?: ChatRequestOptions;
@@ -366,6 +376,157 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
       stage: step,
       context,
     };
+  }
+}
+
+export class SingleStepProofreadProcessor implements ProofreadProcessor {
+  private readonly logger: Logger;
+  private readonly defaultRequestOptions?: ChatRequestOptions;
+  private readonly defaultSlidingWindow?: SlidingWindowOptions;
+  private readonly processorName?: string;
+  private readonly promptManager: PromptManager;
+  private readonly outputRepairer?: TranslationOutputRepairer;
+
+  constructor(
+    private readonly clientResolver: TranslationProcessorClientResolver,
+    private readonly options: SingleStepProofreadProcessorOptions,
+  ) {
+    this.promptManager = options.promptManager ?? new PromptManager();
+    this.defaultRequestOptions = options.defaultRequestOptions;
+    this.defaultSlidingWindow = options.defaultSlidingWindow;
+    this.logger = options.logger ?? NOOP_LOGGER;
+    this.processorName = options.processorName;
+    this.outputRepairer = options.outputRepairer;
+  }
+
+  async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
+    const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
+    const sourceUnits = window
+      ? buildSourceUnitsFromLines(window.source.lines)
+      : splitTextIntoUnits(request.sourceText);
+    const currentTranslations = window
+      ? buildSourceUnitsFromLines(window.translation.lines)
+      : splitTextIntoUnits(request.currentTranslationText);
+
+    if (sourceUnits.length === 0) {
+      return buildEmptyResult(window);
+    }
+
+    if (sourceUnits.length !== currentTranslations.length) {
+      throw new Error(
+        `校对输入的原文与译文行数不一致: source=${sourceUnits.length}, translation=${currentTranslations.length}`,
+      );
+    }
+
+    const requirements = [...(request.requirements ?? [])];
+    const plotSummaries = request.contextView?.getPlotSummaryTexts() ?? [];
+    const translatedGlossaryTerms =
+      request.contextView?.getTranslatedGlossaryTerms() ??
+      request.glossary?.getTranslatedTermsForText(request.sourceText) ??
+      [];
+    const latestTranslations = currentTranslations.map((unit) => ({
+      id: unit.id,
+      translation: unit.text,
+    }));
+
+    const prompt =
+      this.options.step === "editor"
+        ? await this.promptManager.renderMultiStageEditorPrompt({
+            currentTranslations: toPromptUnits(latestTranslations),
+            referenceTranslations: request.contextView?.getDependencyTranslatedTexts() ?? [],
+            plotSummaries,
+            translatedGlossaryTerms,
+            requirements,
+            editorRequirementsText: request.editorRequirementsText,
+          })
+        : await this.promptManager.renderProofreadProofreaderPrompt({
+            sourceUnits,
+            currentTranslations: toPromptUnits(latestTranslations),
+            referencePairs: toPromptReferenceUnits(request.contextView?.getDependencyPairs() ?? []),
+            plotSummaries,
+            translatedGlossaryTerms,
+            requirements,
+            analysisText: request.fragmentAuxData?.["styleTransfer.analysis.v1"] as
+              | string
+              | undefined,
+          });
+
+    this.logger.info?.(
+      this.options.step === "editor" ? "开始执行单步编辑校对" : "开始执行单步校对校验",
+      {
+        processorName: this.processorName,
+        step: this.options.step,
+        sourceUnitCount: sourceUnits.length,
+        chapterId: request.workItemRef?.chapterId,
+        fragmentIndex: request.workItemRef?.fragmentIndex,
+      },
+    );
+
+    const client = this.resolveClient();
+    const responseText = await client.singleTurnRequest(
+      prompt.userPrompt,
+      withRequestMeta(
+        withOutputValidator(
+          buildJsonSchemaChatRequestOptions(
+            mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
+            {
+              name: prompt.name,
+              systemPrompt: prompt.systemPrompt,
+              responseSchema: prompt.responseSchema,
+            },
+            client.supportsStructuredOutput,
+          ),
+          (candidateResponseText) => {
+            parseProofreadModificationResponse(
+              candidateResponseText,
+              sourceUnits.map((unit) => unit.id),
+            );
+          },
+        ),
+        buildSingleStepRequestMeta(this.options.step, request, this.processorName),
+      ),
+    );
+
+    let translations = applyProofreadModifications(
+      latestTranslations,
+      parseProofreadModificationResponse(
+        responseText,
+        sourceUnits.map((unit) => unit.id),
+      ),
+    );
+
+    let outputText = buildOutputText(translations, window);
+    const repairedOutput = await repairTranslationOutputLines({
+      sourceUnits,
+      translations,
+      outputText,
+      window,
+      outputRepairer: this.outputRepairer,
+      logger: this.logger,
+      processorName: this.processorName,
+    });
+    translations = repairedOutput.translations;
+    outputText = repairedOutput.outputText;
+
+    return {
+      outputText,
+      translations,
+      glossaryUpdates: [],
+      responseText,
+      responseSchema: prompt.responseSchema,
+      promptName: prompt.name,
+      systemPrompt: prompt.systemPrompt,
+      userPrompt: prompt.userPrompt,
+      window,
+    };
+  }
+
+  private resolveClient(): ChatClient {
+    if ("singleTurnRequest" in this.clientResolver) {
+      return this.clientResolver;
+    }
+
+    return this.clientResolver.provider.getChatClient(this.clientResolver.modelName);
   }
 }
 
@@ -650,6 +811,37 @@ function getProofreadOperationLabel(step: ProofreadStepName): string {
     case "proofreader":
       return "校对修订";
   }
+}
+
+function buildSingleStepRequestMeta(
+  step: ProofreadStepName,
+  request: ProofreadProcessorRequest,
+  processorName: string | undefined,
+): LlmRequestMetadata {
+  const context: JsonObject = {
+    sourceTextLength: request.sourceText.length,
+    sourceUnitCount: splitTextIntoUnits(request.sourceText).length,
+  };
+  if (processorName) {
+    context.processorName = processorName;
+  }
+  if (request.workItemRef) {
+    context.chapterId = request.workItemRef.chapterId;
+    context.fragmentIndex = request.workItemRef.fragmentIndex;
+    if (request.workItemRef.stepId) {
+      context.stepId = request.workItemRef.stepId;
+    }
+  }
+
+  return {
+    label: `校对-${getProofreadOperationLabel(step)}`,
+    feature: "校对",
+    operation: getProofreadOperationLabel(step),
+    component: "SingleStepProofreadProcessor",
+    workflow: step === "editor" ? "proofread-editor-only" : "proofread-proofreader-only",
+    stage: step,
+    context,
+  };
 }
 
 function buildTranslationResponseSchema(
