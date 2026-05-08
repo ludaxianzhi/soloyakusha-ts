@@ -28,6 +28,7 @@ import { NOOP_LOGGER, type Logger } from "../logger.ts";
 import { PromptManager, type PromptTranslationUnit } from "./prompt-manager.ts";
 import type { PromptReferenceUnit } from "./prompt-manager.ts";
 import type { TranslationWorkItem } from "../pipeline/pipeline.ts";
+import { normalizeInlineLineBreaks } from "./translation-processor.ts";
 import type {
   TranslationProcessor,
   TranslationProcessorClientResolver,
@@ -490,7 +491,10 @@ function parseTranslationResponse(
     }
 
     const id = typeof entry.id === "string" ? entry.id.trim() : "";
-    const translation = typeof entry.translation === "string" ? entry.translation.trim() : "";
+    const translation =
+      typeof entry.translation === "string"
+        ? normalizeInlineLineBreaks(entry.translation.trim())
+        : "";
 
     if (!id || !expectedIdSet.has(id)) {
       throw new Error(`translations[${index}].id 无效或未请求: ${id}`);
@@ -548,7 +552,10 @@ function parseStyleTransferResponse(
     const id = typeof entry.id === "string" ? entry.id.trim() : "";
     const styleAnalysis =
       typeof entry.styleAnalysis === "string" ? entry.styleAnalysis.trim() : "";
-    const translation = typeof entry.translation === "string" ? entry.translation.trim() : "";
+    const translation =
+      typeof entry.translation === "string"
+        ? normalizeInlineLineBreaks(entry.translation.trim())
+        : "";
 
     if (!id || !expectedIdSet.has(id)) {
       throw new Error(`modifications[${index}].id 无效或未请求: ${id}`);

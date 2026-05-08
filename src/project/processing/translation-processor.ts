@@ -81,3 +81,7 @@ export interface TranslationProcessor {
 
   process(request: TranslationProcessorRequest): Promise<TranslationProcessorResult>;
 }
+
+export function normalizeInlineLineBreaks(text: string): string {
+  return text.replace(/\r\n|\r|\n/g, "\\n");
+}

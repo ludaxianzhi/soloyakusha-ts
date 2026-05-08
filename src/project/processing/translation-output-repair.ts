@@ -22,6 +22,7 @@ export async function repairTranslationOutputLines(params: {
   logger?: Logger;
   processorName?: string;
   maxLineDifferenceRatio?: number;
+  mismatchBehavior?: "repair" | "strict";
 }): Promise<{
   translations: TranslationProcessorTranslation[];
   outputText: string;
@@ -41,6 +42,16 @@ export async function repairTranslationOutputLines(params: {
   const lineDifferenceRatio = Math.abs(sourceLines.length - targetLines.length) / sourceLines.length;
   const maxLineDifferenceRatio =
     params.maxLineDifferenceRatio ?? DEFAULT_ALIGNMENT_REPAIR_LINE_DIFF_RATIO;
+  if (params.mismatchBehavior === "strict") {
+    throw new Error(
+      [
+        "校对输出与输入行数不一致，已拒绝写回。",
+        `原文行数=${sourceLines.length}`,
+        `输出行数=${targetLines.length}`,
+        `差异比例=${(lineDifferenceRatio * 100).toFixed(1)}%`,
+      ].join(" "),
+    );
+  }
   if (lineDifferenceRatio > maxLineDifferenceRatio) {
     throw new Error(
       [

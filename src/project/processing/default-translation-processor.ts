@@ -25,6 +25,7 @@ import { parseJsonResponseText } from "../../llm/utils.ts";
 import { NOOP_LOGGER, type Logger } from "../logger.ts";
 import { PromptManager, type PromptTranslationUnit } from "./prompt-manager.ts";
 import type { TranslationWorkItem } from "../pipeline/pipeline.ts";
+import { normalizeInlineLineBreaks } from "./translation-processor.ts";
 import type {
   TranslationProcessor,
   TranslationProcessorClientResolver,
@@ -299,7 +300,9 @@ function parseTranslationResponse(
 
     const id = typeof entry.id === "string" ? entry.id.trim() : "";
     const translation =
-      typeof entry.translation === "string" ? entry.translation.trim() : "";
+      typeof entry.translation === "string"
+        ? normalizeInlineLineBreaks(entry.translation.trim())
+        : "";
     if (!id) {
       throw new Error(`translations[${index}].id 必须是非空字符串`);
     }

@@ -20,6 +20,7 @@ import {
   repairTranslationOutputLines,
   type TranslationOutputRepairer,
 } from "./translation-output-repair.ts";
+import { normalizeInlineLineBreaks } from "./translation-processor.ts";
 import type {
   TranslationProcessorClientResolver,
   TranslationProcessorResult,
@@ -299,7 +300,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
       translations: latestTranslations,
       outputText,
       window,
-      outputRepairer: this.outputRepairer,
+      mismatchBehavior: "strict",
       logger: this.logger,
       processorName: this.processorName,
     });
@@ -501,7 +502,7 @@ export class SingleStepProofreadProcessor implements ProofreadProcessor {
       translations,
       outputText,
       window,
-      outputRepairer: this.outputRepairer,
+      mismatchBehavior: "strict",
       logger: this.logger,
       processorName: this.processorName,
     });
@@ -652,7 +653,7 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
       translations,
       outputText,
       window,
-      outputRepairer: this.outputRepairer,
+      mismatchBehavior: "strict",
       logger: this.logger,
       processorName: this.processorName,
     });
@@ -961,7 +962,10 @@ function parseProofreadModificationResponse(
 
     const id = typeof entry.id === "string" ? entry.id.trim() : "";
     const reason = typeof entry.reason === "string" ? entry.reason.trim() : "";
-    const translation = typeof entry.translation === "string" ? entry.translation.trim() : "";
+    const translation =
+      typeof entry.translation === "string"
+        ? normalizeInlineLineBreaks(entry.translation.trim())
+        : "";
 
     if (!id || !expectedIdSet.has(id)) {
       throw new Error(`modifications[${index}].id 无效或未请求: ${id}`);

@@ -630,6 +630,30 @@ describe("TranslationProcessor", () => {
     });
   });
 
+  test("proofread normalizes embedded line breaks into literal \\n", async () => {
+    const client = new FakeChatClient([
+      JSON.stringify({
+        modifications: [
+          { id: "1", reason: "误插入换行。", translation: "第一行\n第二行" },
+        ],
+      }),
+    ]);
+    const repairer = new FakeOutputRepairer([createResolvedRepairResult([], 0, 0)]);
+    const processor = new SingleStepProofreadProcessor(client, {
+      step: "editor",
+      outputRepairer: repairer,
+    });
+
+    const result = await processor.process({
+      sourceText: "原文一",
+      currentTranslationText: "旧译文",
+    });
+
+    expect(result.outputText).toBe("第一行\\n第二行");
+    expect(result.translations).toEqual([{ id: "1", translation: "第一行\\n第二行" }]);
+    expect(repairer.requests).toHaveLength(0);
+  });
+
   test("proofread workflow metadata includes standalone editor and proofreader workflows", () => {
     const workflows = ProofreadProcessorFactory.listWorkflowMetadata();
     expect(workflows.map((workflow) => workflow.workflow)).toEqual(
@@ -794,7 +818,7 @@ describe("TranslationProcessor", () => {
     expect(client.requests[2]?.options?.requestConfig?.systemPrompt).not.toContain("风格要求：");
   });
 
-  test("repairs minor output line mismatch using alignment repair from global config", async () => {
+  test("normalizes embedded line breaks before translation output repair", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-alignment-runtime-"));
     cleanupTargets.push(workspaceDir);
 
@@ -857,14 +881,20 @@ describe("TranslationProcessor", () => {
       sourceText: createSequentialLines("S", 7),
     });
 
-    expect(result.outputText).toBe(createSequentialLines("T", 7));
+    expect(result.outputText).toBe(
+      createSequentialLineArray("T", 7, {
+        3: "T3\\nEXTRA",
+      }).join("\n"),
+    );
     expect(result.translations.map((entry) => entry.translation)).toEqual(
-      createSequentialLineArray("T", 7),
+      createSequentialLineArray("T", 7, {
+        3: "T3\\nEXTRA",
+      }),
     );
     expect(repairClient.requests).toHaveLength(0);
   });
 
-  test("throws when output line difference exceeds fifteen percent", async () => {
+  test("default translator normalizes embedded line breaks without repairer", async () => {
     const client = new FakeChatClient([
       JSON.stringify({
         translations: createSequentialTranslations(6, {
@@ -874,14 +904,23 @@ describe("TranslationProcessor", () => {
     ]);
     const processor = new DefaultTranslationProcessor(client);
 
-    await expect(
-      processor.process({
-        sourceText: createSequentialLines("S", 6),
+    const result = await processor.process({
+      sourceText: createSequentialLines("S", 6),
+    });
+
+    expect(result.outputText).toBe(
+      createSequentialLineArray("T", 6, {
+        3: "T3\\nEXTRA",
+      }).join("\n"),
+    );
+    expect(result.translations.map((entry) => entry.translation)).toEqual(
+      createSequentialLineArray("T", 6, {
+        3: "T3\\nEXTRA",
       }),
-    ).rejects.toThrow("译文与原文行数差异过大");
+    );
   });
 
-  test("style-transfer processor repairs minor output line mismatch", async () => {
+  test("style-transfer processor normalizes embedded line breaks before repair", async () => {
     const client = new FakeChatClient([
       "分析结果",
       JSON.stringify({
@@ -908,19 +947,17 @@ describe("TranslationProcessor", () => {
       sourceText: createSequentialLines("S", 7),
     });
 
-    expect(result.outputText).toBe(createSequentialLines("T", 7));
-    expect(outputRepairer.requests).toHaveLength(1);
-    expect(outputRepairer.requests[0]?.sourceLines).toEqual(createSequentialLineArray("S", 7));
-    expect(outputRepairer.requests[0]?.targetLines).toEqual([
-      "T1",
-      "T2",
-      "T3",
-      "T4",
-      "EXTRA",
-      "T5",
-      "T6",
-      "T7",
-    ]);
+    expect(result.outputText).toBe(
+      createSequentialLineArray("T", 7, {
+        4: "T4\\nEXTRA",
+      }).join("\n"),
+    );
+    expect(result.translations.map((entry) => entry.translation)).toEqual(
+      createSequentialLineArray("T", 7, {
+        4: "T4\\nEXTRA",
+      }),
+    );
+    expect(outputRepairer.requests).toHaveLength(0);
     expect(client.requests.map((entry) => entry.options?.meta?.label)).toEqual([
       "翻译-分析",
       "翻译-初步翻译",
@@ -1380,6 +1417,20 @@ function createSequentialLines(prefix: string, count: number): string {
 
 function createSequentialLineArray(prefix: string, count: number): string[] {
   return Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`);
+}
+
+function createSequentialLineArray(
+  prefix: string,
+  count: number,
+  overrides: Record<number, string>,
+): string[];
+
+function createSequentialLineArray(
+  prefix: string,
+  count: number,
+  overrides: Record<number, string> = {},
+): string[] {
+  return Array.from({ length: count }, (_, index) => overrides[index + 1] ?? `${prefix}${index + 1}`);
 }
 
 function createSequentialTranslations(
