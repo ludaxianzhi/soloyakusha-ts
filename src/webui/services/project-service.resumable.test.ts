@@ -847,15 +847,23 @@ describe("ProjectService resumable batch tasks", () => {
     });
   });
 
-  test("proofread batch mode writes back every fragment without resolving sliding window", async () => {
-    const requests: Array<{ sourceText: string; documentManager?: unknown }> = [];
+  test("proofread batch mode writes back every fragment while disabling sliding window", async () => {
+    const requests: Array<{
+      sourceText: string;
+      documentManager?: unknown;
+      disableSlidingWindow?: boolean;
+    }> = [];
     const service = createService({
       createProofreadRuntime: async () => ({
         processor: {
-          process: async (input: { sourceText: string; documentManager?: unknown }) => {
+          process: async (input: {
+            sourceText: string;
+            documentManager?: unknown;
+            disableSlidingWindow?: boolean;
+          }) => {
             requests.push(input);
             return {
-              outputText: input.documentManager ? "校对后-0" : "校对后-0\n校对后-1",
+              outputText: input.disableSlidingWindow ? "校对后-0\n校对后-1" : "校对后-0",
               translations: [],
               glossaryUpdates: [],
               responseText: "proofread",
@@ -912,7 +920,8 @@ describe("ProjectService resumable batch tasks", () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.sourceText).toBe("原文-0\n原文-1");
-    expect(requests[0]?.documentManager).toBeUndefined();
+    expect(requests[0]?.disableSlidingWindow).toBe(true);
+    expect(requests[0]?.documentManager).toBeDefined();
     expect(updates).toEqual([
       [1, 0, "校对后-0"],
       [1, 1, "校对后-1"],

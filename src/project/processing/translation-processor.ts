@@ -27,6 +27,7 @@ export type TranslationProcessorRequest = {
   requestOptions?: ChatRequestOptions;
   documentManager?: TranslationDocumentManager;
   slidingWindow?: SlidingWindowOptions;
+  disableSlidingWindow?: boolean;
   workItemRef?: {
     chapterId: number;
     fragmentIndex: number;

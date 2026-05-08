@@ -101,6 +101,7 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
       requirements: workItem.requirements,
       editorRequirementsText: options.editorRequirementsText,
       requestOptions: options.requestOptions,
+      disableSlidingWindow: !shouldUseSlidingWindow,
       documentManager: shouldUseSlidingWindow ? options.documentManager : undefined,
       slidingWindow: shouldUseSlidingWindow ? options.slidingWindow : undefined,
       workItemRef: {
@@ -352,7 +353,7 @@ function resolveSlidingWindow(
   request: TranslationProcessorRequest,
   defaultSlidingWindow: SlidingWindowOptions | undefined,
 ): SlidingWindowFragment | undefined {
-  if (!request.documentManager || !request.workItemRef) {
+  if (request.disableSlidingWindow || !request.documentManager || !request.workItemRef) {
     return undefined;
   }
 

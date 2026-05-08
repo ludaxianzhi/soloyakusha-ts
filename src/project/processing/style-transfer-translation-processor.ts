@@ -138,6 +138,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       styleRequirementsText: options.styleRequirementsText,
       styleLibraryName: options.styleLibraryName,
       requestOptions: options.requestOptions,
+      disableSlidingWindow: !shouldUseSlidingWindow,
       documentManager: shouldUseSlidingWindow ? options.documentManager : undefined,
       slidingWindow: shouldUseSlidingWindow ? options.slidingWindow : undefined,
       workItemRef: {
@@ -677,7 +678,7 @@ function resolveSlidingWindow(
   request: TranslationProcessorRequest,
   defaultSlidingWindow: SlidingWindowOptions | undefined,
 ): SlidingWindowFragment | undefined {
-  if (!request.documentManager || !request.workItemRef) {
+  if (request.disableSlidingWindow || !request.documentManager || !request.workItemRef) {
     return undefined;
   }
 

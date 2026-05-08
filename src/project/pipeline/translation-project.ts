@@ -1281,11 +1281,26 @@ export class TranslationProject
     }
 
     const outputLines = (result.outputText ?? "").split("\n");
+    const expectedLineCounts = batchIndices.map((fi) =>
+      this.documentManager.getSourceText(result.chapterId, fi).split("\n").length,
+    );
+    const expectedTotalLineCount = expectedLineCounts.reduce((sum, count) => sum + count, 0);
+    if (outputLines.length !== expectedTotalLineCount) {
+      throw new Error(
+        [
+          "批次输出行数与源文本块不一致，已拒绝写回。",
+          `chapter=${result.chapterId}`,
+          `step=${result.stepId}`,
+          `expectedLines=${expectedTotalLineCount}`,
+          `actualLines=${outputLines.length}`,
+        ].join(" "),
+      );
+    }
     let lineOffset = 0;
 
-    for (const fi of batchIndices) {
-      const sourceText = this.documentManager.getSourceText(result.chapterId, fi);
-      const sourceLineCount = sourceText.split("\n").length;
+    for (let index = 0; index < batchIndices.length; index += 1) {
+      const fi = batchIndices[index]!;
+      const sourceLineCount = expectedLineCounts[index]!;
       const fragmentOutputLines = outputLines.slice(lineOffset, lineOffset + sourceLineCount);
       const fragmentOutput = createTextFragment(fragmentOutputLines.join("\n"));
       lineOffset += sourceLineCount;

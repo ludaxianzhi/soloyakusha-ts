@@ -66,6 +66,7 @@ export type ProofreadProcessorRequest = {
   requestOptions?: ChatRequestOptions;
   documentManager?: TranslationDocumentManager;
   slidingWindow?: SlidingWindowOptions;
+  disableSlidingWindow?: boolean;
   workItemRef?: {
     chapterId: number;
     fragmentIndex: number;
@@ -1021,7 +1022,7 @@ function resolveSlidingWindow(
   request: ProofreadProcessorRequest,
   defaultSlidingWindow: SlidingWindowOptions | undefined,
 ): SlidingWindowFragment | undefined {
-  if (!request.documentManager || !request.workItemRef) {
+  if (request.disableSlidingWindow || !request.documentManager || !request.workItemRef) {
     return undefined;
   }
 

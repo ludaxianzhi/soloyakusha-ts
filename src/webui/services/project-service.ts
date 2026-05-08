@@ -1949,6 +1949,7 @@ export class ProjectService {
                 glossary: project.getGlossary(),
                 requirements: firstPrepared.requirements,
                 editorRequirementsText: firstPrepared.editorRequirementsText,
+                disableSlidingWindow: true,
                 documentManager: project.getDocumentManager(),
                 workItemRef: {
                   chapterId: firstItem.chapterId,
@@ -1957,9 +1958,9 @@ export class ProjectService {
                 },
                 orderedFragments: project
                   .getWorkspaceConfig()
-                  .chapters.flatMap((chapter) =>
+                  .chapters?.flatMap((chapter) =>
                     project.getDocumentManager().getChapterFragmentRefs(chapter.id),
-                  ),
+                  ) ?? [],
                 storyTopology: project.getStoryTopology?.(),
                 dependencyTrackingSourceRevision:
                   project.getWorkspaceConfig().dependencyTracking?.sourceRevision,
@@ -1976,10 +1977,24 @@ export class ProjectService {
 
               // Split output back to fragments
               const outputLines = (result.outputText ?? "").split("\n");
+              const expectedLineCounts = batch.map((item) =>
+                project.getDocumentManager().getSourceText(item.chapterId, item.fragmentIndex).split("\n").length,
+              );
+              const expectedTotalLineCount = expectedLineCounts.reduce((sum, count) => sum + count, 0);
+              if (outputLines.length !== expectedTotalLineCount) {
+                throw new Error(
+                  [
+                    '校对批次输出行数与源文本块不一致，已拒绝写回。',
+                    `chapter=${firstItem.chapterId}`,
+                    `expectedLines=${expectedTotalLineCount}`,
+                    `actualLines=${outputLines.length}`,
+                  ].join(' '),
+                );
+              }
               let lineOffset = 0;
-              for (const item of batch) {
-                const sourceText = project.getDocumentManager().getSourceText(item.chapterId, item.fragmentIndex);
-                const sourceLineCount = sourceText.split("\n").length;
+              for (let index = 0; index < batch.length; index += 1) {
+                const item = batch[index]!;
+                const sourceLineCount = expectedLineCounts[index]!;
                 const fragmentOutputLines = outputLines.slice(lineOffset, lineOffset + sourceLineCount);
                 const fragmentOutput = fragmentOutputLines.join("\n");
                 lineOffset += sourceLineCount;
@@ -2020,9 +2035,9 @@ export class ProjectService {
                 },
                 orderedFragments: project
                   .getWorkspaceConfig()
-                  .chapters.flatMap((chapter) =>
+                  .chapters?.flatMap((chapter) =>
                     project.getDocumentManager().getChapterFragmentRefs(chapter.id),
-                  ),
+                  ) ?? [],
                 storyTopology: project.getStoryTopology?.(),
                 dependencyTrackingSourceRevision:
                   project.getWorkspaceConfig().dependencyTracking?.sourceRevision,
