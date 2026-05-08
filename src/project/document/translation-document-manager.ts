@@ -957,6 +957,10 @@ function normalizePersistedProofreadTaskState(
   return {
     taskId: state.taskId,
     mode,
+    proofreaderName:
+      typeof state.proofreaderName === "string" && state.proofreaderName.trim().length > 0
+        ? state.proofreaderName.trim()
+        : undefined,
     status: state.status ?? "paused",
     chapterIds: rawChapterIds,
     chapters: normalizedChapters,

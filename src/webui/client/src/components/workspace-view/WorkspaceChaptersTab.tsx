@@ -24,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 import type {
   CreateStoryBranchPayload,
   ImportArchiveResult,
+  ProofreaderEntry,
   StoryTopologyDescriptor,
   UpdateStoryRoutePayload,
   WorkspaceChapterDescriptor,
@@ -48,11 +49,14 @@ interface WorkspaceChaptersTabProps {
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
   defaultImportFormat?: string;
+  proofreaders: Record<string, ProofreaderEntry>;
+  defaultProofreaderName?: string;
   onRefreshChapters: () => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onStartProofread: (input: {
     chapterIds: number[];
     mode?: 'linear' | 'simultaneous';
+    proofreaderName?: string;
   }) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
@@ -106,6 +110,8 @@ export function WorkspaceChaptersTab({
   chapters,
   topology,
   defaultImportFormat,
+  proofreaders,
+  defaultProofreaderName,
   onRefreshChapters,
   onClearChapterTranslations,
   onStartProofread,
@@ -189,6 +195,8 @@ export function WorkspaceChaptersTab({
           chapters={chapters}
           topology={topology}
           defaultImportFormat={defaultImportFormat}
+          proofreaders={proofreaders}
+          defaultProofreaderName={defaultProofreaderName}
           onClearChapterTranslations={onClearChapterTranslations}
           onStartProofread={onStartProofread}
           onRemoveChapters={onRemoveChapters}
@@ -528,6 +536,8 @@ function ChapterInfoTable({
   chapters,
   topology,
   defaultImportFormat,
+  proofreaders,
+  defaultProofreaderName,
   onClearChapterTranslations,
   onStartProofread,
   onRemoveChapters,
@@ -539,10 +549,13 @@ function ChapterInfoTable({
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
   defaultImportFormat?: string;
+  proofreaders: Record<string, ProofreaderEntry>;
+  defaultProofreaderName?: string;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onStartProofread: (input: {
     chapterIds: number[];
     mode?: 'linear' | 'simultaneous';
+    proofreaderName?: string;
   }) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
@@ -568,6 +581,7 @@ function ChapterInfoTable({
   const [importArchiveSubmitting, setImportArchiveSubmitting] = useState(false);
   const [proofreadModalOpen, setProofreadModalOpen] = useState(false);
   const [proofreadMode, setProofreadMode] = useState<'linear' | 'simultaneous'>('linear');
+  const [proofreaderName, setProofreaderName] = useState<string | undefined>(defaultProofreaderName);
   const [batchDownloadModalOpen, setBatchDownloadModalOpen] = useState(false);
   const [batchDownloadFormat, setBatchDownloadFormat] = useState('plain_text');
   const [importArchiveFiles, setImportArchiveFiles] = useState<UploadFile[]>([]);
@@ -606,6 +620,25 @@ function ChapterInfoTable({
     () => selectedChapterIds.filter((chapterId) => !proofreadableChapterIds.includes(chapterId)),
     [proofreadableChapterIds, selectedChapterIds],
   );
+  const proofreaderOptions = useMemo(
+    () =>
+      Object.entries(proofreaders).map(([name, proofreader]) => ({
+        value: name,
+        label: proofreader.metadata?.title ?? name,
+      })),
+    [proofreaders],
+  );
+
+  useEffect(() => {
+    if (proofreaderName && proofreaders[proofreaderName]) {
+      return;
+    }
+    if (defaultProofreaderName && proofreaders[defaultProofreaderName]) {
+      setProofreaderName(defaultProofreaderName);
+      return;
+    }
+    setProofreaderName(Object.keys(proofreaders)[0]);
+  }, [defaultProofreaderName, proofreaderName, proofreaders]);
   const routeCandidates = useMemo<RouteAttachCandidate[]>(() => {
     if (topology && topology.routes.length > 0) {
       return topology.routes.map((route) => ({
@@ -782,6 +815,10 @@ function ChapterInfoTable({
       message.error('所选章节尚未翻译完成，无法创建校对任务');
       return;
     }
+    if (proofreaderOptions.length === 0) {
+      message.error('当前没有可用的校对器预设，请先在设置中创建校对器');
+      return;
+    }
     setProofreadModalOpen(true);
   };
 
@@ -790,10 +827,15 @@ function ChapterInfoTable({
       message.error('没有可用于校对的章节');
       return;
     }
+    if (!proofreaderName) {
+      message.error('请选择校对预设');
+      return;
+    }
 
     await onStartProofread({
       chapterIds: proofreadableChapterIds,
       mode: proofreadMode,
+      proofreaderName,
     });
     setProofreadModalOpen(false);
   };
@@ -1210,6 +1252,15 @@ function ChapterInfoTable({
               message={`已自动排除未翻译完成章节：${unproofreadableChapterIds.join(', ')}`}
             />
           ) : null}
+          <div>
+            <Typography.Text strong>校对预设</Typography.Text>
+            <Select
+              style={{ width: '100%', marginTop: 8 }}
+              value={proofreaderName}
+              onChange={(value) => setProofreaderName(value)}
+              options={proofreaderOptions}
+            />
+          </div>
           <div>
             <Typography.Text strong>校对模式</Typography.Text>
             <Select

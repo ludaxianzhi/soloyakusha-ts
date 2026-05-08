@@ -140,3 +140,84 @@ prompts:
 
         JSON Schema:
         {{ responseSchemaJson }}
+
+  project.proofread.consistency.ja-zhCN:
+    system:
+      type: static
+      template: |
+        你是一位专门负责长篇连载文本一致性校对的日译简中校对专家。
+        你的首要任务不是润色，而是检查当前译文与前序文段之间的译名、称谓、人称、口吻、固定表达和事实细节是否保持一致。
+
+        必须遵守：
+        - 你只能基于提供的当前原文、当前译文以及前序参考上下文进行判断。
+        - 只输出确有一致性问题的修改；不要因为个人偏好重写无问题句子。
+        - 如果参考上下文与当前原文明显无关，不要强行套用。
+        - **最小化修改原则**：只改动不一致的最小必要片段。
+        - 每个 modifications 对象包含 id、reason、translation。
+        - 如果没有需要修改的句子，返回 {"modifications":[]}。
+        - 输出必须是严格 JSON，并符合给定 schema。
+        - 不要输出 Markdown、解释或代码块。
+    user:
+      type: liquid
+      template: |
+        {% if relatedReferencePairs.size > 0 %}
+        相关前序上下文（从章节拓扑前序分片中筛出的高相关参考）：
+        {% for unit in relatedReferencePairs %}
+        - id: {{ unit.id }}
+          原文: {{ unit.sourceText }}
+          译文: {{ unit.translation }}
+        {% endfor %}
+
+        {% endif %}
+        {% if randomReferencePairs.size > 0 %}
+        随机前序上下文（额外抽样的前序分片，用于核对整体一致性）：
+        {% for unit in randomReferencePairs %}
+        - id: {{ unit.id }}
+          原文: {{ unit.sourceText }}
+          译文: {{ unit.translation }}
+        {% endfor %}
+
+        {% endif %}
+        {% if plotSummaries.size > 0 %}
+        前情总结：
+        {% for summary in plotSummaries %}
+        - {{ summary }}
+        {% endfor %}
+
+        {% endif %}
+        {% if translatedGlossaryTerms.size > 0 %}
+        术语表：
+        {% for term in translatedGlossaryTerms %}
+        - term: {{ term.term }}
+          translation: {{ term.translation }}
+          {% if term.description %}description: {{ term.description }}{% endif %}
+        {% endfor %}
+
+        {% endif %}
+        {% if requirements.size > 0 %}
+        翻译要求：
+        {% for requirement in requirements %}
+        - {{ requirement }}
+        {% endfor %}
+
+        {% endif %}
+        日文原文（按行编号）：
+        {% for unit in sourceUnits %}
+        - id: {{ unit.id }}
+          text: {{ unit.text }}
+        {% endfor %}
+
+        当前译文（按行编号）：
+        {% for unit in currentTranslations %}
+        - id: {{ unit.id }}
+          translation: {{ unit.text }}
+        {% endfor %}
+
+        请检查以下问题：
+        - 角色称谓、指代、人称是否与前序保持一致
+        - 译名、术语、固定说法是否漂移
+        - 同一事实、关系、时间顺序是否与前序参考冲突
+        - 角色语气和口吻是否出现明显断裂
+
+        JSON Schema:
+        {{ responseSchemaJson }}

@@ -35,6 +35,12 @@ export type TranslationProcessorConfig = {
   modelNames: string[];
   /** 文本块级调度的最大并发数。 */
   maxConcurrentWorkItems?: number;
+  /** 单次校对请求允许合并的最大原文字符数。 */
+  maxSourceChars?: number;
+  /** 额外注入的相关上下文数量上限。 */
+  maxAdditionalRelatedContexts?: number;
+  /** 随机补充的前序上下文数量。 */
+  randomContextCount?: number;
   slidingWindow?: SlidingWindowOptions;
   requestOptions?: ChatRequestOptions;
   /**
@@ -281,10 +287,20 @@ export class TranslationGlobalConfig {
       clientResolver: provider.getChatClientWithFallback(config.modelNames),
       additionalClientResolvers: buildStepClientResolvers(config.steps, provider),
       stepRequestOptions: buildStepRequestOptions(config.steps),
-      workflowOptions:
-        config.reviewIterations !== undefined
+      workflowOptions: {
+        ...(config.reviewIterations !== undefined
           ? { reviewIterations: config.reviewIterations }
-          : undefined,
+          : {}),
+        ...(config.maxSourceChars !== undefined
+          ? { maxSourceChars: config.maxSourceChars }
+          : {}),
+        ...(config.maxAdditionalRelatedContexts !== undefined
+          ? { maxAdditionalRelatedContexts: config.maxAdditionalRelatedContexts }
+          : {}),
+        ...(config.randomContextCount !== undefined
+          ? { randomContextCount: config.randomContextCount }
+          : {}),
+      },
       promptManager: options.promptManager,
       defaultRequestOptions: config.requestOptions,
       defaultSlidingWindow: config.slidingWindow,

@@ -79,6 +79,16 @@ export type ProofreadProofreaderPromptInput = {
   analysisText?: string;
 };
 
+export type ConsistencyProofreadPromptInput = {
+  sourceUnits: PromptTranslationUnit[];
+  currentTranslations: PromptTranslationUnit[];
+  relatedReferencePairs: PromptReferenceUnit[];
+  randomReferencePairs: PromptReferenceUnit[];
+  plotSummaries: string[];
+  translatedGlossaryTerms: ResolvedGlossaryTerm[];
+  requirements: string[];
+};
+
 
 export type ChapterTranslationAssistantMode = "question" | "modify" | "polish";
 
@@ -127,6 +137,8 @@ const PROOFREAD_EDITOR_PROMPT_NAME = "proofread_editor";
 const PROOFREAD_EDITOR_PROMPT_ID = "project.proofread.editor";
 const PROOFREAD_PROOFREADER_PROMPT_NAME = "proofread_proofreader";
 const PROOFREAD_PROOFREADER_PROMPT_ID = "project.proofread.proofreader";
+const PROOFREAD_CONSISTENCY_PROMPT_NAME = "proofread_consistency";
+const PROOFREAD_CONSISTENCY_PROMPT_ID = "project.proofread.consistency";
 
 const CHAPTER_EDITOR_ASSISTANT_PROMPT_NAME = "chapter_editor_assistant";
 const CHAPTER_EDITOR_ASSISTANT_PROMPT_ID = "project.chapterEditorAssistant";
@@ -269,6 +281,29 @@ export class PromptManager {
 
     return {
       name: PROOFREAD_PROOFREADER_PROMPT_NAME,
+      systemPrompt: renderedPrompt.systemPrompt,
+      userPrompt: renderedPrompt.userPrompt,
+      responseSchema,
+    };
+  }
+
+  async renderConsistencyProofreadPrompt(
+    input: ConsistencyProofreadPromptInput,
+  ): Promise<RenderedPrompt> {
+    const responseSchema = buildProofreadModificationResponseSchema(input.currentTranslations);
+    const renderedPrompt = await this.renderPrompt(PROOFREAD_CONSISTENCY_PROMPT_ID, {
+      sourceUnits: input.sourceUnits,
+      currentTranslations: input.currentTranslations,
+      relatedReferencePairs: input.relatedReferencePairs,
+      randomReferencePairs: input.randomReferencePairs,
+      plotSummaries: input.plotSummaries,
+      translatedGlossaryTerms: input.translatedGlossaryTerms,
+      requirements: input.requirements,
+      responseSchemaJson: JSON.stringify(responseSchema, null, 2),
+    });
+
+    return {
+      name: PROOFREAD_CONSISTENCY_PROMPT_NAME,
       systemPrompt: renderedPrompt.systemPrompt,
       userPrompt: renderedPrompt.userPrompt,
       responseSchema,

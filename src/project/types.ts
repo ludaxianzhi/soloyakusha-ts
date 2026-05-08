@@ -241,6 +241,7 @@ export type ProofreadTaskChapterState = {
 export type ProofreadTaskState = {
   taskId: string;
   mode: ProofreadTaskMode;
+  proofreaderName?: string;
   status: ProofreadTaskStatus;
   chapterIds: number[];
   chapters: ProofreadTaskChapterState[];

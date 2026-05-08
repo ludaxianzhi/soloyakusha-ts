@@ -3,6 +3,7 @@ import type { GlossaryUpdater } from "../../glossary/updater.ts";
 import type { Logger } from "../logger.ts";
 import type { SlidingWindowOptions } from "../types.ts";
 import {
+  ConsistencyCheckProofreadProcessor,
   MultiStageProofreadProcessor,
   PROOFREAD_STEP_NAMES,
   PROOFREAD_AUX_DATA_CONTRACT,
@@ -95,6 +96,85 @@ export class ProofreadProcessorFactory {
               description: "长文本分段校对时保留的重叠上下文字符数。",
               input: "number",
               min: 0,
+              section: "advanced",
+            },
+          ],
+          workspaceFields: [],
+        },
+      },
+    ],
+    [
+      "proofread-consistency-check",
+      {
+        builder: (options) =>
+          new ConsistencyCheckProofreadProcessor(options.clientResolver, {
+            promptManager: options.promptManager,
+            defaultRequestOptions: options.defaultRequestOptions,
+            defaultSlidingWindow: options.defaultSlidingWindow,
+            logger: options.logger,
+            processorName: options.processorName,
+            outputRepairer: options.outputRepairer,
+            maxSourceChars:
+              typeof options.workflowOptions?.maxSourceChars === "number"
+                ? options.workflowOptions.maxSourceChars
+                : undefined,
+            maxAdditionalRelatedContexts:
+              typeof options.workflowOptions?.maxAdditionalRelatedContexts === "number"
+                ? options.workflowOptions.maxAdditionalRelatedContexts
+                : undefined,
+            randomContextCount:
+              typeof options.workflowOptions?.randomContextCount === "number"
+                ? options.workflowOptions.randomContextCount
+                : undefined,
+          }),
+        metadata: {
+          workflow: "proofread-consistency-check",
+          title: "一致性检查校对",
+          description: "基于章节拓扑前序分片和上下文网络，检查称谓、术语、口吻与事实一致性。",
+          sourceLanguage: "ja",
+          targetLanguage: "zh-CN",
+          promptSet: "ja-zhCN",
+          fragmentAuxDataContract: PROOFREAD_AUX_DATA_CONTRACT,
+          translatorFields: [
+            {
+              key: "modelNames",
+              label: "模型链",
+              description: "一致性检查阶段按顺序选择的 LLM Profile，后面的模型会作为前面的回退。",
+              input: "llm-profile",
+              required: true,
+              section: "basic",
+            },
+            {
+              key: "maxSourceChars",
+              label: "单次最大原文字符数",
+              description: "超过该值时会拆分为更小批次；最小值为 4096。",
+              input: "number",
+              min: 4096,
+              section: "basic",
+            },
+            {
+              key: "maxAdditionalRelatedContexts",
+              label: "相关上下文数量",
+              description: "从上下文网络中额外注入的前序高相关分片数量。",
+              input: "number",
+              min: 0,
+              section: "basic",
+            },
+            {
+              key: "randomContextCount",
+              label: "随机上下文数量",
+              description: "从章节拓扑前序分片中随机补充的上下文数量。",
+              input: "number",
+              min: 0,
+              section: "basic",
+            },
+            {
+              key: "requestOptions",
+              label: "请求选项",
+              description: "附加请求参数，例如 temperature、topP 等。",
+              input: "yaml",
+              yamlShape: "object",
+              placeholder: "temperature: 0.1\nmaxTokens: 4096",
               section: "advanced",
             },
           ],

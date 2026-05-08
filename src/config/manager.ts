@@ -31,6 +31,7 @@ import type {
   GlobalStyleLibraryConfig,
   GlobalTranslationConfig,
   GlobalVectorConfig,
+  ProofreaderEntry,
   PersistedLlmClientConfig,
   PersistedStyleLibraryConfig,
   PersistedVectorStoreConfig,
@@ -46,6 +47,8 @@ import {
   cloneGlossaryExtractorConfig,
   cloneGlossaryUpdaterConfig,
   cloneLlmConfig,
+  cloneProofreaderEntry,
+  cloneProofreaders,
   clonePersistedLlmClientConfig,
   clonePersistedStyleLibraryConfig,
   clonePersistedVectorStoreConfig,
@@ -62,6 +65,7 @@ import {
   normalizeGlossaryUpdaterConfig,
   normalizeGlobalConfigDocument,
   normalizePersistedLlmClientConfig,
+  normalizeProofreaderEntry,
   normalizePersistedStyleLibraryConfig,
   normalizePersistedVectorStoreConfig,
   normalizePlotSummaryConfig,
@@ -122,9 +126,25 @@ export class GlobalConfigManager {
   }
 
   async getProofreadProcessorConfig(): Promise<TranslationProcessorConfig | undefined> {
+    const translation = (await this.loadDocument()).translation;
     return cloneTranslationProcessorConfig(
-      (await this.loadDocument()).translation?.proofreadProcessor,
+      translation?.proofreaders?.default ?? translation?.proofreadProcessor,
     );
+  }
+
+  async getProofreaders(): Promise<Record<string, ProofreaderEntry> | undefined> {
+    return cloneProofreaders((await this.loadDocument()).translation?.proofreaders);
+  }
+
+  async listProofreaderNames(): Promise<string[]> {
+    const proofreaders = (await this.loadDocument()).translation?.proofreaders ?? {};
+    return Object.keys(proofreaders).sort();
+  }
+
+  async getProofreader(name: string): Promise<ProofreaderEntry | undefined> {
+    const proofreaders = (await this.loadDocument()).translation?.proofreaders ?? {};
+    const entry = proofreaders[name];
+    return entry ? cloneProofreaderEntry(entry) : undefined;
   }
 
   async setTranslationProcessorConfig(
@@ -143,14 +163,58 @@ export class GlobalConfigManager {
   async setProofreadProcessorConfig(
     config?: TranslationProcessorConfig,
   ): Promise<TranslationProcessorConfig | undefined> {
+    const saved = await this.setProofreader(
+      "default",
+      config
+        ? normalizeProofreaderEntry(config, "translation.proofreaders.default")
+        : undefined,
+      { removeWhenUndefined: true },
+    );
+    return cloneTranslationProcessorConfig(saved);
+  }
+
+  async setProofreader(
+    name: string,
+    entry: ProofreaderEntry | undefined,
+    options: { removeWhenUndefined?: boolean } = {},
+  ): Promise<ProofreaderEntry | undefined> {
+    validateProofreaderName(name);
     const document = await this.loadDocument();
     const translation = document.translation ?? {};
-    translation.proofreadProcessor = config
-      ? normalizeTranslationProcessorConfig(config, "translation.proofreadProcessor")
-      : undefined;
+    translation.proofreaders = translation.proofreaders ?? {};
+
+    if (entry === undefined) {
+      if (options.removeWhenUndefined) {
+        delete translation.proofreaders[name];
+      }
+    } else {
+      translation.proofreaders[name] = normalizeProofreaderEntry(
+        entry,
+        `translation.proofreaders.${name}`,
+      );
+    }
+
+    if (translation.proofreaders && Object.keys(translation.proofreaders).length === 0) {
+      translation.proofreaders = undefined;
+    }
+
     document.translation = pruneEmptyTranslationConfig(translation);
     await this.persistDocument(document);
-    return cloneTranslationProcessorConfig(document.translation?.proofreadProcessor);
+    const saved = document.translation?.proofreaders?.[name];
+    return saved ? cloneProofreaderEntry(saved) : undefined;
+  }
+
+  async removeProofreader(name: string): Promise<boolean> {
+    const document = await this.loadDocument();
+    const proofreaders = document.translation?.proofreaders;
+    if (!proofreaders || !proofreaders[name]) {
+      return false;
+    }
+
+    delete proofreaders[name];
+    document.translation = pruneEmptyTranslationConfig(document.translation);
+    await this.persistDocument(document);
+    return true;
   }
 
   async getGlossaryExtractorConfig(): Promise<GlossaryExtractorConfig | undefined> {
@@ -652,6 +716,12 @@ function validateProfileName(profileName: string): void {
 function validateTranslatorName(name: string): void {
   if (name.trim().length === 0) {
     throw new Error("翻译器名称不能为空字符串");
+  }
+}
+
+function validateProofreaderName(name: string): void {
+  if (name.trim().length === 0) {
+    throw new Error("校对器名称不能为空字符串");
   }
 }
 

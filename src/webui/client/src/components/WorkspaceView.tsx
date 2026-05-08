@@ -29,6 +29,8 @@ export function WorkspaceView({
   workspaceForm,
   defaultImportFormat,
   translatorOptions,
+  proofreaders,
+  defaultProofreaderName,
   styleLibraryOptions,
   selectedTranslatorWorkflow,
   llmProfileOptions,
@@ -199,6 +201,8 @@ export function WorkspaceView({
                 chapters={chapters}
                 topology={topology}
                 defaultImportFormat={defaultImportFormat}
+                proofreaders={proofreaders}
+                defaultProofreaderName={defaultProofreaderName}
                 onRefreshChapters={onRefreshChapters}
                 onClearChapterTranslations={onClearChapterTranslations}
                 onStartProofread={onStartProofread}

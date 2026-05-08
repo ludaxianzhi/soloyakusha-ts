@@ -116,6 +116,8 @@ export type TranslatorMetadata = {
   description?: string;
 };
 
+export type ProofreaderMetadata = TranslatorMetadata;
+
 export const DEFAULT_TRANSLATOR_SOURCE_LANGUAGE = "ja";
 export const DEFAULT_TRANSLATOR_TARGET_LANGUAGE = "zh-CN";
 export const DEFAULT_TRANSLATOR_PROMPT_SET = "ja-zhCN";
@@ -151,11 +153,20 @@ export type TranslatorEntry = {
   reviewIterations?: number;
 };
 
+/** 命名校对器注册条目，对应一种校对工作流 + 参数组合。 */
+export type ProofreaderEntry = TranslationProcessorConfig & {
+  /** 校对器的人类可读元数据，用于前端展示。 */
+  metadata?: ProofreaderMetadata;
+};
+
 export type GlobalTranslationConfig = {
   /** 命名翻译器目录，key 为翻译器名称。 */
   translators?: Record<string, TranslatorEntry>;
+  /** 命名校对器目录，key 为校对器名称。 */
+  proofreaders?: Record<string, ProofreaderEntry>;
   /** @deprecated 迁移前的单一翻译处理器配置，新代码请使用 translators。 */
   translationProcessor?: TranslationProcessorConfig;
+  /** @deprecated 迁移前的单一校对器配置，新代码请使用 proofreaders。 */
   proofreadProcessor?: TranslationProcessorConfig;
   glossaryExtractor?: GlossaryExtractorConfig;
   glossaryUpdater?: GlossaryUpdaterConfig;

@@ -178,6 +178,7 @@ export interface TranscribeDictionaryProgress {
 export interface ProofreadProgress {
   status: 'running' | 'paused' | 'done' | 'error';
   mode: ProofreadTaskMode;
+  proofreaderName?: string;
   totalChapters: number;
   completedChapters: number;
   totalBatches: number;
@@ -407,6 +408,7 @@ type TranslationExecutionRuntime = {
 type ProofreadExecutionRuntime = {
   processor: ProofreadProcessor;
   maxConcurrentWorkItems: number;
+  maxBatchSourceChars?: number;
   close: () => Promise<void>;
 };
 
@@ -1573,6 +1575,7 @@ export class ProjectService {
   async startProofread(input: {
     chapterIds: number[];
     mode?: ProofreadTaskMode;
+    proofreaderName?: string;
   }): Promise<void> {
     const runtime = this.activeRuntime;
     const state = runtime ?? this.currentState;
@@ -1589,7 +1592,12 @@ export class ProjectService {
       throw new ProjectServiceUserInputError('校对任务正在运行');
     }
 
-    const task = this.createProofreadTaskState(project, input.chapterIds, input.mode ?? 'linear');
+    const task = this.createProofreadTaskState(
+      project,
+      input.chapterIds,
+      input.mode ?? 'linear',
+      input.proofreaderName,
+    );
     task.status = 'running';
     task.abortRequested = false;
     task.errorMessage = undefined;
@@ -1600,7 +1608,7 @@ export class ProjectService {
 
     this.log(
       'info',
-      `校对任务开始，共 ${task.totalChapters} 个章节，${task.totalBatches} 个片段，模式：${task.mode === 'linear' ? '线性校对' : '同时校对'}`,
+      `校对任务开始，共 ${task.totalChapters} 个章节，${task.totalBatches} 个片段，模式：${task.mode === 'linear' ? '线性校对' : '同时校对'}${task.proofreaderName ? `，预设：${task.proofreaderName}` : ''}`,
     );
     state.isBusy = true;
     this.syncProofreadProgress(task, state);
@@ -1709,6 +1717,7 @@ export class ProjectService {
     project: TranslationProject,
     chapterIds: number[],
     mode: ProofreadTaskMode,
+    proofreaderName?: string,
   ): ProofreadTaskState {
     const uniqueChapterIds = [...new Set(chapterIds)];
     if (uniqueChapterIds.length === 0) {
@@ -1743,6 +1752,10 @@ export class ProjectService {
     return {
       taskId: `proofread-${Date.now()}`,
       mode,
+      proofreaderName:
+        typeof proofreaderName === 'string' && proofreaderName.trim().length > 0
+          ? proofreaderName.trim()
+          : undefined,
       status: 'paused',
       chapterIds: orderedChapterIds,
       chapters,
@@ -1774,6 +1787,7 @@ export class ProjectService {
         project,
         (level, msg) => this.log(level, msg),
         this.requestHistoryService,
+        task.proofreaderName,
       );
       const proofreadRuntime = proofreadExecutionRuntime;
 
@@ -1788,6 +1802,7 @@ export class ProjectService {
       let persistChain = Promise.resolve();
       const workspaceConfig = project.getWorkspaceConfig();
       const batchFragmentCount = workspaceConfig.batchFragmentCount ?? 1;
+      const maxBatchSourceChars = proofreadRuntime.maxBatchSourceChars;
 
       this.syncDerivedProofreadTaskState(task);
       this.syncProofreadProgress(task, state);
@@ -1844,11 +1859,15 @@ export class ProjectService {
           fragmentIndex: number;
         }> = [];
         let firstChapterId: number | undefined;
+        let batchSourceChars = 0;
         while (
           batch.length < batchFragmentCount &&
           nextWorkItemIndex < pendingWorkItems.length
         ) {
           const item = pendingWorkItems[nextWorkItemIndex]!;
+          const itemSourceChars = project
+            .getDocumentManager()
+            .getSourceText(item.chapterId, item.fragmentIndex).length;
           if (firstChapterId !== undefined && item.chapterId !== firstChapterId) {
             break;
           }
@@ -1858,8 +1877,16 @@ export class ProjectService {
           ) {
             break;
           }
+          if (
+            maxBatchSourceChars !== undefined &&
+            batch.length > 0 &&
+            batchSourceChars + itemSourceChars > maxBatchSourceChars
+          ) {
+            break;
+          }
           firstChapterId = item.chapterId;
           batch.push(item);
+          batchSourceChars += itemSourceChars;
           nextWorkItemIndex += 1;
         }
         return batch.length > 0 ? batch : undefined;
@@ -1922,11 +1949,20 @@ export class ProjectService {
                 glossary: project.getGlossary(),
                 requirements: firstPrepared.requirements,
                 editorRequirementsText: firstPrepared.editorRequirementsText,
+                documentManager: project.getDocumentManager(),
                 workItemRef: {
                   chapterId: firstItem.chapterId,
                   fragmentIndex: firstItem.fragmentIndex,
                   stepId: 'proofread',
                 },
+                orderedFragments: project
+                  .getWorkspaceConfig()
+                  .chapters.flatMap((chapter) =>
+                    project.getDocumentManager().getChapterFragmentRefs(chapter.id),
+                  ),
+                storyTopology: project.getStoryTopology?.(),
+                dependencyTrackingSourceRevision:
+                  project.getWorkspaceConfig().dependencyTracking?.sourceRevision,
                 fragmentAuxData: mergedAuxData,
               });
 
@@ -1982,6 +2018,14 @@ export class ProjectService {
                   fragmentIndex: firstItem.fragmentIndex,
                   stepId: 'proofread',
                 },
+                orderedFragments: project
+                  .getWorkspaceConfig()
+                  .chapters.flatMap((chapter) =>
+                    project.getDocumentManager().getChapterFragmentRefs(chapter.id),
+                  ),
+                storyTopology: project.getStoryTopology?.(),
+                dependencyTrackingSourceRevision:
+                  project.getWorkspaceConfig().dependencyTracking?.sourceRevision,
                 fragmentAuxData: prepared.fragmentAuxData,
               });
 
@@ -3342,6 +3386,7 @@ export class ProjectService {
     state.proofreadProgress = {
       status: task.status,
       mode: task.mode,
+      proofreaderName: task.proofreaderName,
       totalChapters: task.totalChapters,
       completedChapters: task.completedChapters,
       totalBatches: task.totalBatches,
@@ -4082,6 +4127,7 @@ export class ProjectService {
     runtime.proofreadProgress = {
       status: persistedTask.status,
       mode: persistedTask.mode,
+      proofreaderName: persistedTask.proofreaderName,
       totalChapters: persistedTask.totalChapters,
       completedChapters: persistedTask.completedChapters,
       totalBatches: persistedTask.totalBatches,
@@ -5359,6 +5405,7 @@ async function createProofreadProcessorForProject(
     msg: string,
   ) => void,
   requestHistoryService: RequestHistoryService,
+  proofreaderName?: string,
 ): Promise<ProofreadExecutionRuntime> {
   const manager = new GlobalConfigManager();
   const globalConfig = await manager.getTranslationGlobalConfig();
@@ -5368,10 +5415,25 @@ async function createProofreadProcessorForProject(
   let processorConfig: TranslationProcessorConfig | undefined;
   let promptSet = 'ja-zhCN';
 
-  try {
-    processorConfig = globalConfig.getProofreadProcessorConfig();
-  } catch {
-    processorConfig = undefined;
+  if (translatorName) {
+    const translatorEntry = await manager.getTranslator(translatorName);
+    if (translatorEntry) {
+      promptSet = translatorEntry.promptSet;
+    }
+  }
+
+  if (proofreaderName) {
+    const proofreaderEntry = await manager.getProofreader(proofreaderName);
+    if (!proofreaderEntry) {
+      throw new Error(`未找到名为 "${proofreaderName}" 的校对器`);
+    }
+    processorConfig = proofreaderEntry;
+  } else {
+    try {
+      processorConfig = globalConfig.getProofreadProcessorConfig();
+    } catch {
+      processorConfig = undefined;
+    }
   }
 
   if (!processorConfig) {
@@ -5432,6 +5494,10 @@ async function createProofreadProcessorForProject(
       }),
     }),
     maxConcurrentWorkItems: await resolveTranslatorMaxConcurrentWorkItems(manager, processorConfig),
+    maxBatchSourceChars:
+      processorConfig.workflow === 'proofread-consistency-check'
+        ? processorConfig.maxSourceChars
+        : undefined,
     close: async () => {
       await provider.closeAll();
     },

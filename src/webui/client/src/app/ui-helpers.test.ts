@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildClearedWorkspaceWorkflowPatch,
+  buildProofreaderPayload,
   buildTranslationProcessorConfigPayload,
   buildTranslatorPayload,
   buildWorkspaceWorkflowPatch,
@@ -11,6 +12,7 @@ import {
   workspaceWorkflowToForm,
   parseLlmRequestConfigYaml,
   parseYamlObject,
+  proofreaderToForm,
   translationProcessorConfigToForm,
   translatorFieldName,
   translatorToForm,
@@ -409,6 +411,56 @@ describe('WebUI LLM request config helpers', () => {
         },
       },
     });
+  });
+
+  test('serializes named proofreader metadata and consistency workflow fields', () => {
+    const workflow = {
+      workflow: 'proofread-consistency-check',
+      title: 'Consistency',
+      fields: [
+        {
+          key: 'modelNames',
+          label: '模型链',
+          input: 'llm-profile' as const,
+          required: true,
+        },
+        {
+          key: 'maxSourceChars',
+          label: '单次最大原文字符数',
+          input: 'number' as const,
+        },
+        {
+          key: 'maxAdditionalRelatedContexts',
+          label: '相关上下文数量',
+          input: 'number' as const,
+        },
+        {
+          key: 'randomContextCount',
+          label: '随机上下文数量',
+          input: 'number' as const,
+        },
+      ],
+    } satisfies TranslationProcessorWorkflowMetadata;
+
+    const entry = {
+      workflow: 'proofread-consistency-check',
+      modelNames: ['proofreader-primary'],
+      maxSourceChars: 8192,
+      maxAdditionalRelatedContexts: 3,
+      randomContextCount: 2,
+      metadata: {
+        title: '一致性校对',
+        description: '用于称谓和术语漂移检查',
+      },
+    };
+
+    const formValues = proofreaderToForm(entry, 'consistency-default', workflow);
+    expect(formValues.proofreaderName).toBe('consistency-default');
+    expect(formValues.metadataTitle).toBe('一致性校对');
+    expect(formValues[translatorFieldName('maxSourceChars')]).toBe(8192);
+
+    const payload = buildProofreaderPayload(formValues as Record<string, unknown>, workflow);
+    expect(payload).toEqual(entry);
   });
 
   test('serializes workspace workflow fields and clears removed fields', () => {

@@ -117,6 +117,15 @@ export function createConfigRoutes(configService: ConfigService): Hono {
     return c.json({ workflows: configService.listProofreadProcessorWorkflows() });
   });
 
+  app.get('/proofreaders', async (c) => {
+    const { names } = await configService.listProofreaders();
+    const proofreaders: Record<string, unknown> = {};
+    for (const name of names) {
+      proofreaders[name] = await configService.getProofreader(name);
+    }
+    return c.json({ proofreaders });
+  });
+
   app.get('/translators/:name', async (c) => {
     const translator = await configService.getTranslator(c.req.param('name'));
     if (!translator) return c.json({ error: '未找到' }, 404);
@@ -133,6 +142,23 @@ export function createConfigRoutes(configService: ConfigService): Hono {
     const removed = await configService.removeTranslator(
       c.req.param('name'),
     );
+    return c.json({ ok: removed });
+  });
+
+  app.get('/proofreaders/:name', async (c) => {
+    const proofreader = await configService.getProofreader(c.req.param('name'));
+    if (!proofreader) return c.json({ error: '未找到' }, 404);
+    return c.json(proofreader);
+  });
+
+  app.put('/proofreaders/:name', async (c) => {
+    const body = await c.req.json();
+    await configService.setProofreader(c.req.param('name'), body);
+    return c.json({ ok: true });
+  });
+
+  app.delete('/proofreaders/:name', async (c) => {
+    const removed = await configService.removeProofreader(c.req.param('name'));
     return c.json({ ok: removed });
   });
 

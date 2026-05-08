@@ -25,6 +25,7 @@ import { api } from './api.ts';
 import { ActiveWorkspaceIdContext } from './active-workspace-context.ts';
 import {
   auxToForm,
+  buildProofreaderPayload,
   buildClearedWorkspaceWorkflowPatch,
   buildTranslationProcessorConfigPayload,
   buildTranslatorPayload,
@@ -38,6 +39,7 @@ import {
   optionalString,
   parseYamlObject,
   profileToForm,
+  proofreaderToForm,
   splitLines,
   translationProcessorConfigToForm,
   translatorToForm,
@@ -55,6 +57,7 @@ import type {
   ManagedWorkspace,
   OpenWorkspaceStatus,
   PlotSummaryConfig,
+  ProofreaderEntry,
   ProjectStatus,
   ProjectResourceVersions,
   RepetitionPatternAnalysisResult,
@@ -368,8 +371,7 @@ export function AppShell() {
     libraries: [],
     discoveryErrors: {},
   });
-  const [proofreadConfig, setProofreadConfig] =
-    useState<TranslationProcessorConfig | null>(null);
+  const [proofreaders, setProofreaders] = useState<Record<string, ProofreaderEntry>>({});
   const [proofreadWorkflows, setProofreadWorkflows] = useState<
     TranslationProcessorWorkflowMetadata[]
   >([]);
@@ -383,6 +385,7 @@ export function AppShell() {
   const [alignmentConfig, setAlignmentConfig] = useState<AlignmentRepairConfig | null>(null);
   const [selectedLlmName, setSelectedLlmName] = useState<string>();
   const [selectedTranslatorName, setSelectedTranslatorName] = useState<string>();
+  const [selectedProofreaderName, setSelectedProofreaderName] = useState<string>();
   const [activityCenterOpen, setActivityCenterOpen] = useState(false);
   const [chapterContentRevision, setChapterContentRevision] = useState(0);
   const workspaceResourceVersionsRef = useRef<ProjectResourceVersions>({
@@ -955,7 +958,7 @@ export function AppShell() {
         translatorsRes,
         workflowRes,
         styleLibraryRes,
-        proofreadConfigRes,
+        proofreadersRes,
         proofreadWorkflowRes,
         extractorRes,
         updaterRes,
@@ -968,7 +971,7 @@ export function AppShell() {
         api.getTranslators(),
         api.getTranslatorWorkflows(),
         api.getStyleLibraries(),
-        api.getProofreadProcessorConfig(),
+        api.getProofreaders(),
         api.getProofreadWorkflows(),
         api.getGlossaryExtractor(),
         api.getGlossaryUpdater(),
@@ -984,7 +987,7 @@ export function AppShell() {
       setTranslators(translatorsRes.translators);
       setTranslatorWorkflows(workflowRes.workflows);
       setStyleLibraryCatalog(styleLibraryRes);
-      setProofreadConfig(proofreadConfigRes as TranslationProcessorConfig | null);
+      setProofreaders(proofreadersRes.proofreaders);
       setProofreadWorkflows(proofreadWorkflowRes.workflows);
       setExtractorConfig(extractorRes as GlossaryExtractorConfig | null);
       setUpdaterConfig(updaterRes as GlossaryUpdaterConfig | null);
@@ -1001,6 +1004,12 @@ export function AppShell() {
           return current;
         }
         return Object.keys(translatorsRes.translators)[0];
+      });
+      setSelectedProofreaderName((current) => {
+        if (current && proofreadersRes.proofreaders[current]) {
+          return current;
+        }
+        return Object.keys(proofreadersRes.proofreaders)[0];
       });
     });
   }, [runSettingsAction]);
@@ -1248,22 +1257,30 @@ export function AppShell() {
       return;
     }
 
-    const workflow =
-      proofreadWorkflowMap.get(proofreadConfig?.workflow ?? '') ?? proofreadWorkflows[0];
+    if (selectedProofreaderName && proofreaders[selectedProofreaderName]) {
+      const proofreader = proofreaders[selectedProofreaderName];
+      const workflow = proofreadWorkflowMap.get(proofreader.workflow ?? '') ?? proofreadWorkflows[0];
+      proofreadForm.resetFields();
+      proofreadForm.setFieldsValue(
+        proofreaderToForm(proofreader, selectedProofreaderName, workflow) as Record<
+          string,
+          {} | undefined
+        >,
+      );
+      return;
+    }
 
     proofreadForm.resetFields();
     proofreadForm.setFieldsValue(
-      translationProcessorConfigToForm(proofreadConfig, workflow) as Record<
-        string,
-        {} | undefined
-      >,
+      proofreaderToForm(null, undefined, proofreadWorkflows[0]) as Record<string, {} | undefined>,
     );
   }, [
     location.pathname,
-    proofreadConfig,
     proofreadForm,
     proofreadWorkflowMap,
     proofreadWorkflows,
+    proofreaders,
+    selectedProofreaderName,
   ]);
 
   useEffect(() => {
@@ -1569,7 +1586,11 @@ export function AppShell() {
   );
 
   const handleStartProofread = useCallback(
-    async (input: { chapterIds: number[]; mode?: 'linear' | 'simultaneous' }) => {
+    async (input: {
+      chapterIds: number[];
+      mode?: 'linear' | 'simultaneous';
+      proofreaderName?: string;
+    }) => {
       await runAction(async () => {
         await api.startProofread(input, getSelectedWorkspaceId());
         await Promise.all([refreshProjectStatus(), refreshChapters()]);
@@ -2332,25 +2353,66 @@ export function AppShell() {
     });
   }, [message, runAction, runSettingsAction, selectedTranslatorName, translators]);
 
+  const handleCreateProofreader = useCallback(() => {
+    setSelectedProofreaderName(undefined);
+    proofreadForm.resetFields();
+    proofreadForm.setFieldsValue(
+      proofreaderToForm(null, undefined, proofreadWorkflows[0]) as Record<string, {} | undefined>,
+    );
+  }, [proofreadForm, proofreadWorkflows]);
+
+  const selectProofreader = useCallback((name: string) => {
+    setSelectedProofreaderName(name);
+  }, []);
+
   const handleSaveProofreadProcessor = useCallback(
     async (values: Record<string, unknown>) => {
       await runAction(async () => {
+        const name = String(values.proofreaderName ?? '').trim();
+        if (!name) {
+          throw new Error('校对器名称不能为空');
+        }
         const workflowName = optionalString(values.workflow) ?? proofreadWorkflows[0]?.workflow;
         const workflow = workflowName ? proofreadWorkflowMap.get(workflowName) : undefined;
         if (!workflow) {
           throw new Error('未找到可用的校对工作流元数据');
         }
 
-        const payload = buildTranslationProcessorConfigPayload(values, workflow);
+        const payload = buildProofreaderPayload(values, workflow);
         await runSettingsAction(['proofread'], async () => {
-          await api.saveProofreadProcessorConfig(payload);
-          setProofreadConfig(payload);
+          await api.saveProofreader(name, payload);
+          setProofreaders((prev) => ({
+            ...prev,
+            [name]: payload,
+          }));
+          setSelectedProofreaderName(name);
         });
         message.success('校对器已保存');
       });
     },
     [message, proofreadWorkflowMap, proofreadWorkflows, runAction, runSettingsAction],
   );
+
+  const handleDeleteProofreader = useCallback(async () => {
+    if (!selectedProofreaderName) {
+      return;
+    }
+    await runAction(async () => {
+      await runSettingsAction(['proofread'], async () => {
+        await api.deleteProofreader(selectedProofreaderName);
+        const nextProofreaders = { ...proofreaders };
+        delete nextProofreaders[selectedProofreaderName];
+        setProofreaders(nextProofreaders);
+        setSelectedProofreaderName((current) => {
+          if (current !== selectedProofreaderName) {
+            return current;
+          }
+          return Object.keys(nextProofreaders)[0];
+        });
+      });
+      message.success('校对器已删除');
+    });
+  }, [message, proofreaders, runAction, runSettingsAction, selectedProofreaderName]);
 
   const handleSaveAuxiliaryConfig = useCallback(
     async (
@@ -2653,6 +2715,8 @@ export function AppShell() {
                           : undefined
                       }
                       translatorOptions={translatorOptions}
+                      proofreaders={proofreaders}
+                      defaultProofreaderName={selectedProofreaderName}
                       styleLibraryOptions={styleLibraryOptions}
                       selectedTranslatorWorkflow={selectedWorkspaceWorkflow}
                       llmProfileOptions={llmProfileOptions}
@@ -2790,7 +2854,8 @@ export function AppShell() {
                         selectedTranslatorName={selectedTranslatorName}
                         translators={translators}
                         translatorWorkflows={translatorWorkflows}
-                        proofreadProcessorConfig={proofreadConfig}
+                        selectedProofreaderName={selectedProofreaderName}
+                        proofreaders={proofreaders}
                         proofreadWorkflows={proofreadWorkflows}
                         llmForm={llmForm}
                         embeddingForm={embeddingForm}
@@ -2815,7 +2880,10 @@ export function AppShell() {
                         onSelectTranslator={selectTranslator}
                         onSaveTranslator={handleSaveTranslator}
                         onDeleteTranslator={handleDeleteTranslator}
+                        onCreateProofreader={handleCreateProofreader}
+                        onSelectProofreader={selectProofreader}
                         onSaveProofreadProcessor={handleSaveProofreadProcessor}
+                        onDeleteProofreader={handleDeleteProofreader}
                         onSaveAuxiliaryConfig={handleSaveAuxiliaryConfig}
                       />
                     )

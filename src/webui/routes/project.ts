@@ -335,10 +335,18 @@ export function createProjectRoutes(
 
   app.post('/proofread', async (c) => {
     try {
-      const body = await c.req.json<{ chapterIds?: number[]; mode?: 'linear' | 'simultaneous' }>();
+      const body = await c.req.json<{
+        chapterIds?: number[];
+        mode?: 'linear' | 'simultaneous';
+        proofreaderName?: string;
+      }>();
       await projectService.startProofread({
         chapterIds: Array.isArray(body.chapterIds) ? body.chapterIds.map((value) => Number(value)) : [],
         mode: body.mode === 'simultaneous' ? 'simultaneous' : 'linear',
+        proofreaderName:
+          typeof body.proofreaderName === 'string' && body.proofreaderName.trim().length > 0
+            ? body.proofreaderName.trim()
+            : undefined,
       });
       return c.json({ ok: true, snapshot: projectService.getSnapshot() });
     } catch (error) {

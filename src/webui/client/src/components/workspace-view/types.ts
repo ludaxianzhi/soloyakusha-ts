@@ -4,6 +4,7 @@ import type {
   DictionaryImportResult,
   GlossaryTerm,
   ImportArchiveResult,
+  ProofreaderEntry,
   ProjectStatus,
   RepetitionPatternAnalysisResult,
   RepetitionPatternConsistencyFixProgress,
@@ -104,7 +105,10 @@ export interface WorkspaceViewProps {
   onStartProofread: (input: {
     chapterIds: number[];
     mode?: ProofreadTaskMode;
+    proofreaderName?: string;
   }) => void | Promise<void>;
+  proofreaders: Record<string, ProofreaderEntry>;
+  defaultProofreaderName?: string;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onForceAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onRemoveTaskActivity: (task: TaskActivityKind) => void | Promise<void>;

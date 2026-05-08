@@ -179,6 +179,7 @@ export interface TranscribeDictionaryProgress {
 export interface ProofreadProgress {
   status: 'running' | 'paused' | 'done' | 'error';
   mode: 'linear' | 'simultaneous';
+  proofreaderName?: string;
   totalChapters: number;
   completedChapters: number;
   totalBatches: number;
@@ -765,6 +766,11 @@ export interface TranslatorMetadata {
   description?: string;
 }
 
+export interface ProofreaderMetadata {
+  title?: string;
+  description?: string;
+}
+
 export interface TranslatorEntry {
   metadata?: TranslatorMetadata;
   sourceLanguage: string;
@@ -791,6 +797,9 @@ export interface TranslationProcessorConfig {
   workflow?: string;
   modelNames: string[];
   maxConcurrentWorkItems?: number;
+  maxSourceChars?: number;
+  maxAdditionalRelatedContexts?: number;
+  randomContextCount?: number;
   slidingWindow?: {
     overlapChars?: number;
   };
@@ -798,6 +807,10 @@ export interface TranslationProcessorConfig {
   steps?: Record<string, TranslatorStepConfig>;
   models?: Record<string, string>;
   reviewIterations?: number;
+}
+
+export interface ProofreaderEntry extends TranslationProcessorConfig {
+  metadata?: ProofreaderMetadata;
 }
 
 export interface TranslationProcessorWorkflowFieldMetadata {

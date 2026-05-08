@@ -7,6 +7,7 @@ import type {
   GlossaryUpdaterConfig,
   LlmProfileConfig,
   PlotSummaryConfig,
+  ProofreaderEntry,
   TranslationProcessorConfig,
   TranslationProcessorWorkflowMetadata,
   TranslatorEntry,
@@ -44,9 +45,10 @@ interface SettingsViewProps {
   vectorConfig: VectorStoreConfig | null;
   vectorConnectionStatus: VectorStoreConnectionStatus;
   selectedTranslatorName?: string;
+  selectedProofreaderName?: string;
   translators: Record<string, TranslatorEntry>;
   translatorWorkflows: TranslationProcessorWorkflowMetadata[];
-  proofreadProcessorConfig: TranslationProcessorConfig | null;
+  proofreaders: Record<string, ProofreaderEntry>;
   proofreadWorkflows: TranslationProcessorWorkflowMetadata[];
   llmForm: FormInstance<Record<string, unknown>>;
   embeddingForm: FormInstance<Record<string, unknown>>;
@@ -71,7 +73,10 @@ interface SettingsViewProps {
   onSelectTranslator: (name: string) => void;
   onSaveTranslator: (values: Record<string, unknown>) => void | Promise<void>;
   onDeleteTranslator: () => void | Promise<void>;
+  onCreateProofreader: () => void;
+  onSelectProofreader: (name: string) => void;
   onSaveProofreadProcessor: (values: Record<string, unknown>) => void | Promise<void>;
+  onDeleteProofreader: () => void | Promise<void>;
   onSaveAuxiliaryConfig: (
     kind: 'extractor' | 'updater' | 'plot' | 'alignment',
     values: Record<string, unknown>,
@@ -86,9 +91,10 @@ export function SettingsView({
   vectorConfig,
   vectorConnectionStatus,
   selectedTranslatorName,
+  selectedProofreaderName,
   translators,
   translatorWorkflows,
-  proofreadProcessorConfig,
+  proofreaders,
   proofreadWorkflows,
   llmForm,
   embeddingForm,
@@ -113,18 +119,22 @@ export function SettingsView({
   onSelectTranslator,
   onSaveTranslator,
   onDeleteTranslator,
+  onCreateProofreader,
+  onSelectProofreader,
   onSaveProofreadProcessor,
+  onDeleteProofreader,
   onSaveAuxiliaryConfig,
 }: SettingsViewProps) {
   const [uploadingPcaWeights, setUploadingPcaWeights] = useState(false);
   const llmNames = Object.keys(llmProfiles);
   const translatorNames = Object.keys(translators);
+  const proofreaderNames = Object.keys(proofreaders);
   const embeddingPcaEnabled =
     (Form.useWatch('pcaEnabled', embeddingForm) as boolean | undefined) === true;
   const selectedWorkflowKey = (Form.useWatch('type', translatorForm) as string | undefined) ?? 'default';
   const selectedProofreadWorkflowKey =
     (Form.useWatch('workflow', proofreadForm) as string | undefined) ??
-    proofreadProcessorConfig?.workflow ??
+    proofreaders[selectedProofreaderName ?? '']?.workflow ??
     proofreadWorkflows[0]?.workflow;
   const selectedVectorProvider =
     (Form.useWatch('provider', vectorForm) as VectorStoreConfig['provider'] | undefined) ??
@@ -672,8 +682,45 @@ export function SettingsView({
           key: 'proofread',
           label: '校对器',
           children: (
-            <Row gutter={16}>
-              <Col span={24}>
+            <Row gutter={16} className="settings-split-row">
+              <Col span={7} className="settings-split-panel">
+                <Card
+                  title="校对器列表"
+                  loading={settingsLoading.proofread}
+                  extra={<Button onClick={onCreateProofreader}>新建</Button>}
+                >
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    {proofreaderNames.map((name) => {
+                      const proofreader = proofreaders[name];
+                      if (!proofreader) {
+                        return null;
+                      }
+                      const workflow = proofreadWorkflowMap.get(proofreader.workflow ?? '') ?? proofreadWorkflows[0];
+                      return (
+                        <button
+                          type="button"
+                          key={name}
+                          onClick={() => onSelectProofreader(name)}
+                          className={`settings-list-card${name === selectedProofreaderName ? ' active' : ''}`}
+                        >
+                          <Space wrap>
+                            <strong>{proofreader.metadata?.title ?? name}</strong>
+                            {workflow ? <Tag color="cyan">{workflow.title}</Tag> : null}
+                          </Space>
+                          <div>{name}</div>
+                          <div>{formatTranslatorModelSummary(proofreader, workflow)}</div>
+                          {proofreader.metadata?.description ? (
+                            <Paragraph className="settings-list-description" ellipsis={{ rows: 2 }}>
+                              {proofreader.metadata.description}
+                            </Paragraph>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </Space>
+                </Card>
+              </Col>
+              <Col span={17} className="settings-split-panel">
                 <Card title="编辑校对器" loading={settingsLoading.proofread}>
                   <Form
                     form={proofreadForm}
@@ -682,12 +729,25 @@ export function SettingsView({
                     onFinish={(values) => void onSaveProofreadProcessor(values)}
                   >
                     <Row gutter={16}>
+                      <Col span={6}>
+                        <Form.Item name="proofreaderName" label="名称" rules={[{ required: true }]}>
+                          <Input />
+                        </Form.Item>
+                      </Col>
+                      <Col span={6}>
+                        <Form.Item name="metadataTitle" label="显示名称">
+                          <Input placeholder="界面上展示给用户的名称" />
+                        </Form.Item>
+                      </Col>
                       <Col span={12}>
                         <Form.Item name="workflow" label="工作流" rules={[{ required: true }]}>
                           <Select options={proofreadWorkflowOptions} />
                         </Form.Item>
                       </Col>
                     </Row>
+                    <Form.Item name="metadataDescription" label="说明">
+                      <TextArea rows={3} placeholder="帮助后续使用者理解这个校对器适用于什么场景。" />
+                    </Form.Item>
                     {selectedProofreadWorkflow ? (
                       <Card size="small" className="settings-meta-card">
                         <Space direction="vertical" size={4}>
@@ -715,6 +775,14 @@ export function SettingsView({
                       <Button type="primary" htmlType="submit">
                         保存校对器
                       </Button>
+                      {selectedProofreaderName && (
+                        <Popconfirm
+                          title="确认删除该校对器？"
+                          onConfirm={() => void onDeleteProofreader()}
+                        >
+                          <Button danger>删除</Button>
+                        </Popconfirm>
+                      )}
                     </Space>
                   </Form>
                 </Card>

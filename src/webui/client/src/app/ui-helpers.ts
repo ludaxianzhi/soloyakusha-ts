@@ -5,6 +5,7 @@ import type {
   GlossaryUpdaterConfig,
   LlmProfileConfig,
   PlotSummaryConfig,
+  ProofreaderEntry,
   TranslationProcessorConfig,
   TranslationProcessorWorkflowFieldMetadata,
   TranslationProcessorWorkflowMetadata,
@@ -424,6 +425,28 @@ export function translationProcessorConfigToForm(
   return values;
 }
 
+export function proofreaderToForm(
+  proofreader: ProofreaderEntry | null,
+  proofreaderName: string | undefined,
+  workflow: TranslationProcessorWorkflowMetadata | undefined,
+): Record<string, string | string[] | number | undefined> {
+  const values: Record<string, string | string[] | number | undefined> = {
+    proofreaderName,
+    workflow: proofreader?.workflow ?? workflow?.workflow,
+    metadataTitle: proofreader?.metadata?.title,
+    metadataDescription: proofreader?.metadata?.description,
+  };
+
+  for (const field of getTranslatorWorkflowFields(workflow)) {
+    values[translatorFieldName(field.key)] = serializeWorkflowFieldValue(
+      field,
+      proofreader ? getNestedValue(proofreader, field.key) : undefined,
+    );
+  }
+
+  return values;
+}
+
 export function buildTranslatorPayload(
   values: Record<string, unknown>,
   workflow: TranslationProcessorWorkflowMetadata,
@@ -470,6 +493,24 @@ export function buildTranslationProcessorConfigPayload(
     if (parsed !== undefined) {
       setNestedValue(payload, field.key, parsed);
     }
+  }
+
+  return payload;
+}
+
+export function buildProofreaderPayload(
+  values: Record<string, unknown>,
+  workflow: TranslationProcessorWorkflowMetadata,
+): ProofreaderEntry {
+  const payload: ProofreaderEntry = buildTranslationProcessorConfigPayload(values, workflow);
+
+  const metadataTitle = optionalString(values.metadataTitle);
+  const metadataDescription = optionalString(values.metadataDescription);
+  if (metadataTitle || metadataDescription) {
+    payload.metadata = {
+      title: metadataTitle,
+      description: metadataDescription,
+    };
   }
 
   return payload;

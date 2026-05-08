@@ -10,7 +10,10 @@ import type { ChatRequestOptions, LlmClientConfig } from "../../llm/types.ts";
 import { GlobalConfigManager } from "../../config/manager.ts";
 import { TranslationGlobalConfig } from "../config.ts";
 import { DefaultTranslationProcessor } from "./default-translation-processor.ts";
-import { MultiStageProofreadProcessor } from "./proofread-processor.ts";
+import {
+  ConsistencyCheckProofreadProcessor,
+  MultiStageProofreadProcessor,
+} from "./proofread-processor.ts";
 import { StyleTransferTranslationProcessor } from "./style-transfer-translation-processor.ts";
 import { DefaultTextSplitter } from "../document/translation-document-manager.ts";
 import type { TranslationOutputRepairer } from "./translation-output-repair.ts";
@@ -531,6 +534,65 @@ describe("TranslationProcessor", () => {
     expect(defaultClient.requests).toHaveLength(0);
     expect(editorClient.requests).toHaveLength(1);
     expect(proofreaderClient.requests).toHaveLength(1);
+  });
+
+  test("consistency proofread only samples predecessor contexts and deduplicates related refs", async () => {
+    const client = new FakeChatClient([
+      JSON.stringify({
+        modifications: [],
+      }),
+    ]);
+    const processor = new ConsistencyCheckProofreadProcessor(client, {
+      maxAdditionalRelatedContexts: 2,
+      randomContextCount: 1,
+    });
+
+    const documentManager = {
+      loadContextNetwork: async () => ({
+        manifest: {
+          schemaVersion: 2 as const,
+          sourceRevision: 9,
+          fragmentCount: 5,
+          blockSize: 1,
+          edgeCount: 2,
+          createdAt: "2025-01-01T00:00:00.000Z",
+        },
+        offsets: new Uint32Array([0, 0, 0, 0, 0, 2]),
+        targets: new Int32Array([1, 2]),
+        strengths: new Float32Array([0.9, 0.8]),
+      }),
+      getSourceText: (chapterId: number) => `S${chapterId}`,
+      getTranslatedText: (chapterId: number) => `T${chapterId}`,
+    };
+
+    await processor.process({
+      sourceText: "当前原文",
+      currentTranslationText: "当前译文",
+      documentManager: documentManager as never,
+      workItemRef: {
+        chapterId: 5,
+        fragmentIndex: 0,
+        stepId: "proofread",
+      },
+      orderedFragments: [
+        { chapterId: 1, fragmentIndex: 0 },
+        { chapterId: 2, fragmentIndex: 0 },
+        { chapterId: 3, fragmentIndex: 0 },
+        { chapterId: 4, fragmentIndex: 0 },
+        { chapterId: 5, fragmentIndex: 0 },
+      ],
+      storyTopology: {
+        getPredecessorChapterIds: () => [1, 2, 4],
+      } as never,
+      dependencyTrackingSourceRevision: 9,
+    });
+
+    const prompt = client.requests[0]?.prompt ?? "";
+    expect(prompt).toContain("原文: S2");
+    expect(prompt).toContain("译文: T2");
+    expect(prompt).not.toContain("原文: S3");
+    expect(prompt).not.toContain("译文: T3");
+    expect(prompt.match(/原文: S2/g)?.length).toBe(1);
   });
 
   test("injects style requirements into the style-transfer step system prompt", async () => {

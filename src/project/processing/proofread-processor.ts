@@ -26,6 +26,7 @@ import type {
   TranslationProcessorTranslation,
 } from "./translation-processor.ts";
 import type { ChatClient } from "../../llm/base.ts";
+import type { StoryTopology } from "../context/story-topology.ts";
 import type { SlidingWindowFragment, SlidingWindowOptions, FragmentAuxData, FragmentAuxDataContract } from "../types.ts";
 
 export const PROOFREAD_STEP_NAMES = ["editor", "proofreader"] as const;
@@ -69,6 +70,12 @@ export type ProofreadProcessorRequest = {
     fragmentIndex: number;
     stepId?: string;
   };
+  orderedFragments?: Array<{
+    chapterId: number;
+    fragmentIndex: number;
+  }>;
+  storyTopology?: StoryTopology;
+  dependencyTrackingSourceRevision?: number;
   /** 该文本块当前已持久化的辅助数据，供消费方按需读取。 */
   fragmentAuxData?: FragmentAuxData;
 };
@@ -86,6 +93,18 @@ export type MultiStageProofreadProcessorOptions = {
   outputRepairer?: TranslationOutputRepairer;
   stepRequestOptions?: Partial<Record<ProofreadStepName, ChatRequestOptions>>;
   reviewIterations?: number;
+};
+
+export type ConsistencyCheckProofreadProcessorOptions = {
+  promptManager?: PromptManager;
+  defaultRequestOptions?: ChatRequestOptions;
+  defaultSlidingWindow?: SlidingWindowOptions;
+  logger?: Logger;
+  processorName?: string;
+  outputRepairer?: TranslationOutputRepairer;
+  maxSourceChars?: number;
+  maxAdditionalRelatedContexts?: number;
+  randomContextCount?: number;
 };
 
 export class MultiStageProofreadProcessor implements ProofreadProcessor {
@@ -350,6 +369,280 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
   }
 }
 
+export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
+  private readonly logger: Logger;
+  private readonly promptManager: PromptManager;
+  private readonly defaultRequestOptions?: ChatRequestOptions;
+  private readonly defaultSlidingWindow?: SlidingWindowOptions;
+  private readonly processorName?: string;
+  private readonly outputRepairer?: TranslationOutputRepairer;
+  private readonly maxSourceChars?: number;
+  private readonly maxAdditionalRelatedContexts: number;
+  private readonly randomContextCount: number;
+
+  constructor(
+    private readonly clientResolver: TranslationProcessorClientResolver,
+    options: ConsistencyCheckProofreadProcessorOptions = {},
+  ) {
+    this.promptManager = options.promptManager ?? new PromptManager();
+    this.defaultRequestOptions = options.defaultRequestOptions;
+    this.defaultSlidingWindow = options.defaultSlidingWindow;
+    this.logger = options.logger ?? NOOP_LOGGER;
+    this.processorName = options.processorName;
+    this.outputRepairer = options.outputRepairer;
+    this.maxSourceChars = options.maxSourceChars;
+    this.maxAdditionalRelatedContexts = Math.max(0, options.maxAdditionalRelatedContexts ?? 3);
+    this.randomContextCount = Math.max(0, options.randomContextCount ?? 2);
+  }
+
+  async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
+    const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
+    const sourceUnits = window
+      ? buildSourceUnitsFromLines(window.source.lines)
+      : splitTextIntoUnits(request.sourceText);
+    const currentTranslations = window
+      ? buildSourceUnitsFromLines(window.translation.lines)
+      : splitTextIntoUnits(request.currentTranslationText);
+
+    if (sourceUnits.length === 0) {
+      return buildEmptyResult(window);
+    }
+
+    if (sourceUnits.length !== currentTranslations.length) {
+      throw new Error(
+        `校对输入的原文与译文行数不一致: source=${sourceUnits.length}, translation=${currentTranslations.length}`,
+      );
+    }
+
+    if (this.maxSourceChars !== undefined && request.sourceText.length > this.maxSourceChars) {
+      throw new Error(
+        `一致性检查校对输入超出上限: sourceChars=${request.sourceText.length}, maxSourceChars=${this.maxSourceChars}`,
+      );
+    }
+
+    const requirements = [...(request.requirements ?? [])];
+    const plotSummaries = request.contextView?.getPlotSummaryTexts() ?? [];
+    const translatedGlossaryTerms =
+      request.contextView?.getTranslatedGlossaryTerms() ??
+      request.glossary?.getTranslatedTermsForText(request.sourceText) ??
+      [];
+    const { relatedReferencePairs, randomReferencePairs } = await this.collectConsistencyReferencePairs(
+      request,
+    );
+
+    this.logger.info?.("开始执行一致性检查校对", {
+      processorName: this.processorName,
+      sourceUnitCount: sourceUnits.length,
+      relatedReferenceCount: relatedReferencePairs.length,
+      randomReferenceCount: randomReferencePairs.length,
+      chapterId: request.workItemRef?.chapterId,
+      fragmentIndex: request.workItemRef?.fragmentIndex,
+    });
+
+    const prompt = await this.promptManager.renderConsistencyProofreadPrompt({
+      sourceUnits,
+      currentTranslations,
+      relatedReferencePairs: toPromptReferenceUnits(relatedReferencePairs),
+      randomReferencePairs: toPromptReferenceUnits(randomReferencePairs),
+      plotSummaries,
+      translatedGlossaryTerms,
+      requirements,
+    });
+
+    const client = this.resolveClient();
+    const responseText = await client.singleTurnRequest(
+      prompt.userPrompt,
+      withRequestMeta(
+        withOutputValidator(
+          buildJsonSchemaChatRequestOptions(
+            this.defaultRequestOptions,
+            {
+              name: prompt.name,
+              systemPrompt: prompt.systemPrompt,
+              responseSchema: prompt.responseSchema,
+            },
+            client.supportsStructuredOutput,
+          ),
+          (candidateResponseText) => {
+            parseProofreadModificationResponse(
+              candidateResponseText,
+              sourceUnits.map((unit) => unit.id),
+            );
+          },
+        ),
+        this.buildRequestMeta(request, relatedReferencePairs.length, randomReferencePairs.length),
+      ),
+    );
+
+    let translations = applyProofreadModifications(
+      currentTranslations.map((unit) => ({
+        id: unit.id,
+        translation: unit.text,
+      })),
+      parseProofreadModificationResponse(
+        responseText,
+        sourceUnits.map((unit) => unit.id),
+      ),
+    );
+
+    let outputText = buildOutputText(translations, window);
+    const repairedOutput = await repairTranslationOutputLines({
+      sourceUnits,
+      translations,
+      outputText,
+      window,
+      outputRepairer: this.outputRepairer,
+      logger: this.logger,
+      processorName: this.processorName,
+    });
+    translations = repairedOutput.translations;
+    outputText = repairedOutput.outputText;
+
+    return {
+      outputText,
+      translations,
+      glossaryUpdates: [],
+      responseText,
+      responseSchema: prompt.responseSchema,
+      promptName: prompt.name,
+      systemPrompt: prompt.systemPrompt,
+      userPrompt: prompt.userPrompt,
+      window,
+    };
+  }
+
+  private resolveClient(): ChatClient {
+    if ("singleTurnRequest" in this.clientResolver) {
+      return this.clientResolver;
+    }
+
+    return this.clientResolver.provider.getChatClient(this.clientResolver.modelName);
+  }
+
+  private buildRequestMeta(
+    request: ProofreadProcessorRequest,
+    relatedReferenceCount: number,
+    randomReferenceCount: number,
+  ): LlmRequestMetadata {
+    const context: JsonObject = {
+      sourceTextLength: request.sourceText.length,
+      sourceUnitCount: splitTextIntoUnits(request.sourceText).length,
+      relatedReferenceCount,
+      randomReferenceCount,
+    };
+    if (this.processorName) {
+      context.processorName = this.processorName;
+    }
+    if (request.workItemRef) {
+      context.chapterId = request.workItemRef.chapterId;
+      context.fragmentIndex = request.workItemRef.fragmentIndex;
+      if (request.workItemRef.stepId) {
+        context.stepId = request.workItemRef.stepId;
+      }
+    }
+
+    return {
+      label: "校对-一致性检查",
+      feature: "校对",
+      operation: "一致性检查",
+      component: "ConsistencyCheckProofreadProcessor",
+      workflow: "proofread-consistency-check",
+      stage: "consistency",
+      context,
+    };
+  }
+
+  private async collectConsistencyReferencePairs(request: ProofreadProcessorRequest): Promise<{
+    relatedReferencePairs: Array<{ sourceText: string; translatedText: string }>;
+    randomReferencePairs: Array<{ sourceText: string; translatedText: string }>;
+  }> {
+    const documentManager = request.documentManager;
+    const workItemRef = request.workItemRef;
+    const orderedFragments = request.orderedFragments;
+    if (!documentManager || !workItemRef || !orderedFragments) {
+      throw new Error("一致性检查校对需要文档管理器、工作项位置和有序分片列表");
+    }
+
+    const network = await documentManager.loadContextNetwork();
+    if (!network) {
+      throw new Error("一致性检查校对需要先构建上下文网络");
+    }
+    if (network.manifest.blockSize !== 1) {
+      throw new Error(`上下文网络 blockSize=${network.manifest.blockSize} 不兼容；一致性检查仅支持 blockSize=1`);
+    }
+    if (network.manifest.fragmentCount !== orderedFragments.length) {
+      throw new Error(
+        `上下文网络 fragmentCount 不匹配: network=${network.manifest.fragmentCount}, current=${orderedFragments.length}`,
+      );
+    }
+    if (
+      request.dependencyTrackingSourceRevision !== undefined &&
+      network.manifest.sourceRevision !== request.dependencyTrackingSourceRevision
+    ) {
+      throw new Error(
+        `上下文网络已过期: network.sourceRevision=${network.manifest.sourceRevision}, current.sourceRevision=${request.dependencyTrackingSourceRevision}`,
+      );
+    }
+
+    const currentGlobalIndex = orderedFragments.findIndex(
+      (fragment) =>
+        fragment.chapterId === workItemRef.chapterId &&
+        fragment.fragmentIndex === workItemRef.fragmentIndex,
+    );
+    if (currentGlobalIndex === -1) {
+      throw new Error("一致性检查校对未找到当前片段在上下文网络中的位置");
+    }
+
+    const predecessorChapterIds = new Set(
+      getPredecessorChapterIds(
+        workItemRef.chapterId,
+        request.storyTopology,
+        orderedFragments,
+      ),
+    );
+    const predecessorRefs = orderedFragments.slice(0, currentGlobalIndex).filter((ref) =>
+      isAllowedConsistencyPredecessorRef(ref, workItemRef, predecessorChapterIds),
+    );
+    const predecessorKeySet = new Set(
+      predecessorRefs.map((ref) => `${ref.chapterId}:${ref.fragmentIndex}`),
+    );
+
+    const startOffset = network.offsets[currentGlobalIndex] ?? 0;
+    const endOffset = network.offsets[currentGlobalIndex + 1] ?? startOffset;
+    const relatedRefs = dedupeProofreadFragmentRefs(
+      Array.from({ length: endOffset - startOffset }, (_, index) => {
+        const candidateGlobalIndex = network.targets[startOffset + index];
+        if (candidateGlobalIndex === undefined || candidateGlobalIndex < 0) {
+          return undefined;
+        }
+        return orderedFragments[candidateGlobalIndex];
+      }).filter((ref): ref is { chapterId: number; fragmentIndex: number } => {
+        if (!ref) {
+          return false;
+        }
+        return predecessorKeySet.has(`${ref.chapterId}:${ref.fragmentIndex}`);
+      }),
+    )
+      .sort((left, right) => compareProofreadFragmentRefs(left, right, orderedFragments))
+      .slice(0, this.maxAdditionalRelatedContexts);
+
+    const relatedKeySet = new Set(relatedRefs.map((ref) => `${ref.chapterId}:${ref.fragmentIndex}`));
+    const randomCandidates = predecessorRefs.filter(
+      (ref) => !relatedKeySet.has(`${ref.chapterId}:${ref.fragmentIndex}`),
+    );
+    const randomRefs = selectDeterministicRandomRefs(
+      randomCandidates,
+      this.randomContextCount,
+      `${workItemRef.chapterId}:${workItemRef.fragmentIndex}`,
+    );
+
+    return {
+      relatedReferencePairs: buildReferencePairs(relatedRefs, documentManager),
+      randomReferencePairs: buildReferencePairs(randomRefs, documentManager),
+    };
+  }
+}
+
 function getProofreadOperationLabel(step: ProofreadStepName): string {
   switch (step) {
     case "editor":
@@ -550,4 +843,113 @@ function resolveSlidingWindow(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function buildReferencePairs(
+  refs: ReadonlyArray<{ chapterId: number; fragmentIndex: number }>,
+  documentManager: TranslationDocumentManager,
+): Array<{ sourceText: string; translatedText: string }> {
+  return refs
+    .map((ref) => ({
+      sourceText: documentManager.getSourceText(ref.chapterId, ref.fragmentIndex),
+      translatedText: documentManager.getTranslatedText(ref.chapterId, ref.fragmentIndex),
+    }))
+    .filter((pair) => pair.sourceText.trim().length > 0 && pair.translatedText.trim().length > 0);
+}
+
+function getPredecessorChapterIds(
+  chapterId: number,
+  storyTopology: StoryTopology | undefined,
+  orderedFragments: ReadonlyArray<{ chapterId: number; fragmentIndex: number }>,
+): number[] {
+  if (storyTopology) {
+    return storyTopology.getPredecessorChapterIds(chapterId);
+  }
+
+  const chapterIds: number[] = [];
+  const seen = new Set<number>();
+  for (const ref of orderedFragments) {
+    if (ref.chapterId === chapterId) {
+      break;
+    }
+    if (!seen.has(ref.chapterId)) {
+      seen.add(ref.chapterId);
+      chapterIds.push(ref.chapterId);
+    }
+  }
+  return chapterIds;
+}
+
+function isAllowedConsistencyPredecessorRef(
+  ref: { chapterId: number; fragmentIndex: number },
+  current: { chapterId: number; fragmentIndex: number },
+  predecessorChapterIds: ReadonlySet<number>,
+): boolean {
+  if (ref.chapterId === current.chapterId) {
+    return ref.fragmentIndex < current.fragmentIndex;
+  }
+  return predecessorChapterIds.has(ref.chapterId);
+}
+
+function dedupeProofreadFragmentRefs(
+  refs: ReadonlyArray<{ chapterId: number; fragmentIndex: number }>,
+): Array<{ chapterId: number; fragmentIndex: number }> {
+  const seen = new Set<string>();
+  const result: Array<{ chapterId: number; fragmentIndex: number }> = [];
+  for (const ref of refs) {
+    const key = `${ref.chapterId}:${ref.fragmentIndex}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(ref);
+  }
+  return result;
+}
+
+function compareProofreadFragmentRefs(
+  left: { chapterId: number; fragmentIndex: number },
+  right: { chapterId: number; fragmentIndex: number },
+  orderedFragments: ReadonlyArray<{ chapterId: number; fragmentIndex: number }>,
+): number {
+  return getProofreadFragmentGlobalIndex(left, orderedFragments) - getProofreadFragmentGlobalIndex(right, orderedFragments);
+}
+
+function getProofreadFragmentGlobalIndex(
+  ref: { chapterId: number; fragmentIndex: number },
+  orderedFragments: ReadonlyArray<{ chapterId: number; fragmentIndex: number }>,
+): number {
+  return orderedFragments.findIndex(
+    (fragment) => fragment.chapterId === ref.chapterId && fragment.fragmentIndex === ref.fragmentIndex,
+  );
+}
+
+function selectDeterministicRandomRefs(
+  refs: ReadonlyArray<{ chapterId: number; fragmentIndex: number }>,
+  count: number,
+  seed: string,
+): Array<{ chapterId: number; fragmentIndex: number }> {
+  if (count <= 0 || refs.length === 0) {
+    return [];
+  }
+
+  return [...refs]
+    .sort((left, right) => {
+      const leftScore = stableHash(`${seed}:${left.chapterId}:${left.fragmentIndex}`);
+      const rightScore = stableHash(`${seed}:${right.chapterId}:${right.fragmentIndex}`);
+      if (leftScore === rightScore) {
+        return 0;
+      }
+      return leftScore - rightScore;
+    })
+    .slice(0, count);
+}
+
+function stableHash(text: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }

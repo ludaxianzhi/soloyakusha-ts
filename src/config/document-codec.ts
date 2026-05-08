@@ -27,6 +27,8 @@ import type { SlidingWindowOptions } from "../project/types.ts";
 import type {
   GlobalConfigDocument,
   GlobalLlmConfig,
+  ProofreaderEntry,
+  ProofreaderMetadata,
   GlobalStyleLibraryConfig,
   GlobalTranslationConfig,
   GlobalVectorConfig,
@@ -245,6 +247,18 @@ export function normalizeTranslationProcessorConfig(
       value.maxConcurrentWorkItems,
       `${sourceLabel}.maxConcurrentWorkItems`,
     ),
+    maxSourceChars: readOptionalPositiveInteger(
+      value.maxSourceChars,
+      `${sourceLabel}.maxSourceChars`,
+    ),
+    maxAdditionalRelatedContexts: readOptionalNonNegativeInteger(
+      value.maxAdditionalRelatedContexts,
+      `${sourceLabel}.maxAdditionalRelatedContexts`,
+    ),
+    randomContextCount: readOptionalNonNegativeInteger(
+      value.randomContextCount,
+      `${sourceLabel}.randomContextCount`,
+    ),
     slidingWindow:
       value.slidingWindow === undefined
         ? undefined
@@ -337,6 +351,20 @@ export function normalizeTranslatorEntry(
   }
 
   return result;
+}
+
+export function normalizeProofreaderEntry(
+  value: unknown,
+  sourceLabel: string,
+): ProofreaderEntry {
+  if (!isRecord(value)) {
+    throw new Error(`校对器条目必须是对象: ${sourceLabel}`);
+  }
+
+  return {
+    ...normalizeTranslationProcessorConfig(value, sourceLabel),
+    metadata: normalizeProofreaderMetadata(value.metadata, `${sourceLabel}.metadata`),
+  };
 }
 
 function normalizeTranslatorModelOverrides(
@@ -659,6 +687,22 @@ export function normalizeTranslators(
   return result;
 }
 
+export function normalizeProofreaders(
+  value: unknown,
+  sourceLabel: string,
+): Record<string, ProofreaderEntry> {
+  if (!isRecord(value)) {
+    throw new Error(`校对器目录必须是对象: ${sourceLabel}`);
+  }
+
+  const result: Record<string, ProofreaderEntry> = {};
+  for (const [name, entry] of Object.entries(value)) {
+    result[name] = normalizeProofreaderEntry(entry, `${sourceLabel}.${name}`);
+  }
+
+  return result;
+}
+
 export function normalizeGlossaryExtractorConfig(
   value: unknown,
   sourceLabel: string,
@@ -802,6 +846,10 @@ export function normalizeOptionalTranslationConfig(
       value.translators === undefined
         ? undefined
         : normalizeTranslators(value.translators, `${sourceLabel}.translators`),
+    proofreaders:
+      value.proofreaders === undefined
+        ? undefined
+        : normalizeProofreaders(value.proofreaders, `${sourceLabel}.proofreaders`),
     translationProcessor:
       value.translationProcessor === undefined
         ? undefined
@@ -845,8 +893,18 @@ export function pruneEmptyTranslationConfig(
   config: GlobalTranslationConfig | undefined,
 ): GlobalTranslationConfig | undefined {
   const hasTranslators = config?.translators && Object.keys(config.translators).length > 0;
+  const hasProofreaders = config?.proofreaders && Object.keys(config.proofreaders).length > 0;
+  const migratedProofreaders =
+    !hasProofreaders && config?.proofreadProcessor
+      ? {
+          default: cloneProofreaderEntry({
+            ...config.proofreadProcessor,
+          }),
+        }
+      : undefined;
   if (
     !hasTranslators &&
+    !hasProofreaders &&
     !config?.translationProcessor &&
     !config?.proofreadProcessor &&
     !config?.glossaryExtractor &&
@@ -859,6 +917,7 @@ export function pruneEmptyTranslationConfig(
 
   return {
     translators: cloneTranslators(config?.translators),
+    proofreaders: cloneProofreaders(config?.proofreaders ?? migratedProofreaders),
     translationProcessor: cloneTranslationProcessorConfig(config?.translationProcessor),
     proofreadProcessor: cloneTranslationProcessorConfig(config?.proofreadProcessor),
     glossaryExtractor: cloneGlossaryExtractorConfig(config?.glossaryExtractor),
@@ -916,6 +975,7 @@ export function cloneTranslationConfig(
 
   return {
     translators: cloneTranslators(config.translators),
+    proofreaders: cloneProofreaders(config.proofreaders),
     translationProcessor: cloneTranslationProcessorConfig(config.translationProcessor),
     proofreadProcessor: cloneTranslationProcessorConfig(config.proofreadProcessor),
     glossaryExtractor: cloneGlossaryExtractorConfig(config.glossaryExtractor),
@@ -967,6 +1027,14 @@ export function cloneTranslatorEntry(entry: TranslatorEntry): TranslatorEntry {
   return result;
 }
 
+export function cloneProofreaderEntry(entry: ProofreaderEntry): ProofreaderEntry {
+  const config = cloneTranslationProcessorConfig(entry)!;
+  return {
+    ...config,
+    metadata: entry.metadata ? { ...entry.metadata } : undefined,
+  };
+}
+
 export function cloneTranslators(
   translators: Record<string, TranslatorEntry> | undefined,
 ): Record<string, TranslatorEntry> | undefined {
@@ -977,6 +1045,21 @@ export function cloneTranslators(
   const result: Record<string, TranslatorEntry> = {};
   for (const [name, entry] of Object.entries(translators)) {
     result[name] = cloneTranslatorEntry(entry);
+  }
+
+  return result;
+}
+
+export function cloneProofreaders(
+  proofreaders: Record<string, ProofreaderEntry> | undefined,
+): Record<string, ProofreaderEntry> | undefined {
+  if (!proofreaders) {
+    return undefined;
+  }
+
+  const result: Record<string, ProofreaderEntry> = {};
+  for (const [name, entry] of Object.entries(proofreaders)) {
+    result[name] = cloneProofreaderEntry(entry);
   }
 
   return result;
@@ -993,6 +1076,9 @@ export function cloneTranslationProcessorConfig(
     workflow: config.workflow,
     modelNames: [...config.modelNames],
     maxConcurrentWorkItems: config.maxConcurrentWorkItems,
+    maxSourceChars: config.maxSourceChars,
+    maxAdditionalRelatedContexts: config.maxAdditionalRelatedContexts,
+    randomContextCount: config.randomContextCount,
     slidingWindow: config.slidingWindow ? { ...config.slidingWindow } : undefined,
     requestOptions: config.requestOptions
       ? clonePersistedChatRequestOptions(config.requestOptions)
@@ -1388,6 +1474,13 @@ function normalizeTranslatorMetadata(
     title: title || undefined,
     description: description || undefined,
   };
+}
+
+function normalizeProofreaderMetadata(
+  value: unknown,
+  sourceLabel: string,
+): ProofreaderMetadata | undefined {
+  return normalizeTranslatorMetadata(value, sourceLabel);
 }
 
 function normalizeLlmProvider(value: unknown, sourceLabel: string): LlmProvider {

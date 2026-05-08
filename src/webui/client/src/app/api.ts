@@ -22,6 +22,7 @@ import type {
   ManagedWorkspace,
   OpenWorkspaceStatus,
   PlotSummaryConfig,
+  ProofreaderEntry,
   ProjectResourceVersions,
   ProjectStatus,
   RepetitionPatternAnalysisResult,
@@ -382,6 +383,7 @@ export const api = {
   startProofread: (payload: {
     chapterIds: number[];
     mode?: 'linear' | 'simultaneous';
+    proofreaderName?: string;
   }, workspaceId?: string) =>
     request(`/api/project/proofread${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
@@ -677,6 +679,10 @@ export const api = {
     request<{ workflows: TranslationProcessorWorkflowMetadata[] }>(
       '/api/config/proofread-workflows',
     ),
+  getProofreaders: () =>
+    request<{ proofreaders: Record<string, ProofreaderEntry> }>(
+      '/api/config/proofreaders',
+    ),
   saveTranslator: (name: string, config: TranslatorEntry) =>
     request(`/api/config/translators/${encodeURIComponent(name)}`, {
       method: 'PUT',
@@ -684,6 +690,15 @@ export const api = {
     }),
   deleteTranslator: (name: string) =>
     request(`/api/config/translators/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    }),
+  saveProofreader: (name: string, config: ProofreaderEntry) =>
+    request(`/api/config/proofreaders/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: config,
+    }),
+  deleteProofreader: (name: string) =>
+    request(`/api/config/proofreaders/${encodeURIComponent(name)}`, {
       method: 'DELETE',
     }),
   getProofreadProcessorConfig: () =>

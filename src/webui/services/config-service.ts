@@ -9,6 +9,7 @@ import { PcaProjection } from '../../llm/pca-embedding-client.ts';
 import type {
   PersistedLlmClientConfig,
   PersistedVectorStoreConfig,
+  ProofreaderEntry,
   TranslatorEntry,
 } from '../../config/types.ts';
 import type {
@@ -216,6 +217,25 @@ export class ConfigService {
 
   async removeTranslator(name: string): Promise<boolean> {
     return this.manager.removeTranslator(name);
+  }
+
+  async listProofreaders(): Promise<{
+    names: string[];
+  }> {
+    const names = await this.manager.listProofreaderNames();
+    return { names };
+  }
+
+  async getProofreader(name: string): Promise<ProofreaderEntry | undefined> {
+    return this.manager.getProofreader(name);
+  }
+
+  async setProofreader(name: string, entry: ProofreaderEntry): Promise<void> {
+    await this.manager.setProofreader(name, entry);
+  }
+
+  async removeProofreader(name: string): Promise<boolean> {
+    return this.manager.removeProofreader(name);
   }
 
   listTranslatorWorkflows(): TranslationProcessorWorkflowMetadata[] {
