@@ -1801,8 +1801,10 @@ export class ProjectService {
       let workerFailure: unknown;
       let persistChain = Promise.resolve();
       const workspaceConfig = project.getWorkspaceConfig();
-      const batchFragmentCount = workspaceConfig.batchFragmentCount ?? 1;
+      const configuredBatchFragmentCount = workspaceConfig.batchFragmentCount ?? 1;
       const maxBatchSourceChars = proofreadRuntime.maxBatchSourceChars;
+      const batchFragmentLimit =
+        maxBatchSourceChars !== undefined ? Number.POSITIVE_INFINITY : configuredBatchFragmentCount;
 
       this.syncDerivedProofreadTaskState(task);
       this.syncProofreadProgress(task, state);
@@ -1861,7 +1863,7 @@ export class ProjectService {
         let firstChapterId: number | undefined;
         let batchSourceChars = 0;
         while (
-          batch.length < batchFragmentCount &&
+          batch.length < batchFragmentLimit &&
           nextWorkItemIndex < pendingWorkItems.length
         ) {
           const item = pendingWorkItems[nextWorkItemIndex]!;

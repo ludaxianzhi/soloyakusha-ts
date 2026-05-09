@@ -935,6 +935,78 @@ describe("ProjectService resumable batch tasks", () => {
     });
   });
 
+  test("proofread maxBatchSourceChars overrides workspace batch fragment limit", async () => {
+    const requests: string[] = [];
+    const service = createService({
+      createProofreadRuntime: async () => ({
+        processor: {
+          process: async (input: { sourceText: string }) => {
+            requests.push(input.sourceText);
+            return {
+              outputText: "校对后-0\n校对后-1\n校对后-2",
+              translations: [],
+              glossaryUpdates: [],
+              responseText: "proofread",
+              responseSchema: { type: "object" },
+              promptName: "proofread",
+              systemPrompt: "",
+              userPrompt: "",
+            };
+          },
+        },
+        maxConcurrentWorkItems: 1,
+        maxBatchSourceChars: 100,
+        close: async () => undefined,
+      }),
+    });
+    const serviceAny = service as any;
+
+    const updates: Array<[number, number, string]> = [];
+    let persistedTask: any;
+    const project = {
+      getGlossary: () => new Glossary(),
+      getWorkspaceConfig: () => ({ batchFragmentCount: 2 }),
+      getChapterDescriptors: () => [
+        { id: 1, sourceLineCount: 3, translatedLineCount: 3 },
+      ],
+      getOrderedFragments: () => [{ chapterId: 1 }, { chapterId: 1 }, { chapterId: 1 }],
+      getDocumentManager: () => ({
+        getChapterFragmentCount: () => 3,
+        getSourceText: (_chapterId: number, fragmentIndex: number) => `原文-${fragmentIndex}`,
+        updateTranslation: async (chapterId: number, fragmentIndex: number, text: string) => {
+          updates.push([chapterId, fragmentIndex, text]);
+        },
+      }),
+      buildProofreadFragmentInput: (_chapterId: number, fragmentIndex: number) => ({
+        sourceText: `原文-${fragmentIndex}`,
+        currentTranslationText: `旧译文-${fragmentIndex}`,
+        requirements: [],
+      }),
+      saveProofreadTaskState: async (task: unknown) => {
+        persistedTask = task;
+      },
+      getProofreadTaskState: () => persistedTask,
+      getProjectSnapshot: () => createProjectSnapshot(),
+      getStoryTopology: () => null,
+      hasPlotSummaries: () => false,
+    };
+
+    serviceAny.project = project;
+    serviceAny.refreshSnapshot = () => undefined;
+    serviceAny.markChaptersChanged = () => undefined;
+    serviceAny.markRepeatedPatternsChanged = () => undefined;
+
+    await service.startProofread({ chapterIds: [1], mode: "linear" });
+    await waitFor(() => service.getStatus().proofreadProgress?.status === "done");
+
+    expect(requests).toEqual(["原文-0\n原文-1\n原文-2"]);
+    expect(updates).toEqual([
+      [1, 0, "校对后-0"],
+      [1, 1, "校对后-1"],
+      [1, 2, "校对后-2"],
+    ]);
+  });
+
   test("proofread task can be removed from persisted state", async () => {
     const service = createService();
     const serviceAny = service as any;
