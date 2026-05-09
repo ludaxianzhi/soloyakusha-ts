@@ -497,8 +497,7 @@ export const api = {
       body: patch,
     }),
   buildContextNetwork: (payload: {
-    vectorStoreType: 'registered' | 'memory';
-    minEdgeStrength: number;
+    maxOutgoingCandidates: number;
   }, workspaceId?: string) =>
     request<ContextNetworkBuildResult>(`/api/project/context-network${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',

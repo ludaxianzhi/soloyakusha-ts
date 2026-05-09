@@ -45,7 +45,7 @@ describe("ContextNetworkOrderingStrategy", () => {
 
     await project.saveContextNetwork({
       manifest: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         sourceRevision: project.getWorkspaceConfig().dependencyTracking?.sourceRevision ?? 0,
         fragmentCount: 6,
         blockSize: 1,
@@ -118,7 +118,7 @@ describe("ContextNetworkOrderingStrategy", () => {
 
     await project.saveContextNetwork({
       manifest: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         sourceRevision: project.getWorkspaceConfig().dependencyTracking?.sourceRevision ?? 0,
         fragmentCount: 3,
         blockSize: 1,
@@ -167,7 +167,7 @@ describe("ContextNetworkOrderingStrategy", () => {
 
     await project.saveContextNetwork({
       manifest: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         sourceRevision: project.getWorkspaceConfig().dependencyTracking?.sourceRevision ?? 0,
         fragmentCount: 5,
         blockSize: 1,
@@ -206,7 +206,7 @@ describe("ContextNetworkOrderingStrategy", () => {
     const project = await createProject();
     await project.saveContextNetwork({
       manifest: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         sourceRevision: (project.getWorkspaceConfig().dependencyTracking?.sourceRevision ?? 0) + 1,
         fragmentCount: 5,
         blockSize: 1,

@@ -1773,14 +1773,13 @@ export function AppShell() {
 
   const handleBuildContextNetwork = useCallback(
     async (input: {
-      vectorStoreType: 'registered' | 'memory';
-      minEdgeStrength: number;
+      maxOutgoingCandidates: number;
     }) => {
       await runAction(async () => {
         const result = await api.buildContextNetwork(input, getSelectedWorkspaceId());
         await refreshProjectStatus();
         message.success(
-          `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边，最小连接强度阈值 ${result.minEdgeStrength}`,
+          `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边，每个文本块保留前 ${result.maxOutgoingCandidates} 个备选连接`,
         );
       });
     },

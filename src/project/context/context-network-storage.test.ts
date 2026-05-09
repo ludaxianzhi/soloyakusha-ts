@@ -25,7 +25,7 @@ describe("context network storage", () => {
 
     await saveContextNetwork(workspaceDir, {
       manifest: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         sourceRevision: 2,
         fragmentCount: 3,
         blockSize: 1,

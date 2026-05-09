@@ -1,4 +1,4 @@
-export const CONTEXT_NETWORK_SCHEMA_VERSION = 2;
+export const CONTEXT_NETWORK_SCHEMA_VERSION = 3;
 
 export type ContextNetworkManifest = {
   schemaVersion: typeof CONTEXT_NETWORK_SCHEMA_VERSION;

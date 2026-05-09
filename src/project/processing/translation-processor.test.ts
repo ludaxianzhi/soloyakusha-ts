@@ -675,7 +675,7 @@ describe("TranslationProcessor", () => {
     const documentManager = {
       loadContextNetwork: async () => ({
         manifest: {
-          schemaVersion: 2 as const,
+          schemaVersion: 3 as const,
           sourceRevision: 9,
           fragmentCount: 5,
           blockSize: 1,
@@ -1415,9 +1415,7 @@ function createSequentialLines(prefix: string, count: number): string {
   return createSequentialLineArray(prefix, count).join("\n");
 }
 
-function createSequentialLineArray(prefix: string, count: number): string[] {
-  return Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`);
-}
+function createSequentialLineArray(prefix: string, count: number): string[];
 
 function createSequentialLineArray(
   prefix: string,

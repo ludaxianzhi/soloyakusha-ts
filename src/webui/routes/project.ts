@@ -892,13 +892,10 @@ export function createProjectRoutes(
   app.post('/context-network', async (c) => {
     try {
       const body = await c.req.json<{
-        vectorStoreType?: 'registered' | 'memory';
-        minEdgeStrength?: number;
+        maxOutgoingCandidates?: number;
       }>();
-      const vectorStoreType = body.vectorStoreType === 'memory' ? 'memory' : 'registered';
       return c.json(await projectService.buildContextNetwork({
-        vectorStoreType,
-        minEdgeStrength: body.minEdgeStrength,
+        maxOutgoingCandidates: body.maxOutgoingCandidates,
       }));
     } catch (error) {
       if (error instanceof ProjectServiceUserInputError) {

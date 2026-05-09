@@ -317,10 +317,9 @@ export interface TranslationStepQueueEntryDetail
 }
 
 export interface ContextNetworkBuildResult {
-  vectorStoreType: 'registered' | 'memory';
   fragmentCount: number;
   edgeCount: number;
-  minEdgeStrength: number;
+  maxOutgoingCandidates: number;
 }
 
 export interface RepetitionPatternLocation {

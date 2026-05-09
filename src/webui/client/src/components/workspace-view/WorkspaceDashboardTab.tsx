@@ -10,7 +10,6 @@ import {
   InputNumber,
   Popconfirm,
   Progress,
-  Radio,
   Row,
   Space,
   Statistic,
@@ -38,8 +37,7 @@ interface WorkspaceDashboardTabProps {
   onRefreshProjectStatus: () => void | Promise<void>;
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onBuildContextNetwork: (input: {
-    vectorStoreType: 'registered' | 'memory';
-    minEdgeStrength: number;
+    maxOutgoingCandidates: number;
   }) => void | Promise<void>;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onForceAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
@@ -65,8 +63,7 @@ export function WorkspaceDashboardTab({
   onDismissTaskActivity,
 }: WorkspaceDashboardTabProps) {
   const [contextNetworkModalOpen, setContextNetworkModalOpen] = useState(false);
-  const [vectorStoreType, setVectorStoreType] = useState<'registered' | 'memory'>('registered');
-  const [minEdgeStrength, setMinEdgeStrength] = useState(0.5);
+  const [maxOutgoingCandidates, setMaxOutgoingCandidates] = useState(3);
 
   usePollingTask({
     enabled: active && !sseConnected,
@@ -253,7 +250,7 @@ export function WorkspaceDashboardTab({
         confirmLoading={projectStatus?.isBusy === true}
         onCancel={() => setContextNetworkModalOpen(false)}
         onOk={async () => {
-          await onBuildContextNetwork({ vectorStoreType, minEdgeStrength });
+          await onBuildContextNetwork({ maxOutgoingCandidates });
           setContextNetworkModalOpen(false);
         }}
       >
@@ -261,29 +258,20 @@ export function WorkspaceDashboardTab({
           <Alert
             type="info"
             showIcon
-            message="请选择上下文网络构建使用的向量数据库"
-            description="内存向量数据库只支持最多 50K 条、256 维向量；不做预检，超限时会直接返回错误。最小连接强度阈值会过滤掉强度小于该值的边。"
+            message="请输入每个文本块保留的备选连接数"
+            description="系统会按章节拓扑限定可见范围，在所有可见前序文本块中计算相关性，并为每个文本块保留分数最高的前 m 个备选连接。"
           />
-          <Radio.Group
-            value={vectorStoreType}
-            onChange={(event) => setVectorStoreType(event.target.value)}
-          >
-            <Space direction="vertical">
-              <Radio value="registered">使用已注册的向量数据库</Radio>
-              <Radio value="memory">使用内存向量数据库</Radio>
-            </Space>
-          </Radio.Group>
           <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            <Typography.Text>最小连接强度阈值</Typography.Text>
+            <Typography.Text>备选连接数 m</Typography.Text>
             <InputNumber
-              min={0.01}
-              precision={2}
+              min={1}
+              precision={0}
               style={{ width: '100%' }}
-              value={minEdgeStrength}
-              onChange={(value) => setMinEdgeStrength(value ?? 0.5)}
+              value={maxOutgoingCandidates}
+              onChange={(value) => setMaxOutgoingCandidates(value ?? 3)}
             />
             <Typography.Text type="secondary">
-              当前值为 {minEdgeStrength}，将只保留强度大于等于 {minEdgeStrength} 的边。
+              当前值为 {maxOutgoingCandidates}，每个文本块将最多保留 {maxOutgoingCandidates} 个前序备选连接。
             </Typography.Text>
           </Space>
         </Space>

@@ -21,10 +21,9 @@ import {
   TranslationGlobalConfig,
   type TranslationProcessorConfig,
 } from '../../project/config.ts';
-import { buildContextNetworkDataFromTinyChunkGraph } from '../../project/context/context-network-builder.ts';
+import { buildContextNetworkDataFromTinyChunkEmbeddings } from '../../project/context/context-network-builder.ts';
 import { createBatchContextView } from '../../project/context/context-view.ts';
 import {
-  collectSourceTextBlocks,
   collectSourceTextTinyChunks,
   upsertGlobalPatternTerm,
 } from '../../project/pipeline/default-translation-pipeline.ts';
@@ -81,8 +80,6 @@ import { StoryTopology } from '../../project/context/story-topology.ts';
 import { DefaultTextSplitter } from '../../project/document/translation-document-manager.ts';
 import type { Logger } from '../../project/logger.ts';
 import { StyleLibraryService } from '../../style-library/service.ts';
-import { computeChunkLinkGraph } from '../../vector/chunk-link-graph.ts';
-import { createVectorStoreConfig } from '../../vector/types.ts';
 import type {
   GlossaryImportResult,
   ProofreadTaskMode,
@@ -133,13 +130,10 @@ export interface InitializeProjectInput {
   branches?: BranchImportInput[];
 }
 
-export type ContextNetworkVectorStoreType = 'registered' | 'memory';
-
 export interface ContextNetworkBuildResult {
-  vectorStoreType: ContextNetworkVectorStoreType;
   fragmentCount: number;
   edgeCount: number;
-  minEdgeStrength: number;
+  maxOutgoingCandidates: number;
 }
 
 export interface PlotSummaryProgress {
@@ -3853,8 +3847,7 @@ export class ProjectService {
   }
 
   async buildContextNetwork(input: {
-    vectorStoreType: ContextNetworkVectorStoreType;
-    minEdgeStrength?: number;
+    maxOutgoingCandidates?: number;
   }): Promise<ContextNetworkBuildResult> {
     const { state, project } = this.getActiveWorkspaceContext();
     if (state.isBusy) {
@@ -3872,10 +3865,10 @@ export class ProjectService {
     state.isBusy = true;
     this.log('info', '开始构建上下文网络...');
 
-    const minEdgeStrength = input.minEdgeStrength ?? 0.5;
-    if (!(minEdgeStrength > 0)) {
+    const maxOutgoingCandidates = input.maxOutgoingCandidates ?? 3;
+    if (!Number.isInteger(maxOutgoingCandidates) || maxOutgoingCandidates <= 0) {
       state.isBusy = false;
-      throw new ProjectServiceUserInputError('最小连接强度阈值必须是正数');
+      throw new ProjectServiceUserInputError('每个文本块保留的备选连接数必须是正整数');
     }
 
     let provider: ReturnType<TranslationGlobalConfig['createProvider']> | undefined;
@@ -3889,11 +3882,8 @@ export class ProjectService {
       provider = globalConfig.createProvider();
       provider.setHistoryLogger(this.createRequestHistoryLogger('context_network_requests', project));
 
-      const blocks = collectSourceTextBlocks(
-        project.getDocumentManager(),
-        workspaceConfig.chapters,
-      );
-      if (blocks.length === 0) {
+      const orderedFragments = project.getOrderedFragments();
+      if (orderedFragments.length === 0) {
         throw new ProjectServiceUserInputError('当前工作区没有可用于构建上下文网络的文本块');
       }
 
@@ -3905,48 +3895,32 @@ export class ProjectService {
         throw new ProjectServiceUserInputError('当前工作区没有可用于构建上下文网络的文本块');
       }
 
-      this.log('info', `正在生成 Tiny Chunk 向量（${chunks.length} 个 chunk，来自 ${blocks.length} 个文本块）...`);
+      this.log('info', `正在生成 Tiny Chunk 向量（${chunks.length} 个 chunk，来自 ${orderedFragments.length} 个文本块）...`);
       const embeddings = await provider
         .getEmbeddingClient(GLOBAL_EMBEDDING_CLIENT_NAME)
         .getEmbeddings(chunks.map((chunk) => chunk.text));
 
-      const vectorStoreConfig = await resolveContextNetworkVectorStoreConfig(
-        globalConfigManager,
-        project.getWorkspaceFileManifest().projectDir,
-        input.vectorStoreType,
-      );
-
       this.log('info', '正在计算上下文网络连接...');
-      const graph = await computeChunkLinkGraph(
-        {
-          vectorStoreConfig,
-          embeddings,
-          blockSize: 1,
-          tempCollectionName: `context-network-${Date.now()}`,
-        },
-        { logger: this.createLogger() },
-      );
-
-      const network = buildContextNetworkDataFromTinyChunkGraph({
+      const network = buildContextNetworkDataFromTinyChunkEmbeddings({
         sourceRevision: workspaceConfig.dependencyTracking?.sourceRevision ?? 0,
-        fragmentCount: blocks.length,
-        chunkToFragmentIndices: chunks.map((chunk) => chunk.fragmentGlobalIndex),
-        graph,
-        minEdgeStrength,
+        orderedFragments,
+        tinyChunks: chunks,
+        embeddings,
+        maxOutgoingCandidates,
+        topology: project.getStoryTopology(),
       });
 
       await project.clearContextNetwork();
       await project.saveContextNetwork(network);
 
       const result: ContextNetworkBuildResult = {
-        vectorStoreType: input.vectorStoreType,
         fragmentCount: network.manifest.fragmentCount,
         edgeCount: network.manifest.edgeCount,
-        minEdgeStrength,
+        maxOutgoingCandidates,
       };
       this.log(
         'success',
-        `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边，最小连接强度阈值 ${result.minEdgeStrength}`,
+        `上下文网络构建完成：${result.fragmentCount} 个文本块，${result.edgeCount} 条边，每个文本块保留前 ${result.maxOutgoingCandidates} 个备选连接`,
       );
       return result;
     } catch (error) {
@@ -5277,24 +5251,6 @@ async function clearWorkspaceSupportData(project: TranslationProject): Promise<v
     project.clearContextNetwork(),
     project.getDocumentManager().clearTranslationDependencyGraph(),
   ]);
-}
-
-async function resolveContextNetworkVectorStoreConfig(
-  manager: GlobalConfigManager,
-  projectDir: string,
-  vectorStoreType: ContextNetworkVectorStoreType,
-) {
-  if (vectorStoreType === 'registered') {
-    return manager.getResolvedVectorStoreConfig();
-  }
-
-  const databasePath = join(projectDir, 'Data', 'context-network', 'sqlite-memory-build.sqlite');
-  await mkdir(dirname(databasePath), { recursive: true });
-  return createVectorStoreConfig({
-    provider: 'sqlite-memory',
-    endpoint: databasePath,
-    distance: 'cosine',
-  });
 }
 
 async function createProcessorForProject(

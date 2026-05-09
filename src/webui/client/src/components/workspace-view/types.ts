@@ -98,8 +98,7 @@ export interface WorkspaceViewProps {
   onStartDictionaryTranscribe: (options: DictionaryTranscribeStartOptions) => void | Promise<void>;
   onBuildContextNetwork: (
     input: {
-      vectorStoreType: 'registered' | 'memory';
-      minEdgeStrength: number;
+      maxOutgoingCandidates: number;
     },
   ) => void | Promise<void>;
   onStartProofread: (input: {
