@@ -1,4 +1,3 @@
-import type { ChunkLinkGraphResult } from "../../vector/chunk-link-graph.ts";
 import type { OrderedFragmentSnapshot } from "../pipeline/pipeline.ts";
 import type { StoryTopology } from "./story-topology.ts";
 import {
@@ -111,62 +110,6 @@ export function buildContextNetworkDataFromTinyChunkEmbeddings(params: {
     blockSize: 1,
     outgoing,
   });
-}
-
-export function buildContextNetworkData(params: {
-  sourceRevision: number;
-  fragmentCount: number;
-  graph: ChunkLinkGraphResult;
-}): ContextNetworkData {
-  const { sourceRevision, fragmentCount, graph } = params;
-  if (graph.blockSize !== 1) {
-    throw new Error(`仅支持 blockSize=1 的 chunk link graph，当前为 ${graph.blockSize}`);
-  }
-  if (graph.blockCount !== fragmentCount || graph.lineCount !== fragmentCount) {
-    throw new Error(
-      `chunk link graph 片段数量不匹配: blockCount=${graph.blockCount}, lineCount=${graph.lineCount}, fragmentCount=${fragmentCount}`,
-    );
-  }
-  validateBlockPairLengths(graph);
-
-  const outgoing = new Map<number, OutgoingEdge[]>();
-  for (let index = 0; index < graph.blockPairCount; index += 1) {
-    const source = graph.blockPairSourceBlocks[index];
-    const target = graph.blockPairTargetBlocks[index];
-    const strength = graph.blockPairStrengths[index];
-    if (source === undefined || target === undefined || strength === undefined) {
-      continue;
-    }
-    if (
-      source < 0 ||
-      source >= fragmentCount ||
-      target < 0 ||
-      target >= fragmentCount
-    ) {
-      throw new Error(`chunk link graph block pair 越界: source=${source}, target=${target}`);
-    }
-
-    const existing = outgoing.get(source) ?? [];
-    existing.push({ target, strength });
-    outgoing.set(source, existing);
-  }
-
-  return createContextNetworkData({
-    sourceRevision,
-    fragmentCount,
-    blockSize: graph.blockSize,
-    outgoing,
-  });
-}
-
-function validateBlockPairLengths(graph: ChunkLinkGraphResult): void {
-  if (
-    graph.blockPairSourceBlocks.length !== graph.blockPairCount ||
-    graph.blockPairTargetBlocks.length !== graph.blockPairCount ||
-    graph.blockPairStrengths.length !== graph.blockPairCount
-  ) {
-    throw new Error("chunk link graph block pair 数据长度不一致");
-  }
 }
 
 function createContextNetworkData(params: {
