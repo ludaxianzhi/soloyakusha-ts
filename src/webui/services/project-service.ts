@@ -1952,6 +1952,11 @@ export class ProjectService {
                   fragmentIndex: firstItem.fragmentIndex,
                   stepId: 'proofread',
                 },
+                workItemRefs: batch.map((item) => ({
+                  chapterId: item.chapterId,
+                  fragmentIndex: item.fragmentIndex,
+                  stepId: 'proofread',
+                })),
                 orderedFragments: project
                   .getWorkspaceConfig()
                   .chapters?.flatMap((chapter) =>

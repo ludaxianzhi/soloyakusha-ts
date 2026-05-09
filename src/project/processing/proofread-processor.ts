@@ -72,6 +72,11 @@ export type ProofreadProcessorRequest = {
     fragmentIndex: number;
     stepId?: string;
   };
+  workItemRefs?: Array<{
+    chapterId: number;
+    fragmentIndex: number;
+    stepId?: string;
+  }>;
   orderedFragments?: Array<{
     chapterId: number;
     fragmentIndex: number;
@@ -720,9 +725,14 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
     randomReferencePairs: Array<{ sourceText: string; translatedText: string }>;
   }> {
     const documentManager = request.documentManager;
-    const workItemRef = request.workItemRef;
+    const workItemRefs =
+      request.workItemRefs && request.workItemRefs.length > 0
+        ? dedupeProofreadFragmentRefs(request.workItemRefs)
+        : request.workItemRef
+          ? [request.workItemRef]
+          : undefined;
     const orderedFragments = request.orderedFragments;
-    if (!documentManager || !workItemRef || !orderedFragments) {
+    if (!documentManager || !workItemRefs || !orderedFragments) {
       throw new Error("一致性检查校对需要文档管理器、工作项位置和有序分片列表");
     }
 
@@ -747,43 +757,61 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
       );
     }
 
-    const currentGlobalIndex = orderedFragments.findIndex(
-      (fragment) =>
-        fragment.chapterId === workItemRef.chapterId &&
-        fragment.fragmentIndex === workItemRef.fragmentIndex,
-    );
-    if (currentGlobalIndex === -1) {
+    const currentGlobalIndices = workItemRefs
+      .map((workItemRef) =>
+        orderedFragments.findIndex(
+          (fragment) =>
+            fragment.chapterId === workItemRef.chapterId &&
+            fragment.fragmentIndex === workItemRef.fragmentIndex,
+        ),
+      )
+      .filter((index) => index >= 0);
+    if (currentGlobalIndices.length !== workItemRefs.length) {
       throw new Error("一致性检查校对未找到当前片段在上下文网络中的位置");
     }
 
-    const predecessorChapterIds = new Set(
-      getPredecessorChapterIds(
-        workItemRef.chapterId,
-        request.storyTopology,
-        orderedFragments,
-      ),
+    const currentWorkItemKeySet = new Set(
+      workItemRefs.map((ref) => `${ref.chapterId}:${ref.fragmentIndex}`),
     );
-    const predecessorRefs = orderedFragments.slice(0, currentGlobalIndex).filter((ref) =>
-      isAllowedConsistencyPredecessorRef(ref, workItemRef, predecessorChapterIds),
+    const predecessorRefs = dedupeProofreadFragmentRefs(
+      workItemRefs.flatMap((workItemRef, index) => {
+        const currentGlobalIndex = currentGlobalIndices[index]!;
+        const predecessorChapterIds = new Set(
+          getPredecessorChapterIds(
+            workItemRef.chapterId,
+            request.storyTopology,
+            orderedFragments,
+          ),
+        );
+        return orderedFragments.slice(0, currentGlobalIndex).filter((ref) => {
+          if (currentWorkItemKeySet.has(`${ref.chapterId}:${ref.fragmentIndex}`)) {
+            return false;
+          }
+          return isAllowedConsistencyPredecessorRef(ref, workItemRef, predecessorChapterIds);
+        });
+      }),
     );
     const predecessorKeySet = new Set(
       predecessorRefs.map((ref) => `${ref.chapterId}:${ref.fragmentIndex}`),
     );
 
-    const startOffset = network.offsets[currentGlobalIndex] ?? 0;
-    const endOffset = network.offsets[currentGlobalIndex + 1] ?? startOffset;
     const relatedRefs = dedupeProofreadFragmentRefs(
-      Array.from({ length: endOffset - startOffset }, (_, index) => {
-        const candidateGlobalIndex = network.targets[startOffset + index];
-        if (candidateGlobalIndex === undefined || candidateGlobalIndex < 0) {
-          return undefined;
-        }
-        return orderedFragments[candidateGlobalIndex];
-      }).filter((ref): ref is { chapterId: number; fragmentIndex: number } => {
-        if (!ref) {
-          return false;
-        }
-        return predecessorKeySet.has(`${ref.chapterId}:${ref.fragmentIndex}`);
+      currentGlobalIndices.flatMap((currentGlobalIndex) => {
+        const startOffset = network.offsets[currentGlobalIndex] ?? 0;
+        const endOffset = network.offsets[currentGlobalIndex + 1] ?? startOffset;
+        return Array.from({ length: endOffset - startOffset }, (_, index) => {
+          const candidateGlobalIndex = network.targets[startOffset + index];
+          if (candidateGlobalIndex === undefined || candidateGlobalIndex < 0) {
+            return undefined;
+          }
+          return orderedFragments[candidateGlobalIndex];
+        }).filter((ref): ref is { chapterId: number; fragmentIndex: number } => {
+          if (!ref) {
+            return false;
+          }
+          const key = `${ref.chapterId}:${ref.fragmentIndex}`;
+          return predecessorKeySet.has(key) && !currentWorkItemKeySet.has(key);
+        });
       }),
     )
       .sort((left, right) => compareProofreadFragmentRefs(left, right, orderedFragments))
@@ -796,7 +824,7 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
     const randomRefs = selectDeterministicRandomRefs(
       randomCandidates,
       this.randomContextCount,
-      `${workItemRef.chapterId}:${workItemRef.fragmentIndex}`,
+      workItemRefs.map((ref) => `${ref.chapterId}:${ref.fragmentIndex}`).join("|"),
     );
 
     return {

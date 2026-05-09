@@ -720,6 +720,65 @@ describe("TranslationProcessor", () => {
     expect(prompt.match(/原文: S2/g)?.length).toBe(1);
   });
 
+  test("consistency proofread batches collect related refs from all work items", async () => {
+    const client = new FakeChatClient([
+      JSON.stringify({
+        modifications: [],
+      }),
+    ]);
+    const processor = new ConsistencyCheckProofreadProcessor(client, {
+      maxAdditionalRelatedContexts: 4,
+      randomContextCount: 0,
+    });
+
+    const documentManager = {
+      loadContextNetwork: async () => ({
+        manifest: {
+          schemaVersion: 3 as const,
+          sourceRevision: 9,
+          fragmentCount: 5,
+          blockSize: 1,
+          edgeCount: 3,
+          createdAt: "2025-01-01T00:00:00.000Z",
+        },
+        offsets: new Uint32Array([0, 0, 0, 1, 2, 2]),
+        targets: new Int32Array([0, 1]),
+        strengths: new Float32Array([0.9, 0.8]),
+      }),
+      getSourceText: (chapterId: number, fragmentIndex: number) => `S${chapterId}-${fragmentIndex}`,
+      getTranslatedText: (chapterId: number, fragmentIndex: number) => `T${chapterId}-${fragmentIndex}`,
+    };
+
+    await processor.process({
+      sourceText: "当前原文-2\n当前原文-3",
+      currentTranslationText: "当前译文-2\n当前译文-3",
+      documentManager: documentManager as never,
+      workItemRef: {
+        chapterId: 1,
+        fragmentIndex: 2,
+        stepId: "proofread",
+      },
+      workItemRefs: [
+        { chapterId: 1, fragmentIndex: 2, stepId: "proofread" },
+        { chapterId: 1, fragmentIndex: 3, stepId: "proofread" },
+      ],
+      orderedFragments: [
+        { chapterId: 1, fragmentIndex: 0 },
+        { chapterId: 1, fragmentIndex: 1 },
+        { chapterId: 1, fragmentIndex: 2 },
+        { chapterId: 1, fragmentIndex: 3 },
+        { chapterId: 1, fragmentIndex: 4 },
+      ],
+      dependencyTrackingSourceRevision: 9,
+    });
+
+    const prompt = client.requests[0]?.prompt ?? "";
+    expect(prompt).toContain("原文: S1-0");
+    expect(prompt).toContain("原文: S1-1");
+    expect(prompt).not.toContain("原文: S1-2");
+    expect(prompt).not.toContain("原文: S1-3");
+  });
+
   test("injects style requirements into the style-transfer step system prompt", async () => {
     const client = new FakeChatClient([
       "分析结果",
