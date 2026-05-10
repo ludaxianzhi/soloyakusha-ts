@@ -66,6 +66,36 @@ describe("resolveRequestConfig", () => {
     });
     expect("maxTokens" in resolved).toBe(false);
   });
+
+  test("shallow-merges duplicate extraBody keys with override precedence", () => {
+    const resolved = resolveRequestConfig(
+      {
+        extraBody: {
+          response_format: {
+            type: "text",
+          },
+        },
+      },
+      {
+        extraBody: {
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "structured_output",
+            },
+          },
+          seed: 7,
+        },
+      },
+    );
+
+    expect(resolved.extraBody).toEqual({
+      response_format: {
+        type: "text",
+      },
+      seed: 7,
+    });
+  });
 });
 
 describe("createLlmClientConfig", () => {

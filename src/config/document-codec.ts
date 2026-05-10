@@ -1284,9 +1284,10 @@ function normalizeRequestConfig(
     `${sourceLabel}.maxTokens`,
   );
   const topP = readOptionalFiniteNumber(topPValue, `${sourceLabel}.topP`);
-  const extraBody = normalizeOptionalJsonObject(
+  const extraBody = normalizeMergedExtraBody(
+    value,
     extraBodyValue,
-    `${sourceLabel}.extraBody`,
+    sourceLabel,
   );
 
   return {
@@ -1400,13 +1401,67 @@ function normalizeSparseRequestConfig(
     sourceLabel,
   );
   if (extraBodyValue !== undefined) {
-    result.extraBody = normalizeOptionalJsonObject(
+    result.extraBody = normalizeMergedExtraBody(
+      value,
       extraBodyValue,
-      `${sourceLabel}.extraBody`,
+      sourceLabel,
     );
+  } else {
+    const liftedExtraBody = normalizeMergedExtraBody(value, undefined, sourceLabel);
+    if (liftedExtraBody !== undefined) {
+      result.extraBody = liftedExtraBody;
+    }
   }
 
   return result;
+}
+
+function normalizeMergedExtraBody(
+  value: Record<string, unknown>,
+  extraBodyValue: unknown,
+  sourceLabel: string,
+): JsonObject | undefined {
+  const explicitExtraBody = normalizeOptionalJsonObject(
+    extraBodyValue,
+    `${sourceLabel}.extraBody`,
+  );
+  const liftedExtraBodyEntries = Object.fromEntries(
+    Object.entries(value).filter(
+      ([key]) =>
+        ![
+          "systemPrompt",
+          "system_prompt",
+          "temperature",
+          "maxTokens",
+          "max_tokens",
+          "topP",
+          "top_p",
+          "extraBody",
+          "extra_body",
+        ].includes(key),
+    ),
+  );
+
+  if (
+    explicitExtraBody &&
+    Object.keys(liftedExtraBodyEntries).some((key) => key in explicitExtraBody)
+  ) {
+    throw new Error(
+      `${sourceLabel} 中同一个请求参数不能同时出现在顶层和 extraBody 中`,
+    );
+  }
+
+  if (!explicitExtraBody && Object.keys(liftedExtraBodyEntries).length === 0) {
+    return undefined;
+  }
+
+  return normalizeOptionalJsonObject(
+    {
+      ...(explicitExtraBody ?? {}),
+      ...liftedExtraBodyEntries,
+    },
+    `${sourceLabel}.extraBody`,
+  );
 }
 
 function readAliasedConfigValue(

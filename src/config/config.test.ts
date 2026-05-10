@@ -169,6 +169,44 @@ describe("GlobalConfigManager", () => {
     expect(normalized.supportsStructuredOutput).toBe(true);
   });
 
+  test("lifts unknown default request config fields into extraBody", () => {
+    const normalized = normalizePersistedLlmClientConfig(
+      {
+        provider: "openai",
+        modelType: "chat",
+        modelName: "gpt-4.1",
+        endpoint: "https://example.com/v1",
+        apiKey: "secret",
+        retries: 3,
+        defaultRequestConfig: {
+          temperature: 0.2,
+          chat_template_kwargs: {
+            enable_thinking: false,
+          },
+          reasoning: {
+            effort: "medium",
+          },
+        },
+      },
+      "llm.profiles.writer",
+    );
+
+    expect(normalized.defaultRequestConfig).toEqual({
+      systemPrompt: undefined,
+      temperature: 0.2,
+      topP: undefined,
+      maxTokens: undefined,
+      extraBody: {
+        chat_template_kwargs: {
+          enable_thinking: false,
+        },
+        reasoning: {
+          effort: "medium",
+        },
+      },
+    });
+  });
+
   test("accepts snake_case aliases in sparse request config", () => {
     const normalized = normalizeTranslationProcessorConfig(
       {
