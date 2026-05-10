@@ -41,9 +41,12 @@ prompts:
 
         {% endif %}
         {% if translatedGlossaryTerms.size > 0 %}
-        术语表（下面的术语表中为已经翻译后的术语和其介绍，文本中出现此类术语可视为正确翻译）：
+        术语表（原文-译文对照，下面的术语表中为已经翻译后的术语和其介绍，文本中出现此类术语可视为正确翻译）：
         {% for term in translatedGlossaryTerms %}
-        - {{ term.translation }}{% if term.description %}（{{ term.description }}）{% endif %}
+        - term: {{ term.term }}
+          origin: {{ term.term }}
+          translation: {{ term.translation }}{% if term.description %}
+          description: {{ term.description }}{% endif %}
         {% endfor %}
 
         {% endif %}

@@ -166,6 +166,15 @@ prompts:
       type: liquid
       template: |
         editor-user
+        {% if translatedGlossaryTerms.size > 0 %}
+        术语表（原文-译文对照）：
+        {% for term in translatedGlossaryTerms %}
+        - term: {{ term.term }}
+          origin: {{ term.term }}
+          translation: {{ term.translation }}
+        {% endfor %}
+
+        {% endif %}
         {% for unit in sourceUnits %}
         - id: {{ unit.id }}
           origin: {{ unit.text }}
@@ -182,7 +191,16 @@ prompts:
       currentTranslations: [{ id: "1", text: "译文" }],
       referenceTranslations: [],
       plotSummaries: [],
-      translatedGlossaryTerms: [],
+      translatedGlossaryTerms: [
+        {
+          term: "王都",
+          translation: "王都",
+          description: "城名",
+          status: "translated",
+          totalOccurrenceCount: 1,
+          textBlockOccurrenceCount: 1,
+        },
+      ],
       requirements: [],
     });
     const renderedWithCustom = await manager.renderMultiStageEditorPrompt({
@@ -190,7 +208,16 @@ prompts:
       currentTranslations: [{ id: "1", text: "译文" }],
       referenceTranslations: [],
       plotSummaries: [],
-      translatedGlossaryTerms: [],
+      translatedGlossaryTerms: [
+        {
+          term: "王都",
+          translation: "王都",
+          description: "城名",
+          status: "translated",
+          totalOccurrenceCount: 1,
+          textBlockOccurrenceCount: 1,
+        },
+      ],
       requirements: [],
       editorRequirementsText: "避免文白夹杂。",
     });
@@ -199,6 +226,8 @@ prompts:
     expect(renderedWithCustom.systemPrompt).toContain("避免文白夹杂。");
     expect(renderedWithDefault.userPrompt).toContain("origin: 原文");
     expect(renderedWithDefault.userPrompt).toContain("translation: 译文");
+    expect(renderedWithDefault.userPrompt).toContain("origin: 王都");
+    expect(renderedWithDefault.userPrompt).toContain("translation: 王都");
     expect(renderedWithDefault.responseSchema).toBeDefined();
     expect(renderedWithDefault.responseSchema).toHaveProperty("required", ["modifications"]);
   });
