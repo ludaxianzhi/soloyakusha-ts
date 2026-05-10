@@ -458,8 +458,8 @@ export function WorkspaceDictionaryTab({
           <Alert
             type="info"
             showIcon
-            message="仅支持 term / translation / description 三列"
-            description="文件导入支持 JSON / CSV / TSV / YAML / YML / XML 全字段；粘贴导入仍只解析 term / translation / description 三列。"
+            message="支持 term / translation / description / category 四列"
+            description="category 和 description 可留空，也允许完全不带 category 列；导入后会按当前项目文本自动重算出现次数统计。"
           />
           <Select<'csv' | 'tsv'>
             value={importFormat}
@@ -473,7 +473,7 @@ export function WorkspaceDictionaryTab({
             rows={12}
             value={importContent}
             onChange={(event) => setImportContent(event.target.value)}
-            placeholder="term,translation,description"
+            placeholder="term,translation,description,category"
           />
           {importResult ? (
             <Alert

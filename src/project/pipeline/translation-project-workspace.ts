@@ -1,10 +1,11 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { restoreBlankText } from "../../file-handlers/base.ts";
 import type {
   TranslationFileHandler,
 } from "../../file-handlers/base.ts";
 import { TranslationFileHandlerFactory } from "../../file-handlers/factory.ts";
-import { Glossary, GlossaryPersisterFactory } from "../../glossary/index.ts";
+import { Glossary, GlossaryPersisterFactory, type GlossaryTerm } from "../../glossary/index.ts";
 import { getContextNetworkDirectoryPath } from "../context/context-network-storage.ts";
 import { SqliteProjectStorage } from "../storage/sqlite-project-storage.ts";
 import type { TranslationDocumentManager } from "../document/translation-document-manager.ts";
@@ -249,30 +250,38 @@ export class TranslationProjectWorkspace {
     const resolvedPath = resolveChapterPath(this.projectDir, filePath);
     const persister = GlossaryPersisterFactory.getPersister(resolvedPath);
     const importedGlossary = await persister.loadGlossary(resolvedPath);
-    const importedTerms = importedGlossary.getAllTerms();
+    return this.importGlossaryTerms(importedGlossary.getAllTerms(), resolvedPath);
+  }
 
+  async importGlossaryTerms(
+    importedTerms: ReadonlyArray<GlossaryTerm>,
+    sourceLabel: string,
+  ): Promise<GlossaryImportResult> {
     let glossary = this.getGlossaryState();
     glossary ??= new Glossary();
     this.setGlossaryState(glossary);
 
-    const existingTerms = new Set(glossary.getAllTerms().map((term) => term.term));
     let newTermCount = 0;
     let updatedTermCount = 0;
 
     for (const term of importedTerms) {
-      if (existingTerms.has(term.term)) {
-        glossary.updateTerm(term.term, term);
+      const existing = glossary.getTerm(term.term);
+      const nextTerm = mergeImportedGlossaryTerm(existing, term);
+      if (existing) {
+        glossary.updateTerm(term.term, nextTerm);
         updatedTermCount += 1;
       } else {
-        glossary.addTerm(term);
+        glossary.addTerm(nextTerm);
         newTermCount += 1;
       }
     }
 
+    glossary.updateOccurrenceStats(this.collectGlossaryTextBlocks());
+
     await this.saveGlossaryIfNeeded();
 
     return {
-      filePath: resolvedPath,
+      filePath: sourceLabel,
       termCount: importedTerms.length,
       newTermCount,
       updatedTermCount,
@@ -316,6 +325,15 @@ export class TranslationProjectWorkspace {
     await GlossaryPersisterFactory.getPersister(glossaryPath).saveGlossary(
       glossary,
       glossaryPath,
+    );
+  }
+
+  private collectGlossaryTextBlocks(): Array<{ blockId: string; text: string }> {
+    return this.documentManager.getAllChapters().flatMap((chapter) =>
+      chapter.fragments.map((fragment, fragmentIndex) => ({
+        blockId: `${chapter.id}:${fragmentIndex}`,
+        text: fragment.source.lines.map((line) => restoreBlankText(line)).join("\n"),
+      })),
     );
   }
 
@@ -389,6 +407,18 @@ export class TranslationProjectWorkspace {
       hasTranslationData: translatedLineCount > 0,
     };
   }
+}
+
+function mergeImportedGlossaryTerm(
+  existing: GlossaryTerm | undefined,
+  imported: GlossaryTerm,
+): GlossaryTerm {
+  return {
+    term: imported.term,
+    translation: imported.translation,
+    description: imported.description ?? existing?.description,
+    category: imported.category ?? existing?.category,
+  };
 }
 
 export async function openWorkspaceConfig(

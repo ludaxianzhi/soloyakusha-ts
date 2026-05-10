@@ -276,9 +276,22 @@ describe("glossary", () => {
 
     const persister = GlossaryPersisterFactory.getPersister(filePath);
     await persister.saveGlossary(glossary, filePath);
+    expect(await readFile(filePath, "utf8")).toBe(
+      "term,translation,description,category\n王都,Royal Capital,主要城市,placeName\n",
+    );
     const loaded = await persister.loadGlossary(filePath);
 
-    expect(loaded.getAllTerms()).toEqual(glossary.getAllTerms());
+    expect(loaded.getAllTerms()).toEqual([
+      {
+        term: "王都",
+        translation: "Royal Capital",
+        category: "placeName",
+        status: "translated",
+        totalOccurrenceCount: 0,
+        textBlockOccurrenceCount: 0,
+        description: "主要城市",
+      },
+    ]);
   });
 
   test("loads legacy csv and infers default status values", async () => {
@@ -303,6 +316,83 @@ describe("glossary", () => {
       status: "untranslated",
       totalOccurrenceCount: 0,
       textBlockOccurrenceCount: 0,
+    });
+  });
+
+  test("loads csv without category column and allows empty optional fields", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-glossary-compact-"));
+    cleanupTargets.push(workspaceDir);
+
+    const filePath = join(workspaceDir, "glossary.csv");
+    await writeFile(
+      filePath,
+      "term,translation,description\n勇者,Hero,\n王都,,城市名\n",
+      "utf8",
+    );
+
+    const glossary = await GlossaryPersisterFactory.getPersister(filePath).loadGlossary(filePath);
+
+    expect(glossary.getTerm("勇者")).toMatchObject({
+      translation: "Hero",
+      category: undefined,
+      description: undefined,
+      status: "translated",
+    });
+    expect(glossary.getTerm("王都")).toMatchObject({
+      translation: "",
+      category: undefined,
+      description: "城市名",
+      status: "untranslated",
+    });
+  });
+
+  test("recomputes occurrence stats when importing glossary into a project", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-project-glossary-import-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "勇者出发\n王都欢迎勇者\n", "utf8");
+
+    const importPath = join(workspaceDir, "import.csv");
+    await writeFile(
+      importPath,
+      "term,translation,description\n勇者,Hero,主角\n王都,Royal Capital,城市\n",
+      "utf8",
+    );
+
+    const project = new TranslationProject(
+      {
+        projectName: "demo-import",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources\\chapter-1.txt" }],
+        glossary: {
+          path: "glossary.csv",
+        },
+      },
+      {
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+
+    await project.initialize();
+    await project.importGlossary(importPath);
+
+    expect(project.getGlossary()?.getTerm("勇者")).toMatchObject({
+      translation: "Hero",
+      description: "主角",
+      totalOccurrenceCount: 2,
+      textBlockOccurrenceCount: 2,
+    });
+    expect(project.getGlossary()?.getTerm("王都")).toMatchObject({
+      translation: "Royal Capital",
+      description: "城市",
+      totalOccurrenceCount: 1,
+      textBlockOccurrenceCount: 1,
     });
   });
 

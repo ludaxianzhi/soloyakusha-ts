@@ -4,7 +4,11 @@
  * @module project/context-view
  */
 
-import type { Glossary, ResolvedGlossaryTerm } from "../../glossary/glossary.ts";
+import type {
+  Glossary,
+  GlossaryTermStatus,
+  ResolvedGlossaryTerm,
+} from "../../glossary/glossary.ts";
 import { matchGlossaryTermsWithCascadeForInjection } from "./glossary-cascade-matcher.ts";
 import type { PlotSummaryEntry } from "./plot-summarizer.ts";
 import {
@@ -21,6 +25,8 @@ import type {
   TranslationContextType,
   TranslationDependencyMode,
 } from "../types.ts";
+
+const FULL_GLOSSARY_INJECTION_THRESHOLD = 0.75;
 
 type OrderedFragmentRef = {
   chapterId: number;
@@ -134,11 +140,11 @@ export class TranslationContextView {
   }
 
   getTranslatedGlossaryTerms(): ResolvedGlossaryTerm[] {
-    return this.getMatchedGlossaryTerms().filter((term) => term.status === "translated");
+    return this.resolveInjectedGlossaryTermsByStatus("translated");
   }
 
   getUntranslatedGlossaryTerms(): ResolvedGlossaryTerm[] {
-    return this.getMatchedGlossaryTerms().filter((term) => term.status === "untranslated");
+    return this.resolveInjectedGlossaryTermsByStatus("untranslated");
   }
 
   getPlotSummaryContext(): TranslationContextEntry | undefined {
@@ -255,6 +261,30 @@ export class TranslationContextView {
     }
 
     return pairs;
+  }
+
+  private resolveInjectedGlossaryTermsByStatus(
+    status: GlossaryTermStatus,
+  ): ResolvedGlossaryTerm[] {
+    const glossary = this.options.glossary;
+    if (!glossary) {
+      return [];
+    }
+
+    const allTerms = sortGlossaryTermsBySourceTerm(
+      glossary.getAllTerms().filter((term) => term.status === status),
+    );
+    if (allTerms.length === 0) {
+      return [];
+    }
+
+    const matchedTerms = sortGlossaryTermsBySourceTerm(
+      this.getMatchedGlossaryTerms().filter((term) => term.status === status),
+    );
+
+    return matchedTerms.length / allTerms.length >= FULL_GLOSSARY_INJECTION_THRESHOLD
+      ? allTerms
+      : matchedTerms;
   }
 
   private buildGlossaryDependencyPairs(): ContextPair[] {
@@ -409,6 +439,23 @@ export class TranslationContextView {
       )?.status === "completed"
     );
   }
+}
+
+function sortGlossaryTermsBySourceTerm(
+  terms: ReadonlyArray<ResolvedGlossaryTerm>,
+): ResolvedGlossaryTerm[] {
+  return [...terms].sort(compareGlossaryTermsBySourceTerm);
+}
+
+function compareGlossaryTermsBySourceTerm(
+  left: ResolvedGlossaryTerm,
+  right: ResolvedGlossaryTerm,
+): number {
+  if (left.term === right.term) {
+    return 0;
+  }
+
+  return left.term < right.term ? -1 : 1;
 }
 
 function createContextPair(

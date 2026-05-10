@@ -20,17 +20,17 @@ prompts:
     user:
       type: liquid
       template: |
-        {% if conversationTurns.size > 0 %}
-        历史对话：
-        {% for turn in conversationTurns %}
-        - {{ turn.role }}: {{ turn.content }}
-        {% endfor %}
-
-        {% endif %}
         {% if mode != 'polish' and glossaryHints.size > 0 %}
         术语提示：
         {% for hint in glossaryHints %}
         - {{ hint }}
+        {% endfor %}
+
+        {% endif %}
+        {% if conversationTurns.size > 0 %}
+        历史对话：
+        {% for turn in conversationTurns %}
+        - {{ turn.role }}: {{ turn.content }}
         {% endfor %}
 
         {% endif %}

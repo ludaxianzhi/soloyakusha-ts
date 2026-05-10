@@ -3026,53 +3026,10 @@ export class ProjectService {
       await writeFile(tempPath, content, 'utf8');
       const importedGlossary =
         await GlossaryPersisterFactory.getPersister(tempPath).loadGlossary(tempPath);
-      const importedTerms = importedGlossary
-        .getAllTerms()
-        .map((term) => ({
-          term: term.term.trim(),
-          translation: term.translation,
-          description: term.description,
-        }))
-        .filter((term) => term.term.length > 0);
-
-      const glossary = project.getGlossary();
-      if (!glossary) {
-        throw new ProjectServiceUserInputError('当前项目还没有术语表');
-      }
-
-      let newTermCount = 0;
-      let updatedTermCount = 0;
-      for (const term of importedTerms) {
-        const existing = glossary.getTerm(term.term);
-        const nextTerm = {
-          term: term.term,
-          translation: term.translation,
-          description: term.description,
-          category: existing?.category,
-          totalOccurrenceCount: existing?.totalOccurrenceCount ?? 0,
-          textBlockOccurrenceCount: existing?.textBlockOccurrenceCount ?? 0,
-        };
-
-        if (existing) {
-          glossary.updateTerm(term.term, nextTerm);
-          updatedTermCount += 1;
-        } else {
-          glossary.addTerm(nextTerm);
-          newTermCount += 1;
-        }
-      }
-
-      const result: GlossaryImportResult = {
-        filePath: `pasted.${format}`,
-        termCount: importedTerms.length,
-        newTermCount,
-        updatedTermCount,
-      };
+      const importedTerms = importedGlossary.getAllTerms().filter((term) => term.term.trim().length > 0);
+      const result = await project.importGlossaryTerms(importedTerms, `pasted.${format}`);
 
       await project.saveProgress();
-      if ("bumpGlossaryDependencyRevision" in project) {
-        await project.bumpGlossaryDependencyRevision();
-      }
       this.refreshSnapshot(runtime ?? undefined);
       this.markDictionaryChanged(state);
       this.log(

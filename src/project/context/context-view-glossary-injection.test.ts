@@ -29,6 +29,7 @@ describe("TranslationContextView glossary injection", () => {
       { term: "陛下", translation: "Your Majesty" },
       { term: "王都", translation: "Royal Capital" },
       { term: "王", translation: "King" },
+      { term: "圣剑", translation: "Holy Sword" },
     ]);
 
     const project = new TranslationProject(
@@ -66,5 +67,104 @@ describe("TranslationContextView glossary injection", () => {
     expect(lines.some((line) => line.startsWith("陛下,"))).toBe(true);
     expect(lines.some((line) => line.startsWith("王都,"))).toBe(true);
     expect(lines.some((line) => line.startsWith("王,"))).toBe(false);
+  });
+
+  test("sorts injected glossary terms by source-term lexicographic order", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-context-order-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "ccc aaa bbb\n", "utf8");
+
+    const glossary = new Glossary([
+      { term: "ccc", translation: "C" },
+      { term: "aaa", translation: "A" },
+      { term: "bbb", translation: "B" },
+    ]);
+
+    const project = new TranslationProject(
+      {
+        projectName: "context-order",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources/chapter-1.txt" }],
+        glossary: {
+          path: "glossary.csv",
+          autoFilter: true,
+        },
+      },
+      {
+        glossary,
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+
+    await project.initialize();
+    await project.startTranslation();
+    const tasks = await project.getWorkQueue("translation").dispatchReadyItems();
+    const glossaryContext = tasks[0]?.contextView?.getContext("glossary");
+
+    expect(glossaryContext?.type).toBe("glossary");
+    if (glossaryContext?.type !== "glossary") {
+      return;
+    }
+
+    expect(glossaryContext.content.split(/\r?\n/).slice(1, 4)).toEqual([
+      "aaa,A,,0,0,",
+      "bbb,B,,0,0,",
+      "ccc,C,,0,0,",
+    ]);
+  });
+
+  test("injects the full translated glossary when matched coverage reaches the threshold", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-context-full-"));
+    cleanupTargets.push(workspaceDir);
+
+    const sourceDir = join(workspaceDir, "sources");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "chapter-1.txt"), "alpha beta gamma\n", "utf8");
+
+    const glossary = new Glossary([
+      { term: "delta", translation: "Delta" },
+      { term: "beta", translation: "Beta" },
+      { term: "gamma", translation: "Gamma" },
+      { term: "alpha", translation: "Alpha" },
+    ]);
+
+    const project = new TranslationProject(
+      {
+        projectName: "context-full",
+        projectDir: workspaceDir,
+        chapters: [{ id: 1, filePath: "sources/chapter-1.txt" }],
+        glossary: {
+          path: "glossary.csv",
+          autoFilter: true,
+        },
+      },
+      {
+        glossary,
+        textSplitter: {
+          split(units) {
+            return units.map((unit) => [unit]);
+          },
+        },
+      },
+    );
+
+    await project.initialize();
+    await project.startTranslation();
+    const tasks = await project.getWorkQueue("translation").dispatchReadyItems();
+    const translatedTerms = tasks[0]?.contextView?.getTranslatedGlossaryTerms() ?? [];
+
+    expect(translatedTerms.map((term) => term.term)).toEqual([
+      "alpha",
+      "beta",
+      "delta",
+      "gamma",
+    ]);
   });
 });

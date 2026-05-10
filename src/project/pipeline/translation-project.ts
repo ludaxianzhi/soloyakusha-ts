@@ -7,7 +7,7 @@
 import type { TranslationFileHandler, TranslationFileHandlerResolver } from "../../file-handlers/base.ts";
 import { restoreBlankText } from "../../file-handlers/base.ts";
 import { TranslationFileHandlerFactory } from "../../file-handlers/factory.ts";
-import { Glossary, GlossaryPersisterFactory } from "../../glossary/index.ts";
+import { Glossary, GlossaryPersisterFactory, type GlossaryTerm } from "../../glossary/index.ts";
 import { mkdir, writeFile } from "node:fs/promises";
 import { access } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -1024,6 +1024,16 @@ export class TranslationProject
   async importGlossary(filePath: string): Promise<GlossaryImportResult> {
     this.ensureInitialized();
     const result = await this.workspaceManager.importGlossary(filePath);
+    await this.bumpGlossaryDependencyRevision();
+    return result;
+  }
+
+  async importGlossaryTerms(
+    terms: ReadonlyArray<GlossaryTerm>,
+    sourceLabel = "imported-glossary",
+  ): Promise<GlossaryImportResult> {
+    this.ensureInitialized();
+    const result = await this.workspaceManager.importGlossaryTerms(terms, sourceLabel);
     await this.bumpGlossaryDependencyRevision();
     return result;
   }

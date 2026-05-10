@@ -231,6 +231,26 @@ prompts:
     expect(prompt.userPrompt).toContain("译文: 门后是一条长廊。");
     expect(prompt.userPrompt).toContain("历史总结（用于补充参考原文对应的大纲/前情）");
     expect(prompt.userPrompt).toContain("上一段：勇者已经潜入城堡。");
+    expect(prompt.userPrompt.indexOf("术语表（下面的术语表中为已经翻译后的术语和其介绍，文本中出现此类术语可视为正确翻译）：")).toBeLessThan(
+      prompt.userPrompt.indexOf("全量参考（前序文段，原文与译文合并展示）："),
+    );
+  });
+
+  test("renders chapter editor assistant prompt with glossary hints before conversation history", async () => {
+    const manager = await getDefaultPromptManager();
+
+    const prompt = manager.renderPrompt("project.chapterEditorAssistant.ja-zhCN", {
+      mode: "modify",
+      conversationTurns: [{ role: "user", content: "先前要求" }],
+      glossaryHints: ["勇者 -> Hero"],
+      repetitionHints: ["固定说法保持一致"],
+      selectedUnits: [{ id: "1", sourceText: "勇者が来た。", translatedText: "勇者来了。" }],
+      instruction: "改得更自然",
+    });
+
+    expect(prompt.userPrompt.indexOf("术语提示：")).toBeLessThan(
+      prompt.userPrompt.indexOf("历史对话："),
+    );
   });
 
   test("renders ja-zhCN specialized translation prompts from default yaml", async () => {

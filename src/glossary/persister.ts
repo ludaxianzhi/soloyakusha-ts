@@ -25,10 +25,8 @@ import {
 const SERIALIZED_HEADERS = [
   "term",
   "translation",
-  "category",
-  "totalOccurrenceCount",
-  "textBlockOccurrenceCount",
   "description",
+  "category",
 ] as const;
 
 /**
@@ -68,9 +66,10 @@ export class JsonGlossaryPersister extends GlossaryPersister {
  * CSV 术语表持久化实现。
  *
  * 文件格式：首行为表头，后续为数据行。
- * 支持新旧表头：
- * - 旧格式：term,translation,description
- * - 新格式：term,translation,status,category,totalOccurrenceCount,textBlockOccurrenceCount,description
+ * 支持新旧表头与缺省可选列：
+ * - 简化格式：term,translation,description,category
+ * - 兼容旧格式：term,translation,description
+ * - 兼容扩展格式：term,translation,status,category,totalOccurrenceCount,textBlockOccurrenceCount,description
  */
 export class CsvGlossaryPersister extends GlossaryPersister {
   constructor(private readonly delimiter = ",") {
@@ -241,7 +240,7 @@ function deserializeGlossaryTerm(
   return {
     term,
     translation,
-    category: parseGlossaryCategory(getColumnValue(columns, headerIndex, ["category"])),
+    category: parseGlossaryCategory(getColumnValue(columns, headerIndex, ["category"], 3)),
     totalOccurrenceCount: parseOptionalInteger(
       getColumnValue(columns, headerIndex, ["totaloccurrencecount", "occurrencecount"]),
     ),
@@ -261,10 +260,8 @@ function serializeGlossaryTerm(term: GlossaryTerm & {
   return [
     term.term,
     term.translation,
-    term.category ?? "",
-    String(term.totalOccurrenceCount ?? 0),
-    String(term.textBlockOccurrenceCount ?? 0),
     term.description ?? "",
+    term.category ?? "",
   ];
 }
 
