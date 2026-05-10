@@ -200,6 +200,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
 
     for (let round = 0; round < this.reviewIterations; round++) {
       const editorPrompt = await this.promptManager.renderMultiStageEditorPrompt({
+        sourceUnits,
         currentTranslations: toPromptUnits(latestTranslations),
         referenceTranslations,
         plotSummaries,
@@ -439,6 +440,7 @@ export class SingleStepProofreadProcessor implements ProofreadProcessor {
     const prompt =
       this.options.step === "editor"
         ? await this.promptManager.renderMultiStageEditorPrompt({
+            sourceUnits,
             currentTranslations: toPromptUnits(latestTranslations),
             referenceTranslations: request.contextView?.getDependencyTranslatedTexts() ?? [],
             plotSummaries,

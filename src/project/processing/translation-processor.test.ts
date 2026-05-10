@@ -367,7 +367,7 @@ describe("TranslationProcessor", () => {
     expect(result.outputText).toBe("勇者凝视着王都");
     expect(result.glossaryUpdates).toEqual([]);
     expect(client.requests).toHaveLength(2);
-    expect(client.requests[0]?.prompt).toContain("待审读译文");
+    expect(client.requests[0]?.prompt).toContain("待审读原文-译文对");
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain(
       "避免欧化长句。",
     );
@@ -569,7 +569,8 @@ describe("TranslationProcessor", () => {
 
     expect(result.outputText).toBe("勇者凝望着王都");
     expect(client.requests).toHaveLength(1);
-    expect(client.requests[0]?.prompt).toContain("待审读译文");
+    expect(client.requests[0]?.prompt).toContain("待审读原文-译文对");
+    expect(client.requests[0]?.prompt).toContain("origin: 勇者は王都を見つめていた");
     expect(client.requests[0]?.prompt).toContain("参考译文");
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("避免直译腔");
     expect(client.requests[0]?.options?.meta).toMatchObject({

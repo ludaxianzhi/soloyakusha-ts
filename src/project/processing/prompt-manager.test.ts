@@ -163,8 +163,14 @@ prompts:
         editor-system
         {{ editorRequirementsText }}
     user:
-      type: static
-      template: editor-user
+      type: liquid
+      template: |
+        editor-user
+        {% for unit in sourceUnits %}
+        - id: {{ unit.id }}
+          origin: {{ unit.text }}
+          translation: {{ currentTranslations[forloop.index0].text }}
+        {% endfor %}
 `);
 
     const manager = new PromptManager({
@@ -172,6 +178,7 @@ prompts:
     });
 
     const renderedWithDefault = await manager.renderMultiStageEditorPrompt({
+      sourceUnits: [{ id: "1", text: "原文" }],
       currentTranslations: [{ id: "1", text: "译文" }],
       referenceTranslations: [],
       plotSummaries: [],
@@ -179,6 +186,7 @@ prompts:
       requirements: [],
     });
     const renderedWithCustom = await manager.renderMultiStageEditorPrompt({
+      sourceUnits: [{ id: "1", text: "原文" }],
       currentTranslations: [{ id: "1", text: "译文" }],
       referenceTranslations: [],
       plotSummaries: [],
@@ -189,6 +197,8 @@ prompts:
 
     expect(renderedWithDefault.systemPrompt).toContain(DEFAULT_EDITOR_REQUIREMENTS_TEXT);
     expect(renderedWithCustom.systemPrompt).toContain("避免文白夹杂。");
+    expect(renderedWithDefault.userPrompt).toContain("origin: 原文");
+    expect(renderedWithDefault.userPrompt).toContain("translation: 译文");
     expect(renderedWithDefault.responseSchema).toBeDefined();
     expect(renderedWithDefault.responseSchema).toHaveProperty("required", ["modifications"]);
   });

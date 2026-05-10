@@ -60,6 +60,7 @@ export type StyleTransferPromptInput = {
 };
 
 export type MultiStageEditorPromptInput = {
+  sourceUnits: PromptTranslationUnit[];
   currentTranslations: PromptTranslationUnit[];
   referenceTranslations: string[];
   plotSummaries: string[];
@@ -247,6 +248,7 @@ export class PromptManager {
   ): Promise<RenderedPrompt> {
     const responseSchema = buildProofreadModificationResponseSchema(input.currentTranslations);
     const renderedPrompt = await this.renderPrompt(PROOFREAD_EDITOR_PROMPT_ID, {
+      sourceUnits: input.sourceUnits,
       currentTranslations: input.currentTranslations,
       referenceTranslations: input.referenceTranslations,
       plotSummaries: input.plotSummaries,

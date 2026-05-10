@@ -54,10 +54,11 @@ prompts:
         {% endfor %}
 
         {% endif %}
-        待审读译文（按行编号）：
-        {% for unit in currentTranslations %}
+        待审读原文-译文对（按行编号）：
+        {% for unit in sourceUnits %}
         - id: {{ unit.id }}
-          translation: {{ unit.text }}
+          origin: {{ unit.text }}
+          translation: {{ currentTranslations[forloop.index0].text }}
         {% endfor %}
 
         作为中文编辑，请直接对需要修改的行进行改写。重点关注：
