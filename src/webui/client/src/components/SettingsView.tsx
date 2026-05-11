@@ -318,6 +318,16 @@ export function SettingsView({
                       <Checkbox>是否支持 Structured Output</Checkbox>
                     </Form.Item>
                     <Form.Item
+                      name="injectVirtualTool"
+                      valuePropName="checked"
+                      extra="会在聊天请求中附带一个标记为 Never Use 的示例 Tool，用于向部分模型显式暴露 tool-capable agent 环境。该 Tool 仅用于激发推理，不应被实际调用。"
+                    >
+                      <Checkbox>注入虚拟 Tool</Checkbox>
+                    </Form.Item>
+                    <Paragraph type="secondary" style={{ marginTop: -8 }}>
+                      适用于部分会根据请求参数推断运行环境的模型。开启后，系统会注入一个不可执行的示例 Tool；后续如果模型真正返回 Tool Call，底层 LLM 模块也已经具备解析能力。
+                    </Paragraph>
+                    <Form.Item
                       name="defaultRequestConfigYaml"
                       label="默认请求配置（YAML）"
                       extra="temperature / topP 等标准字段可直接写；供应商特有参数也可直接写，保存时会自动归入 extraBody。"

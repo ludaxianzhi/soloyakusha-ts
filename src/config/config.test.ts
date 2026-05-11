@@ -45,6 +45,7 @@ describe("GlobalConfigManager", () => {
       apiKey: "secret",
       retries: 5,
       supportsStructuredOutput: true,
+      injectVirtualTool: true,
       defaultRequestConfig: {
         temperature: 0.2,
         extraBody: {
@@ -70,6 +71,7 @@ describe("GlobalConfigManager", () => {
       maxParallelRequests: undefined,
       apiKeyEnv: undefined,
       supportsStructuredOutput: true,
+      injectVirtualTool: true,
       defaultRequestConfig: {
         systemPrompt: undefined,
         temperature: 0.2,
@@ -141,6 +143,7 @@ describe("GlobalConfigManager", () => {
         apiKey: "secret",
         retries: 3,
         supportsStructuredOutput: true,
+        injectVirtualTool: true,
         defaultRequestConfig: {
           system_prompt: "system",
           top_p: 0.8,
@@ -167,6 +170,7 @@ describe("GlobalConfigManager", () => {
       },
     });
     expect(normalized.supportsStructuredOutput).toBe(true);
+    expect(normalized.injectVirtualTool).toBe(true);
   });
 
   test("lifts unknown default request config fields into extraBody", () => {
@@ -798,6 +802,7 @@ describe("GlobalConfigManager", () => {
       apiKeyEnv: undefined,
       defaultRequestConfig: undefined,
       supportsStructuredOutput: false,
+      injectVirtualTool: false,
     });
     expect(await reloaded.getVectorStore("memory")).toEqual({
       provider: "qdrant",

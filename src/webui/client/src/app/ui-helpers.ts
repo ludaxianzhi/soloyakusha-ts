@@ -86,6 +86,7 @@ export function profileToForm(
       profile.defaultRequestConfig,
     ),
     supportsStructuredOutput: profile.supportsStructuredOutput ?? false,
+    injectVirtualTool: profile.injectVirtualTool ?? false,
     pcaEnabled: profile.pca?.enabled ?? false,
     pcaWeightsFilePath: profile.pca?.weightsFilePath,
   };

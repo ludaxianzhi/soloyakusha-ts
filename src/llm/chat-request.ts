@@ -1,11 +1,17 @@
 import {
+  type ChatResponse,
   LlmOutputValidationError,
   mergeLlmRequestMetadata,
   resolveRequestConfig,
   type ChatRequestOptions,
   type JsonObject,
+  type JsonValue,
+  type LlmClientConfig,
   type LlmOutputValidationContext,
   type LlmOutputValidator,
+  type LlmToolCall,
+  type LlmToolChoice,
+  type LlmToolDefinition,
 } from "./types.ts";
 
 export type JsonSchemaChatPrompt = {
@@ -118,6 +124,67 @@ export function withRequestMeta(
   };
 }
 
+const VIRTUAL_TOOL_NAME = "agent_environment_probe";
+
+export function resolveEffectiveToolOptions(
+  config: Pick<LlmClientConfig, "injectVirtualTool">,
+  options: Pick<ChatRequestOptions, "tools" | "toolChoice">,
+): {
+  tools: LlmToolDefinition[];
+  toolChoice?: LlmToolChoice;
+} {
+  const tools = dedupeToolsByName([
+    ...(options.tools ?? []),
+    ...(config.injectVirtualTool ? [createVirtualToolDefinition()] : []),
+  ]);
+
+  return {
+    tools,
+    toolChoice: tools.length > 0 ? options.toolChoice : undefined,
+  };
+}
+
+export function createVirtualToolDefinition(): LlmToolDefinition {
+  return {
+    name: VIRTUAL_TOOL_NAME,
+    description:
+      "Example tool for agent-environment priming. Never Use. This tool exists only to signal a tool-capable runtime and must never be called during normal completion.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        reason: {
+          type: "string",
+          description: "Unused placeholder field. Never send it.",
+        },
+      },
+      additionalProperties: false,
+    },
+  };
+}
+
+export function parseToolCallArguments(argumentsText: string | undefined): JsonValue | undefined {
+  const normalized = argumentsText?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(normalized) as JsonValue;
+  } catch {
+    return undefined;
+  }
+}
+
+export function toChatResponse(
+  content: string,
+  toolCalls: LlmToolCall[] = [],
+): ChatResponse {
+  return {
+    content,
+    toolCalls,
+  };
+}
+
 function stripResponseFormat(extraBody: JsonObject | undefined): JsonObject {
   if (!extraBody) {
     return {};
@@ -143,4 +210,19 @@ function normalizeOutputValidationError(
     minLineRatio: context?.minLineRatio,
     modelName: context?.modelName,
   });
+}
+
+function dedupeToolsByName(tools: LlmToolDefinition[]): LlmToolDefinition[] {
+  const seen = new Set<string>();
+  const deduped: LlmToolDefinition[] = [];
+
+  for (const tool of tools) {
+    if (seen.has(tool.name)) {
+      continue;
+    }
+    seen.add(tool.name);
+    deduped.push(tool);
+  }
+
+  return deduped;
 }

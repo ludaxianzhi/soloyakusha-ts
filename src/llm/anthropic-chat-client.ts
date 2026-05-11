@@ -17,14 +17,21 @@
 import { ChatClient } from "./base.ts";
 import {
   isRetryableOutputValidationError,
+  parseToolCallArguments,
+  resolveEffectiveToolOptions,
   runOutputValidator,
+  toChatResponse,
 } from "./chat-request.ts";
 import { RateLimiter } from "./rate-limiter.ts";
 import type {
+  ChatResponse,
   ChatRequestOptions,
   ClientHooks,
   CompletionResponseStatistics,
   LlmClientConfig,
+  LlmToolCall,
+  LlmToolChoice,
+  LlmToolDefinition,
 } from "./types.ts";
 import { resolveRequestConfig, ThinkingLoopError } from "./types.ts";
 import { ThinkingLoopDetector } from "./thinking-loop-detector.ts";
@@ -78,6 +85,14 @@ export class AnthropicChatClient extends ChatClient {
     prompt: string,
     options: ChatRequestOptions = {},
   ): Promise<string> {
+    const response = await this.singleTurnResponse(prompt, options);
+    return response.content;
+  }
+
+  override async singleTurnResponse(
+    prompt: string,
+    options: ChatRequestOptions = {},
+  ): Promise<ChatResponse> {
     const requestConfig = resolveRequestConfig(
       options.requestConfig,
       this.config.defaultRequestConfig,
@@ -89,6 +104,7 @@ export class AnthropicChatClient extends ChatClient {
         async () => {
           return this.rateLimiter.run(async () => {
             const thinkingLoopDetector = new ThinkingLoopDetector();
+            const effectiveToolOptions = resolveEffectiveToolOptions(this.config, options);
             const requestBody: Record<string, unknown> = {
               model: this.config.modelName,
               messages: [{ role: "user", content: prompt }],
@@ -101,6 +117,14 @@ export class AnthropicChatClient extends ChatClient {
 
             if (requestConfig.systemPrompt) {
               requestBody.system = requestConfig.systemPrompt;
+            }
+
+             if (effectiveToolOptions.tools.length > 0) {
+              requestBody.tools = toAnthropicTools(effectiveToolOptions.tools);
+              const toolChoice = toAnthropicToolChoice(effectiveToolOptions.toolChoice);
+              if (toolChoice !== undefined) {
+                requestBody.tool_choice = toolChoice;
+              }
             }
 
             let response: Response;
@@ -132,12 +156,14 @@ export class AnthropicChatClient extends ChatClient {
             let content = "";
             let usageInfo: Record<string, unknown> = {};
             let reasoning = "";
+            const toolCallChunks = new Map<number, MutableAnthropicToolCall>();
 
             await collectJsonSse<Record<string, unknown>>(
               response,
               async (data) => {
                 if (data.type === "content_block_delta") {
                   const delta = isRecord(data.delta) ? data.delta : undefined;
+                  const contentBlockIndex = getIntegerOrUndefined(data.index);
                   if (delta?.type === "text_delta" && typeof delta.text === "string") {
                     content += delta.text;
                     this.requestObserver?.onRequestProgress?.({
@@ -152,10 +178,22 @@ export class AnthropicChatClient extends ChatClient {
                       reasoning += thinkingText;
                     }
                   }
+                  if (
+                    delta?.type === "input_json_delta" &&
+                    typeof delta.partial_json === "string" &&
+                    contentBlockIndex !== undefined
+                  ) {
+                    const chunk = toolCallChunks.get(contentBlockIndex) ?? {
+                      argumentsText: "",
+                    };
+                    chunk.argumentsText += delta.partial_json;
+                    toolCallChunks.set(contentBlockIndex, chunk);
+                  }
                   return;
                 }
 
                 if (data.type === "content_block_start") {
+                  const contentBlockIndex = getIntegerOrUndefined(data.index);
                   const contentBlock = isRecord(data.content_block)
                     ? data.content_block
                     : undefined;
@@ -165,6 +203,15 @@ export class AnthropicChatClient extends ChatClient {
                       thinkingLoopDetector.addThinkingText(thinkingText);
                       reasoning += thinkingText;
                     }
+                  }
+                  if (contentBlock?.type === "tool_use" && contentBlockIndex !== undefined) {
+                    toolCallChunks.set(contentBlockIndex, {
+                      id: typeof contentBlock.id === "string" ? contentBlock.id : undefined,
+                      name: typeof contentBlock.name === "string" ? contentBlock.name : undefined,
+                      argumentsText: isRecord(contentBlock.input)
+                        ? JSON.stringify(contentBlock.input)
+                        : "",
+                    });
                   }
                   return;
                 }
@@ -193,10 +240,26 @@ export class AnthropicChatClient extends ChatClient {
             );
 
             if (!content.trim()) {
-              throw new AnthropicEmptyResponseError();
+              const toolCalls = finalizeAnthropicToolCalls(toolCallChunks);
+              if (toolCalls.length === 0) {
+                throw new AnthropicEmptyResponseError();
+              }
+
+              return {
+                response: toChatResponse(content, toolCalls),
+                statistics: {
+                  promptTokens: getInteger(usageInfo.input_tokens),
+                  completionTokens: getInteger(usageInfo.output_tokens),
+                  totalTokens:
+                    getInteger(usageInfo.input_tokens) + getInteger(usageInfo.output_tokens),
+                },
+                reasoning,
+              };
             }
 
             await runOutputValidator(content, options);
+
+            const toolCalls = finalizeAnthropicToolCalls(toolCallChunks);
 
             const statistics: CompletionResponseStatistics = {
               promptTokens: getInteger(usageInfo.input_tokens),
@@ -206,7 +269,7 @@ export class AnthropicChatClient extends ChatClient {
             };
 
             return {
-              content,
+              response: toChatResponse(content, toolCalls),
               statistics,
               reasoning,
             };
@@ -224,7 +287,7 @@ export class AnthropicChatClient extends ChatClient {
       const durationSeconds = getDurationSeconds(startedAt);
       await this.historyLogger?.logCompletion({
         prompt,
-        response: result.content,
+        response: result.response.content,
         requestId,
         requestConfig,
         meta: options.meta,
@@ -235,7 +298,7 @@ export class AnthropicChatClient extends ChatClient {
       });
       this.requestObserver?.onRequestFinish?.({ requestId });
 
-      return result.content;
+      return result.response;
     } catch (error) {
       const responseBody = error instanceof ApiHttpError ? error.responseText : undefined;
       await this.logFailure(prompt, requestId, startedAt, error, { ...options, requestConfig }, responseBody);
@@ -246,6 +309,67 @@ export class AnthropicChatClient extends ChatClient {
 
 function getInteger(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+type MutableAnthropicToolCall = {
+  id?: string;
+  name?: string;
+  argumentsText: string;
+};
+
+function getIntegerOrUndefined(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function finalizeAnthropicToolCalls(
+  toolCallChunks: Map<number, MutableAnthropicToolCall>,
+): LlmToolCall[] {
+  return Array.from(toolCallChunks.entries())
+    .sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+    .flatMap(([, chunk]) => {
+      if (!chunk.name) {
+        return [];
+      }
+
+      return [
+        {
+          id: chunk.id,
+          name: chunk.name,
+          argumentsText: chunk.argumentsText || undefined,
+          arguments: parseToolCallArguments(chunk.argumentsText),
+        },
+      ];
+    });
+}
+
+function toAnthropicTools(tools: LlmToolDefinition[]): unknown[] {
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    input_schema: tool.inputSchema ?? {
+      type: "object",
+      additionalProperties: false,
+    },
+  }));
+}
+
+function toAnthropicToolChoice(toolChoice: LlmToolChoice | undefined): unknown {
+  if (toolChoice === undefined || toolChoice === "none") {
+    return undefined;
+  }
+
+  if (toolChoice === "auto") {
+    return { type: "auto" };
+  }
+
+  if (toolChoice === "required") {
+    return { type: "any" };
+  }
+
+  return {
+    type: "tool",
+    name: toolChoice.name,
+  };
 }
 
 function extractAnthropicReasoningDelta(value: Record<string, unknown>): string {

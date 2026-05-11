@@ -130,6 +130,17 @@ describe("createLlmClientConfig", () => {
     });
     expect(config.defaultRequestConfig && "maxTokens" in config.defaultRequestConfig).toBe(false);
   });
+
+  test("preserves injectVirtualTool flag", () => {
+    const config = createLlmClientConfig({
+      modelName: "gpt-test",
+      endpoint: "https://example.com/v1",
+      apiKey: "secret",
+      injectVirtualTool: true,
+    });
+
+    expect(config.injectVirtualTool).toBe(true);
+  });
 });
 
 describe("RateLimiter", () => {
@@ -295,6 +306,129 @@ describe("FallbackChatClient", () => {
 });
 
 describe("OpenAIChatClient", () => {
+  test("injects the virtual tool into OpenAI chat requests", async () => {
+    const originalFetch = globalThis.fetch;
+    let requestBody: Record<string, unknown> | undefined;
+    const fetchMock = Object.assign(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              const encoder = new TextEncoder();
+              controller.enqueue(
+                encoder.encode(
+                  [
+                    'data: {"choices":[{"delta":{"content":"ok"}}]}',
+                    'data: {"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}',
+                    "data: [DONE]",
+                    "",
+                  ].join("\n"),
+                ),
+              );
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        );
+      },
+      {
+        preconnect: originalFetch.preconnect,
+      },
+    ) satisfies typeof fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = new OpenAIChatClient({
+        ...createStubConfig("tool-primed-model"),
+        injectVirtualTool: true,
+      });
+
+      await expect(client.singleTurnRequest("prompt")).resolves.toBe("ok");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requestBody?.tools).toEqual([
+      {
+        type: "function",
+        function: {
+          name: "agent_environment_probe",
+          description: expect.stringContaining("Never Use"),
+          parameters: {
+            type: "object",
+            properties: {
+              reason: {
+                type: "string",
+                description: "Unused placeholder field. Never send it.",
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
+    ]);
+  });
+
+  test("parses streamed OpenAI tool calls from the richer response API", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = Object.assign(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              const encoder = new TextEncoder();
+              controller.enqueue(
+                encoder.encode(
+                  [
+                    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"lookup","arguments":"{\\"q\\":\\"hel"}}]}}]}',
+                    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"lo\\"}"}}]}}]}',
+                    'data: {"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}',
+                    "data: [DONE]",
+                    "",
+                  ].join("\n"),
+                ),
+              );
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        ),
+      {
+        preconnect: originalFetch.preconnect,
+      },
+    ) satisfies typeof fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = new OpenAIChatClient(createStubConfig("tool-call-model"));
+      await expect(
+        client.singleTurnResponse("prompt", {
+          tools: [
+            {
+              name: "lookup",
+              description: "lookup something",
+            },
+          ],
+        }),
+      ).resolves.toEqual({
+        content: "",
+        toolCalls: [
+          {
+            id: "call_1",
+            name: "lookup",
+            argumentsText: '{"q":"hello"}',
+            arguments: {
+              q: "hello",
+            },
+          },
+        ],
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("stores reasoning text and meta in completion history", async () => {
     const historyEntries: Array<Record<string, unknown>> = [];
     const originalFetch = globalThis.fetch;
@@ -408,6 +542,103 @@ describe("OpenAIChatClient", () => {
 });
 
 describe("AnthropicChatClient", () => {
+  test("injects and parses Anthropic tools via the richer response API", async () => {
+    const originalFetch = globalThis.fetch;
+    let requestBody: Record<string, unknown> | undefined;
+    const fetchMock = Object.assign(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              const encoder = new TextEncoder();
+              controller.enqueue(
+                encoder.encode(
+                  [
+                    'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"lookup"}}',
+                    'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"q\\":\\"hel"}}',
+                    'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"lo\\"}"}}',
+                    'data: {"type":"message_delta","usage":{"input_tokens":3,"output_tokens":2}}',
+                    'data: {"type":"message_stop"}',
+                    "",
+                  ].join("\n"),
+                ),
+              );
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        );
+      },
+      {
+        preconnect: originalFetch.preconnect,
+      },
+    ) satisfies typeof fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = new AnthropicChatClient({
+        provider: "anthropic",
+        modelName: "claude-tool-model",
+        endpoint: "https://example.com/v1",
+        apiKey: "secret",
+        modelType: "chat",
+        retries: 1,
+        injectVirtualTool: true,
+      });
+
+      await expect(
+        client.singleTurnResponse("prompt", {
+          tools: [
+            {
+              name: "lookup",
+              description: "lookup something",
+            },
+          ],
+        }),
+      ).resolves.toEqual({
+        content: "",
+        toolCalls: [
+          {
+            id: "toolu_1",
+            name: "lookup",
+            argumentsText: '{"q":"hello"}',
+            arguments: {
+              q: "hello",
+            },
+          },
+        ],
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requestBody?.tools).toEqual([
+      {
+        name: "lookup",
+        description: "lookup something",
+        input_schema: {
+          type: "object",
+          additionalProperties: false,
+        },
+      },
+      {
+        name: "agent_environment_probe",
+        description: expect.stringContaining("Never Use"),
+        input_schema: {
+          type: "object",
+          properties: {
+            reason: {
+              type: "string",
+              description: "Unused placeholder field. Never send it.",
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    ]);
+  });
+
   test("throws ThinkingLoopError when thinking stream enters repetitive loop", async () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = Object.assign(

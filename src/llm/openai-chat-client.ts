@@ -17,14 +17,21 @@
 import { ChatClient } from "./base.ts";
 import {
   isRetryableOutputValidationError,
+  parseToolCallArguments,
+  resolveEffectiveToolOptions,
   runOutputValidator,
+  toChatResponse,
 } from "./chat-request.ts";
 import { RateLimiter } from "./rate-limiter.ts";
 import type {
+  ChatResponse,
   ChatRequestOptions,
   ClientHooks,
   CompletionResponseStatistics,
   LlmClientConfig,
+  LlmToolCall,
+  LlmToolChoice,
+  LlmToolDefinition,
 } from "./types.ts";
 import { resolveRequestConfig, ThinkingLoopError } from "./types.ts";
 import { ThinkingLoopDetector } from "./thinking-loop-detector.ts";
@@ -79,6 +86,14 @@ export class OpenAIChatClient extends ChatClient {
     prompt: string,
     options: ChatRequestOptions = {},
   ): Promise<string> {
+    const response = await this.singleTurnResponse(prompt, options);
+    return response.content;
+  }
+
+  override async singleTurnResponse(
+    prompt: string,
+    options: ChatRequestOptions = {},
+  ): Promise<ChatResponse> {
     const requestConfig = resolveRequestConfig(
       options.requestConfig,
       this.config.defaultRequestConfig,
@@ -91,6 +106,7 @@ export class OpenAIChatClient extends ChatClient {
         async () => {
           return this.rateLimiter.run(async () => {
             const thinkingLoopDetector = new ThinkingLoopDetector();
+            const effectiveToolOptions = resolveEffectiveToolOptions(this.config, options);
             const messages: Array<{ role: "system" | "user"; content: string }> = [
               { role: "user", content: prompt },
             ];
@@ -110,6 +126,14 @@ export class OpenAIChatClient extends ChatClient {
               stream: true,
               ...(requestConfig.extraBody ?? {}),
             };
+
+            if (effectiveToolOptions.tools.length > 0) {
+              requestBody.tools = toOpenAiTools(effectiveToolOptions.tools);
+              const toolChoice = toOpenAiToolChoice(effectiveToolOptions.toolChoice);
+              if (toolChoice !== undefined) {
+                requestBody.tool_choice = toolChoice;
+              }
+            }
 
             let response: Response;
             try {
@@ -140,6 +164,7 @@ export class OpenAIChatClient extends ChatClient {
             let usageInfo: Record<string, unknown> = {};
             let thinkingTokensEstimate = 0;
             let reasoning = "";
+            const toolCallChunks = new Map<number, MutableToolCallChunk>();
 
             const streamResult = await collectJsonSse<Record<string, unknown>>(
               response,
@@ -152,7 +177,7 @@ export class OpenAIChatClient extends ChatClient {
                   }
 
                   const delta = isRecord(choice.delta) ? choice.delta : {};
-                  const { completionParts, reasoningParts } =
+                  const { completionParts, reasoningParts, toolCallParts } =
                     extractOpenAiDeltaTexts(delta);
 
                   for (const deltaText of completionParts) {
@@ -179,6 +204,22 @@ export class OpenAIChatClient extends ChatClient {
                       requestId,
                       thinkingTokens: thinkingTokensEstimate,
                     });
+                  }
+
+                  for (const toolCallPart of toolCallParts) {
+                    const chunk = toolCallChunks.get(toolCallPart.index) ?? {
+                      argumentsText: "",
+                    };
+                    if (toolCallPart.id) {
+                      chunk.id = toolCallPart.id;
+                    }
+                    if (toolCallPart.name) {
+                      chunk.name = toolCallPart.name;
+                    }
+                    if (toolCallPart.argumentsText) {
+                      chunk.argumentsText += toolCallPart.argumentsText;
+                    }
+                    toolCallChunks.set(toolCallPart.index, chunk);
                   }
                 }
 
@@ -218,10 +259,26 @@ export class OpenAIChatClient extends ChatClient {
                 : "";
 
             if (!content.trim()) {
-              throw new OpenAIEmptyResponseError();
+              const toolCalls = finalizeOpenAiToolCalls(toolCallChunks);
+              if (toolCalls.length === 0) {
+                throw new OpenAIEmptyResponseError();
+              }
+
+              return {
+                response: toChatResponse(content, toolCalls),
+                statistics: {
+                  promptTokens: getInteger(usageInfo.prompt_tokens),
+                  completionTokens: getInteger(usageInfo.completion_tokens),
+                  totalTokens: getInteger(usageInfo.total_tokens),
+                },
+                thinkingTokensEstimate,
+                reasoning,
+              };
             }
 
             await runOutputValidator(content, options);
+
+            const toolCalls = finalizeOpenAiToolCalls(toolCallChunks);
 
             const statistics: CompletionResponseStatistics = {
               promptTokens: getInteger(usageInfo.prompt_tokens),
@@ -230,7 +287,7 @@ export class OpenAIChatClient extends ChatClient {
             };
 
             return {
-              content,
+              response: toChatResponse(content, toolCalls),
               statistics,
               thinkingTokensEstimate,
               reasoning,
@@ -263,7 +320,7 @@ export class OpenAIChatClient extends ChatClient {
       const durationSeconds = getDurationSeconds(startedAt);
       await this.historyLogger?.logCompletion({
         prompt,
-        response: result.content,
+        response: result.response.content,
         requestId,
         requestConfig,
         meta: options.meta,
@@ -278,7 +335,7 @@ export class OpenAIChatClient extends ChatClient {
           result.thinkingTokensEstimate > 0 ? result.thinkingTokensEstimate : undefined,
       });
 
-      return result.content;
+      return result.response;
     } catch (error) {
       const responseBody =
         error instanceof ApiHttpError
@@ -293,9 +350,11 @@ export class OpenAIChatClient extends ChatClient {
 function extractOpenAiDeltaTexts(delta: Record<string, unknown>): {
   completionParts: string[];
   reasoningParts: string[];
+  toolCallParts: OpenAiToolCallChunk[];
 } {
   const completionParts: string[] = [];
   const reasoningParts: string[] = [];
+  const toolCallParts: OpenAiToolCallChunk[] = [];
 
   const content = delta.content;
   if (typeof content === "string") {
@@ -333,11 +392,50 @@ function extractOpenAiDeltaTexts(delta: Record<string, unknown>): {
     }
   }
 
+  if (Array.isArray(delta.tool_calls)) {
+    for (const [fallbackIndex, toolCall] of delta.tool_calls.entries()) {
+      if (!isRecord(toolCall)) {
+        continue;
+      }
+
+      const functionPayload = isRecord(toolCall.function) ? toolCall.function : undefined;
+      toolCallParts.push({
+        index:
+          typeof toolCall.index === "number" && Number.isFinite(toolCall.index)
+            ? toolCall.index
+            : fallbackIndex,
+        id: typeof toolCall.id === "string" ? toolCall.id : undefined,
+        name:
+          functionPayload && typeof functionPayload.name === "string"
+            ? functionPayload.name
+            : undefined,
+        argumentsText:
+          functionPayload && typeof functionPayload.arguments === "string"
+            ? functionPayload.arguments
+            : undefined,
+      });
+    }
+  }
+
   return {
     completionParts,
     reasoningParts,
+    toolCallParts,
   };
 }
+
+type OpenAiToolCallChunk = {
+  index: number;
+  id?: string;
+  name?: string;
+  argumentsText?: string;
+};
+
+type MutableToolCallChunk = {
+  id?: string;
+  name?: string;
+  argumentsText: string;
+};
 
 function extractTextFromContentParts(parts: unknown[]): {
   completionParts: string[];
@@ -420,6 +518,62 @@ function extractReasoningTokensFromUsage(
 
 function getInteger(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function finalizeOpenAiToolCalls(
+  toolCallChunks: Map<number, MutableToolCallChunk>,
+): LlmToolCall[] {
+  return Array.from(toolCallChunks.entries())
+    .sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+    .flatMap(([, chunk]) => {
+      if (!chunk.name) {
+        return [];
+      }
+
+      return [
+        {
+          id: chunk.id,
+          name: chunk.name,
+          argumentsText: chunk.argumentsText || undefined,
+          arguments: parseToolCallArguments(chunk.argumentsText),
+        },
+      ];
+    });
+}
+
+function toOpenAiTools(tools: LlmToolDefinition[]): unknown[] {
+  return tools.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema ?? {
+        type: "object",
+        additionalProperties: false,
+      },
+    },
+  }));
+}
+
+function toOpenAiToolChoice(toolChoice: LlmToolChoice | undefined): unknown {
+  if (toolChoice === undefined) {
+    return undefined;
+  }
+
+  if (toolChoice === "auto" || toolChoice === "none") {
+    return toolChoice;
+  }
+
+  if (toolChoice === "required") {
+    return "required";
+  }
+
+  return {
+    type: "function",
+    function: {
+      name: toolChoice.name,
+    },
+  };
 }
 
 function isRetryableOpenAiError(error: unknown): boolean {

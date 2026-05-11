@@ -663,6 +663,7 @@ export interface LlmProfileConfig {
   retries: number;
   defaultRequestConfig?: Record<string, unknown>;
   supportsStructuredOutput?: boolean;
+  injectVirtualTool?: boolean;
   pca?: {
     enabled: boolean;
     weightsFilePath?: string;

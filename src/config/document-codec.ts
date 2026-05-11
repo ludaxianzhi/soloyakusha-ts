@@ -172,6 +172,9 @@ export function normalizePersistedLlmClientConfig(
   const supportsStructuredOutput =
     readOptionalBoolean(value.supportsStructuredOutput, `${sourceLabel}.supportsStructuredOutput`) ??
     false;
+  const injectVirtualTool =
+    readOptionalBoolean(value.injectVirtualTool, `${sourceLabel}.injectVirtualTool`) ??
+    false;
   const pca =
     value.pca === undefined
       ? undefined
@@ -201,6 +204,7 @@ export function normalizePersistedLlmClientConfig(
     retries,
     defaultRequestConfig,
     supportsStructuredOutput,
+    injectVirtualTool,
     ...(pca ? { pca } : {}),
   };
 }
@@ -1193,6 +1197,7 @@ export function clonePersistedLlmClientConfig(
       ? cloneRequestConfig(config.defaultRequestConfig)
       : undefined,
     supportsStructuredOutput: config.supportsStructuredOutput === true,
+    injectVirtualTool: config.injectVirtualTool === true,
     ...(config.pca
       ? {
           pca: {

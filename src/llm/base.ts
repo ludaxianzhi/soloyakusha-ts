@@ -15,6 +15,7 @@
  */
 
 import type {
+  ChatResponse,
   ChatRequestOptions,
   ClientHooks,
   ErrorLogEntry,
@@ -52,6 +53,10 @@ export abstract class ManagedLlmClient {
     return this.config.supportsStructuredOutput === true;
   }
 
+  get injectVirtualTool(): boolean {
+    return this.config.injectVirtualTool === true;
+  }
+
   setHistoryLogger(historyLogger?: ClientHooks["historyLogger"]): void {
     this.historyLogger = historyLogger;
   }
@@ -79,6 +84,16 @@ export abstract class ChatClient extends ManagedLlmClient {
     prompt: string,
     options?: ChatRequestOptions,
   ): Promise<string>;
+
+  async singleTurnResponse(
+    prompt: string,
+    options: ChatRequestOptions = {},
+  ): Promise<ChatResponse> {
+    return {
+      content: await this.singleTurnRequest(prompt, options),
+      toolCalls: [],
+    };
+  }
 
   async multipleResultsRequest(
     prompt: string,

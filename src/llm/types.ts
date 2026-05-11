@@ -58,6 +58,7 @@ export type LlmClientConfig = {
   retries: number;
   defaultRequestConfig?: LlmRequestConfig;
   supportsStructuredOutput?: boolean;
+  injectVirtualTool?: boolean;
   pca?: PcaEmbeddingConfig;
 };
 
@@ -73,7 +74,35 @@ export type LlmClientConfigInput = {
   retries?: number;
   defaultRequestConfig?: LlmRequestConfigInput;
   supportsStructuredOutput?: boolean;
+  injectVirtualTool?: boolean;
   pca?: PcaEmbeddingConfig;
+};
+
+export type LlmToolDefinition = {
+  name: string;
+  description: string;
+  inputSchema?: JsonObject;
+};
+
+export type LlmToolChoice =
+  | "auto"
+  | "required"
+  | "none"
+  | {
+      type: "tool";
+      name: string;
+    };
+
+export type LlmToolCall = {
+  id?: string;
+  name: string;
+  argumentsText?: string;
+  arguments?: JsonValue;
+};
+
+export type ChatResponse = {
+  content: string;
+  toolCalls: LlmToolCall[];
 };
 
 export type CompletionResponseStatistics = {
@@ -139,6 +168,8 @@ export type ChatRequestOptions = {
   outputValidator?: LlmOutputValidator;
   outputValidationContext?: LlmOutputValidationContext;
   meta?: LlmRequestMetadata;
+  tools?: LlmToolDefinition[];
+  toolChoice?: LlmToolChoice;
 };
 
 export type CompletionLogEntry = {
@@ -276,6 +307,7 @@ export function createLlmClientConfig(
       ? resolveRequestConfig(input.defaultRequestConfig)
       : undefined,
     supportsStructuredOutput: input.supportsStructuredOutput === true,
+    injectVirtualTool: input.injectVirtualTool === true,
     ...(normalizedPca ? { pca: normalizedPca } : {}),
   };
 }

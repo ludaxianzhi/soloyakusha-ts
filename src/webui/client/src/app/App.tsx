@@ -2085,6 +2085,7 @@ export function AppShell() {
       provider: 'openai',
       retries: 2,
       supportsStructuredOutput: false,
+      injectVirtualTool: false,
     });
   }, [llmForm]);
 
@@ -2109,6 +2110,7 @@ export function AppShell() {
             values.defaultRequestConfigYaml,
           ),
           supportsStructuredOutput: values.supportsStructuredOutput === true,
+          injectVirtualTool: values.injectVirtualTool === true,
         };
         await runSettingsAction(['llmProfiles'], async () => {
           await api.saveLlmProfile(name, payload);

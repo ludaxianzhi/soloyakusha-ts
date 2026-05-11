@@ -54,6 +54,7 @@ export type PersistedLlmClientConfig = {
   retries: number;
   defaultRequestConfig?: PersistedLlmRequestConfig;
   supportsStructuredOutput?: boolean;
+  injectVirtualTool?: boolean;
   pca?: PcaEmbeddingConfig;
 };
 
