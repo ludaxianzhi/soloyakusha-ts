@@ -16,6 +16,7 @@
 
 import type {
   ChatResponse,
+  LlmConversationMessage,
   ChatRequestOptions,
   ClientHooks,
   ErrorLogEntry,
@@ -93,6 +94,20 @@ export abstract class ChatClient extends ManagedLlmClient {
       content: await this.singleTurnRequest(prompt, options),
       toolCalls: [],
     };
+  }
+
+  async conversationResponse(
+    messages: ReadonlyArray<LlmConversationMessage>,
+    options: ChatRequestOptions = {},
+  ): Promise<ChatResponse> {
+    if (
+      messages.length === 1 &&
+      messages[0]?.role === "user"
+    ) {
+      return this.singleTurnResponse(messages[0].content, options);
+    }
+
+    throw new Error("当前 ChatClient 不支持多轮 completion 对话请求");
   }
 
   async multipleResultsRequest(

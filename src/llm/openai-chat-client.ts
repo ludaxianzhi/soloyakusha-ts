@@ -29,6 +29,7 @@ import type {
   ClientHooks,
   CompletionResponseStatistics,
   LlmClientConfig,
+  LlmConversationMessage,
   LlmToolCall,
   LlmToolChoice,
   LlmToolDefinition,
@@ -94,6 +95,13 @@ export class OpenAIChatClient extends ChatClient {
     prompt: string,
     options: ChatRequestOptions = {},
   ): Promise<ChatResponse> {
+    return this.conversationResponse([{ role: "user", content: prompt }], options);
+  }
+
+  override async conversationResponse(
+    messages: ReadonlyArray<LlmConversationMessage>,
+    options: ChatRequestOptions = {},
+  ): Promise<ChatResponse> {
     const requestConfig = resolveRequestConfig(
       options.requestConfig,
       this.config.defaultRequestConfig,
@@ -107,19 +115,10 @@ export class OpenAIChatClient extends ChatClient {
           return this.rateLimiter.run(async () => {
             const thinkingLoopDetector = new ThinkingLoopDetector();
             const effectiveToolOptions = resolveEffectiveToolOptions(this.config, options);
-            const messages: Array<{ role: "system" | "user"; content: string }> = [
-              { role: "user", content: prompt },
-            ];
-            if (requestConfig.systemPrompt) {
-              messages.unshift({
-                role: "system",
-                content: requestConfig.systemPrompt,
-              });
-            }
 
             const requestBody: Record<string, unknown> = {
               model: this.config.modelName,
-              messages,
+              messages: toOpenAiMessages(messages, requestConfig.systemPrompt),
               temperature: requestConfig.temperature,
               max_tokens: requestConfig.maxTokens,
               top_p: requestConfig.topP,
@@ -319,7 +318,7 @@ export class OpenAIChatClient extends ChatClient {
 
       const durationSeconds = getDurationSeconds(startedAt);
       await this.historyLogger?.logCompletion({
-        prompt,
+        prompt: summarizeConversationPrompt(messages),
         response: result.response.content,
         requestId,
         requestConfig,
@@ -341,7 +340,14 @@ export class OpenAIChatClient extends ChatClient {
         error instanceof ApiHttpError
           ? diagnostics || error.responseText
           : diagnostics || undefined;
-      await this.logFailure(prompt, requestId, startedAt, error, { ...options, requestConfig }, responseBody);
+      await this.logFailure(
+        summarizeConversationPrompt(messages),
+        requestId,
+        startedAt,
+        error,
+        { ...options, requestConfig },
+        responseBody,
+      );
       throw normalizeOpenAiError(error, responseBody);
     }
   }
@@ -574,6 +580,73 @@ function toOpenAiToolChoice(toolChoice: LlmToolChoice | undefined): unknown {
       name: toolChoice.name,
     },
   };
+}
+
+function toOpenAiMessages(
+  messages: ReadonlyArray<LlmConversationMessage>,
+  systemPrompt: string | undefined,
+): unknown[] {
+  const result = messages.map((message) => {
+    if (message.role === "tool") {
+      return {
+        role: "tool",
+        tool_call_id: message.toolCallId,
+        name: message.toolName,
+        content: message.content,
+      };
+    }
+
+    if (message.role === "assistant") {
+      return {
+        role: "assistant",
+        content: message.content,
+        ...(message.toolCalls && message.toolCalls.length > 0
+          ? {
+              tool_calls: message.toolCalls.map((toolCall) => ({
+                id: toolCall.id,
+                type: "function",
+                function: {
+                  name: toolCall.name,
+                  arguments: toolCall.argumentsText ?? JSON.stringify(toolCall.arguments ?? {}),
+                },
+              })),
+            }
+          : {}),
+      };
+    }
+
+    return {
+      role: message.role,
+      content: message.content,
+    };
+  });
+
+  if (systemPrompt) {
+    result.unshift({
+      role: "system",
+      content: systemPrompt,
+    });
+  }
+
+  return result;
+}
+
+function summarizeConversationPrompt(
+  messages: ReadonlyArray<LlmConversationMessage>,
+): string {
+  return messages
+    .map((message) => {
+      if (message.role === "tool") {
+        return `[tool:${message.toolName ?? message.toolCallId}] ${message.content}`;
+      }
+
+      if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
+        return `[assistant tool_calls=${message.toolCalls.map((toolCall) => toolCall.name).join("," )}] ${message.content}`;
+      }
+
+      return `[${message.role}] ${message.content}`;
+    })
+    .join("\n");
 }
 
 function isRetryableOpenAiError(error: unknown): boolean {

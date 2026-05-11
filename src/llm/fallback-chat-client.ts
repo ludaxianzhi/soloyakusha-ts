@@ -1,5 +1,10 @@
 import { ChatClient } from "./base.ts";
-import type { ChatRequestOptions, ChatResponse, ClientHooks } from "./types.ts";
+import type {
+  ChatRequestOptions,
+  ChatResponse,
+  ClientHooks,
+  LlmConversationMessage,
+} from "./types.ts";
 
 export type FallbackChatClientLogger = {
   info?(message: string, metadata?: Record<string, unknown>): void;
@@ -59,11 +64,18 @@ export class FallbackChatClient extends ChatClient {
     prompt: string,
     options: ChatRequestOptions = {},
   ): Promise<ChatResponse> {
+    return this.conversationResponse([{ role: "user", content: prompt }], options);
+  }
+
+  override async conversationResponse(
+    messages: ReadonlyArray<LlmConversationMessage>,
+    options: ChatRequestOptions = {},
+  ): Promise<ChatResponse> {
     const errors: Error[] = [];
 
     for (const [index, client] of this.clients.entries()) {
       try {
-        return await client.singleTurnResponse(prompt, options);
+        return await client.conversationResponse(messages, options);
       } catch (error) {
         const normalized = normalizeFallbackError(error);
         errors.push(normalized);

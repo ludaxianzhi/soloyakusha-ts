@@ -10,7 +10,13 @@ import { OpenAIChatClient } from "./openai-chat-client.ts";
 import { PcaEmbeddingClient } from "./pca-embedding-client.ts";
 import { LlmClientProvider } from "./provider.ts";
 import { RateLimiter } from "./rate-limiter.ts";
-import type { ChatRequestOptions, LlmClientConfig } from "./types.ts";
+import { createToolLoopChatClient } from "./tool-loop-chat-client.ts";
+import type {
+  ChatRequestOptions,
+  ChatResponse,
+  LlmClientConfig,
+  LlmConversationMessage,
+} from "./types.ts";
 import { createLlmClientConfig, resolveRequestConfig, ThinkingLoopError } from "./types.ts";
 import { retryAsync } from "./utils.ts";
 
@@ -691,6 +697,268 @@ describe("AnthropicChatClient", () => {
   });
 });
 
+describe("ToolLoopChatClient", () => {
+  test("runs the tool loop through the provider factory on OpenAI-compatible completions", async () => {
+    const originalFetch = globalThis.fetch;
+    const requestBodies: Array<Record<string, unknown>> = [];
+    let requestCount = 0;
+    const fetchMock = Object.assign(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        requestCount += 1;
+
+        if (requestCount === 1) {
+          return createSseResponse([
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"lookup","arguments":"{\\"q\\":\\"hel"}}]}}]}',
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"lo\\"}"}}]}}]}',
+            'data: {"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}',
+            'data: [DONE]',
+            '',
+          ]);
+        }
+
+        return createSseResponse([
+          'data: {"choices":[{"delta":{"content":"final answer"}}]}',
+          'data: {"usage":{"prompt_tokens":9,"completion_tokens":4,"total_tokens":13}}',
+          'data: [DONE]',
+          '',
+        ]);
+      },
+      {
+        preconnect: originalFetch.preconnect,
+      },
+    ) satisfies typeof fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const provider = new LlmClientProvider();
+      provider.register("primary", createStubConfig("gpt-tool-loop"));
+
+      const client = provider.getToolLoopChatClient("primary", {
+        tools: [
+          {
+            name: "lookup",
+            description: "lookup something",
+            execute(argumentsValue) {
+              expect(argumentsValue).toEqual({
+                q: "hello",
+              });
+
+              return {
+                result: "world",
+              };
+            },
+          },
+        ],
+      });
+
+      await expect(client.singleTurnRequest("prompt")).resolves.toBe("final answer");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies[0]?.messages).toEqual([
+      {
+        role: "user",
+        content: "prompt",
+      },
+    ]);
+    expect(requestBodies[1]?.messages).toEqual([
+      {
+        role: "user",
+        content: "prompt",
+      },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: {
+              name: "lookup",
+              arguments: '{"q":"hello"}',
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_1",
+        name: "lookup",
+        content: '{\n  "result": "world"\n}',
+      },
+    ]);
+  });
+
+  test("runs the tool loop through Anthropic message chaining", async () => {
+    const originalFetch = globalThis.fetch;
+    const requestBodies: Array<Record<string, unknown>> = [];
+    let requestCount = 0;
+    const fetchMock = Object.assign(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        requestCount += 1;
+
+        if (requestCount === 1) {
+          return createSseResponse([
+            'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"lookup"}}',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"q\\":\\"hel"}}',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"lo\\"}"}}',
+            'data: {"type":"message_delta","usage":{"input_tokens":3,"output_tokens":2}}',
+            'data: {"type":"message_stop"}',
+            '',
+          ]);
+        }
+
+        return createSseResponse([
+          'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"final answer"}}',
+          'data: {"type":"message_delta","usage":{"input_tokens":8,"output_tokens":4}}',
+          'data: {"type":"message_stop"}',
+          '',
+        ]);
+      },
+      {
+        preconnect: originalFetch.preconnect,
+      },
+    ) satisfies typeof fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = createToolLoopChatClient(
+        new AnthropicChatClient({
+          provider: "anthropic",
+          modelName: "claude-tool-loop",
+          endpoint: "https://example.com/v1",
+          apiKey: "secret",
+          modelType: "chat",
+          retries: 1,
+        }),
+        {
+          tools: [
+            {
+              name: "lookup",
+              description: "lookup something",
+              execute(argumentsValue) {
+                expect(argumentsValue).toEqual({
+                  q: "hello",
+                });
+
+                return {
+                  result: "world",
+                };
+              },
+            },
+          ],
+        },
+      );
+
+      await expect(client.singleTurnRequest("prompt")).resolves.toBe("final answer");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies[1]?.messages).toEqual([
+      {
+        role: "user",
+        content: "prompt",
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "lookup",
+            input: {
+              q: "hello",
+            },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content: '{\n  "result": "world"\n}',
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("can execute the loop against a generic scripted conversation client", async () => {
+    const baseClient = new ScriptedConversationChatClient([
+      {
+        content: "",
+        toolCalls: [
+          {
+            name: "sum",
+            arguments: {
+              left: 1,
+              right: 2,
+            },
+          },
+        ],
+      },
+      {
+        content: "done",
+        toolCalls: [],
+      },
+    ]);
+
+    const client = createToolLoopChatClient(baseClient, {
+      tools: [
+        {
+          name: "sum",
+          description: "sum two numbers",
+          execute(argumentsValue, context) {
+            expect(context.iteration).toBe(1);
+            expect(argumentsValue).toEqual({
+              left: 1,
+              right: 2,
+            });
+            return "3";
+          },
+        },
+      ],
+    });
+
+    await expect(client.singleTurnRequest("prompt")).resolves.toBe("done");
+    expect(baseClient.conversations[1]).toEqual([
+      {
+        role: "user",
+        content: "prompt",
+      },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "tool_call_1_1_sum",
+            name: "sum",
+            arguments: {
+              left: 1,
+              right: 2,
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: "3",
+        toolCallId: "tool_call_1_1_sum",
+        toolName: "sum",
+        isError: undefined,
+      },
+    ]);
+  });
+});
+
 class StubChatClient extends ChatClient {
   readonly prompts: string[] = [];
 
@@ -771,4 +1039,52 @@ function createStubConfig(modelName: string): LlmClientConfig {
     retries: 0,
     supportsStructuredOutput: true,
   };
+}
+
+class ScriptedConversationChatClient extends ChatClient {
+  readonly conversations: LlmConversationMessage[][] = [];
+
+  constructor(private readonly scriptedResponses: ChatResponse[]) {
+    super(createStubConfig("scripted-conversation"));
+  }
+
+  override async singleTurnRequest(
+    prompt: string,
+    options?: ChatRequestOptions,
+  ): Promise<string> {
+    const response = await this.singleTurnResponse(prompt, options);
+    return response.content;
+  }
+
+  override async singleTurnResponse(
+    prompt: string,
+    options?: ChatRequestOptions,
+  ): Promise<ChatResponse> {
+    return this.conversationResponse([{ role: "user", content: prompt }], options);
+  }
+
+  override async conversationResponse(
+    messages: ReadonlyArray<LlmConversationMessage>,
+    _options: ChatRequestOptions = {},
+  ): Promise<ChatResponse> {
+    this.conversations.push(messages.map((message) => ({ ...message })) as LlmConversationMessage[]);
+    const next = this.scriptedResponses.shift();
+    if (!next) {
+      throw new Error("missing scripted conversation response");
+    }
+    return next;
+  }
+}
+
+function createSseResponse(lines: string[]): Response {
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(encoder.encode(lines.join("\n")));
+        controller.close();
+      },
+    }),
+    { status: 200 },
+  );
 }

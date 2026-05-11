@@ -100,6 +100,24 @@ export type LlmToolCall = {
   arguments?: JsonValue;
 };
 
+export type LlmConversationMessage =
+  | {
+      role: "system" | "user";
+      content: string;
+    }
+  | {
+      role: "assistant";
+      content: string;
+      toolCalls?: LlmToolCall[];
+    }
+  | {
+      role: "tool";
+      content: string;
+      toolCallId: string;
+      toolName?: string;
+      isError?: boolean;
+    };
+
 export type ChatResponse = {
   content: string;
   toolCalls: LlmToolCall[];

@@ -107,6 +107,8 @@ export function mergeChatRequestOptions(
       overrideOptions?.outputValidationContext ??
       defaultOptions?.outputValidationContext,
     meta: mergeLlmRequestMetadata(defaultOptions?.meta, overrideOptions?.meta),
+    tools: overrideOptions?.tools ?? defaultOptions?.tools,
+    toolChoice: overrideOptions?.toolChoice ?? defaultOptions?.toolChoice,
     requestConfig:
       defaultRequestConfig || overrideRequestConfig
         ? resolveRequestConfig(overrideRequestConfig, defaultRequestConfig)

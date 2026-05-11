@@ -29,6 +29,7 @@ import type {
   ClientHooks,
   CompletionResponseStatistics,
   LlmClientConfig,
+  LlmConversationMessage,
   LlmToolCall,
   LlmToolChoice,
   LlmToolDefinition,
@@ -93,6 +94,13 @@ export class AnthropicChatClient extends ChatClient {
     prompt: string,
     options: ChatRequestOptions = {},
   ): Promise<ChatResponse> {
+    return this.conversationResponse([{ role: "user", content: prompt }], options);
+  }
+
+  override async conversationResponse(
+    messages: ReadonlyArray<LlmConversationMessage>,
+    options: ChatRequestOptions = {},
+  ): Promise<ChatResponse> {
     const requestConfig = resolveRequestConfig(
       options.requestConfig,
       this.config.defaultRequestConfig,
@@ -105,9 +113,10 @@ export class AnthropicChatClient extends ChatClient {
           return this.rateLimiter.run(async () => {
             const thinkingLoopDetector = new ThinkingLoopDetector();
             const effectiveToolOptions = resolveEffectiveToolOptions(this.config, options);
+            const conversation = toAnthropicMessages(messages);
             const requestBody: Record<string, unknown> = {
               model: this.config.modelName,
-              messages: [{ role: "user", content: prompt }],
+              messages: conversation.messages,
               temperature: requestConfig.temperature,
               max_tokens: requestConfig.maxTokens,
               top_p: requestConfig.topP,
@@ -115,11 +124,14 @@ export class AnthropicChatClient extends ChatClient {
               ...(requestConfig.extraBody ?? {}),
             };
 
-            if (requestConfig.systemPrompt) {
-              requestBody.system = requestConfig.systemPrompt;
+            const systemPrompt = [requestConfig.systemPrompt, conversation.systemPrompt]
+              .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+              .join("\n\n");
+            if (systemPrompt) {
+              requestBody.system = systemPrompt;
             }
 
-             if (effectiveToolOptions.tools.length > 0) {
+            if (effectiveToolOptions.tools.length > 0) {
               requestBody.tools = toAnthropicTools(effectiveToolOptions.tools);
               const toolChoice = toAnthropicToolChoice(effectiveToolOptions.toolChoice);
               if (toolChoice !== undefined) {
@@ -286,7 +298,7 @@ export class AnthropicChatClient extends ChatClient {
 
       const durationSeconds = getDurationSeconds(startedAt);
       await this.historyLogger?.logCompletion({
-        prompt,
+        prompt: summarizeConversationPrompt(messages),
         response: result.response.content,
         requestId,
         requestConfig,
@@ -301,7 +313,14 @@ export class AnthropicChatClient extends ChatClient {
       return result.response;
     } catch (error) {
       const responseBody = error instanceof ApiHttpError ? error.responseText : undefined;
-      await this.logFailure(prompt, requestId, startedAt, error, { ...options, requestConfig }, responseBody);
+      await this.logFailure(
+        summarizeConversationPrompt(messages),
+        requestId,
+        startedAt,
+        error,
+        { ...options, requestConfig },
+        responseBody,
+      );
       throw normalizeAnthropicError(error);
     }
   }
@@ -370,6 +389,117 @@ function toAnthropicToolChoice(toolChoice: LlmToolChoice | undefined): unknown {
     type: "tool",
     name: toolChoice.name,
   };
+}
+
+function toAnthropicMessages(
+  messages: ReadonlyArray<LlmConversationMessage>,
+): {
+  systemPrompt?: string;
+  messages: unknown[];
+} {
+  const systemMessages: string[] = [];
+  const providerMessages: unknown[] = [];
+
+  for (const message of messages) {
+    if (message.role === "system") {
+      systemMessages.push(message.content);
+      continue;
+    }
+
+    if (message.role === "tool") {
+      providerMessages.push({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: message.toolCallId,
+            content: message.content,
+            ...(message.isError ? { is_error: true } : {}),
+          },
+        ],
+      });
+      continue;
+    }
+
+    if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
+      providerMessages.push({
+        role: "assistant",
+        content: [
+          ...(message.content
+            ? [
+                {
+                  type: "text",
+                  text: message.content,
+                },
+              ]
+            : []),
+          ...message.toolCalls.map((toolCall) => ({
+            type: "tool_use",
+            id: toolCall.id,
+            name: toolCall.name,
+            input: normalizeAnthropicToolInput(toolCall),
+          })),
+        ],
+      });
+      continue;
+    }
+
+    providerMessages.push({
+      role: message.role,
+      content: message.content,
+    });
+  }
+
+  const systemPrompt = systemMessages.length > 0 ? systemMessages.join("\n\n") : undefined;
+  return {
+    systemPrompt,
+    messages: providerMessages,
+  };
+}
+
+function normalizeAnthropicToolInput(toolCall: LlmToolCall): Record<string, unknown> {
+  const value = toolCall.arguments;
+  if (isRecord(value)) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      value,
+    };
+  }
+
+  if (value !== undefined) {
+    return {
+      value,
+    };
+  }
+
+  if (toolCall.argumentsText?.trim()) {
+    return {
+      rawArgumentsText: toolCall.argumentsText,
+    };
+  }
+
+  return {};
+}
+
+function summarizeConversationPrompt(
+  messages: ReadonlyArray<LlmConversationMessage>,
+): string {
+  return messages
+    .map((message) => {
+      if (message.role === "tool") {
+        return `[tool:${message.toolName ?? message.toolCallId}] ${message.content}`;
+      }
+
+      if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
+        return `[assistant tool_calls=${message.toolCalls.map((toolCall) => toolCall.name).join(",")}] ${message.content}`;
+      }
+
+      return `[${message.role}] ${message.content}`;
+    })
+    .join("\n");
 }
 
 function extractAnthropicReasoningDelta(value: Record<string, unknown>): string {

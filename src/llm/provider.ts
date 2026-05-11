@@ -21,6 +21,10 @@ import {
 import { OpenAIEmbeddingClient } from "./openai-embedding-client.ts";
 import { OpenAIChatClient } from "./openai-chat-client.ts";
 import { PcaEmbeddingClient, PcaProjection } from "./pca-embedding-client.ts";
+import {
+  createToolLoopChatClient,
+  type ToolLoopChatClientOptions,
+} from "./tool-loop-chat-client.ts";
 import type {
   ClientHooks,
   LlmClientConfig,
@@ -124,6 +128,18 @@ export class LlmClientProvider {
       requestObserver: this.requestObserver,
       ...options,
     });
+  }
+
+  getToolLoopChatClient(
+    nameOrNames: string | ReadonlyArray<string>,
+    options: ToolLoopChatClientOptions,
+    fallbackOptions: FallbackChatClientOptions = {},
+  ): ChatClient {
+    const client = Array.isArray(nameOrNames)
+      ? this.getChatClientWithFallback(nameOrNames, fallbackOptions)
+      : this.getChatClient(nameOrNames);
+
+    return createToolLoopChatClient(client, options);
   }
 
   getEmbeddingClient(name: string): EmbeddingClient {

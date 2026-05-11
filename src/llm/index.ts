@@ -29,4 +29,5 @@ export * from "./pca-embedding-client.ts";
 export * from "./provider.ts";
 export * from "./rate-limiter.ts";
 export * from "./thinking-loop-detector.ts";
+export * from "./tool-loop-chat-client.ts";
 export * from "./types.ts";
