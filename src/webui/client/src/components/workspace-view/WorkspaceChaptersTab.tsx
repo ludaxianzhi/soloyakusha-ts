@@ -1,4 +1,4 @@
-import { memo, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   App as AntdApp,
@@ -8,7 +8,6 @@ import {
   Form,
   Input,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Switch,
@@ -18,7 +17,7 @@ import {
   Typography,
   Upload,
 } from 'antd';
-import type { UploadFile } from 'antd';
+import type { MenuProps, UploadFile } from 'antd';
 import { DownloadOutlined, MoreOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type {
@@ -36,6 +35,7 @@ import {
 import { usePollingTask } from '../../app/usePollingTask.ts';
 import { TranslationPreviewModal } from '../TranslationPreviewModal.tsx';
 import { ChapterKanbanBoard } from '../topology/ChapterKanbanBoard.tsx';
+import { ChapterFindReplaceModal } from './ChapterFindReplaceModal.tsx';
 import { PostProcessModal } from './PostProcessModal.tsx';
 import {
   buildChapterImportGroups,
@@ -203,6 +203,7 @@ export function WorkspaceChaptersTab({
           onCreateStoryBranch={onCreateStoryBranch}
           onImportChapterArchive={onImportChapterArchive}
           onDownloadChapters={onDownloadChapters}
+          onRefreshChapters={onRefreshChapters}
         />
       )}
     </Card>
@@ -544,6 +545,7 @@ function ChapterInfoTable({
   onCreateStoryBranch,
   onImportChapterArchive,
   onDownloadChapters,
+  onRefreshChapters,
 }: {
   mobileMode?: boolean;
   chapters: WorkspaceChapterDescriptor[];
@@ -569,8 +571,10 @@ function ChapterInfoTable({
     importTranslation?: boolean;
   }) => Promise<ImportArchiveResult>;
   onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
+  onRefreshChapters: () => void | Promise<void>;
 }) {
   const { message } = AntdApp.useApp();
+  const toolbarActionsRef = useRef<HTMLDivElement | null>(null);
   const [selectedChapterIds, setSelectedChapterIds] = useState<number[]>([]);
   const [lastSelectedChapterId, setLastSelectedChapterId] = useState<number>();
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -589,8 +593,10 @@ function ChapterInfoTable({
   const [importArchiveForm] = Form.useForm<ImportArchiveFormValues>();
   const [importGroupsModalOpen, setImportGroupsModalOpen] = useState(false);
   const [postProcessModalOpen, setPostProcessModalOpen] = useState(false);
+  const [findReplaceModalOpen, setFindReplaceModalOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchMode, setSearchMode] = useState<'keyword' | 'regex'>('keyword');
+  const [toolbarActionWidth, setToolbarActionWidth] = useState<number>();
   const deferredSearchText = useDeferredValue(searchText);
   const deferredSearchMode = useDeferredValue(searchMode);
   const selectedParentRouteId = Form.useWatch('parentRouteId', attachForm);
@@ -733,6 +739,22 @@ function ChapterInfoTable({
     attachForm.setFieldValue('forkAfterChapterId', forkChapterCandidates[0]?.id);
   }, [attachForm, forkChapterCandidates]);
 
+  useEffect(() => {
+    const target = toolbarActionsRef.current;
+    if (!target) {
+      return;
+    }
+
+    const updateWidth = () => {
+      setToolbarActionWidth(target.clientWidth);
+    };
+
+    updateWidth();
+    const observer = new ResizeObserver(() => updateWidth());
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, []);
+
   const openAttachGroupModal = (group: ChapterImportGroupDescriptor) => {
     const defaultRoute = selectDefaultAttachRoute(routeCandidates, group.chapterIds);
     const defaultForkAfterChapterId = defaultRoute
@@ -857,6 +879,14 @@ function ChapterInfoTable({
     setPostProcessModalOpen(true);
   };
 
+  const handleOpenFindReplaceModal = () => {
+    if (selectedChapterIds.length === 0) {
+      message.warning('请先选择章节');
+      return;
+    }
+    setFindReplaceModalOpen(true);
+  };
+
   const handleConfirmBatchDownload = () => {
     void onDownloadChapters(selectedChapterIds, batchDownloadFormat);
     setBatchDownloadModalOpen(false);
@@ -924,6 +954,190 @@ function ChapterInfoTable({
       setImportArchiveSubmitting(false);
     }
   };
+
+  const toolbarActions = useMemo(
+    () => [
+      {
+        key: 'find-replace',
+        label: '查找替换',
+        render: () => (
+          <Button size="small" onClick={handleOpenFindReplaceModal}>
+            查找替换
+          </Button>
+        ),
+        onMenuClick: handleOpenFindReplaceModal,
+      },
+      {
+        key: 'proofread',
+        label: '创建校对任务',
+        render: () => (
+          <Button size="small" type="primary" onClick={handleOpenProofreadModal}>
+            创建校对任务
+          </Button>
+        ),
+        onMenuClick: handleOpenProofreadModal,
+      },
+      {
+        key: 'download',
+        label: '下载选中章节',
+        render: () => (
+          <Button size="small" icon={<DownloadOutlined />} onClick={handleBatchDownload}>
+            下载选中章节
+          </Button>
+        ),
+        onMenuClick: handleBatchDownload,
+      },
+      {
+        key: 'post-process',
+        label: '文本后处理',
+        render: () => (
+          <Button size="small" onClick={handleBatchPostProcess}>
+            文本后处理
+          </Button>
+        ),
+        onMenuClick: handleBatchPostProcess,
+      },
+      {
+        key: 'clear-selection',
+        label: '清空选择',
+        render: () => (
+          <Button size="small" onClick={() => setSelectedChapterIds([])}>
+            清空选择
+          </Button>
+        ),
+        onMenuClick: () => setSelectedChapterIds([]),
+      },
+      {
+        key: 'clear-translations',
+        label: '清空选中译文',
+        render: () => (
+          <Button
+            size="small"
+            disabled={selectedChapterIds.length === 0}
+            onClick={() => {
+              Modal.confirm({
+                title: `确认清空选中的 ${selectedChapterIds.length} 个章节译文？`,
+                okText: '清空',
+                cancelText: '取消',
+                onOk: () => void handleBatchClearTranslations(),
+              });
+            }}
+          >
+            清空选中译文
+          </Button>
+        ),
+        onMenuClick: () => {
+          if (selectedChapterIds.length === 0) {
+            return;
+          }
+          Modal.confirm({
+            title: `确认清空选中的 ${selectedChapterIds.length} 个章节译文？`,
+            okText: '清空',
+            cancelText: '取消',
+            onOk: () => void handleBatchClearTranslations(),
+          });
+        },
+      },
+      {
+        key: 'delete',
+        label: '删除选中章节',
+        render: () => (
+          <Button
+            size="small"
+            danger
+            disabled={selectedChapterIds.length === 0}
+            onClick={() => {
+              Modal.confirm({
+                title: `确认删除选中的 ${selectedChapterIds.length} 个章节？`,
+                content: '若命中分叉点，将级联删除其对应分支及后代分支章节。',
+                okText: '删除',
+                cancelText: '取消',
+                okButtonProps: { danger: true },
+                onOk: () => void handleBatchRemoveChapters(),
+              });
+            }}
+          >
+            删除选中章节
+          </Button>
+        ),
+        onMenuClick: () => {
+          if (selectedChapterIds.length === 0) {
+            return;
+          }
+          Modal.confirm({
+            title: `确认删除选中的 ${selectedChapterIds.length} 个章节？`,
+            content: '若命中分叉点，将级联删除其对应分支及后代分支章节。',
+            okText: '删除',
+            cancelText: '取消',
+            okButtonProps: { danger: true },
+            onOk: () => void handleBatchRemoveChapters(),
+          });
+        },
+      },
+      {
+        key: 'import-archive',
+        label: '追加压缩包',
+        render: () => (
+          <Button type="primary" size="small" onClick={openImportArchiveModal}>
+            追加压缩包
+          </Button>
+        ),
+        onMenuClick: openImportArchiveModal,
+      },
+      {
+        key: 'import-groups',
+        label: '导入分组',
+        render: () => (
+          <Button size="small" onClick={() => setImportGroupsModalOpen(true)}>
+            导入分组
+          </Button>
+        ),
+        onMenuClick: () => setImportGroupsModalOpen(true),
+      },
+    ],
+    [
+      handleBatchClearTranslations,
+      handleBatchDownload,
+      handleBatchPostProcess,
+      handleBatchRemoveChapters,
+      handleOpenProofreadModal,
+      openImportArchiveModal,
+      selectedChapterIds.length,
+    ],
+  );
+
+  const visibleActionCount = useMemo(() => {
+    if (typeof toolbarActionWidth !== 'number') {
+      return toolbarActions.length;
+    }
+    if (toolbarActionWidth >= 1180) {
+      return toolbarActions.length;
+    }
+    if (toolbarActionWidth >= 980) {
+      return 7;
+    }
+    if (toolbarActionWidth >= 760) {
+      return 5;
+    }
+    if (toolbarActionWidth >= 540) {
+      return 3;
+    }
+    return 1;
+  }, [toolbarActionWidth, toolbarActions.length]);
+
+  const visibleToolbarActions = toolbarActions.slice(0, visibleActionCount);
+  const overflowToolbarActions = toolbarActions.slice(visibleActionCount);
+  const overflowMenuItems = useMemo<MenuProps['items']>(
+    () =>
+      overflowToolbarActions.map((action) => ({
+        key: action.key,
+        label:
+          action.key === 'delete'
+            ? <span style={{ color: '#ff7875' }}>{action.label}</span>
+            : action.label,
+      })),
+    [overflowToolbarActions],
+  );
 
   if (mobileMode) {
     return (
@@ -1007,50 +1221,36 @@ function ChapterInfoTable({
             {searchMode === 'keyword' ? '关键词' : 'Regex'}
           </Button>
         </div>
-        <Space wrap size={[8, 8]}>
-          <Typography.Text type="secondary">Shift + 点击可区间选中</Typography.Text>
-          <Button type="primary" size="small" onClick={openImportArchiveModal}>
-            追加压缩包
-          </Button>
-          <Button size="small" onClick={() => setImportGroupsModalOpen(true)}>
-            导入分组
-          </Button>
-          {searchRefreshPending ? <Tag color="processing">筛选更新中</Tag> : null}
-          <Tag color={selectedChapterIds.length > 0 ? 'processing' : undefined}>
-            已选 {selectedChapterIds.length} 章节
-          </Tag>
-          <Button size="small" onClick={() => setSelectedChapterIds([])}>
-            清空选择
-          </Button>
-          <Button size="small" type="primary" onClick={handleOpenProofreadModal}>
-            创建校对任务
-          </Button>
-          <Button size="small" icon={<DownloadOutlined />} onClick={handleBatchDownload}>
-            下载选中章节
-          </Button>
-          <Button size="small" onClick={handleBatchPostProcess}>
-            文本后处理
-          </Button>
-          <Popconfirm
-            title={`确认清空选中的 ${selectedChapterIds.length} 个章节译文？`}
-            onConfirm={() => void handleBatchClearTranslations()}
-            disabled={selectedChapterIds.length === 0}
-          >
-            <Button size="small" disabled={selectedChapterIds.length === 0}>
-              清空选中译文
-            </Button>
-          </Popconfirm>
-          <Popconfirm
-            title={`确认删除选中的 ${selectedChapterIds.length} 个章节？`}
-            description="若命中分叉点，将级联删除其对应分支及后代分支章节。"
-            onConfirm={() => void handleBatchRemoveChapters()}
-            disabled={selectedChapterIds.length === 0}
-          >
-            <Button size="small" danger disabled={selectedChapterIds.length === 0}>
-              删除选中章节
-            </Button>
-          </Popconfirm>
-        </Space>
+        <div className="chapter-batch-toolbar-row">
+          <Space wrap size={[8, 8]}>
+            <Typography.Text type="secondary">Shift + 点击可区间选中</Typography.Text>
+            {searchRefreshPending ? <Tag color="processing">筛选更新中</Tag> : null}
+            <Tag color={selectedChapterIds.length > 0 ? 'processing' : undefined}>
+              已选 {selectedChapterIds.length} 章节
+            </Tag>
+          </Space>
+          <div ref={toolbarActionsRef} className="chapter-batch-toolbar-actions">
+            {visibleToolbarActions.map((action) => (
+              <span key={action.key}>{action.render()}</span>
+            ))}
+            {overflowToolbarActions.length > 0 ? (
+              <Dropdown
+                trigger={['click']}
+                menu={{
+                  items: overflowMenuItems,
+                  onClick: ({ key }) => {
+                    const action = overflowToolbarActions.find((item) => item.key === key);
+                    action?.onMenuClick();
+                  },
+                }}
+              >
+                <Button size="small" icon={<MoreOutlined />}>
+                  更多
+                </Button>
+              </Dropdown>
+            ) : null}
+          </div>
+        </div>
       </div>
 
       <div className="chapters-scroll-body" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
@@ -1222,6 +1422,16 @@ function ChapterInfoTable({
         onSuccess={() => {
           setPostProcessModalOpen(false);
           (() => {})(); 
+        }}
+      />
+
+      <ChapterFindReplaceModal
+        open={findReplaceModalOpen}
+        chapterIds={selectedChapterIds}
+        onCancel={() => setFindReplaceModalOpen(false)}
+        onSuccess={async () => {
+          setFindReplaceModalOpen(false);
+          await onRefreshChapters();
         }}
       />
 

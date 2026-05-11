@@ -330,6 +330,37 @@ export interface TranslationPreviewChapter {
   units: TranslationPreviewUnit[];
 }
 
+export interface ChapterFindReplaceRequest {
+  chapterIds: number[];
+  sourceRegex?: string;
+  translationRegex: string;
+  replacement: string;
+}
+
+export interface ChapterFindReplaceMatch {
+  chapterId: number;
+  chapterDisplayName: string;
+  chapterFilePath: string;
+  fragmentIndex: number;
+  lineIndex: number;
+  sourceText: string;
+  previousText: string;
+  nextText: string;
+  replacementCount: number;
+}
+
+export interface ChapterFindReplacePreviewResult {
+  totalSelectedChapters: number;
+  affectedChapterCount: number;
+  matchedPairCount: number;
+  totalReplacementCount: number;
+  matches: ChapterFindReplaceMatch[];
+}
+
+export interface ChapterFindReplaceApplyResult extends ChapterFindReplacePreviewResult {
+  updatedLineCount: number;
+}
+
 export interface ChapterTranslationEditorDocument {
   baseline: {
     chapterId: number;
@@ -913,6 +944,83 @@ export class ProjectService {
       return null;
     }
     return project.getChapterTranslationPreview(chapterId);
+  }
+
+  previewBatchFindReplace(
+    input: ChapterFindReplaceRequest,
+    workspaceId?: string,
+  ): ChapterFindReplacePreviewResult {
+    const { project } = this.getWorkspaceContext(workspaceId);
+    if (!project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    return summarizeBatchFindReplaceAnalysis(
+      this.analyzeBatchFindReplace(project, input),
+    );
+  }
+
+  async applyBatchFindReplace(
+    input: ChapterFindReplaceRequest,
+  ): Promise<ChapterFindReplaceApplyResult> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
+      throw new ProjectServiceUserInputError('当前正在运行其他任务，请稍后再试');
+    }
+    if (!project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    state.isBusy = true;
+    try {
+      const analysis = this.analyzeBatchFindReplace(project, input);
+      const updatesByFragment = new Map<string, {
+        chapterId: number;
+        fragmentIndex: number;
+        lines: string[];
+      }>();
+
+      for (const match of analysis.matches) {
+        const fragmentKey = `${match.chapterId}:${match.fragmentIndex}`;
+        const existing = updatesByFragment.get(fragmentKey);
+        if (existing) {
+          existing.lines[match.lineIndex] = match.nextText;
+          continue;
+        }
+
+        const chapter = analysis.chapterMap.get(match.chapterId);
+        const fragment = chapter?.fragments[match.fragmentIndex];
+        if (!fragment) {
+          continue;
+        }
+
+        const lines = [...fragment.translation.lines];
+        lines[match.lineIndex] = match.nextText;
+        updatesByFragment.set(fragmentKey, {
+          chapterId: match.chapterId,
+          fragmentIndex: match.fragmentIndex,
+          lines,
+        });
+      }
+
+      const docManager = project.getDocumentManager();
+      for (const update of updatesByFragment.values()) {
+        await docManager.updateTranslation(update.chapterId, update.fragmentIndex, update.lines);
+      }
+
+      if (updatesByFragment.size > 0) {
+        this.refreshSnapshot(runtime ?? undefined);
+        this.markChaptersChanged(state);
+        this.log('success', `批量查找替换已更新 ${analysis.matches.length} 行译文`);
+      }
+
+      return {
+        ...summarizeBatchFindReplaceAnalysis(analysis),
+        updatedLineCount: analysis.matches.length,
+      };
+    } finally {
+      state.isBusy = false;
+    }
   }
 
   getChapterTranslationEditorDocument(
@@ -4303,6 +4411,113 @@ export class ProjectService {
     this.broadcastChaptersChanged(runtime);
   }
 
+  private analyzeBatchFindReplace(
+    project: TranslationProject,
+    input: ChapterFindReplaceRequest,
+  ): {
+    totalSelectedChapters: number;
+    matches: ChapterFindReplaceMatch[];
+    chapterMap: Map<number, ReturnType<ReturnType<TranslationProject['getDocumentManager']>['getChapterById']>>;
+  } {
+    const chapterIds = [...new Set(input.chapterIds.filter((chapterId) => Number.isInteger(chapterId) && chapterId > 0))];
+    if (chapterIds.length === 0) {
+      throw new ProjectServiceUserInputError('请先选择至少一个章节');
+    }
+
+    const normalizedTranslationRegex = input.translationRegex.trim();
+    if (!normalizedTranslationRegex) {
+      throw new ProjectServiceUserInputError('请输入译文 Regex');
+    }
+
+    let sourceRegex: RegExp | undefined;
+    const normalizedSourceRegex = input.sourceRegex?.trim();
+    if (normalizedSourceRegex) {
+      try {
+        sourceRegex = new RegExp(normalizedSourceRegex);
+      } catch (error) {
+        throw new ProjectServiceUserInputError(
+          `原文 Regex 非法：${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    let translationRegex: RegExp;
+    try {
+      translationRegex = new RegExp(normalizedTranslationRegex, 'g');
+    } catch (error) {
+      throw new ProjectServiceUserInputError(
+        `译文 Regex 非法：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    const docManager = project.getDocumentManager();
+    const chapterMap = new Map<number, ReturnType<typeof docManager.getChapterById>>();
+    const descriptorMap = new Map(
+      project.getChapterDescriptors().map((chapter) => [chapter.id, chapter] as const),
+    );
+    const matches: ChapterFindReplaceMatch[] = [];
+
+    for (const chapterId of chapterIds) {
+      const chapter = docManager.getChapterById(chapterId);
+      const descriptor = descriptorMap.get(chapterId);
+      if (!chapter || !descriptor) {
+        continue;
+      }
+      chapterMap.set(chapterId, chapter);
+
+      for (let fragmentIndex = 0; fragmentIndex < chapter.fragments.length; fragmentIndex += 1) {
+        const fragment = chapter.fragments[fragmentIndex];
+        if (!fragment) {
+          continue;
+        }
+
+        for (let lineIndex = 0; lineIndex < fragment.translation.lines.length; lineIndex += 1) {
+          const rawSourceText = fragment.source.lines[lineIndex] ?? '';
+          const rawTranslatedText = fragment.translation.lines[lineIndex] ?? '';
+          const sourceText = restoreBlankText(rawSourceText);
+          const previousText = restoreBlankText(rawTranslatedText);
+
+          if (sourceRegex) {
+            sourceRegex.lastIndex = 0;
+            if (!sourceRegex.test(sourceText)) {
+              continue;
+            }
+          }
+
+          translationRegex.lastIndex = 0;
+          const replacementMatches = Array.from(previousText.matchAll(translationRegex));
+          if (replacementMatches.length === 0) {
+            continue;
+          }
+
+          translationRegex.lastIndex = 0;
+          const nextText = previousText.replace(translationRegex, input.replacement);
+          if (nextText === previousText) {
+            continue;
+          }
+
+          matches.push({
+            chapterId,
+            chapterDisplayName: descriptor.displayName,
+            chapterFilePath: descriptor.filePath,
+            fragmentIndex,
+            lineIndex,
+            sourceText,
+            previousText,
+            nextText,
+            replacementCount: replacementMatches.length,
+          });
+        }
+      }
+    }
+
+    return {
+      totalSelectedChapters: chapterIds.length,
+      matches,
+      chapterMap,
+    };
+  }
+
   private broadcastChaptersChanged(state: WorkspaceRuntimeState = this.currentState): void {
     this.emitWorkspaceEvent(
       'chaptersChanged',
@@ -5213,6 +5428,22 @@ async function clearWorkspaceSupportData(project: TranslationProject): Promise<v
     project.clearContextNetwork(),
     project.getDocumentManager().clearTranslationDependencyGraph(),
   ]);
+}
+
+function summarizeBatchFindReplaceAnalysis(analysis: {
+  totalSelectedChapters: number;
+  matches: ChapterFindReplaceMatch[];
+}): ChapterFindReplacePreviewResult {
+  return {
+    totalSelectedChapters: analysis.totalSelectedChapters,
+    affectedChapterCount: new Set(analysis.matches.map((match) => match.chapterId)).size,
+    matchedPairCount: analysis.matches.length,
+    totalReplacementCount: analysis.matches.reduce(
+      (count, match) => count + match.replacementCount,
+      0,
+    ),
+    matches: analysis.matches,
+  };
 }
 
 async function createProcessorForProject(

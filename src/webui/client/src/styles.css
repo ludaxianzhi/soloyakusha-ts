@@ -979,3 +979,62 @@ body {
   margin-bottom: 12px;
   flex-shrink: 0;
 }
+
+.chapter-batch-toolbar-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chapter-batch-toolbar-actions {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.chapter-find-replace-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.chapter-find-replace-collapse {
+  width: 100%;
+}
+
+.chapter-find-replace-match-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chapter-find-replace-match-item {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chapter-find-replace-line-block {
+  margin-top: 8px;
+}
+
+.chapter-find-replace-line-block-next {
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  padding-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .chapter-batch-toolbar-row {
+    flex-direction: column;
+  }
+
+  .chapter-batch-toolbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

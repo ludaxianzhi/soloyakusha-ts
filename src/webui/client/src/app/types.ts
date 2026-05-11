@@ -516,6 +516,37 @@ export interface TranslationPreviewChapter {
   units: TranslationPreviewUnit[];
 }
 
+export interface ChapterFindReplaceRequest {
+  chapterIds: number[];
+  sourceRegex?: string;
+  translationRegex: string;
+  replacement: string;
+}
+
+export interface ChapterFindReplaceMatch {
+  chapterId: number;
+  chapterDisplayName: string;
+  chapterFilePath: string;
+  fragmentIndex: number;
+  lineIndex: number;
+  sourceText: string;
+  previousText: string;
+  nextText: string;
+  replacementCount: number;
+}
+
+export interface ChapterFindReplacePreviewResult {
+  totalSelectedChapters: number;
+  affectedChapterCount: number;
+  matchedPairCount: number;
+  totalReplacementCount: number;
+  matches: ChapterFindReplaceMatch[];
+}
+
+export interface ChapterFindReplaceApplyResult extends ChapterFindReplacePreviewResult {
+  updatedLineCount: number;
+}
+
 export type EditableTranslationFormat = 'naturedialog' | 'm3t';
 
 export interface ChapterTranslationEditorRange {

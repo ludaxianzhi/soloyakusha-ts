@@ -5,6 +5,9 @@ import type {
   ChapterTranslationEditorValidationResult,
   ChapterTranslationAssistantRequest,
   ChapterTranslationAssistantResponse,
+  ChapterFindReplaceApplyResult,
+  ChapterFindReplacePreviewResult,
+  ChapterFindReplaceRequest,
   DictionaryImportResult,
   EditableTranslationFormat,
   GlossaryExtractorConfig,
@@ -465,6 +468,22 @@ export const api = {
       method: 'POST',
       body: { chapterIds },
     }),
+  previewChapterFindReplace: (payload: ChapterFindReplaceRequest, workspaceId?: string) =>
+    request<ChapterFindReplacePreviewResult>(
+      `/api/project/chapters/find-replace/preview${buildWorkspaceQueryString(workspaceId)}`,
+      {
+        method: 'POST',
+        body: payload,
+      },
+    ),
+  applyChapterFindReplace: (payload: ChapterFindReplaceRequest, workspaceId?: string) =>
+    request<ChapterFindReplaceApplyResult>(
+      `/api/project/chapters/find-replace/apply${buildWorkspaceQueryString(workspaceId)}`,
+      {
+        method: 'POST',
+        body: payload,
+      },
+    ),
   createStoryBranch: (payload: CreateStoryBranchPayload, workspaceId?: string) =>
     request(`/api/project/topology/routes${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',

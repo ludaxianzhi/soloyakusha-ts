@@ -809,6 +809,64 @@ export function createProjectRoutes(
     }
   });
 
+  app.post('/chapters/find-replace/preview', async (c) => {
+    try {
+      const body = await c.req.json<{
+        chapterIds?: number[];
+        sourceRegex?: string;
+        translationRegex?: string;
+        replacement?: string;
+      }>();
+      return c.json(
+        projectService.previewBatchFindReplace({
+          chapterIds: Array.isArray(body.chapterIds)
+            ? body.chapterIds.map((value) => Number(value))
+            : [],
+          sourceRegex:
+            typeof body.sourceRegex === 'string' && body.sourceRegex.trim().length > 0
+              ? body.sourceRegex
+              : undefined,
+          translationRegex: String(body.translationRegex ?? ''),
+          replacement: String(body.replacement ?? ''),
+        }),
+      );
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/chapters/find-replace/apply', async (c) => {
+    try {
+      const body = await c.req.json<{
+        chapterIds?: number[];
+        sourceRegex?: string;
+        translationRegex?: string;
+        replacement?: string;
+      }>();
+      return c.json(
+        await projectService.applyBatchFindReplace({
+          chapterIds: Array.isArray(body.chapterIds)
+            ? body.chapterIds.map((value) => Number(value))
+            : [],
+          sourceRegex:
+            typeof body.sourceRegex === 'string' && body.sourceRegex.trim().length > 0
+              ? body.sourceRegex
+              : undefined,
+          translationRegex: String(body.translationRegex ?? ''),
+          replacement: String(body.replacement ?? ''),
+        }),
+      );
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
   app.put('/chapters/reorder', async (c) => {
     const body = await c.req.json<{ chapterIds: number[] }>();
     await projectService.reorderChapters(body.chapterIds);
