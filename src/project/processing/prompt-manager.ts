@@ -80,6 +80,27 @@ export type ProofreadProofreaderPromptInput = {
   analysisText?: string;
 };
 
+export type AnalysisDrivenEditorAnalysisPromptInput = {
+  sourceUnits: PromptTranslationUnit[];
+  currentTranslations: PromptTranslationUnit[];
+  referenceTranslations: string[];
+  plotSummaries: string[];
+  translatedGlossaryTerms: ResolvedGlossaryTerm[];
+  requirements: string[];
+  editorRequirementsText?: string;
+};
+
+export type AnalysisDrivenEditorRevisionPromptInput = {
+  sourceUnits: PromptTranslationUnit[];
+  currentTranslations: PromptTranslationUnit[];
+  referenceTranslations: string[];
+  plotSummaries: string[];
+  translatedGlossaryTerms: ResolvedGlossaryTerm[];
+  requirements: string[];
+  editorRequirementsText?: string;
+  analysisText: string;
+};
+
 export type ConsistencyProofreadPromptInput = {
   sourceUnits: PromptTranslationUnit[];
   currentTranslations: PromptTranslationUnit[];
@@ -140,6 +161,10 @@ const PROOFREAD_PROOFREADER_PROMPT_NAME = "proofread_proofreader";
 const PROOFREAD_PROOFREADER_PROMPT_ID = "project.proofread.proofreader";
 const PROOFREAD_CONSISTENCY_PROMPT_NAME = "proofread_consistency";
 const PROOFREAD_CONSISTENCY_PROMPT_ID = "project.proofread.consistency";
+const ANALYSIS_DRIVEN_EDITOR_ANALYSIS_PROMPT_NAME = "analysis_driven_editor_analysis";
+const ANALYSIS_DRIVEN_EDITOR_ANALYSIS_PROMPT_ID = "project.proofread.analysis-driven-editor.analysis";
+const ANALYSIS_DRIVEN_EDITOR_REVISION_PROMPT_NAME = "analysis_driven_editor_revision";
+const ANALYSIS_DRIVEN_EDITOR_REVISION_PROMPT_ID = "project.proofread.analysis-driven-editor.revision";
 
 const CHAPTER_EDITOR_ASSISTANT_PROMPT_NAME = "chapter_editor_assistant";
 const CHAPTER_EDITOR_ASSISTANT_PROMPT_ID = "project.chapterEditorAssistant";
@@ -312,6 +337,50 @@ export class PromptManager {
     };
   }
 
+  async renderAnalysisDrivenEditorAnalysisPrompt(
+    input: AnalysisDrivenEditorAnalysisPromptInput,
+  ): Promise<RenderedTextPrompt> {
+    const renderedPrompt = await this.renderPrompt(ANALYSIS_DRIVEN_EDITOR_ANALYSIS_PROMPT_ID, {
+      sourceUnits: input.sourceUnits,
+      currentTranslations: input.currentTranslations,
+      referenceTranslations: input.referenceTranslations,
+      plotSummaries: input.plotSummaries,
+      translatedGlossaryTerms: input.translatedGlossaryTerms,
+      requirements: input.requirements,
+      editorRequirementsText: resolveEditorRequirementsText(input.editorRequirementsText),
+    });
+
+    return {
+      name: ANALYSIS_DRIVEN_EDITOR_ANALYSIS_PROMPT_NAME,
+      systemPrompt: renderedPrompt.systemPrompt,
+      userPrompt: renderedPrompt.userPrompt,
+    };
+  }
+
+  async renderAnalysisDrivenEditorRevisionPrompt(
+    input: AnalysisDrivenEditorRevisionPromptInput,
+  ): Promise<RenderedPrompt> {
+    const responseSchema = buildAnalysisDrivenModificationResponseSchema(input.currentTranslations);
+    const renderedPrompt = await this.renderPrompt(ANALYSIS_DRIVEN_EDITOR_REVISION_PROMPT_ID, {
+      sourceUnits: input.sourceUnits,
+      currentTranslations: input.currentTranslations,
+      referenceTranslations: input.referenceTranslations,
+      plotSummaries: input.plotSummaries,
+      translatedGlossaryTerms: input.translatedGlossaryTerms,
+      requirements: input.requirements,
+      editorRequirementsText: resolveEditorRequirementsText(input.editorRequirementsText),
+      analysisText: input.analysisText,
+      responseSchemaJson: JSON.stringify(responseSchema, null, 2),
+    });
+
+    return {
+      name: ANALYSIS_DRIVEN_EDITOR_REVISION_PROMPT_NAME,
+      systemPrompt: renderedPrompt.systemPrompt,
+      userPrompt: renderedPrompt.userPrompt,
+      responseSchema,
+    };
+  }
+
   async renderChapterTranslationAssistantPrompt(
     input: ChapterTranslationAssistantPromptInput,
   ): Promise<RenderedTextPrompt> {
@@ -407,6 +476,40 @@ function buildStyleTransferResponseSchema(
             },
           },
           required: ["id", "styleAnalysis", "translation"],
+        },
+      },
+    },
+    required: ["modifications"],
+  };
+}
+
+function buildAnalysisDrivenModificationResponseSchema(
+  sourceUnits: ReadonlyArray<PromptTranslationUnit>,
+): JsonObject {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      modifications: {
+        type: "array",
+        minItems: 0,
+        maxItems: sourceUnits.length,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            id: {
+              type: "string",
+            },
+            reason: {
+              type: "string",
+            },
+            translation: {
+              type: "string",
+              minLength: 1,
+            },
+          },
+          required: ["id", "translation"],
         },
       },
     },

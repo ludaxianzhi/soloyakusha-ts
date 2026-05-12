@@ -3,6 +3,7 @@ import type { GlossaryUpdater } from "../../glossary/updater.ts";
 import type { Logger } from "../logger.ts";
 import type { SlidingWindowOptions } from "../types.ts";
 import {
+  AnalysisDrivenProofreadProcessor,
   ConsistencyCheckProofreadProcessor,
   MultiStageProofreadProcessor,
   PROOFREAD_STEP_NAMES,
@@ -210,6 +211,31 @@ export class ProofreadProcessorFactory {
       },
     ],
     [
+      "proofread-analysis-driven-editor",
+      {
+        builder: (options) =>
+          new AnalysisDrivenProofreadProcessor(options.clientResolver, {
+            promptManager: options.promptManager,
+            defaultRequestOptions: options.defaultRequestOptions,
+            defaultSlidingWindow: options.defaultSlidingWindow,
+            logger: options.logger,
+            processorName: options.processorName,
+            outputRepairer: options.outputRepairer,
+          }),
+        metadata: {
+          workflow: "proofread-analysis-driven-editor",
+          title: "分析驱动编辑校对",
+          description: "先由模型输出分析报告，再基于分析报告进行逐行修改。",
+          sourceLanguage: "ja",
+          targetLanguage: "zh-CN",
+          promptSet: "ja-zhCN",
+          fragmentAuxDataContract: PROOFREAD_AUX_DATA_CONTRACT,
+          translatorFields: buildAnalysisDrivenProofreadFields(),
+          workspaceFields: [],
+        },
+      },
+    ],
+    [
       "proofread-proofreader-only",
       {
         builder: (options) =>
@@ -292,6 +318,44 @@ function getProofreadStepLabel(step: ProofreadStepName): string {
     case "proofreader":
       return "校对器";
   }
+}
+
+function buildAnalysisDrivenProofreadFields(): TranslationProcessorWorkflowFieldMetadata[] {
+  return [
+    {
+      key: "modelNames",
+      label: "模型链",
+      description: "按顺序选择执行该分析驱动编辑流程的 LLM Profile，后面的模型会作为前面的回退。",
+      input: "llm-profile",
+      required: true,
+      section: "basic",
+    },
+    {
+      key: "maxConcurrentWorkItems",
+      label: "文本块并发数",
+      description: "同时处理多少个文本块；未填写时会根据相关 LLM Profile 的并发上限自动推断。",
+      input: "number",
+      min: 1,
+      section: "basic",
+    },
+    {
+      key: "slidingWindow.overlapChars",
+      label: "滑窗重叠字符数",
+      description: "长文本分段校对时保留的重叠上下文字符数。",
+      input: "number",
+      min: 0,
+      section: "advanced",
+    },
+    {
+      key: "requestOptions",
+      label: "请求选项",
+      description: "附加请求参数，例如 temperature、topP 等。",
+      input: "yaml",
+      yamlShape: "object",
+      placeholder: "temperature: 0.2\nmaxTokens: 4096",
+      section: "advanced",
+    },
+  ];
 }
 
 function buildSingleStepProofreadFields(): TranslationProcessorWorkflowFieldMetadata[] {
