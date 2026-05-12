@@ -1,4 +1,4 @@
-import { Collapse, Col, Form, Input, Row, Select, Typography } from 'antd';
+import { Collapse, Col, Form, Input, Row, Select, Switch, Typography } from 'antd';
 import type { TranslationProcessorWorkflowFieldMetadata } from '../app/types.ts';
 import {
   isWorkflowFieldRequired,
@@ -139,6 +139,10 @@ function renderWorkflowField(
 
   if (field.input === 'textarea') {
     return <TextArea rows={5} placeholder={field.placeholder ?? field.description} />;
+  }
+
+  if (field.input === 'switch') {
+    return <Switch />;
   }
 
   if (field.key.endsWith('requestOptions')) {

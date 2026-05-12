@@ -62,6 +62,17 @@ export class ProofreadProcessorFactory {
             typeof options.workflowOptions?.reviewIterations === "number"
               ? options.workflowOptions.reviewIterations
               : undefined;
+          const includeReason =
+            typeof options.workflowOptions?.includeReason === "boolean"
+              ? options.workflowOptions.includeReason
+              : undefined;
+          const stepIncludeReason: Partial<Record<ProofreadStepName, boolean>> = {};
+          for (const step of PROOFREAD_STEP_NAMES) {
+            const stepKey = `steps.${step}.includeReason`;
+            if (typeof options.workflowOptions?.[stepKey] === "boolean") {
+              stepIncludeReason[step] = options.workflowOptions[stepKey] as boolean;
+            }
+          }
 
           return new MultiStageProofreadProcessor(options.clientResolver, stepResolvers, {
             promptManager: options.promptManager,
@@ -72,6 +83,8 @@ export class ProofreadProcessorFactory {
             outputRepairer: options.outputRepairer,
             reviewIterations,
             stepRequestOptions: options.stepRequestOptions,
+            includeReason,
+            stepIncludeReason: Object.keys(stepIncludeReason).length > 0 ? stepIncludeReason : undefined,
           });
         },
         metadata: {
@@ -92,6 +105,14 @@ export class ProofreadProcessorFactory {
               section: "basic",
             },
             ...buildProofreadStepFields(),
+            ...buildStepIncludeReasonFields(),
+            {
+              key: "includeReason",
+              label: "输出修改理由（reason）",
+              description: "是否在 LLM 响应中包含 reason 字段；关闭后可节省 Token。",
+              input: "switch",
+              section: "advanced",
+            },
             {
               key: "slidingWindow.overlapChars",
               label: "滑窗重叠字符数",
@@ -108,8 +129,13 @@ export class ProofreadProcessorFactory {
     [
       "proofread-consistency-check",
       {
-        builder: (options) =>
-          new ConsistencyCheckProofreadProcessor(options.clientResolver, {
+        builder: (options) => {
+          const includeReason =
+            typeof options.workflowOptions?.includeReason === "boolean"
+              ? options.workflowOptions.includeReason
+              : undefined;
+
+          return new ConsistencyCheckProofreadProcessor(options.clientResolver, {
             promptManager: options.promptManager,
             defaultRequestOptions: options.defaultRequestOptions,
             defaultSlidingWindow: options.defaultSlidingWindow,
@@ -128,7 +154,9 @@ export class ProofreadProcessorFactory {
               typeof options.workflowOptions?.randomContextCount === "number"
                 ? options.workflowOptions.randomContextCount
                 : undefined,
-          }),
+            includeReason,
+          });
+        },
         metadata: {
           workflow: "proofread-consistency-check",
           title: "一致性检查校对",
@@ -171,6 +199,13 @@ export class ProofreadProcessorFactory {
               section: "basic",
             },
             {
+              key: "includeReason",
+              label: "输出修改理由（reason）",
+              description: "是否在 LLM 响应中包含 reason 字段；关闭后可节省 Token。",
+              input: "switch",
+              section: "advanced",
+            },
+            {
               key: "requestOptions",
               label: "请求选项",
               description: "附加请求参数，例如 temperature、topP 等。",
@@ -187,8 +222,13 @@ export class ProofreadProcessorFactory {
     [
       "proofread-editor-only",
       {
-        builder: (options) =>
-          new SingleStepProofreadProcessor(options.clientResolver, {
+        builder: (options) => {
+          const includeReason =
+            typeof options.workflowOptions?.includeReason === "boolean"
+              ? options.workflowOptions.includeReason
+              : undefined;
+
+          return new SingleStepProofreadProcessor(options.clientResolver, {
             promptManager: options.promptManager,
             defaultRequestOptions: options.defaultRequestOptions,
             defaultSlidingWindow: options.defaultSlidingWindow,
@@ -196,7 +236,9 @@ export class ProofreadProcessorFactory {
             processorName: options.processorName,
             outputRepairer: options.outputRepairer,
             step: "editor",
-          }),
+            includeReason,
+          });
+        },
         metadata: {
           workflow: "proofread-editor-only",
           title: "单步编辑校对",
@@ -213,15 +255,22 @@ export class ProofreadProcessorFactory {
     [
       "proofread-analysis-driven-editor",
       {
-        builder: (options) =>
-          new AnalysisDrivenProofreadProcessor(options.clientResolver, {
+        builder: (options) => {
+          const includeReason =
+            typeof options.workflowOptions?.includeReason === "boolean"
+              ? options.workflowOptions.includeReason
+              : undefined;
+
+          return new AnalysisDrivenProofreadProcessor(options.clientResolver, {
             promptManager: options.promptManager,
             defaultRequestOptions: options.defaultRequestOptions,
             defaultSlidingWindow: options.defaultSlidingWindow,
             logger: options.logger,
             processorName: options.processorName,
             outputRepairer: options.outputRepairer,
-          }),
+            includeReason,
+          });
+        },
         metadata: {
           workflow: "proofread-analysis-driven-editor",
           title: "分析驱动编辑校对",
@@ -238,8 +287,13 @@ export class ProofreadProcessorFactory {
     [
       "proofread-proofreader-only",
       {
-        builder: (options) =>
-          new SingleStepProofreadProcessor(options.clientResolver, {
+        builder: (options) => {
+          const includeReason =
+            typeof options.workflowOptions?.includeReason === "boolean"
+              ? options.workflowOptions.includeReason
+              : undefined;
+
+          return new SingleStepProofreadProcessor(options.clientResolver, {
             promptManager: options.promptManager,
             defaultRequestOptions: options.defaultRequestOptions,
             defaultSlidingWindow: options.defaultSlidingWindow,
@@ -247,7 +301,9 @@ export class ProofreadProcessorFactory {
             processorName: options.processorName,
             outputRepairer: options.outputRepairer,
             step: "proofreader",
-          }),
+            includeReason,
+          });
+        },
         metadata: {
           workflow: "proofread-proofreader-only",
           title: "单步校对校验",
@@ -320,6 +376,21 @@ function getProofreadStepLabel(step: ProofreadStepName): string {
   }
 }
 
+function buildStepIncludeReasonFields(): TranslationProcessorWorkflowFieldMetadata[] {
+  return PROOFREAD_STEP_NAMES.flatMap((step) => {
+    const stepLabel = getProofreadStepLabel(step);
+    return [
+      {
+        key: `steps.${step}.includeReason`,
+        label: `${stepLabel}输出理由`,
+        description: `${stepLabel}阶段单独控制是否输出 reason 字段；未设置时跟随全局开关。`,
+        input: "switch",
+        section: "advanced",
+      },
+    ];
+  });
+}
+
 function buildAnalysisDrivenProofreadFields(): TranslationProcessorWorkflowFieldMetadata[] {
   return [
     {
@@ -337,6 +408,13 @@ function buildAnalysisDrivenProofreadFields(): TranslationProcessorWorkflowField
       input: "number",
       min: 1,
       section: "basic",
+    },
+    {
+      key: "includeReason",
+      label: "输出修改理由（reason）",
+      description: "是否在 LLM 响应中包含 reason 字段；关闭后可节省 Token。",
+      input: "switch",
+      section: "advanced",
     },
     {
       key: "slidingWindow.overlapChars",
@@ -375,6 +453,13 @@ function buildSingleStepProofreadFields(): TranslationProcessorWorkflowFieldMeta
       input: "number",
       min: 1,
       section: "basic",
+    },
+    {
+      key: "includeReason",
+      label: "输出修改理由（reason）",
+      description: "是否在 LLM 响应中包含 reason 字段；关闭后可节省 Token。",
+      input: "switch",
+      section: "advanced",
     },
     {
       key: "slidingWindow.overlapChars",

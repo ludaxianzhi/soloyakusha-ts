@@ -53,6 +53,7 @@ export type TranslationProcessorWorkflowFieldInput =
   | "llm-profile"
   | "number"
   | "select"
+  | "switch"
   | "text"
   | "textarea"
   | "yaml";

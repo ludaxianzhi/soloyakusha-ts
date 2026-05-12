@@ -100,6 +100,10 @@ export type MultiStageProofreadProcessorOptions = {
   outputRepairer?: TranslationOutputRepairer;
   stepRequestOptions?: Partial<Record<ProofreadStepName, ChatRequestOptions>>;
   reviewIterations?: number;
+  /** 是否在 response schema 中包含 reason 字段；默认 true。 */
+  includeReason?: boolean;
+  /** 各步骤独立的 includeReason 覆盖，key 为步骤名（editor/proofreader）。 */
+  stepIncludeReason?: Partial<Record<ProofreadStepName, boolean>>;
 };
 
 export type ConsistencyCheckProofreadProcessorOptions = {
@@ -112,6 +116,8 @@ export type ConsistencyCheckProofreadProcessorOptions = {
   maxSourceChars?: number;
   maxAdditionalRelatedContexts?: number;
   randomContextCount?: number;
+  /** 是否在 response schema 中包含 reason 字段；默认 true。 */
+  includeReason?: boolean;
 };
 
 export type AnalysisDrivenProofreadProcessorOptions = {
@@ -121,6 +127,8 @@ export type AnalysisDrivenProofreadProcessorOptions = {
   logger?: Logger;
   processorName?: string;
   outputRepairer?: TranslationOutputRepairer;
+  /** 是否在 response schema 中包含 reason 字段；默认 true。 */
+  includeReason?: boolean;
 };
 
 export type SingleStepProofreadProcessorOptions = {
@@ -131,6 +139,8 @@ export type SingleStepProofreadProcessorOptions = {
   processorName?: string;
   outputRepairer?: TranslationOutputRepairer;
   step: ProofreadStepName;
+  /** 是否在 response schema 中包含 reason 字段；默认 true。 */
+  includeReason?: boolean;
 };
 
 export class MultiStageProofreadProcessor implements ProofreadProcessor {
@@ -142,6 +152,8 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
   private readonly stepRequestOptions?: Partial<Record<ProofreadStepName, ChatRequestOptions>>;
   private readonly reviewIterations: number;
   private readonly outputRepairer?: TranslationOutputRepairer;
+  private readonly includeReason: boolean;
+  private readonly stepIncludeReason?: Partial<Record<ProofreadStepName, boolean>>;
 
   constructor(
     private readonly defaultClientResolver: TranslationProcessorClientResolver,
@@ -158,6 +170,12 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
     this.stepRequestOptions = options.stepRequestOptions;
     this.reviewIterations = options.reviewIterations ?? 1;
     this.outputRepairer = options.outputRepairer;
+    this.includeReason = options.includeReason ?? true;
+    this.stepIncludeReason = options.stepIncludeReason;
+  }
+
+  private resolveIncludeReason(step: ProofreadStepName): boolean {
+    return this.stepIncludeReason?.[step] ?? this.includeReason;
   }
 
   async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
@@ -208,6 +226,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
     let lastResponseSchema: JsonObject = buildTranslationResponseSchema(sourceUnits);
 
     for (let round = 0; round < this.reviewIterations; round++) {
+      const editorIncludeReason = this.resolveIncludeReason("editor");
       const editorPrompt = await this.promptManager.renderMultiStageEditorPrompt({
         sourceUnits,
         currentTranslations: toPromptUnits(latestTranslations),
@@ -216,6 +235,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
         translatedGlossaryTerms,
         requirements,
         editorRequirementsText: request.editorRequirementsText,
+        includeReason: editorIncludeReason,
       });
 
       this.logger.info?.("编辑修订阶段", {
@@ -242,6 +262,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
               parseProofreadModificationResponse(
                 candidateResponseText,
                 sourceUnits.map((unit) => unit.id),
+                false,
               );
             },
           ),
@@ -253,9 +274,11 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
         parseProofreadModificationResponse(
           editorResponseText,
           sourceUnits.map((unit) => unit.id),
+          false,
         ),
       );
 
+      const proofreaderIncludeReason = this.resolveIncludeReason("proofreader");
       const proofreaderPrompt = await this.promptManager.renderProofreadProofreaderPrompt({
         sourceUnits,
         currentTranslations: toPromptUnits(latestTranslations),
@@ -264,6 +287,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
         translatedGlossaryTerms,
         requirements,
         analysisText: request.fragmentAuxData?.["styleTransfer.analysis.v1"] as string | undefined,
+        includeReason: proofreaderIncludeReason,
       });
 
       this.logger.info?.("校对修订阶段", {
@@ -290,6 +314,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
               parseProofreadModificationResponse(
                 candidateResponseText,
                 sourceUnits.map((unit) => unit.id),
+                false,
               );
             },
           ),
@@ -301,6 +326,7 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
         parseProofreadModificationResponse(
           proofreaderResponseText,
           sourceUnits.map((unit) => unit.id),
+          false,
         ),
       );
       lastResponseText = proofreaderResponseText;
@@ -446,6 +472,7 @@ export class SingleStepProofreadProcessor implements ProofreadProcessor {
       translation: unit.text,
     }));
 
+    const includeReason = this.options.includeReason ?? true;
     const prompt =
       this.options.step === "editor"
         ? await this.promptManager.renderMultiStageEditorPrompt({
@@ -456,6 +483,7 @@ export class SingleStepProofreadProcessor implements ProofreadProcessor {
             translatedGlossaryTerms,
             requirements,
             editorRequirementsText: request.editorRequirementsText,
+            includeReason,
           })
         : await this.promptManager.renderProofreadProofreaderPrompt({
             sourceUnits,
@@ -467,6 +495,7 @@ export class SingleStepProofreadProcessor implements ProofreadProcessor {
             analysisText: request.fragmentAuxData?.["styleTransfer.analysis.v1"] as
               | string
               | undefined,
+            includeReason,
           });
 
     this.logger.info?.(
@@ -498,6 +527,7 @@ export class SingleStepProofreadProcessor implements ProofreadProcessor {
             parseProofreadModificationResponse(
               candidateResponseText,
               sourceUnits.map((unit) => unit.id),
+              false,
             );
           },
         ),
@@ -510,6 +540,7 @@ export class SingleStepProofreadProcessor implements ProofreadProcessor {
       parseProofreadModificationResponse(
         responseText,
         sourceUnits.map((unit) => unit.id),
+        false,
       ),
     );
 
@@ -558,6 +589,7 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
   private readonly maxSourceChars?: number;
   private readonly maxAdditionalRelatedContexts: number;
   private readonly randomContextCount: number;
+  private readonly includeReason: boolean;
 
   constructor(
     private readonly clientResolver: TranslationProcessorClientResolver,
@@ -572,6 +604,7 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
     this.maxSourceChars = options.maxSourceChars;
     this.maxAdditionalRelatedContexts = Math.max(0, options.maxAdditionalRelatedContexts ?? 3);
     this.randomContextCount = Math.max(0, options.randomContextCount ?? 2);
+    this.includeReason = options.includeReason ?? true;
   }
 
   async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
@@ -626,6 +659,7 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
       plotSummaries,
       translatedGlossaryTerms,
       requirements,
+      includeReason: this.includeReason,
     });
 
     const client = this.resolveClient();
@@ -646,6 +680,7 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
             parseProofreadModificationResponse(
               candidateResponseText,
               sourceUnits.map((unit) => unit.id),
+              false,
             );
           },
         ),
@@ -661,6 +696,7 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
       parseProofreadModificationResponse(
         responseText,
         sourceUnits.map((unit) => unit.id),
+        false,
       ),
     );
 
@@ -852,6 +888,7 @@ export class AnalysisDrivenProofreadProcessor implements ProofreadProcessor {
   private readonly processorName?: string;
   private readonly promptManager: PromptManager;
   private readonly outputRepairer?: TranslationOutputRepairer;
+  private readonly includeReason: boolean;
 
   constructor(
     private readonly clientResolver: TranslationProcessorClientResolver,
@@ -863,6 +900,7 @@ export class AnalysisDrivenProofreadProcessor implements ProofreadProcessor {
     this.logger = options.logger ?? NOOP_LOGGER;
     this.processorName = options.processorName;
     this.outputRepairer = options.outputRepairer;
+    this.includeReason = options.includeReason ?? true;
   }
 
   async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
@@ -932,6 +970,7 @@ export class AnalysisDrivenProofreadProcessor implements ProofreadProcessor {
       requirements,
       editorRequirementsText: request.editorRequirementsText,
       analysisText: analysisResponseText,
+      includeReason: this.includeReason,
     });
 
     this.logger.info?.("分析驱动校对：开始修订阶段", {

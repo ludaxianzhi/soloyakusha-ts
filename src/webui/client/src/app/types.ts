@@ -848,7 +848,7 @@ export interface TranslationProcessorWorkflowFieldMetadata {
   key: string;
   label: string;
   description?: string;
-  input: 'llm-profile' | 'number' | 'select' | 'text' | 'textarea' | 'yaml';
+  input: 'llm-profile' | 'number' | 'select' | 'switch' | 'text' | 'textarea' | 'yaml';
   options?: Array<{
     label: string;
     value: string;

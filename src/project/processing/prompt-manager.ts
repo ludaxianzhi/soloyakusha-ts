@@ -67,6 +67,8 @@ export type MultiStageEditorPromptInput = {
   translatedGlossaryTerms: ResolvedGlossaryTerm[];
   requirements: string[];
   editorRequirementsText?: string;
+  /** 是否在 response schema 中包含 reason 字段；默认 true。 */
+  includeReason?: boolean;
 };
 
 export type ProofreadProofreaderPromptInput = {
@@ -78,6 +80,8 @@ export type ProofreadProofreaderPromptInput = {
   requirements: string[];
   /** 风格迁移分析阶段产出的文本分析报告，供校对者参考；不存在时不注入提示词。 */
   analysisText?: string;
+  /** 是否在 response schema 中包含 reason 字段；默认 true。 */
+  includeReason?: boolean;
 };
 
 export type AnalysisDrivenEditorAnalysisPromptInput = {
@@ -99,6 +103,8 @@ export type AnalysisDrivenEditorRevisionPromptInput = {
   requirements: string[];
   editorRequirementsText?: string;
   analysisText: string;
+  /** 是否在 response schema 中包含 reason 字段；默认 true。 */
+  includeReason?: boolean;
 };
 
 export type ConsistencyProofreadPromptInput = {
@@ -109,6 +115,8 @@ export type ConsistencyProofreadPromptInput = {
   plotSummaries: string[];
   translatedGlossaryTerms: ResolvedGlossaryTerm[];
   requirements: string[];
+  /** 是否在 response schema 中包含 reason 字段；默认 true。 */
+  includeReason?: boolean;
 };
 
 
@@ -271,7 +279,7 @@ export class PromptManager {
   async renderMultiStageEditorPrompt(
     input: MultiStageEditorPromptInput,
   ): Promise<RenderedPrompt> {
-    const responseSchema = buildProofreadModificationResponseSchema(input.currentTranslations);
+    const responseSchema = buildProofreadModificationResponseSchema(input.currentTranslations, input.includeReason);
     const renderedPrompt = await this.renderPrompt(PROOFREAD_EDITOR_PROMPT_ID, {
       sourceUnits: input.sourceUnits,
       currentTranslations: input.currentTranslations,
@@ -294,7 +302,7 @@ export class PromptManager {
   async renderProofreadProofreaderPrompt(
     input: ProofreadProofreaderPromptInput,
   ): Promise<RenderedPrompt> {
-    const responseSchema = buildProofreadModificationResponseSchema(input.currentTranslations);
+    const responseSchema = buildProofreadModificationResponseSchema(input.currentTranslations, input.includeReason);
     const renderedPrompt = await this.renderPrompt(PROOFREAD_PROOFREADER_PROMPT_ID, {
       sourceUnits: input.sourceUnits,
       currentTranslations: input.currentTranslations,
@@ -317,7 +325,7 @@ export class PromptManager {
   async renderConsistencyProofreadPrompt(
     input: ConsistencyProofreadPromptInput,
   ): Promise<RenderedPrompt> {
-    const responseSchema = buildProofreadModificationResponseSchema(input.currentTranslations);
+    const responseSchema = buildProofreadModificationResponseSchema(input.currentTranslations, input.includeReason);
     const renderedPrompt = await this.renderPrompt(PROOFREAD_CONSISTENCY_PROMPT_ID, {
       sourceUnits: input.sourceUnits,
       currentTranslations: input.currentTranslations,
@@ -360,7 +368,7 @@ export class PromptManager {
   async renderAnalysisDrivenEditorRevisionPrompt(
     input: AnalysisDrivenEditorRevisionPromptInput,
   ): Promise<RenderedPrompt> {
-    const responseSchema = buildAnalysisDrivenModificationResponseSchema(input.currentTranslations);
+    const responseSchema = buildAnalysisDrivenModificationResponseSchema(input.currentTranslations, input.includeReason);
     const renderedPrompt = await this.renderPrompt(ANALYSIS_DRIVEN_EDITOR_REVISION_PROMPT_ID, {
       sourceUnits: input.sourceUnits,
       currentTranslations: input.currentTranslations,
@@ -483,43 +491,34 @@ function buildStyleTransferResponseSchema(
   };
 }
 
-function buildAnalysisDrivenModificationResponseSchema(
-  sourceUnits: ReadonlyArray<PromptTranslationUnit>,
-): JsonObject {
-  return {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      modifications: {
-        type: "array",
-        minItems: 0,
-        maxItems: sourceUnits.length,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            id: {
-              type: "string",
-            },
-            reason: {
-              type: "string",
-            },
-            translation: {
-              type: "string",
-              minLength: 1,
-            },
-          },
-          required: ["id", "translation"],
-        },
-      },
-    },
-    required: ["modifications"],
-  };
-}
-
 function buildProofreadModificationResponseSchema(
   sourceUnits: ReadonlyArray<PromptTranslationUnit>,
+  includeReason = true,
 ): JsonObject {
+  return buildModificationItemSchema(sourceUnits, includeReason);
+}
+
+function buildAnalysisDrivenModificationResponseSchema(
+  sourceUnits: ReadonlyArray<PromptTranslationUnit>,
+  includeReason = true,
+): JsonObject {
+  return buildModificationItemSchema(sourceUnits, includeReason);
+}
+
+function buildModificationItemSchema(
+  sourceUnits: ReadonlyArray<PromptTranslationUnit>,
+  includeReason: boolean,
+): JsonObject {
+  const properties: Record<string, JsonObject> = {
+    id: { type: "string" } as JsonObject,
+    translation: { type: "string", minLength: 1 } as JsonObject,
+  };
+  const required = ["id", "translation"];
+
+  if (includeReason) {
+    properties.reason = { type: "string" } as JsonObject;
+  }
+
   return {
     type: "object",
     additionalProperties: false,
@@ -531,20 +530,8 @@ function buildProofreadModificationResponseSchema(
         items: {
           type: "object",
           additionalProperties: false,
-          properties: {
-            id: {
-              type: "string",
-            },
-            reason: {
-              type: "string",
-              minLength: 1,
-            },
-            translation: {
-              type: "string",
-              minLength: 1,
-            },
-          },
-          required: ["id", "reason", "translation"],
+          properties,
+          required,
         },
       },
     },
