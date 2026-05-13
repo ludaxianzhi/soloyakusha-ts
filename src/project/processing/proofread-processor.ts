@@ -130,6 +130,8 @@ export type SingleStepProofreadProcessorOptions = {
   step: ProofreadStepName;
   /** 是否在 response schema 中包含 reason 字段；默认 true。 */
   includeReason?: boolean;
+  /** 是否注入待编辑文本的原文；仅 editor 步骤有效，默认 true（保持原行为）。 */
+  includeSourceText?: boolean;
 };
 
 export class MultiStageProofreadProcessor implements ProofreadProcessor {
@@ -473,6 +475,7 @@ export class SingleStepProofreadProcessor implements ProofreadProcessor {
             requirements,
             editorRequirementsText: request.editorRequirementsText,
             includeReason,
+            includeSourceText: this.options.includeSourceText,
           })
         : await this.promptManager.renderProofreadProofreaderPrompt({
             sourceUnits,

@@ -69,6 +69,8 @@ export type MultiStageEditorPromptInput = {
   editorRequirementsText?: string;
   /** 是否在 response schema 中包含 reason 字段；默认 true。 */
   includeReason?: boolean;
+  /** 是否注入待编辑文本的原文；默认 true（保持原行为）。 */
+  includeSourceText?: boolean;
 };
 
 export type ProofreadProofreaderPromptInput = {
@@ -260,6 +262,7 @@ export class PromptManager {
       translatedGlossaryTerms: input.translatedGlossaryTerms,
       requirements: input.requirements,
       editorRequirementsText: resolveEditorRequirementsText(input.editorRequirementsText),
+      includeSourceText: input.includeSourceText,
       responseSchemaJson: JSON.stringify(responseSchema, null, 2),
     });
 

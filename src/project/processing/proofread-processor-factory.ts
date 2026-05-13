@@ -226,6 +226,10 @@ export class ProofreadProcessorFactory {
             typeof options.workflowOptions?.includeReason === "boolean"
               ? options.workflowOptions.includeReason
               : undefined;
+          const includeSourceText =
+            typeof options.workflowOptions?.includeSourceText === "boolean"
+              ? options.workflowOptions.includeSourceText
+              : undefined;
 
           return new SingleStepProofreadProcessor(options.clientResolver, {
             promptManager: options.promptManager,
@@ -236,6 +240,7 @@ export class ProofreadProcessorFactory {
             outputRepairer: options.outputRepairer,
             step: "editor",
             includeReason,
+            includeSourceText,
           });
         },
         metadata: {
@@ -247,7 +252,15 @@ export class ProofreadProcessorFactory {
           promptSet: "ja-zhCN",
           fragmentAuxDataContract: PROOFREAD_AUX_DATA_CONTRACT,
           translatorFields: buildSingleStepProofreadFields(),
-          workspaceFields: [],
+          workspaceFields: [
+            {
+              key: "includeSourceText",
+              label: "注入原文",
+              description: "关闭后只注入待校对译文，不显示日文原文。",
+              input: "switch",
+              section: "advanced",
+            },
+          ],
         },
       },
     ],

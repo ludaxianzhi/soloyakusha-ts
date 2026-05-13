@@ -55,6 +55,8 @@ export type TranslationProcessorConfig = {
   models?: Record<string, string>;
   /** 评审迭代次数，供需要多轮审校的工作流使用。 */
   reviewIterations?: number;
+  /** 是否注入待编辑文本的原文；仅 proofread-editor-only 生效，默认 true（保持原行为）。 */
+  includeSourceText?: boolean;
 };
 
 export type TranslationProcessorStepConfig = {
@@ -299,6 +301,9 @@ export class TranslationGlobalConfig {
           : {}),
         ...(config.randomContextCount !== undefined
           ? { randomContextCount: config.randomContextCount }
+          : {}),
+        ...(config.includeSourceText !== undefined
+          ? { includeSourceText: config.includeSourceText }
           : {}),
       },
       promptManager: options.promptManager,
