@@ -13,6 +13,7 @@ import {
   type ProjectService,
 } from '../services/project-service.ts';
 import type { RequestHistoryService } from '../services/request-history-service.ts';
+import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
 
 export function createProjectRoutes(
   projectService: ProjectService,
@@ -414,9 +415,20 @@ export function createProjectRoutes(
 
   // ─── 导出 ───────────────────────────────────────
 
+  app.get('/format-params/:formatName', async (c) => {
+    const formatName = c.req.param('formatName');
+    const mode = (c.req.query('mode') ?? 'export') as 'import' | 'export';
+    try {
+      const params = TranslationFileHandlerFactory.getHandlerParamDefs(formatName, mode);
+      return c.json({ formatName, params });
+    } catch {
+      return c.json({ error: `不支持的格式: ${formatName}` }, 400);
+    }
+  });
+
   app.post('/export', async (c) => {
-    const body = await c.req.json<{ format: string; keepSourceName?: boolean }>();
-    const result = await projectService.exportProject(body.format, body.keepSourceName);
+    const body = await c.req.json<{ format: string; params?: Record<string, unknown> }>();
+    const result = await projectService.exportProject(body.format, body.params);
     if (!result) {
       return c.json({ error: '当前没有可导出的项目' }, 400);
     }
@@ -709,7 +721,7 @@ export function createProjectRoutes(
   });
 
   app.post('/chapters/export', async (c) => {
-    const body = await c.req.json<{ chapterIds: number[]; format: string; keepSourceName?: boolean }>();
+    const body = await c.req.json<{ chapterIds: number[]; format: string; params?: Record<string, unknown> }>();
     if (!Array.isArray(body.chapterIds) || body.chapterIds.length === 0) {
       return c.json({ error: '请提供至少一个章节 ID' }, 400);
     }
@@ -718,7 +730,7 @@ export function createProjectRoutes(
       return c.json({ error: '请提供导出格式' }, 400);
     }
 
-    const result = await projectService.exportChapters(body.chapterIds, format, body.keepSourceName);
+    const result = await projectService.exportChapters(body.chapterIds, format, body.params);
     if (!result) {
       return c.json({ error: '导出失败' }, 400);
     }

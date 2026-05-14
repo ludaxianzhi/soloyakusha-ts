@@ -16,6 +16,7 @@
  */
 
 import type {
+  FileHandlerParamDef,
   ParsedTranslationDocument,
   ParsedTranslationUnitBlock,
 } from "./base.ts";
@@ -24,22 +25,29 @@ import type { TranslationUnit } from "../project/types.ts";
 import { extractBracketNameAndText, stripBom } from "./base.ts";
 import { readFile, writeFile } from "node:fs/promises";
 
-export interface DblTp1Options {
-  sourceChar?: string;
-  targetChar?: string;
-}
+const IMPORT_PARAMS: FileHandlerParamDef[] = [
+  { key: "sourceChar", label: "原文标记字符", type: "string", defaultValue: "☆", description: "原文行起始字符，如 ☆" },
+  { key: "targetChar", label: "译文标记字符", type: "string", defaultValue: "★", description: "译文行起始字符，如 ★" },
+];
+
+const EXPORT_PARAMS: FileHandlerParamDef[] = [
+  { key: "sourceChar", label: "原文标记字符", type: "string", defaultValue: "☆" },
+  { key: "targetChar", label: "译文标记字符", type: "string", defaultValue: "★" },
+  { key: "keepSourceName", label: "保持名称", type: "boolean", defaultValue: false, description: "导出时角色名保持与原文一致" },
+];
 
 export class DblTp1FileHandler extends TranslationFileHandler {
   readonly formatName = "dbl_tp1";
   readonly supportsComparable = false;
+  override readonly importParamDefs = IMPORT_PARAMS;
+  override readonly exportParamDefs = EXPORT_PARAMS;
 
-  readonly sourceChar: string;
-  readonly targetChar: string;
+  private sourceChar = "☆";
+  private targetChar = "★";
 
-  constructor(options: DblTp1Options = {}) {
-    super();
-    this.sourceChar = options.sourceChar ?? "☆";
-    this.targetChar = options.targetChar ?? "★";
+  override applyParams(params: Record<string, unknown>): void {
+    if (typeof params.sourceChar === "string") this.sourceChar = params.sourceChar;
+    if (typeof params.targetChar === "string") this.targetChar = params.targetChar;
   }
 
   parseTranslationDocument(content: string): ParsedTranslationDocument {

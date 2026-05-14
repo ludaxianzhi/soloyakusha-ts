@@ -196,7 +196,7 @@ export class TranslationProjectWorkspace {
     options?: {
       format?: string;
       fileHandler?: TranslationFileHandler;
-      keepSourceName?: boolean;
+      params?: Record<string, unknown>;
     },
   ): Promise<TranslationExportResult> {
     const resolvedPath = resolveChapterPath(this.projectDir, outputPath);
@@ -217,7 +217,7 @@ export class TranslationProjectWorkspace {
       chapterId,
       resolvedPath,
       fileHandler,
-      options?.keepSourceName,
+      options?.params,
     );
     return {
       chapterId,
@@ -232,7 +232,7 @@ export class TranslationProjectWorkspace {
       format?: string;
       fileHandler?: TranslationFileHandler;
       fileExtension?: string;
-      keepSourceName?: boolean;
+      params?: Record<string, unknown>;
     },
   ): Promise<TranslationExportResult[]> {
     const resolvedDir = resolveChapterPath(this.projectDir, outputDir);

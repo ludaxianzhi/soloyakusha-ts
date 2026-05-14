@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { DeleteOutlined, DownOutlined, DownloadOutlined, ExportOutlined } from '@ant-design/icons';
 import {
   Alert,
@@ -14,6 +14,7 @@ import {
   Select,
   Space,
 } from 'antd';
+import { FormatParamFields, useFormatParams } from './FormatParamFields.tsx';
 import type { FormInstance } from 'antd';
 import type { TranslationProcessorWorkflowMetadata } from '../../app/types.ts';
 import {
@@ -41,12 +42,14 @@ interface WorkspaceConfigTabProps {
   onRefreshWorkspaceConfig: () => void | Promise<void>;
   onRefreshStyleLibraryOptions?: () => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
-  onDownloadExport: (format: string, keepSourceName?: boolean) => void | Promise<void>;
+  onDownloadExport: (format: string, params?: Record<string, unknown>) => void | Promise<void>;
   onResetProject: (
     payload: Record<string, unknown>,
     successText: string,
   ) => void | Promise<void>;
 }
+
+export { EXPORT_FORMATS };
 
 export function WorkspaceConfigTab({
   active,
@@ -240,22 +243,31 @@ const EXPORT_FORMATS: Array<{ label: string; value: string }> = [
 function ExportFormatDropdown({
   onExport,
 }: {
-  onExport: (format: string, keepSourceName?: boolean) => void;
+  onExport: (format: string, params?: Record<string, unknown>) => void;
 }) {
   const [selectedFormat, setSelectedFormat] = useState(EXPORT_FORMATS[0]!.value);
-  const [keepSourceName, setKeepSourceName] = useState(false);
+  const { paramDefs, buildParams } = useFormatParams(selectedFormat, 'export');
+  const [paramValues, setParamValues] = useState<Record<string, unknown>>({});
+
+  useEffect(() => {
+    const defaults: Record<string, unknown> = {};
+    for (const def of paramDefs) {
+      defaults[def.key] = def.defaultValue;
+    }
+    setParamValues(defaults);
+  }, [paramDefs]);
+
+  const handleParamChange = useCallback((key: string, value: unknown) => {
+    setParamValues((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleExport = useCallback(() => {
+    onExport(selectedFormat, buildParams(paramValues));
+  }, [onExport, selectedFormat, buildParams, paramValues]);
 
   const items = EXPORT_FORMATS.map((fmt) => ({
     key: fmt.value,
-    label: (
-      <span
-        onClick={() => {
-          setSelectedFormat(fmt.value);
-        }}
-      >
-        {fmt.label}
-      </span>
-    ),
+    label: fmt.label,
   }));
 
   return (
@@ -267,13 +279,15 @@ function ExportFormatDropdown({
           items,
           onClick: ({ key }) => setSelectedFormat(key),
         }}
-        onClick={() => onExport(selectedFormat, keepSourceName)}
+        onClick={handleExport}
       >
         导出为更多格式
       </Dropdown.Button>
-      <Checkbox checked={keepSourceName} onChange={(e) => setKeepSourceName(e.target.checked)}>
-        保持名称
-      </Checkbox>
+      <FormatParamFields
+        paramDefs={paramDefs}
+        values={paramValues}
+        onChange={handleParamChange}
+      />
     </Space>
   );
 }

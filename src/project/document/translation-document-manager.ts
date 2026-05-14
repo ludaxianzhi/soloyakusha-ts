@@ -582,10 +582,10 @@ export class TranslationDocumentManager {
     chapterId: number,
     outputFilePath: string,
     fileHandler: TranslationFileHandler,
-    keepSourceName?: boolean,
+    params?: Record<string, unknown>,
   ): Promise<void> {
     let units = this.getChapterTranslationUnits(chapterId);
-    if (keepSourceName) {
+    if (params?.keepSourceName) {
       units = keepSourceNameInTarget(units);
     }
 

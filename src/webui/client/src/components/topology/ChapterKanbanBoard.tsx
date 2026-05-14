@@ -58,7 +58,7 @@ interface ChapterKanbanBoardProps {
   ) => void | Promise<void>;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
   onUpdateRoute: (routeId: string, payload: UpdateStoryRoutePayload) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
 }
 
 type ColumnItems = Record<string, number[]>;
@@ -122,7 +122,7 @@ export function ChapterKanbanBoard({
 
   const [dragItems, setDragItems] = useState<ColumnItems | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
-  const [keepSourceName, setKeepSourceName] = useState(false);
+  const [exportParams, setExportParams] = useState<Record<string, unknown>>({});
   const dragSourceRef = useRef<{ routeId: string; index: number } | null>(null);
 
   const items = dragItems ?? topologyItems;
@@ -346,7 +346,10 @@ export function ChapterKanbanBoard({
   return (
     <>
       <div style={{ padding: '0 16px 8px' }}>
-        <Checkbox checked={keepSourceName} onChange={(e) => setKeepSourceName(e.target.checked)}>
+        <Checkbox
+          checked={Boolean(exportParams.keepSourceName)}
+          onChange={(e) => setExportParams({ ...exportParams, keepSourceName: e.target.checked })}
+        >
           保持名称
         </Checkbox>
       </div>
@@ -374,7 +377,7 @@ export function ChapterKanbanBoard({
               onEditRoute={handleEditRoute}
               onRemoveRoute={onRemoveRoute}
               onDownloadChapters={onDownloadChapters}
-              keepSourceName={keepSourceName}
+              params={exportParams}
             />
           ))}
         </div>
@@ -457,8 +460,8 @@ interface KanbanColumnProps {
   ) => void | Promise<void>;
   onEditRoute: (route: StoryTopologyRouteDescriptor) => void;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
-  keepSourceName?: boolean;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  params?: Record<string, unknown>;
 }
 
 function KanbanColumn({
@@ -474,7 +477,7 @@ function KanbanColumn({
   onEditRoute,
   onRemoveRoute,
   onDownloadChapters,
-  keepSourceName,
+  params,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: route.id });
 
@@ -567,7 +570,7 @@ function KanbanColumn({
                   onClearChapterTranslations={onClearChapterTranslations}
                   onRemoveChapters={onRemoveChapters}
                   onDownloadChapters={onDownloadChapters}
-                  keepSourceName={keepSourceName}
+                  params={params}
                 />
               );
             })
@@ -593,8 +596,8 @@ interface KanbanCardProps {
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
   ) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
-  keepSourceName?: boolean;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  params?: Record<string, unknown>;
 }
 
 function KanbanCard({
@@ -608,7 +611,7 @@ function KanbanCard({
   onClearChapterTranslations,
   onRemoveChapters,
   onDownloadChapters,
-  keepSourceName,
+  params,
 }: KanbanCardProps) {
   const navigate = useNavigate();
   const {
@@ -637,11 +640,11 @@ function KanbanCard({
       icon: <DownloadOutlined />,
       label: '下载章节',
       children: [
-        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([chapterId], 'plain_text', keepSourceName) },
-        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([chapterId], 'naturedialog', keepSourceName) },
-        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([chapterId], 'm3t', keepSourceName) },
-        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([chapterId], 'galtransl_json', keepSourceName) },
-        { key: 'download-dbl_tp1', label: 'DBL TP1', onClick: () => onDownloadChapters([chapterId], 'dbl_tp1', keepSourceName) },
+        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([chapterId], 'plain_text', params) },
+        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([chapterId], 'naturedialog', params) },
+        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([chapterId], 'm3t', params) },
+        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([chapterId], 'galtransl_json', params) },
+        { key: 'download-dbl_tp1', label: 'DBL TP1', onClick: () => onDownloadChapters([chapterId], 'dbl_tp1', params) },
       ],
     },
     {

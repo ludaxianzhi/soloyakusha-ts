@@ -895,7 +895,7 @@ export class TranslationProject
     options?: {
       format?: string;
       fileHandler?: TranslationFileHandler;
-      keepSourceName?: boolean;
+      params?: Record<string, unknown>;
     },
   ): Promise<TranslationExportResult> {
     this.ensureInitialized();
@@ -908,7 +908,7 @@ export class TranslationProject
       format?: string;
       fileHandler?: TranslationFileHandler;
       fileExtension?: string;
-      keepSourceName?: boolean;
+      params?: Record<string, unknown>;
     },
   ): Promise<TranslationExportResult[]> {
     this.ensureInitialized();
@@ -929,11 +929,11 @@ export class TranslationProject
    */
   async exportProject(
     formatName: string,
-    keepSourceName?: boolean,
+    params?: Record<string, unknown>,
   ): Promise<ProjectExportResult> {
     this.ensureInitialized();
 
-    const handler = TranslationFileHandlerFactory.getHandler(formatName);
+    const handler = TranslationFileHandlerFactory.getHandler(formatName, params);
     const exportRootDir = join(this.projectDir, "export");
     const topology = this.storyTopology;
     const hasBranches = topology ? topology.getBranches().length > 0 : false;
@@ -945,7 +945,7 @@ export class TranslationProject
         this.chapters,
         exportRootDir,
         handler,
-        keepSourceName,
+        params,
       );
       routes.push({
         routeId: "main",
@@ -966,7 +966,7 @@ export class TranslationProject
           routeChapters,
           routeExportDir,
           handler,
-          keepSourceName,
+          params,
         );
         routes.push({
           routeId: route.id,
@@ -993,7 +993,7 @@ export class TranslationProject
     chapters: Chapter[],
     outputDir: string,
     handler: TranslationFileHandler,
-    keepSourceName?: boolean,
+    params?: Record<string, unknown>,
   ): Promise<TranslationExportResult[]> {
     await mkdir(outputDir, { recursive: true });
 
@@ -1023,7 +1023,7 @@ export class TranslationProject
         chapter.id,
         outputPath,
         handler,
-        keepSourceName,
+        params,
       );
 
       const unitCount = this.documentManager.getChapterTranslationUnits(chapter.id).length;

@@ -3503,7 +3503,7 @@ export class ProjectService {
 
   async exportProject(
     formatName: string,
-    keepSourceName?: boolean,
+    params?: Record<string, unknown>,
   ): Promise<ProjectExportResult | null> {
     const { state, project } = this.getActiveWorkspaceContext();
     if (!project) {
@@ -3513,7 +3513,7 @@ export class ProjectService {
 
     let result: ProjectExportResult | null = null;
     await this.runAction('导出翻译文件', async () => {
-      const exported = await project.exportProject(formatName, keepSourceName);
+      const exported = await project.exportProject(formatName, params);
       result = exported;
       this.log(
         'success',
@@ -3526,7 +3526,7 @@ export class ProjectService {
   async exportChapters(
     chapterIds: number[],
     formatName: string,
-    keepSourceName?: boolean,
+    params?: Record<string, unknown>,
   ): Promise<ProjectExportResult | null> {
     const { state, project } = this.getActiveWorkspaceContext();
     if (!project) {
@@ -3536,7 +3536,7 @@ export class ProjectService {
 
     let result: ProjectExportResult | null = null;
     await this.runAction('导出章节', async () => {
-      const handler = TranslationFileHandlerFactory.getHandler(formatName);
+      const handler = TranslationFileHandlerFactory.getHandler(formatName, params);
       const exportRootDir = `${project.getWorkspaceFileManifest().projectDir}/export`;
       await mkdir(exportRootDir, { recursive: true });
 
@@ -3556,7 +3556,7 @@ export class ProjectService {
         await mkdir(dirname(outputPath), { recursive: true });
         await project.exportChapter(chapterId, outputPath, {
           fileHandler: handler,
-          keepSourceName,
+          params,
         });
         results.push({ chapterId, outputPath, unitCount: chapter.fragmentCount });
       }

@@ -34,6 +34,7 @@ import {
   IMPORT_FORMAT_OPTIONS,
 } from '../../app/ui-helpers.ts';
 import { usePollingTask } from '../../app/usePollingTask.ts';
+import { FormatParamFields } from './FormatParamFields.tsx';
 import { TranslationPreviewModal } from '../TranslationPreviewModal.tsx';
 import { ChapterKanbanBoard } from '../topology/ChapterKanbanBoard.tsx';
 import { ChapterFindReplaceModal } from './ChapterFindReplaceModal.tsx';
@@ -84,7 +85,7 @@ interface WorkspaceChaptersTabProps {
     importPattern?: string;
     importTranslation?: boolean;
   }) => Promise<ImportArchiveResult>;
-  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
 }
 
 type RouteAttachCandidate = {
@@ -321,7 +322,7 @@ const ChapterTableSection = memo(function ChapterTableSection({
   onClearChapterTranslations,
   onRemoveChapters,
   onDownloadChapters,
-  keepSourceName,
+  params,
 }: {
   chapters: WorkspaceChapterDescriptor[];
   selectedChapterIds: number[];
@@ -335,8 +336,8 @@ const ChapterTableSection = memo(function ChapterTableSection({
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
   ) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
-  keepSourceName?: boolean;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  params?: Record<string, unknown>;
 }) {
   const navigate = useNavigate();
 
@@ -489,11 +490,11 @@ const ChapterTableSection = memo(function ChapterTableSection({
                       icon: <DownloadOutlined />,
                       label: '下载章节',
                       children: [
-                        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([record.id], 'plain_text', keepSourceName) },
-                        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([record.id], 'naturedialog', keepSourceName) },
-                        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([record.id], 'm3t', keepSourceName) },
-                        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([record.id], 'galtransl_json', keepSourceName) },
-                        { key: 'download-dbl_tp1', label: 'DBL TP1', onClick: () => onDownloadChapters([record.id], 'dbl_tp1', keepSourceName) },
+                        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([record.id], 'plain_text', params) },
+                        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([record.id], 'naturedialog', params) },
+                        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([record.id], 'm3t', params) },
+                        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([record.id], 'galtransl_json', params) },
+                        { key: 'download-dbl_tp1', label: 'DBL TP1', onClick: () => onDownloadChapters([record.id], 'dbl_tp1', params) },
                       ],
                     },
                     { type: 'divider' as const },
@@ -574,12 +575,12 @@ function ChapterInfoTable({
     importPattern?: string;
     importTranslation?: boolean;
   }) => Promise<ImportArchiveResult>;
-  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
   onRefreshChapters: () => void | Promise<void>;
 }) {
   const { message } = AntdApp.useApp();
-  const [keepSourceName, setKeepSourceName] = useState(false);
   const toolbarActionsRef = useRef<HTMLDivElement | null>(null);
+  const [exportParams, setExportParams] = useState<Record<string, unknown>>({});
   const [selectedChapterIds, setSelectedChapterIds] = useState<number[]>([]);
   const [lastSelectedChapterId, setLastSelectedChapterId] = useState<number>();
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -893,7 +894,7 @@ function ChapterInfoTable({
   };
 
   const handleConfirmBatchDownload = () => {
-    void onDownloadChapters(selectedChapterIds, batchDownloadFormat, keepSourceName);
+    void onDownloadChapters(selectedChapterIds, batchDownloadFormat, exportParams);
     setBatchDownloadModalOpen(false);
   };
 
@@ -1233,7 +1234,10 @@ function ChapterInfoTable({
             <Tag color={selectedChapterIds.length > 0 ? 'processing' : undefined}>
               已选 {selectedChapterIds.length} 章节
             </Tag>
-            <Checkbox checked={keepSourceName} onChange={(e) => setKeepSourceName(e.target.checked)}>
+            <Checkbox
+              checked={Boolean(exportParams.keepSourceName)}
+              onChange={(e) => setExportParams({ ...exportParams, keepSourceName: e.target.checked })}
+            >
               保持名称
             </Checkbox>
           </Space>
@@ -1273,7 +1277,7 @@ function ChapterInfoTable({
           onClearChapterTranslations={onClearChapterTranslations}
           onRemoveChapters={onRemoveChapters}
           onDownloadChapters={onDownloadChapters}
-          keepSourceName={keepSourceName}
+          params={exportParams}
         />
       </div>
 
@@ -1563,8 +1567,8 @@ function ChapterInfoTable({
             ]}
           />
           <Checkbox
-            checked={keepSourceName}
-            onChange={(e) => setKeepSourceName(e.target.checked)}
+            checked={Boolean(exportParams.keepSourceName)}
+            onChange={(e) => setExportParams((prev) => ({ ...prev, keepSourceName: e.target.checked }))}
           >
             保持名称
           </Checkbox>

@@ -32,6 +32,26 @@ export interface ParsedTranslationDocument {
 }
 
 /**
+ * 文件格式参数定义，前端根据此描述自动渲染参数输入控件。
+ */
+export interface FileHandlerParamDef {
+  /** 参数键名，传入 applyParams 时的键 */
+  key: string;
+  /** UI 显示标签 */
+  label: string;
+  /** 参数类型 */
+  type: "string" | "boolean" | "select" | "number";
+  /** 默认值 */
+  defaultValue?: unknown;
+  /** select 类型的候选项 */
+  options?: { label: string; value: string }[];
+  /** 帮助提示文本 */
+  description?: string;
+  /** 是否必填 */
+  required?: boolean;
+}
+
+/**
  * 翻译文件处理器的抽象基类，约定具体格式实现必须提供的读写能力。
  *
  * 子类需要实现：
@@ -41,10 +61,22 @@ export interface ParsedTranslationDocument {
  * - writeTranslationUnits: 将翻译单元列表写入文件
  * - parseTranslationDocument: 从字符串解析翻译单元及行级块信息
  * - formatTranslationUnits: 将翻译单元列表格式化为字符串
+ *
+ * 可选覆盖：
+ * - importParamDefs / exportParamDefs: 声明导入/导出参数（前端自动渲染）
+ * - applyParams: 应用用户传入的参数值
  */
 export abstract class TranslationFileHandler {
   abstract readonly formatName: string;
   abstract readonly supportsComparable: boolean;
+
+  /** 导入参数声明（前端据此自动渲染表单） */
+  readonly importParamDefs?: FileHandlerParamDef[];
+  /** 导出参数声明 */
+  readonly exportParamDefs?: FileHandlerParamDef[];
+
+  /** 应用运行时参数（来自用户前端填写的值） */
+  applyParams(_params: Record<string, unknown>): void {}
 
   abstract parseTranslationDocument(content: string): ParsedTranslationDocument;
   abstract formatTranslationUnits(units: TranslationUnit[]): string;

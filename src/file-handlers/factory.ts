@@ -6,13 +6,11 @@
  * - 注册自定义格式处理器
  * - 创建按扩展名解析处理器的辅助函数
  *
- * 内置格式：plain_text、naturedialog、naturedialog_keepname、m3t、galtransl_json
- *
  * @module file-handlers/factory
  */
 
 import { extname } from "node:path";
-import type { TranslationFileHandlerResolver } from "./base.ts";
+import type { FileHandlerParamDef, TranslationFileHandlerResolver } from "./base.ts";
 import { TranslationFileHandler } from "./base.ts";
 import { DblTp1FileHandler } from "./dbl-tp1-file-handler.ts";
 import { GaltranslJsonFileHandler } from "./galtransl-json-file-handler.ts";
@@ -30,9 +28,10 @@ type TranslationFileHandlerFactoryFn = () => TranslationFileHandler;
  *
  * 使用方式：
  * - getHandler(formatName): 按格式名获取处理器
+ * - getHandler(formatName, params): 按格式名获取处理器并应用参数
+ * - getHandlerParamDefs(formatName, mode): 查询格式参数声明
  * - registerHandler(formatName, handlerClass): 注册自定义处理器
  * - registerFactory(formatName, factoryFn): 注册带参数的处理器工厂
- * - createExtensionResolver(mapping): 创建扩展名到处理器的映射函数
  */
 export class TranslationFileHandlerFactory {
   private static readonly factories = new Map<string, TranslationFileHandlerFactoryFn>([
@@ -44,7 +43,12 @@ export class TranslationFileHandlerFactory {
     ["dbl_tp1", () => new DblTp1FileHandler()],
   ]);
 
-  static getHandler(formatName: string): TranslationFileHandler {
+  static getHandler(formatName: string): TranslationFileHandler;
+  static getHandler(formatName: string, params?: Record<string, unknown>): TranslationFileHandler;
+  static getHandler(
+    formatName: string,
+    params?: Record<string, unknown>,
+  ): TranslationFileHandler {
     const factory = this.factories.get(formatName.toLowerCase());
     if (!factory) {
       const supported = Array.from(this.factories.keys()).join(", ");
@@ -53,7 +57,24 @@ export class TranslationFileHandlerFactory {
       );
     }
 
-    return factory();
+    const handler = factory();
+    if (params) {
+      handler.applyParams(params);
+    }
+    return handler;
+  }
+
+  /**
+   * 查询指定格式在导入/导出模式下的参数声明。
+   */
+  static getHandlerParamDefs(
+    formatName: string,
+    mode: "import" | "export",
+  ): FileHandlerParamDef[] {
+    const handler = this.getHandler(formatName);
+    return mode === "import"
+      ? handler.importParamDefs ?? []
+      : handler.exportParamDefs ?? [];
   }
 
   static registerHandler(

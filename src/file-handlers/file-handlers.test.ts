@@ -263,10 +263,8 @@ describe("file handlers", () => {
     });
 
     test("supports custom control characters", () => {
-      const handler = new DblTp1FileHandler({
-        sourceChar: "◎",
-        targetChar: "◇",
-      });
+      const handler = new DblTp1FileHandler();
+      handler.applyParams({ sourceChar: "◎", targetChar: "◇" });
       const content =
         "◎00000001◎◎hello\n" +
         "◇00000001◇◇world\n";
