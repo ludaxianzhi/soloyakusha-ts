@@ -251,8 +251,8 @@ export class ProofreadProcessorFactory {
           targetLanguage: "zh-CN",
           promptSet: "ja-zhCN",
           fragmentAuxDataContract: PROOFREAD_AUX_DATA_CONTRACT,
-          translatorFields: buildSingleStepProofreadFields(),
-          workspaceFields: [
+          translatorFields: [
+            ...buildSingleStepProofreadFields(),
             {
               key: "includeSourceText",
               label: "注入原文",
@@ -261,6 +261,7 @@ export class ProofreadProcessorFactory {
               section: "advanced",
             },
           ],
+          workspaceFields: [],
         },
       },
     ],
