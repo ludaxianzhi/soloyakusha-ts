@@ -276,6 +276,7 @@ export function normalizeTranslationProcessorConfig(
       value.reviewIterations,
       `${sourceLabel}.reviewIterations`,
     ),
+    includeSourceText: readOptionalBoolean(value.includeSourceText, `${sourceLabel}.includeSourceText`),
   };
 
   const steps = normalizeTranslationProcessorStepConfigs(
@@ -1089,6 +1090,7 @@ export function cloneTranslationProcessorConfig(
       : undefined,
     models: config.models ? { ...config.models } : undefined,
     reviewIterations: config.reviewIterations,
+    includeSourceText: config.includeSourceText,
   };
 
   const steps = cloneTranslationProcessorStepConfigs(config.steps);
