@@ -614,7 +614,7 @@ export function formatTranslatorModelSummary(
 function serializeWorkflowFieldValue(
   field: TranslationProcessorWorkflowFieldMetadata,
   value: unknown,
-): string | string[] | number | undefined {
+): string | string[] | number | boolean | undefined {
   switch (field.input) {
     case 'llm-profile':
       return normalizeModelChain(value);
@@ -624,6 +624,8 @@ function serializeWorkflowFieldValue(
         : stringifyYaml(value);
     case 'select':
       return optionalString(value);
+    case 'switch':
+      return typeof value === 'boolean' ? value : undefined;
     default:
       return typeof value === 'number' ? value : optionalString(value);
   }
@@ -647,6 +649,8 @@ function parseWorkflowFieldValue(
       return field.key.endsWith('requestOptions')
         ? parseWorkflowRequestOptions(value)
         : parseYamlObject(value);
+    case 'switch':
+      return typeof value === 'boolean' ? value : undefined;
     default:
       return optionalString(value);
   }
