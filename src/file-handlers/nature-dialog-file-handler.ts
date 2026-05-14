@@ -22,6 +22,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
+import type { FileHandlerParamDef } from "./base.ts";
 import {
   type ParsedTranslationDocument,
   type ParsedTranslationUnitBlock,
@@ -32,6 +33,10 @@ import {
   stripBom,
 } from "./base.ts";
 
+const EXPORT_PARAMS: FileHandlerParamDef[] = [
+  { key: "keepSourceName", label: "保持名称", type: "boolean", defaultValue: false, description: "导出时角色名保持与原文一致" },
+];
+
 /**
  * Nature Dialog 处理器，负责解析和生成带有对话标记的文本格式。
  *
@@ -40,11 +45,22 @@ import {
  * - ● 开头的行：标记最后一个译文，表示该单元结束
  * - 空行：分隔翻译单元
  *
- * 输出格式：每个翻译单元原文用 ○，译文用 ○/●（最后一项用 ●）
+ * 行为规则
+ * - 默认：原文和译文的角色名各自独立
+ * - keepSourceName=true：导出时译文的角色名与原文保持一致
  */
 export class NatureDialogFileHandler extends TranslationFileHandler {
   readonly formatName: string = "naturedialog";
   readonly supportsComparable = true;
+  override readonly exportParamDefs = EXPORT_PARAMS;
+
+  private keepSourceName = false;
+
+  override applyParams(params: Record<string, unknown>): void {
+    if (typeof params.keepSourceName === "boolean") {
+      this.keepSourceName = params.keepSourceName;
+    }
+  }
 
   override parseTranslationDocument(content: string): ParsedTranslationDocument {
     return parseNatureDialogDocument(stripBom(content));
@@ -63,107 +79,72 @@ export class NatureDialogFileHandler extends TranslationFileHandler {
   }
 
   override formatTranslationUnits(units: TranslationUnit[]): string {
-    return buildNatureDialogContent(units);
+    const processedUnits = this.keepSourceName
+      ? units.map((unit) => ({
+          ...unit,
+          target: unit.target.map((target) =>
+            processTranslationPair(unit.source, target),
+          ),
+        }))
+      : units;
+    return buildNatureDialogContent(processedUnits);
   }
 }
 
-/**
- * 保留原始角色名的 Nature Dialog 处理器。
- *
- * 与普通 Nature Dialog 处理器的区别：
- * - 读取时：保留原文的角色名信息
- * - 写入时：确保译文的角色名与原文一致
- *
- * 角色名处理规则：
- * - 原文有角色名，译文无：从原文复制角色名到译文
- * - 原文无角色名，译文有：移除译文的角色名
- * - 两者都有角色名：保留原文角色名，使用译文内容
- */
-export class NatureDialogKeepNameFileHandler extends NatureDialogFileHandler {
-  override readonly formatName: string = "naturedialog_keepname";
+function processTranslationPair(source: string, target: string): string {
+  const sourceParts = extractBracketNameAndText(source);
+  const targetParts = extractBracketNameAndText(target);
 
-  override async readTranslationUnits(filePath: string): Promise<TranslationUnit[]> {
-    const units = await super.readTranslationUnits(filePath);
-    return units.map((unit) => ({
-      ...unit,
-      target: unit.target.map((target) =>
-        this.processTranslationPair(unit.source, target),
-      ),
-    }));
+  if (!sourceParts.name && targetParts.name) {
+    const withoutName = removeNameBlock(target);
+    return removeOuterQuotes(withoutName);
   }
 
-  override async writeTranslationUnits(
-    filePath: string,
-    units: TranslationUnit[],
-  ): Promise<void> {
-    await writeFile(filePath, this.formatTranslationUnits(units), "utf8");
-  }
-
-  override formatTranslationUnits(units: TranslationUnit[]): string {
-    const processedUnits = units.map((unit) => ({
-      ...unit,
-      target: unit.target.map((target) =>
-        this.processTranslationPair(unit.source, target),
-      ),
-    }));
-    return super.formatTranslationUnits(processedUnits);
-  }
-
-  private processTranslationPair(source: string, target: string): string {
-    const sourceParts = extractBracketNameAndText(source);
-    const targetParts = extractBracketNameAndText(target);
-
-    if (!sourceParts.name && targetParts.name) {
-      const withoutName = this.removeNameBlock(target);
-      return this.removeOuterQuotes(withoutName);
+  if (sourceParts.name && !targetParts.name) {
+    const sourceQuoteType = extractQuoteType(sourceParts.body);
+    const targetQuoteType = extractQuoteType(targetParts.body);
+    let targetBody = targetParts.body;
+    if (!targetQuoteType && sourceQuoteType) {
+      targetBody = addQuotes(targetBody, sourceQuoteType);
     }
-
-    if (sourceParts.name && !targetParts.name) {
-      const sourceQuoteType = this.extractQuoteType(sourceParts.body);
-      const targetQuoteType = this.extractQuoteType(targetParts.body);
-      let targetBody = targetParts.body;
-      if (!targetQuoteType && sourceQuoteType) {
-        targetBody = this.addQuotes(targetBody, sourceQuoteType);
-      }
-      return `【${sourceParts.name}】${targetBody}`;
-    }
-
-    if (sourceParts.name && targetParts.name) {
-      return target.replace(/^【.+?】/, `【${sourceParts.name}】`);
-    }
-
-    return target;
+    return `【${sourceParts.name}】${targetBody}`;
   }
 
-  private removeOuterQuotes(text: string): string {
-    const trimmed = text.trim();
-    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-      return trimmed.slice(1, -1);
-    }
-    if (trimmed.startsWith("「") && trimmed.endsWith("」")) {
-      return trimmed.slice(1, -1);
-    }
-    return trimmed;
+  if (sourceParts.name && targetParts.name) {
+    return target.replace(/^【.+?】/, `【${sourceParts.name}】`);
   }
 
-  private extractQuoteType(text: string): `"` | "「" | undefined {
-    const trimmed = text.trim();
-    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-      return '"';
-    }
-    if (trimmed.startsWith("「") && trimmed.endsWith("」")) {
-      return "「";
-    }
-    return undefined;
-  }
+  return target;
+}
 
-  private addQuotes(text: string, quoteType: `"` | "「"): string {
-    return quoteType === '"' ? `"${text}"` : `「${text}」`;
+function removeOuterQuotes(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1);
   }
+  if (trimmed.startsWith("「") && trimmed.endsWith("」")) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
 
-  private removeNameBlock(text: string): string {
-    return text.replace(/^【.+?】/, "").trim();
+function extractQuoteType(text: string): `"` | "「" | undefined {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return '"';
   }
+  if (trimmed.startsWith("「") && trimmed.endsWith("」")) {
+    return "「";
+  }
+  return undefined;
+}
+
+function addQuotes(text: string, quoteType: `"` | "「"): string {
+  return quoteType === '"' ? `"${text}"` : `「${text}」`;
+}
+
+function removeNameBlock(text: string): string {
+  return text.replace(/^【.+?】/, "").trim();
 }
 
 function buildNatureDialogContent(units: TranslationUnit[]): string {

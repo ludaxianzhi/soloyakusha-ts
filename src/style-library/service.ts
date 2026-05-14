@@ -779,7 +779,7 @@ function inferCandidateFormats(relativePath: string): string[] {
     case ".json":
       return ["galtransl_json"];
     default:
-      return ["naturedialog_keepname", "naturedialog", "m3t", "plain_text"];
+      return ["naturedialog", "m3t", "plain_text"];
   }
 }
 

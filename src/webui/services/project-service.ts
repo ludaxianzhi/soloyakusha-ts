@@ -48,7 +48,7 @@ import {
 } from '../../project/pipeline/translation-project-workspace.ts';
 import type { TranslationProcessor } from '../../project/processing/translation-processor.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
-import { NatureDialogKeepNameFileHandler } from '../../file-handlers/nature-dialog-file-handler.ts';
+import { NatureDialogFileHandler } from '../../file-handlers/nature-dialog-file-handler.ts';
 import { restoreBlankText } from '../../file-handlers/base.ts';
 import { FullTextGlossaryScanner, type FullTextGlossaryScanBatch, type FullTextGlossaryScanLine } from '../../glossary/scanner.ts';
 import { FullTextGlossaryTranscriber } from '../../glossary/transcriber.ts';
@@ -1181,7 +1181,8 @@ export class ProjectService {
       preview.units.length,
       input.unitIndex + contextRadius + 1,
     );
-    const handler = new NatureDialogKeepNameFileHandler();
+    const handler = new NatureDialogFileHandler();
+    handler.applyParams({ keepSourceName: true });
     const entries = preview.units
       .slice(startUnitIndex, endUnitIndexExclusive)
       .map((unit, offset) => {

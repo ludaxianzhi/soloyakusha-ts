@@ -7,7 +7,6 @@ import { TranslationFileHandlerFactory } from "./factory.ts";
 import { DblTp1FileHandler } from "./dbl-tp1-file-handler.ts";
 import { GaltranslJsonFileHandler } from "./galtransl-json-file-handler.ts";
 import { NatureDialogFileHandler } from "./nature-dialog-file-handler.ts";
-import { NatureDialogKeepNameFileHandler } from "./nature-dialog-file-handler.ts";
 import { TranslationDocumentManager } from "../project/document/translation-document-manager.ts";
 
 const cleanupTargets: string[] = [];
@@ -80,7 +79,8 @@ describe("file handlers", () => {
   });
 
   test("keeps source names in nature dialog keepname format", async () => {
-    const handler = new NatureDialogKeepNameFileHandler();
+    const handler = new NatureDialogFileHandler();
+    handler.applyParams({ keepSourceName: true });
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-keepname-"));
     cleanupTargets.push(workspaceDir);
 

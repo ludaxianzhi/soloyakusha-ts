@@ -18,7 +18,6 @@ export const IMPORT_FORMAT_OPTIONS = [
   { label: '自动/默认', value: '' },
   { label: '纯文本', value: 'plain_text' },
   { label: 'Nature Dialog', value: 'naturedialog' },
-  { label: 'Nature Dialog (保留角色名)', value: 'naturedialog_keepname' },
   { label: 'M3T', value: 'm3t' },
   { label: 'GalTransl JSON', value: 'galtransl_json' },
   { label: 'DBL TP1', value: 'dbl_tp1' },
@@ -27,7 +26,6 @@ export const IMPORT_FORMAT_OPTIONS = [
 export const EXPORT_FORMAT_EXTENSIONS: Record<string, string> = {
   plain_text: '.txt',
   naturedialog: '.nd',
-  naturedialog_keepname: '.nd',
   m3t: '.m3t',
   galtransl_json: '.json',
   dbl_tp1: '.txt',

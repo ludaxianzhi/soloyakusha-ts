@@ -8,7 +8,6 @@
  * 支持的文件格式：
  * - plain_text: 纯文本，每行一个翻译单元
  * - naturedialog: Nature Dialog 风格，使用 ○● 标记原文译文
- * - naturedialog_keepname: 保留角色名的 Nature Dialog 格式
  * - m3t: M3T 对话格式，带 NAME 字段
  * - galtransl_json: Galtransl JSON 格式，结构化消息对象
  *

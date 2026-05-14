@@ -30,7 +30,6 @@ export const DEFAULT_WORKSPACE_DATABASE_FILE_PATH = "Data\\project.sqlite";
 const FORMAT_FILE_EXTENSIONS: Record<string, string> = {
   plain_text: ".txt",
   naturedialog: ".nd",
-  naturedialog_keepname: ".nd",
   m3t: ".m3t",
   galtransl_json: ".json",
   dbl_tp1: ".txt",

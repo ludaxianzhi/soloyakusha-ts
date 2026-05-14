@@ -15,10 +15,7 @@ import { TranslationFileHandler } from "./base.ts";
 import { DblTp1FileHandler } from "./dbl-tp1-file-handler.ts";
 import { GaltranslJsonFileHandler } from "./galtransl-json-file-handler.ts";
 import { M3TFileHandler } from "./m3t-file-handler.ts";
-import {
-  NatureDialogFileHandler,
-  NatureDialogKeepNameFileHandler,
-} from "./nature-dialog-file-handler.ts";
+import { NatureDialogFileHandler } from "./nature-dialog-file-handler.ts";
 import { PlainTextFileHandler } from "./plain-text-file-handler.ts";
 
 type TranslationFileHandlerFactoryFn = () => TranslationFileHandler;
@@ -37,7 +34,6 @@ export class TranslationFileHandlerFactory {
   private static readonly factories = new Map<string, TranslationFileHandlerFactoryFn>([
     ["plain_text", () => new PlainTextFileHandler()],
     ["naturedialog", () => new NatureDialogFileHandler()],
-    ["naturedialog_keepname", () => new NatureDialogKeepNameFileHandler()],
     ["m3t", () => new M3TFileHandler()],
     ["galtransl_json", () => new GaltranslJsonFileHandler()],
     ["dbl_tp1", () => new DblTp1FileHandler()],
