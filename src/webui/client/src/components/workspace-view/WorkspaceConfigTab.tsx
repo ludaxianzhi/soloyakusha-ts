@@ -1,10 +1,12 @@
-import { useEffect } from 'react';
-import { DeleteOutlined, DownloadOutlined, ExportOutlined } from '@ant-design/icons';
+import { useEffect, useState } from 'react';
+import { DeleteOutlined, DownOutlined, DownloadOutlined, ExportOutlined } from '@ant-design/icons';
 import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Col,
+  Dropdown,
   Form,
   Input,
   InputNumber,
@@ -39,7 +41,7 @@ interface WorkspaceConfigTabProps {
   onRefreshWorkspaceConfig: () => void | Promise<void>;
   onRefreshStyleLibraryOptions?: () => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
-  onDownloadExport: (format: string) => void | Promise<void>;
+  onDownloadExport: (format: string, keepSourceName?: boolean) => void | Promise<void>;
   onResetProject: (
     payload: Record<string, unknown>,
     successText: string,
@@ -177,22 +179,9 @@ export function WorkspaceConfigTab({
         <Col span={12}>
           <Card title="导出项目" extra={<ExportOutlined />}>
             <Space direction="vertical" style={{ width: '100%' }}>
-              <Button
-                icon={<DownloadOutlined />}
-                type="primary"
-                onClick={() => void onDownloadExport('plain_text')}
-              >
-                下载纯文本导出 ZIP
-              </Button>
-              <Button onClick={() => void onDownloadExport('naturedialog')}>
-                下载 Nature Dialog 导出 ZIP
-              </Button>
-              <Button onClick={() => void onDownloadExport('m3t')}>
-                下载 M3T 导出 ZIP
-              </Button>
-              <Button onClick={() => void onDownloadExport('galtransl_json')}>
-                下载 GalTransl JSON 导出 ZIP
-              </Button>
+              <ExportFormatDropdown
+                onExport={(format) => void onDownloadExport(format)}
+              />
             </Space>
           </Card>
         </Col>
@@ -237,5 +226,54 @@ export function WorkspaceConfigTab({
         </Col>
       </Row>
     </div>
+  );
+}
+
+const EXPORT_FORMATS: Array<{ label: string; value: string }> = [
+  { label: '纯文本', value: 'plain_text' },
+  { label: 'Nature Dialog', value: 'naturedialog' },
+  { label: 'DBL TP1', value: 'dbl_tp1' },
+  { label: 'M3T', value: 'm3t' },
+  { label: 'GalTransl JSON', value: 'galtransl_json' },
+];
+
+function ExportFormatDropdown({
+  onExport,
+}: {
+  onExport: (format: string, keepSourceName?: boolean) => void;
+}) {
+  const [selectedFormat, setSelectedFormat] = useState(EXPORT_FORMATS[0]!.value);
+  const [keepSourceName, setKeepSourceName] = useState(false);
+
+  const items = EXPORT_FORMATS.map((fmt) => ({
+    key: fmt.value,
+    label: (
+      <span
+        onClick={() => {
+          setSelectedFormat(fmt.value);
+        }}
+      >
+        {fmt.label}
+      </span>
+    ),
+  }));
+
+  return (
+    <Space direction="vertical" style={{ width: '100%' }}>
+      <Dropdown.Button
+        type="primary"
+        icon={<DownloadOutlined />}
+        menu={{
+          items,
+          onClick: ({ key }) => setSelectedFormat(key),
+        }}
+        onClick={() => onExport(selectedFormat, keepSourceName)}
+      >
+        导出为更多格式
+      </Dropdown.Button>
+      <Checkbox checked={keepSourceName} onChange={(e) => setKeepSourceName(e.target.checked)}>
+        保持名称
+      </Checkbox>
+    </Space>
   );
 }

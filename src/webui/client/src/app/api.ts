@@ -558,16 +558,16 @@ export const api = {
   getUsageStats: (days = 30) =>
     request<UsageStatsSnapshot>(`/api/activity/usage${buildQueryString({ days })}`),
 
-  downloadExport: (format: string, workspaceId?: string) =>
+downloadExport: (format: string, keepSourceName?: boolean, workspaceId?: string) =>
     requestBlob(`/api/project/export${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
-      body: { format },
+      body: { format, keepSourceName },
     }),
 
-  downloadChaptersExport: (chapterIds: number[], format: string, workspaceId?: string) =>
+downloadChaptersExport: (chapterIds: number[], format: string, keepSourceName?: boolean, workspaceId?: string) =>
     requestBlob(`/api/project/chapters/export${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
-      body: { chapterIds, format },
+      body: { chapterIds, format, keepSourceName },
     }),
 
   downloadWorkspaceArchive: (dir: string) =>

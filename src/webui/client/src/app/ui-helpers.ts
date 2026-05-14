@@ -21,6 +21,7 @@ export const IMPORT_FORMAT_OPTIONS = [
   { label: 'Nature Dialog (保留角色名)', value: 'naturedialog_keepname' },
   { label: 'M3T', value: 'm3t' },
   { label: 'GalTransl JSON', value: 'galtransl_json' },
+  { label: 'DBL TP1', value: 'dbl_tp1' },
 ];
 
 export const EXPORT_FORMAT_EXTENSIONS: Record<string, string> = {
@@ -29,6 +30,7 @@ export const EXPORT_FORMAT_EXTENSIONS: Record<string, string> = {
   naturedialog_keepname: '.nd',
   m3t: '.m3t',
   galtransl_json: '.json',
+  dbl_tp1: '.txt',
 };
 
 export const DEFAULT_ARCHIVE_IMPORT_PATTERN = '**/*';

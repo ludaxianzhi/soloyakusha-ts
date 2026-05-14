@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { keepSourceNameInTarget } from "./base.ts";
 import { TranslationFileHandlerFactory } from "./factory.ts";
+import { DblTp1FileHandler } from "./dbl-tp1-file-handler.ts";
 import { GaltranslJsonFileHandler } from "./galtransl-json-file-handler.ts";
 import { NatureDialogFileHandler } from "./nature-dialog-file-handler.ts";
 import { NatureDialogKeepNameFileHandler } from "./nature-dialog-file-handler.ts";
@@ -129,5 +131,235 @@ describe("file handlers", () => {
 
     const exported = JSON.parse(await readFile(exportPath, "utf8")) as Array<Record<string, string>>;
     expect(exported[0]).toEqual({ name: "Alice", message: "Hello" });
+  });
+
+  describe("dbl_tp1 handler", () => {
+    test("parses source and target lines without names", () => {
+      const handler = new DblTp1FileHandler();
+      const content =
+        "☆00000004☆☆責める顔だ。\n" +
+        "★00000004★★她的表情满是责备。\n" +
+        "\n" +
+        "☆00000005☆☆身に覚えなどないはずの。\n" +
+        "★00000005★★这幅画面，宛如诅咒。\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(2);
+      expect(parsed.units[0]).toEqual({
+        source: "責める顔だ。",
+        target: ["她的表情满是责备。"],
+        metadata: "00000004",
+      });
+      expect(parsed.units[1]).toEqual({
+        source: "身に覚えなどないはずの。",
+        target: ["这幅画面，宛如诅咒。"],
+        metadata: "00000005",
+      });
+    });
+
+    test("parses source and target lines with names", () => {
+      const handler = new DblTp1FileHandler();
+      const content =
+        "☆00000006☆トワ＠１☆「嫌いよ、あなたなんて……！」\n" +
+        "★00000006★トワ＠１★「我讨厌你，最讨厌你了……！」\n" +
+        "\n" +
+        "☆00000007☆トワ＠１☆「……なんて」\n" +
+        "★00000007★トワ＠１★「……了」\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(2);
+      expect(parsed.units[0]).toEqual({
+        source: "【トワ＠１】「嫌いよ、あなたなんて……！」",
+        target: ["【トワ＠１】「我讨厌你，最讨厌你了……！」"],
+        metadata: "00000006",
+      });
+      expect(parsed.units[1]).toEqual({
+        source: "【トワ＠１】「……なんて」",
+        target: ["【トワ＠１】「……了」"],
+        metadata: "00000007",
+      });
+    });
+
+    test("handles mixed name and no-name entries", () => {
+      const handler = new DblTp1FileHandler();
+      const content =
+        "☆00000008☆☆胸が潰れてしまいそうな悲しみと、焦燥感。\n" +
+        "★00000008★★悲伤涌来，心脏好像要被撕裂似的。\n" +
+        "\n" +
+        "☆00000009☆キャラ☆「こんにちは」\n" +
+        "★00000009★キャラ★「你好」\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(2);
+      expect(parsed.units[0]).toEqual({
+        source: "胸が潰れてしまいそうな悲しみと、焦燥感。",
+        target: ["悲伤涌来，心脏好像要被撕裂似的。"],
+        metadata: "00000008",
+      });
+      expect(parsed.units[1]).toEqual({
+        source: "【キャラ】「こんにちは」",
+        target: ["【キャラ】「你好」"],
+        metadata: "00000009",
+      });
+    });
+
+    test("readers only the last target of multiple candidates", () => {
+      const handler = new DblTp1FileHandler();
+      const content =
+        "☆00000001☆☆hello\n" +
+        "★00000001★★你好\n" +
+        "★00000001★★您好\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(1);
+      expect(parsed.units[0]!.target).toEqual(["您好"]);
+    });
+
+    test("round-trips parse and format preserving structure", () => {
+      const handler = new DblTp1FileHandler();
+      const input =
+        "☆00000004☆☆責める顔だ。\n" +
+        "★00000004★★她的表情满是责备。\n" +
+        "\n" +
+        "☆00000006☆トワ＠１☆「嫌いよ」\n" +
+        "★00000006★トワ＠１★「我讨厌你」";
+
+      const parsed = handler.parseTranslationDocument(input);
+      const output = handler.formatTranslationUnits(parsed.units);
+      expect(output).toBe(input);
+    });
+
+    test("writes and reads files correctly", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "soloyakusha-dbltp1-"));
+      cleanupTargets.push(dir);
+
+      const filePath = join(dir, "dialog.txt");
+      const handler = new DblTp1FileHandler();
+      await handler.writeTranslationUnits(filePath, [
+        {
+          source: "こんにちは",
+          target: ["你好"],
+          metadata: "00000001",
+        },
+        {
+          source: "【キャラ】さようなら",
+          target: ["【キャラ】再见"],
+          metadata: "00000002",
+        },
+      ]);
+
+      const units = await handler.readTranslationUnits(filePath);
+      expect(units).toHaveLength(2);
+      expect(units[0]).toEqual({
+        source: "こんにちは",
+        target: ["你好"],
+        metadata: "00000001",
+      });
+      expect(units[1]).toEqual({
+        source: "【キャラ】さようなら",
+        target: ["【キャラ】再见"],
+        metadata: "00000002",
+      });
+    });
+
+    test("supports custom control characters", () => {
+      const handler = new DblTp1FileHandler({
+        sourceChar: "◎",
+        targetChar: "◇",
+      });
+      const content =
+        "◎00000001◎◎hello\n" +
+        "◇00000001◇◇world\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(1);
+      expect(parsed.units[0]!.source).toBe("hello");
+      expect(parsed.units[0]!.target).toEqual(["world"]);
+      expect(parsed.units[0]!.metadata).toBe("00000001");
+    });
+
+    test("retrieves handler through factory", () => {
+      const handler = TranslationFileHandlerFactory.getHandler("dbl_tp1");
+      expect(handler).toBeInstanceOf(DblTp1FileHandler);
+      expect(handler.formatName).toBe("dbl_tp1");
+    });
+
+    test("assigns fallback ids for units without metadata", () => {
+      const handler = new DblTp1FileHandler();
+      const result = handler.formatTranslationUnits([
+        { source: "first", target: ["第一"] },
+        { source: "second", target: ["第二"] },
+      ]);
+
+      const lines = result.split("\n");
+      expect(lines[0]).toStartWith("☆00000001☆☆");
+      expect(lines[3]).toStartWith("☆00000002☆☆");
+    });
+
+    test("returns empty string for empty units", () => {
+      const handler = new DblTp1FileHandler();
+      expect(handler.formatTranslationUnits([])).toBe("");
+    });
+
+    test("handles source-only entries (no target)", () => {
+      const handler = new DblTp1FileHandler();
+      const content = "☆00000001☆☆hello\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(1);
+      expect(parsed.units[0]!.source).toBe("hello");
+      expect(parsed.units[0]!.target).toEqual([]);
+      expect(parsed.units[0]!.metadata).toBe("00000001");
+    });
+  });
+
+  describe("keepSourceNameInTarget", () => {
+    test("replaces target name with source name when source has a name", () => {
+      const result = keepSourceNameInTarget([
+        {
+          source: "【Alice】Hello",
+          target: ["【Bob】你好"],
+          metadata: null,
+        },
+      ]);
+
+      expect(result[0]!.target).toEqual(["【Alice】你好"]);
+    });
+
+    test("keeps target unchanged when source has no name", () => {
+      const result = keepSourceNameInTarget([
+        {
+          source: "Hello",
+          target: ["你好"],
+          metadata: null,
+        },
+      ]);
+
+      expect(result[0]!.target).toEqual(["你好"]);
+    });
+
+    test("keeps target unchanged when target has no name", () => {
+      const result = keepSourceNameInTarget([
+        {
+          source: "【Alice】Hello",
+          target: ["你好"],
+          metadata: null,
+        },
+      ]);
+
+      expect(result[0]!.target).toEqual(["你好"]);
+    });
+
+    test("processes multiple targets in array", () => {
+      const result = keepSourceNameInTarget([
+        {
+          source: "【Alice】Hello",
+          target: ["【Bob】你好", "【Charlie】您好"],
+          metadata: null,
+        },
+      ]);
+
+      expect(result[0]!.target).toEqual(["【Alice】你好", "【Alice】您好"]);
+    });
   });
 });

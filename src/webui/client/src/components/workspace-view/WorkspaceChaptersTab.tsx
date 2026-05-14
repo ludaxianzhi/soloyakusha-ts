@@ -4,6 +4,7 @@ import {
   App as AntdApp,
   Button,
   Card,
+  Checkbox,
   Dropdown,
   Form,
   Input,
@@ -83,7 +84,7 @@ interface WorkspaceChaptersTabProps {
     importPattern?: string;
     importTranslation?: boolean;
   }) => Promise<ImportArchiveResult>;
-  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
 }
 
 type RouteAttachCandidate = {
@@ -320,6 +321,7 @@ const ChapterTableSection = memo(function ChapterTableSection({
   onClearChapterTranslations,
   onRemoveChapters,
   onDownloadChapters,
+  keepSourceName,
 }: {
   chapters: WorkspaceChapterDescriptor[];
   selectedChapterIds: number[];
@@ -333,7 +335,8 @@ const ChapterTableSection = memo(function ChapterTableSection({
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
   ) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
+  keepSourceName?: boolean;
 }) {
   const navigate = useNavigate();
 
@@ -486,10 +489,11 @@ const ChapterTableSection = memo(function ChapterTableSection({
                       icon: <DownloadOutlined />,
                       label: '下载章节',
                       children: [
-                        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([record.id], 'plain_text') },
-                        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([record.id], 'naturedialog') },
-                        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([record.id], 'm3t') },
-                        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([record.id], 'galtransl_json') },
+                        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([record.id], 'plain_text', keepSourceName) },
+                        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([record.id], 'naturedialog', keepSourceName) },
+                        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([record.id], 'm3t', keepSourceName) },
+                        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([record.id], 'galtransl_json', keepSourceName) },
+                        { key: 'download-dbl_tp1', label: 'DBL TP1', onClick: () => onDownloadChapters([record.id], 'dbl_tp1', keepSourceName) },
                       ],
                     },
                     { type: 'divider' as const },
@@ -570,10 +574,11 @@ function ChapterInfoTable({
     importPattern?: string;
     importTranslation?: boolean;
   }) => Promise<ImportArchiveResult>;
-  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
   onRefreshChapters: () => void | Promise<void>;
 }) {
   const { message } = AntdApp.useApp();
+  const [keepSourceName, setKeepSourceName] = useState(false);
   const toolbarActionsRef = useRef<HTMLDivElement | null>(null);
   const [selectedChapterIds, setSelectedChapterIds] = useState<number[]>([]);
   const [lastSelectedChapterId, setLastSelectedChapterId] = useState<number>();
@@ -888,7 +893,7 @@ function ChapterInfoTable({
   };
 
   const handleConfirmBatchDownload = () => {
-    void onDownloadChapters(selectedChapterIds, batchDownloadFormat);
+    void onDownloadChapters(selectedChapterIds, batchDownloadFormat, keepSourceName);
     setBatchDownloadModalOpen(false);
   };
 
@@ -1228,6 +1233,9 @@ function ChapterInfoTable({
             <Tag color={selectedChapterIds.length > 0 ? 'processing' : undefined}>
               已选 {selectedChapterIds.length} 章节
             </Tag>
+            <Checkbox checked={keepSourceName} onChange={(e) => setKeepSourceName(e.target.checked)}>
+              保持名称
+            </Checkbox>
           </Space>
           <div ref={toolbarActionsRef} className="chapter-batch-toolbar-actions">
             {visibleToolbarActions.map((action) => (
@@ -1265,6 +1273,7 @@ function ChapterInfoTable({
           onClearChapterTranslations={onClearChapterTranslations}
           onRemoveChapters={onRemoveChapters}
           onDownloadChapters={onDownloadChapters}
+          keepSourceName={keepSourceName}
         />
       </div>
 
@@ -1550,8 +1559,15 @@ function ChapterInfoTable({
               { value: 'naturedialog', label: 'Nature Dialog' },
               { value: 'm3t', label: 'M3T' },
               { value: 'galtransl_json', label: 'GalTransl JSON' },
+              { value: 'dbl_tp1', label: 'DBL TP1' },
             ]}
           />
+          <Checkbox
+            checked={keepSourceName}
+            onChange={(e) => setKeepSourceName(e.target.checked)}
+          >
+            保持名称
+          </Checkbox>
         </Space>
       </Modal>
     </>

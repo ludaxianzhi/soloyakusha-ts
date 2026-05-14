@@ -110,3 +110,27 @@ export function extractBracketNameAndText(text: string): {
     body: match[2] ?? text,
   };
 }
+
+/**
+ * 将译文数组中的角色名替换为原文角色名。
+ * 原文无角色名的单元保持不变。
+ */
+export function keepSourceNameInTarget(units: TranslationUnit[]): TranslationUnit[] {
+  return units.map((unit) => {
+    const sourceParsed = extractBracketNameAndText(unit.source);
+    if (!sourceParsed.name) {
+      return { ...unit, target: [...unit.target] };
+    }
+
+    return {
+      ...unit,
+      target: unit.target.map((t) => {
+        const targetParsed = extractBracketNameAndText(t);
+        if (targetParsed.name) {
+          return `【${sourceParsed.name}】${targetParsed.body}`;
+        }
+        return t;
+      }),
+    };
+  });
+}

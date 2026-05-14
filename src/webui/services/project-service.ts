@@ -3503,6 +3503,7 @@ export class ProjectService {
 
   async exportProject(
     formatName: string,
+    keepSourceName?: boolean,
   ): Promise<ProjectExportResult | null> {
     const { state, project } = this.getActiveWorkspaceContext();
     if (!project) {
@@ -3512,7 +3513,7 @@ export class ProjectService {
 
     let result: ProjectExportResult | null = null;
     await this.runAction('导出翻译文件', async () => {
-      const exported = await project.exportProject(formatName);
+      const exported = await project.exportProject(formatName, keepSourceName);
       result = exported;
       this.log(
         'success',
@@ -3525,6 +3526,7 @@ export class ProjectService {
   async exportChapters(
     chapterIds: number[],
     formatName: string,
+    keepSourceName?: boolean,
   ): Promise<ProjectExportResult | null> {
     const { state, project } = this.getActiveWorkspaceContext();
     if (!project) {
@@ -3552,7 +3554,10 @@ export class ProjectService {
           }),
         );
         await mkdir(dirname(outputPath), { recursive: true });
-        await project.exportChapter(chapterId, outputPath, { fileHandler: handler });
+        await project.exportChapter(chapterId, outputPath, {
+          fileHandler: handler,
+          keepSourceName,
+        });
         results.push({ chapterId, outputPath, unitCount: chapter.fragmentCount });
       }
 

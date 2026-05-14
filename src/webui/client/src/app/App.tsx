@@ -1917,9 +1917,9 @@ export function AppShell() {
   );
 
   const handleDownloadExport= useCallback(
-    async (format: string) => {
+    async (format: string, keepSourceName?: boolean) => {
       await runAction(async () => {
-        const blob = await api.downloadExport(format, getSelectedWorkspaceId());
+        const blob = await api.downloadExport(format, keepSourceName, getSelectedWorkspaceId());
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -1949,11 +1949,12 @@ export function AppShell() {
   );
 
   const handleDownloadChapters = useCallback(
-    async (chapterIds: number[], format: string) => {
+    async (chapterIds: number[], format: string, keepSourceName?: boolean) => {
       await runAction(async () => {
         const blob = await api.downloadChaptersExport(
           chapterIds,
           format,
+          keepSourceName,
           getSelectedWorkspaceId(),
         );
         const url = URL.createObjectURL(blob);

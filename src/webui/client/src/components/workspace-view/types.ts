@@ -149,8 +149,8 @@ export interface WorkspaceViewProps {
     importPattern?: string;
     importTranslation?: boolean;
   }) => Promise<ImportArchiveResult>;
-  onDownloadExport: (format: string) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
+  onDownloadExport: (format: string, keepSourceName?: boolean) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
   onResetProject: (
     payload: Record<string, unknown>,
     successText: string,

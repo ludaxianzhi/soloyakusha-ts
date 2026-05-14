@@ -29,7 +29,7 @@ import {
   MoreOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { Button, Dropdown, Empty, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd';
+import { Button, Checkbox, Dropdown, Empty, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import type {
   CreateStoryBranchPayload,
@@ -58,7 +58,7 @@ interface ChapterKanbanBoardProps {
   ) => void | Promise<void>;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
   onUpdateRoute: (routeId: string, payload: UpdateStoryRoutePayload) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
 }
 
 type ColumnItems = Record<string, number[]>;
@@ -122,6 +122,7 @@ export function ChapterKanbanBoard({
 
   const [dragItems, setDragItems] = useState<ColumnItems | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [keepSourceName, setKeepSourceName] = useState(false);
   const dragSourceRef = useRef<{ routeId: string; index: number } | null>(null);
 
   const items = dragItems ?? topologyItems;
@@ -344,6 +345,11 @@ export function ChapterKanbanBoard({
 
   return (
     <>
+      <div style={{ padding: '0 16px 8px' }}>
+        <Checkbox checked={keepSourceName} onChange={(e) => setKeepSourceName(e.target.checked)}>
+          保持名称
+        </Checkbox>
+      </div>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -368,6 +374,7 @@ export function ChapterKanbanBoard({
               onEditRoute={handleEditRoute}
               onRemoveRoute={onRemoveRoute}
               onDownloadChapters={onDownloadChapters}
+              keepSourceName={keepSourceName}
             />
           ))}
         </div>
@@ -450,7 +457,8 @@ interface KanbanColumnProps {
   ) => void | Promise<void>;
   onEditRoute: (route: StoryTopologyRouteDescriptor) => void;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
+  keepSourceName?: boolean;
 }
 
 function KanbanColumn({
@@ -466,6 +474,7 @@ function KanbanColumn({
   onEditRoute,
   onRemoveRoute,
   onDownloadChapters,
+  keepSourceName,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: route.id });
 
@@ -558,6 +567,7 @@ function KanbanColumn({
                   onClearChapterTranslations={onClearChapterTranslations}
                   onRemoveChapters={onRemoveChapters}
                   onDownloadChapters={onDownloadChapters}
+                  keepSourceName={keepSourceName}
                 />
               );
             })
@@ -572,7 +582,7 @@ function KanbanColumn({
 
 interface KanbanCardProps {
   chapterId: number;
-  chapter: WorkspaceChapterDescriptor | undefined;
+  chapter?: WorkspaceChapterDescriptor;
   isForkPoint: boolean;
   branchCount: number;
   isDragging: boolean;
@@ -583,7 +593,8 @@ interface KanbanCardProps {
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
   ) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, keepSourceName?: boolean) => void | Promise<void>;
+  keepSourceName?: boolean;
 }
 
 function KanbanCard({
@@ -597,6 +608,7 @@ function KanbanCard({
   onClearChapterTranslations,
   onRemoveChapters,
   onDownloadChapters,
+  keepSourceName,
 }: KanbanCardProps) {
   const navigate = useNavigate();
   const {
@@ -625,10 +637,11 @@ function KanbanCard({
       icon: <DownloadOutlined />,
       label: '下载章节',
       children: [
-        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([chapterId], 'plain_text') },
-        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([chapterId], 'naturedialog') },
-        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([chapterId], 'm3t') },
-        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([chapterId], 'galtransl_json') },
+        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([chapterId], 'plain_text', keepSourceName) },
+        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([chapterId], 'naturedialog', keepSourceName) },
+        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([chapterId], 'm3t', keepSourceName) },
+        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([chapterId], 'galtransl_json', keepSourceName) },
+        { key: 'download-dbl_tp1', label: 'DBL TP1', onClick: () => onDownloadChapters([chapterId], 'dbl_tp1', keepSourceName) },
       ],
     },
     {

@@ -33,6 +33,7 @@ const FORMAT_FILE_EXTENSIONS: Record<string, string> = {
   naturedialog_keepname: ".nd",
   m3t: ".m3t",
   galtransl_json: ".json",
+  dbl_tp1: ".txt",
 };
 
 export type WorkspaceBootstrapDocument = {
@@ -195,6 +196,7 @@ export class TranslationProjectWorkspace {
     options?: {
       format?: string;
       fileHandler?: TranslationFileHandler;
+      keepSourceName?: boolean;
     },
   ): Promise<TranslationExportResult> {
     const resolvedPath = resolveChapterPath(this.projectDir, outputPath);
@@ -211,7 +213,12 @@ export class TranslationProjectWorkspace {
     }
 
     const units = this.documentManager.getChapterTranslationUnits(chapterId);
-    await this.documentManager.exportChapter(chapterId, resolvedPath, fileHandler);
+    await this.documentManager.exportChapter(
+      chapterId,
+      resolvedPath,
+      fileHandler,
+      options?.keepSourceName,
+    );
     return {
       chapterId,
       outputPath: resolvedPath,
@@ -225,6 +232,7 @@ export class TranslationProjectWorkspace {
       format?: string;
       fileHandler?: TranslationFileHandler;
       fileExtension?: string;
+      keepSourceName?: boolean;
     },
   ): Promise<TranslationExportResult[]> {
     const resolvedDir = resolveChapterPath(this.projectDir, outputDir);

@@ -895,6 +895,7 @@ export class TranslationProject
     options?: {
       format?: string;
       fileHandler?: TranslationFileHandler;
+      keepSourceName?: boolean;
     },
   ): Promise<TranslationExportResult> {
     this.ensureInitialized();
@@ -907,6 +908,7 @@ export class TranslationProject
       format?: string;
       fileHandler?: TranslationFileHandler;
       fileExtension?: string;
+      keepSourceName?: boolean;
     },
   ): Promise<TranslationExportResult[]> {
     this.ensureInitialized();
@@ -925,7 +927,10 @@ export class TranslationProject
    *
    * @param formatName - 文件格式名，如 "naturedialog"、"plain_text"、"galtransl_json" 等
    */
-  async exportProject(formatName: string): Promise<ProjectExportResult> {
+  async exportProject(
+    formatName: string,
+    keepSourceName?: boolean,
+  ): Promise<ProjectExportResult> {
     this.ensureInitialized();
 
     const handler = TranslationFileHandlerFactory.getHandler(formatName);
@@ -936,11 +941,11 @@ export class TranslationProject
     const routes: RouteExportResult[] = [];
 
     if (!topology) {
-      // 无拓扑结构，按 chapters 线性导出到根目录
       const chapterResults = await this.exportChaptersToDir(
         this.chapters,
         exportRootDir,
         handler,
+        keepSourceName,
       );
       routes.push({
         routeId: "main",
@@ -961,6 +966,7 @@ export class TranslationProject
           routeChapters,
           routeExportDir,
           handler,
+          keepSourceName,
         );
         routes.push({
           routeId: route.id,
@@ -987,6 +993,7 @@ export class TranslationProject
     chapters: Chapter[],
     outputDir: string,
     handler: TranslationFileHandler,
+    keepSourceName?: boolean,
   ): Promise<TranslationExportResult[]> {
     await mkdir(outputDir, { recursive: true });
 
@@ -1012,7 +1019,12 @@ export class TranslationProject
         }),
       );
       await mkdir(dirname(outputPath), { recursive: true });
-      await this.documentManager.exportChapter(chapter.id, outputPath, handler);
+      await this.documentManager.exportChapter(
+        chapter.id,
+        outputPath,
+        handler,
+        keepSourceName,
+      );
 
       const unitCount = this.documentManager.getChapterTranslationUnits(chapter.id).length;
       results.push({ chapterId: chapter.id, outputPath, unitCount });

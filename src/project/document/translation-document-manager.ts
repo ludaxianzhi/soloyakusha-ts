@@ -25,6 +25,7 @@ import type {
 } from "../../file-handlers/base.ts";
 import {
   isBlankSourceText,
+  keepSourceNameInTarget,
   normalizeBlankSourceUnit,
   restoreBlankText,
 } from "../../file-handlers/base.ts";
@@ -581,11 +582,14 @@ export class TranslationDocumentManager {
     chapterId: number,
     outputFilePath: string,
     fileHandler: TranslationFileHandler,
+    keepSourceName?: boolean,
   ): Promise<void> {
-    await fileHandler.writeTranslationUnits(
-      outputFilePath,
-      this.getChapterTranslationUnits(chapterId),
-    );
+    let units = this.getChapterTranslationUnits(chapterId);
+    if (keepSourceName) {
+      units = keepSourceNameInTarget(units);
+    }
+
+    await fileHandler.writeTranslationUnits(outputFilePath, units);
   }
 
   /**
