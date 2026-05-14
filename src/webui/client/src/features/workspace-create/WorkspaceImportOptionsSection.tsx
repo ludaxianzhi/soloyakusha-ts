@@ -1,10 +1,31 @@
+import { useCallback, useState } from 'react';
 import { Alert, Card, Col, Form, Input, InputNumber, Row, Select, Space } from 'antd';
 import {
   DEFAULT_ARCHIVE_IMPORT_PATTERN,
   IMPORT_FORMAT_OPTIONS,
 } from '../../app/ui-helpers.ts';
+import { FormatParamFields, useFormatParams } from '../../components/workspace-view/FormatParamFields.tsx';
 
-export function WorkspaceImportOptionsSection() {
+export function WorkspaceImportOptionsSection({
+  onImportParamsChange,
+}: {
+  onImportParamsChange?: (params: Record<string, unknown>) => void;
+}) {
+  const importFormat = Form.useWatch('importFormat');
+  const { paramDefs } = useFormatParams(importFormat ?? '', 'import');
+  const [importParamValues, setImportParamValues] = useState<Record<string, unknown>>({});
+
+  const handleParamChange = useCallback(
+    (key: string, value: unknown) => {
+      setImportParamValues((prev) => {
+        const next = { ...prev, [key]: value };
+        onImportParamsChange?.(next);
+        return next;
+      });
+    },
+    [onImportParamsChange],
+  );
+
   return (
     <Card size="small" title="导入策略">
       <Alert
@@ -31,6 +52,19 @@ export function WorkspaceImportOptionsSection() {
           </Form.Item>
         </Col>
       </Row>
+      {paramDefs.length > 0 ? (
+        <Row gutter={12}>
+          <Col xs={24}>
+            <Form.Item label="格式参数">
+              <FormatParamFields
+                paramDefs={paramDefs}
+                values={importParamValues}
+                onChange={handleParamChange}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+      ) : null}
       <Row gutter={12}>
         <Col xs={24} md={12}>
           <Form.Item

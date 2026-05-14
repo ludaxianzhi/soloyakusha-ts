@@ -573,6 +573,7 @@ export class TranslationProject
       format?: string;
       fileHandler?: TranslationFileHandler;
       importTranslation?: boolean;
+      importParams?: Record<string, unknown>;
     },
   ): Promise<TranslationImportResult> {
     this.ensureInitialized();

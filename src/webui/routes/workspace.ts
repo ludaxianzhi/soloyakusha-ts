@@ -37,6 +37,7 @@ export function createWorkspaceRoutes(
     const projectName = (formData.get('projectName') as string) || 'Untitled';
     const importFormat = (formData.get('importFormat') as string) || undefined;
     const importPattern = (formData.get('importPattern') as string) || undefined;
+    const importParams = parseOptionalJson(formData.get('importParams'));
     const translatorName =
       (formData.get('translatorName') as string) || undefined;
     const pipelineStrategy = parsePipelineStrategy(formData.get('pipelineStrategy'));
@@ -107,6 +108,7 @@ export function createWorkspaceRoutes(
         workspaceDir,
         chapterFiles,
         resolvedImportFormat,
+        importParams,
       );
       if (
         translationSummary.hasTranslatedContent &&
@@ -130,6 +132,7 @@ export function createWorkspaceRoutes(
         projectDir: workspaceDir,
         chapterPaths: chapterFiles,
         importFormat: resolvedImportFormat,
+        importParams,
         translatorName: resolvedTranslatorName,
         pipelineStrategy: resolvedPipelineStrategy,
         textSplitMaxChars: resolvedTextSplitMaxChars,
@@ -348,6 +351,17 @@ function parseWorkspaceManifest(raw: string): UploadedWorkspaceManifest {
   return parsed;
 }
 
+function parseOptionalJson(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch { /* ignore */ }
+  return undefined;
+}
+
 function parsePipelineStrategy(value: unknown): WorkspacePipelineStrategy | undefined {
   if (value === undefined || value === null || value === '') {
     return undefined;
@@ -447,6 +461,7 @@ async function inspectImportedTranslationContent(
   workspaceDir: string,
   chapterFiles: string[],
   importFormat?: string,
+  importParams?: Record<string, unknown>,
 ): Promise<{
   hasTranslatedContent: boolean;
   translatedFileCount: number;
@@ -460,7 +475,7 @@ async function inspectImportedTranslationContent(
     };
   }
 
-  const fileHandler = TranslationFileHandlerFactory.getHandler(importFormat);
+  const fileHandler = TranslationFileHandlerFactory.getHandler(importFormat, importParams);
   const unitCounts = await Promise.all(
     chapterFiles.map(async (filePath) => {
       const units = await fileHandler.readTranslationUnits(

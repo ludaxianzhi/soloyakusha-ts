@@ -1831,6 +1831,7 @@ export function AppShell() {
       importFormat?: string;
       importPattern?: string;
       importTranslation?: boolean;
+      importParams?: Record<string, unknown>;
     }) => {
       const formData = new FormData();
       formData.set('file', payload.file);
@@ -1842,6 +1843,9 @@ export function AppShell() {
       }
       if (payload.importTranslation !== undefined) {
         formData.set('importTranslation', String(payload.importTranslation));
+      }
+      if (payload.importParams && Object.keys(payload.importParams).length > 0) {
+        formData.set('importParams', JSON.stringify(payload.importParams));
       }
 
       const result = await api.importChapterArchive(formData, getSelectedWorkspaceId());

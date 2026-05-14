@@ -34,7 +34,7 @@ import {
   IMPORT_FORMAT_OPTIONS,
 } from '../../app/ui-helpers.ts';
 import { usePollingTask } from '../../app/usePollingTask.ts';
-import { FormatParamFields } from './FormatParamFields.tsx';
+import { FormatParamFields, useFormatParams } from './FormatParamFields.tsx';
 import { TranslationPreviewModal } from '../TranslationPreviewModal.tsx';
 import { ChapterKanbanBoard } from '../topology/ChapterKanbanBoard.tsx';
 import { ChapterFindReplaceModal } from './ChapterFindReplaceModal.tsx';
@@ -84,6 +84,7 @@ interface WorkspaceChaptersTabProps {
     importFormat?: string;
     importPattern?: string;
     importTranslation?: boolean;
+    importParams?: Record<string, unknown>;
   }) => Promise<ImportArchiveResult>;
   onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
 }
@@ -105,6 +106,8 @@ type ImportArchiveFormValues = {
   importPattern?: string;
   importTranslation?: boolean;
 };
+
+type ImportArchiveParams = Record<string, unknown>;
 
 export function WorkspaceChaptersTab({
   active,
@@ -574,6 +577,7 @@ function ChapterInfoTable({
     importFormat?: string;
     importPattern?: string;
     importTranslation?: boolean;
+    importParams?: Record<string, unknown>;
   }) => Promise<ImportArchiveResult>;
   onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
   onRefreshChapters: () => void | Promise<void>;
@@ -597,6 +601,9 @@ function ChapterInfoTable({
   const [importArchiveFiles, setImportArchiveFiles] = useState<UploadFile[]>([]);
   const [importArchiveResult, setImportArchiveResult] = useState<ImportArchiveResult | null>(null);
   const [importArchiveForm] = Form.useForm<ImportArchiveFormValues>();
+  const [importArchiveParams, setImportArchiveParams] = useState<ImportArchiveParams>({});
+  const archiveImportFormat = Form.useWatch('importFormat', importArchiveForm);
+  const { paramDefs: archiveParamDefs } = useFormatParams(archiveImportFormat ?? '', 'import');
   const [importGroupsModalOpen, setImportGroupsModalOpen] = useState(false);
   const [postProcessModalOpen, setPostProcessModalOpen] = useState(false);
   const [findReplaceModalOpen, setFindReplaceModalOpen] = useState(false);
@@ -939,6 +946,7 @@ function ChapterInfoTable({
         importFormat: values.importFormat,
         importPattern: values.importPattern,
         importTranslation: values.importTranslation,
+        importParams: importArchiveParams,
       });
       setImportArchiveResult(result);
       if (result.addedCount > 0) {
@@ -1323,6 +1331,17 @@ function ChapterInfoTable({
             <Form.Item label="导入格式" name="importFormat">
               <Select options={IMPORT_FORMAT_OPTIONS} />
             </Form.Item>
+            {archiveParamDefs.length > 0 ? (
+              <Form.Item label="格式参数">
+                <FormatParamFields
+                  paramDefs={archiveParamDefs}
+                  values={importArchiveParams}
+                  onChange={(key, value) =>
+                    setImportArchiveParams((prev) => ({ ...prev, [key]: value }))
+                  }
+                />
+              </Form.Item>
+            ) : null}
             <Form.Item
               label="压缩包内 Pattern"
               name="importPattern"

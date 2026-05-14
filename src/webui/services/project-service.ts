@@ -122,6 +122,7 @@ export interface InitializeProjectInput {
   chapterPaths: string[];
   glossaryPath?: string;
   importFormat?: string;
+  importParams?: Record<string, unknown>;
   translatorName?: string;
   pipelineStrategy?: WorkspacePipelineStrategy;
   textSplitMaxChars?: number;
@@ -1521,7 +1522,7 @@ export class ProjectService {
                 : undefined,
             fileHandlerResolver: input.importFormat
               ? () =>
-                  TranslationFileHandlerFactory.getHandler(input.importFormat!)
+                  TranslationFileHandlerFactory.getHandler(input.importFormat!, input.importParams)
               : undefined,
           },
         );
@@ -3617,6 +3618,7 @@ export class ProjectService {
     importFormat?: string;
     importPattern?: string;
     importTranslation?: boolean;
+    importParams?: Record<string, unknown>;
   }): Promise<ImportArchiveChaptersResult> {
     const { runtime, state, project } = this.getActiveWorkspaceContext();
     if (state.isBusy) {
@@ -3680,6 +3682,7 @@ export class ProjectService {
           const result = await project.addChapter(nextChapterId, targetRelativePath, {
             format: normalizedImportFormat,
             importTranslation: normalizedImportTranslation,
+            importParams: input.importParams,
           });
           nextChapterId += 1;
           addedChapters.push({

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Alert, Form, Row, Col } from 'antd';
 import { FormOutlined } from '@ant-design/icons';
 import { WorkspaceCreateBasicsSection } from './WorkspaceCreateBasicsSection.tsx';
@@ -25,6 +25,11 @@ export function WorkspaceCreatePage({
   onRefreshBootData,
   onRefreshProjectData,
 }: WorkspaceCreatePageProps) {
+  const [importParams, setImportParams] = useState<Record<string, unknown>>({});
+  const handleImportParamsChange = useCallback((params: Record<string, unknown>) => {
+    setImportParams(params);
+  }, []);
+
   const {
     form,
     uploadFiles,
@@ -35,6 +40,7 @@ export function WorkspaceCreatePage({
   } = useWorkspaceCreateController({
     onRefreshBootData,
     onRefreshProjectData,
+    importParams,
   });
   const manifestJson = Form.useWatch('manifestJson', form);
   const manifestState = useMemo(
@@ -70,7 +76,7 @@ export function WorkspaceCreatePage({
           <Col xs={24} xl={16}>
             <div className="section-stack">
               <WorkspaceCreateBasicsSection translatorOptions={translatorOptions} />
-              <WorkspaceImportOptionsSection />
+              <WorkspaceImportOptionsSection onImportParamsChange={handleImportParamsChange} />
               <WorkspaceUploadSection
                 uploadFiles={uploadFiles}
                 disabled={submitting}

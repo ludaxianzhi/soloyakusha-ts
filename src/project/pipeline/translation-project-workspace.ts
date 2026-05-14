@@ -122,6 +122,7 @@ export class TranslationProjectWorkspace {
       format?: string;
       fileHandler?: TranslationFileHandler;
       importTranslation?: boolean;
+      importParams?: Record<string, unknown>;
     },
   ): Promise<TranslationImportResult> {
     if (this.chapters.some((chapter) => chapter.id === chapterId)) {
@@ -135,6 +136,9 @@ export class TranslationProjectWorkspace {
       options,
       workspaceConfig.defaultImportFormat,
     );
+    if (fileHandler && options?.importParams) {
+      fileHandler.applyParams(options.importParams);
+    }
     const chapter = await this.documentManager.addChapter(chapterId, resolvedPath, {
       fileHandler,
       importTranslation: options?.importTranslation,

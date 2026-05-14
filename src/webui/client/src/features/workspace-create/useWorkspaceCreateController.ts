@@ -14,11 +14,13 @@ import {
 interface UseWorkspaceCreateControllerOptions {
   onRefreshBootData: () => Promise<void>;
   onRefreshProjectData: () => Promise<void>;
+  importParams?: Record<string, unknown>;
 }
 
 export function useWorkspaceCreateController({
   onRefreshBootData,
   onRefreshProjectData,
+  importParams,
 }: UseWorkspaceCreateControllerOptions) {
   const { message, modal } = AntdApp.useApp();
   const navigate = useNavigate();
@@ -77,6 +79,9 @@ export function useWorkspaceCreateController({
           if (values.importFormat) {
             formData.set('importFormat', String(values.importFormat));
           }
+          if (importParams && Object.keys(importParams).length > 0) {
+            formData.set('importParams', JSON.stringify(importParams));
+          }
           if (values.importPattern) {
             formData.set('importPattern', String(values.importPattern));
           }
@@ -123,6 +128,7 @@ export function useWorkspaceCreateController({
     },
     [
       form,
+      importParams,
       message,
       navigate,
       onRefreshBootData,

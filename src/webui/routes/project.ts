@@ -772,6 +772,7 @@ export function createProjectRoutes(
     const importFormat = normalizeOptionalString(formData.get('importFormat'));
     const importPattern = normalizeOptionalString(formData.get('importPattern'));
     const importTranslation = parseBooleanField(formData.get('importTranslation'), false);
+    const importParams = parseOptionalJson(formData.get('importParams'));
 
     try {
       const result = await projectService.importChaptersFromArchive({
@@ -780,6 +781,7 @@ export function createProjectRoutes(
         importFormat,
         importPattern,
         importTranslation,
+        importParams,
       });
       return c.json(result);
     } catch (error) {
@@ -1152,6 +1154,17 @@ function readOptionalPositiveIntegerArrayValue(value: unknown): number[] | undef
       return item;
     })
     .filter((chapterId, index, chapterIds) => chapterIds.indexOf(chapterId) === index);
+}
+
+function parseOptionalJson(value: FormDataEntryValue | null): Record<string, unknown> | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch { /* ignore */ }
+  return undefined;
 }
 
 function parseBooleanField(value: FormDataEntryValue | null, fallback: boolean): boolean {
