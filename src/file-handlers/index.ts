@@ -17,6 +17,7 @@
 export * from "./base.ts";
 export * from "./dbl-tp1-file-handler.ts";
 export * from "./factory.ts";
+export * from "./nd-with-meta-file-handler.ts";
 export * from "./galtransl-json-file-handler.ts";
 export * from "./m3t-file-handler.ts";
 export * from "./nature-dialog-file-handler.ts";

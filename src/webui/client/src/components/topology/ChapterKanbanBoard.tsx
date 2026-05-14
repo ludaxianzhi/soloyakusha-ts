@@ -645,6 +645,7 @@ function KanbanCard({
         { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([chapterId], 'm3t', params) },
         { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([chapterId], 'galtransl_json', params) },
         { key: 'download-dbl_tp1', label: 'DBL TP1', onClick: () => onDownloadChapters([chapterId], 'dbl_tp1', params) },
+        { key: 'download-nd_with_meta', label: 'ND With Meta', onClick: () => onDownloadChapters([chapterId], 'nd_with_meta', params) },
       ],
     },
     {

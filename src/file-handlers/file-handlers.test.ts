@@ -6,6 +6,7 @@ import { keepSourceNameInTarget } from "./base.ts";
 import { TranslationFileHandlerFactory } from "./factory.ts";
 import { DblTp1FileHandler } from "./dbl-tp1-file-handler.ts";
 import { GaltranslJsonFileHandler } from "./galtransl-json-file-handler.ts";
+import { NdWithMetaFileHandler } from "./nd-with-meta-file-handler.ts";
 import { NatureDialogFileHandler } from "./nature-dialog-file-handler.ts";
 import { TranslationDocumentManager } from "../project/document/translation-document-manager.ts";
 
@@ -358,6 +359,97 @@ describe("file handlers", () => {
       ]);
 
       expect(result[0]!.target).toEqual(["【Alice】你好", "【Alice】您好"]);
+    });
+  });
+
+  describe("nd_with_meta handler", () => {
+    test("parses source and target lines with default regex", () => {
+      const handler = new NdWithMetaFileHandler();
+      const content =
+        "▷000000◁いつも憂鬱な月曜の朝が\n" +
+        "▶000000◀\n" +
+        "\n" +
+        "▷000001◁【宗太】（どんな顔して）\n" +
+        "▶000001◀【宗太】\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(2);
+      expect(parsed.units[0]!).toEqual({
+        source: "いつも憂鬱な月曜の朝が",
+        target: [""],
+        metadata: { source: "▷000000◁", target: "▶000000◀" },
+      });
+      expect(parsed.units[1]!).toEqual({
+        source: "【宗太】（どんな顔して）",
+        target: ["【宗太】"],
+        metadata: { source: "▷000001◁", target: "▶000001◀" },
+      });
+    });
+
+    test("round-trips parse and format preserving structure", () => {
+      const handler = new NdWithMetaFileHandler();
+      const input =
+        "▷000000◁いつも憂鬱な月曜の朝が\n" +
+        "▶000000◀\n" +
+        "\n" +
+        "▷000001◁【宗太】（どんな顔して）\n" +
+        "▶000001◀【宗太】";
+
+      const parsed = handler.parseTranslationDocument(input);
+      const output = handler.formatTranslationUnits(parsed.units);
+      expect(output).toBe(input);
+    });
+
+    test("supports custom regex patterns", () => {
+      const handler = new NdWithMetaFileHandler();
+      handler.applyParams({
+        sourceMetaRegex: "@\\d+%",
+        targetMetaRegex: "#\\d+&",
+      });
+      const content =
+        "@000000%hello\n" +
+        "#000000&world\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(1);
+      expect(parsed.units[0]!.source).toBe("hello");
+      expect(parsed.units[0]!.target).toEqual(["world"]);
+      expect(parsed.units[0]!.metadata).toEqual({
+        source: "@000000%",
+        target: "#000000&",
+      });
+    });
+
+    test("writes and reads files correctly", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "soloyakusha-ndmeta-"));
+      cleanupTargets.push(dir);
+
+      const filePath = join(dir, "dialog.nd");
+      const handler = new NdWithMetaFileHandler();
+      await handler.writeTranslationUnits(filePath, [
+        {
+          source: "こんにちは",
+          target: ["你好"],
+          metadata: { source: "▷000001◁", target: "▶000001◀" },
+        },
+      ]);
+
+      const units = await handler.readTranslationUnits(filePath);
+      expect(units).toHaveLength(1);
+      expect(units[0]!.source).toBe("こんにちは");
+      expect(units[0]!.target).toEqual(["你好"]);
+    });
+
+    test("handles source-only entries (no target)", () => {
+      const handler = new NdWithMetaFileHandler();
+      const content =
+        "▷000001◁hello\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(1);
+      expect(parsed.units[0]!.source).toBe("hello");
+      expect(parsed.units[0]!.target).toEqual([]);
+      expect(parsed.units[0]!.metadata).toEqual({ source: "▷000001◁" });
     });
   });
 });
