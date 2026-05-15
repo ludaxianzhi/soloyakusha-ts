@@ -72,6 +72,7 @@ export function WorkspaceView({
   onImportChapterArchive,
   onDownloadExport,
   onDownloadChapters,
+  onBatchSaveTopology,
   onResetProject,
   onAbortTaskActivity,
   onForceAbortTaskActivity,
@@ -209,11 +210,10 @@ export function WorkspaceView({
                 onRemoveChapters={onRemoveChapters}
                 onCreateStoryBranch={onCreateStoryBranch}
                 onUpdateStoryRoute={onUpdateStoryRoute}
-                onReorderStoryRouteChapters={onReorderStoryRouteChapters}
-                onMoveChapterToRoute={onMoveChapterToRoute}
                 onRemoveStoryRoute={onRemoveStoryRoute}
                 onImportChapterArchive={onImportChapterArchive}
                 onDownloadChapters={onDownloadChapters}
+                onBatchSaveTopology={onBatchSaveTopology}
               />
               </div>
             ),

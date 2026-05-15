@@ -39,11 +39,7 @@ import { TranslationPreviewModal } from '../TranslationPreviewModal.tsx';
 import { ChapterKanbanBoard } from '../topology/ChapterKanbanBoard.tsx';
 import { ChapterFindReplaceModal } from './ChapterFindReplaceModal.tsx';
 import { PostProcessModal } from './PostProcessModal.tsx';
-import {
-  buildChapterImportGroups,
-  formatChapterLabel,
-  type ChapterImportGroupDescriptor,
-} from './utils.ts';
+import { formatChapterLabel } from './utils.ts';
 
 interface WorkspaceChaptersTabProps {
   active: boolean;
@@ -69,15 +65,6 @@ interface WorkspaceChaptersTabProps {
     routeId: string,
     payload: UpdateStoryRoutePayload,
   ) => void | Promise<void>;
-  onReorderStoryRouteChapters: (
-    routeId: string,
-    chapterIds: number[],
-  ) => void | Promise<void>;
-  onMoveChapterToRoute: (
-    chapterId: number,
-    targetRouteId: string,
-    targetIndex: number,
-  ) => void | Promise<void>;
   onRemoveStoryRoute: (routeId: string) => void | Promise<void>;
   onImportChapterArchive: (payload: {
     file: File;
@@ -87,6 +74,7 @@ interface WorkspaceChaptersTabProps {
     importParams?: Record<string, unknown>;
   }) => Promise<ImportArchiveResult>;
   onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  onBatchSaveTopology: (routes: { id: string; chapters: number[] }[]) => void | Promise<void>;
 }
 
 type RouteAttachCandidate = {
@@ -95,10 +83,14 @@ type RouteAttachCandidate = {
   chapters: number[];
 };
 
-type AttachGroupBranchFormValues = {
+type AttachBranchFormValues = {
   name: string;
   parentRouteId: string;
   forkAfterChapterId: number;
+};
+
+type AttachBranchCandidate = {
+  chapterIds: number[];
 };
 
 type ImportArchiveFormValues = {
@@ -123,11 +115,10 @@ export function WorkspaceChaptersTab({
   onRemoveChapters,
   onCreateStoryBranch,
   onUpdateStoryRoute,
-  onReorderStoryRouteChapters,
-  onMoveChapterToRoute,
   onRemoveStoryRoute,
   onImportChapterArchive,
   onDownloadChapters,
+  onBatchSaveTopology,
 }: WorkspaceChaptersTabProps) {
   const [activeTabKey, setActiveTabKey] = useState(mobileMode ? 'list' : 'list');
 
@@ -185,14 +176,13 @@ export function WorkspaceChaptersTab({
         <ChapterKanbanBoard
           topology={topology}
           chapters={chapters}
-          onReorderRouteChapters={onReorderStoryRouteChapters}
-          onMoveChapterToRoute={onMoveChapterToRoute}
           onCreateBranch={onCreateStoryBranch}
           onClearChapterTranslations={onClearChapterTranslations}
           onRemoveChapters={onRemoveChapters}
           onRemoveRoute={onRemoveStoryRoute}
           onUpdateRoute={onUpdateStoryRoute}
           onDownloadChapters={onDownloadChapters}
+          onBatchSaveTopology={onBatchSaveTopology}
         />
       ) : (
         <ChapterInfoTable
@@ -590,8 +580,8 @@ function ChapterInfoTable({
   const [lastSelectedChapterId, setLastSelectedChapterId] = useState<number>();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewChapterId, setPreviewChapterId] = useState<number>();
-  const [attachGroup, setAttachGroup] = useState<ChapterImportGroupDescriptor | null>(null);
-  const [attachForm] = Form.useForm<AttachGroupBranchFormValues>();
+  const [attachBranch, setAttachBranch] = useState<AttachBranchCandidate | null>(null);
+  const [attachForm] = Form.useForm<AttachBranchFormValues>();
   const [importArchiveOpen, setImportArchiveOpen] = useState(false);
   const [importArchiveSubmitting, setImportArchiveSubmitting] = useState(false);
   const [proofreadModalOpen, setProofreadModalOpen] = useState(false);
@@ -605,7 +595,6 @@ function ChapterInfoTable({
   const [importArchiveParams, setImportArchiveParams] = useState<ImportArchiveParams>({});
   const archiveImportFormat = Form.useWatch('importFormat', importArchiveForm);
   const { paramDefs: archiveParamDefs } = useFormatParams(archiveImportFormat ?? '', 'import');
-  const [importGroupsModalOpen, setImportGroupsModalOpen] = useState(false);
   const [postProcessModalOpen, setPostProcessModalOpen] = useState(false);
   const [findReplaceModalOpen, setFindReplaceModalOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -624,7 +613,6 @@ function ChapterInfoTable({
     () => new Map(chapters.map((chapter) => [chapter.id, chapter] as const)),
     [chapters],
   );
-  const chapterGroups = useMemo(() => buildChapterImportGroups(chapters), [chapters]);
   const proofreadableChapterIds = useMemo(
     () =>
       selectedChapterIds.filter((chapterId) => {
@@ -682,7 +670,7 @@ function ChapterInfoTable({
   );
 
   const attachableChapterIds = useMemo(() => {
-    if (!attachGroup || !selectedRouteCandidate) {
+    if (!attachBranch || !selectedRouteCandidate) {
       return [] as number[];
     }
     if (typeof selectedForkAfterChapterId !== 'number') {
@@ -690,10 +678,10 @@ function ChapterInfoTable({
     }
     return resolveAttachableChapterIds(
       selectedRouteCandidate.chapters,
-      attachGroup.chapterIds,
+      attachBranch.chapterIds,
       selectedForkAfterChapterId,
     );
-  }, [attachGroup, selectedForkAfterChapterId, selectedRouteCandidate]);
+  }, [attachBranch, selectedForkAfterChapterId, selectedRouteCandidate]);
 
   const forkChapterCandidates = useMemo(() => {
     if (!selectedRouteCandidate) {
@@ -769,26 +757,26 @@ function ChapterInfoTable({
     return () => observer.disconnect();
   }, []);
 
-  const openAttachGroupModal = (group: ChapterImportGroupDescriptor) => {
-    const defaultRoute = selectDefaultAttachRoute(routeCandidates, group.chapterIds);
-    const defaultForkAfterChapterId = defaultRoute
-      ? selectDefaultForkAfterChapterId(defaultRoute.chapters, group.chapterIds)
-      : undefined;
-    setAttachGroup(group);
+  const handleOpenAttachBranchModal = () => {
+    if (selectedChapterIds.length === 0) {
+      return;
+    }
+    const defaultRoute = selectDefaultAttachRoute(routeCandidates, selectedChapterIds);
+    setAttachBranch({ chapterIds: [...selectedChapterIds] });
     attachForm.setFieldsValue({
-      name: `分支-${group.name === '根目录文件' ? 'root' : group.name}`,
+      name: `分支-${routeCandidates.find((r) => r.id === defaultRoute?.id)?.name ?? 'main'}`,
       parentRouteId: defaultRoute?.id ?? 'main',
-      forkAfterChapterId: defaultForkAfterChapterId,
+      forkAfterChapterId: undefined,
     });
   };
 
-  const closeAttachGroupModal = () => {
-    setAttachGroup(null);
+  const closeAttachBranchModal = () => {
+    setAttachBranch(null);
     attachForm.resetFields();
   };
 
-  const handleAttachGroupAsBranch = async () => {
-    if (!attachGroup) {
+  const handleAttachBranchAsBranch = async () => {
+    if (!attachBranch) {
       return;
     }
     const values = await attachForm.validateFields();
@@ -796,7 +784,7 @@ function ChapterInfoTable({
     const chapterIds = parentRoute
       ? resolveAttachableChapterIds(
           parentRoute.chapters,
-          attachGroup.chapterIds,
+          attachBranch.chapterIds,
           values.forkAfterChapterId,
         )
       : [];
@@ -811,19 +799,15 @@ function ChapterInfoTable({
     }
     try {
       await onCreateStoryBranch({
-        name: values.name.trim() || `分支-${attachGroup.name}`,
+        name: values.name.trim() || `分支-${values.parentRouteId}`,
         parentRouteId: values.parentRouteId,
         forkAfterChapterId: values.forkAfterChapterId,
         chapterIds,
       });
-      closeAttachGroupModal();
+      closeAttachBranchModal();
     } catch {
       // keep modal open so user can adjust parameters
     }
-  };
-
-  const handleSelectGroupChapters = (group: ChapterImportGroupDescriptor) => {
-    setSelectedChapterIds(group.chapterIds.filter((chapterId) => chapterIdSet.has(chapterId)));
   };
 
   const handleBatchClearTranslations = async () => {
@@ -1100,14 +1084,19 @@ function ChapterInfoTable({
         onMenuClick: openImportArchiveModal,
       },
       {
-        key: 'import-groups',
-        label: '导入分组',
+        key: 'attach-branch',
+        label: '挂接为分支',
         render: () => (
-          <Button size="small" onClick={() => setImportGroupsModalOpen(true)}>
-            导入分组
+          <Button
+            size="small"
+            type="dashed"
+            disabled={selectedChapterIds.length === 0}
+            onClick={handleOpenAttachBranchModal}
+          >
+            挂接为分支
           </Button>
         ),
-        onMenuClick: () => setImportGroupsModalOpen(true),
+        onMenuClick: handleOpenAttachBranchModal,
       },
     ],
     [
@@ -1116,6 +1105,7 @@ function ChapterInfoTable({
       handleBatchPostProcess,
       handleBatchRemoveChapters,
       handleOpenProofreadModal,
+      handleOpenAttachBranchModal,
       openImportArchiveModal,
       selectedChapterIds.length,
     ],
@@ -1382,21 +1372,18 @@ function ChapterInfoTable({
       </Modal>
 
       <Modal
-        title="挂接分组为分支"
-        open={attachGroup !== null}
+        title="挂接为分支"
+        open={attachBranch !== null}
         okText="创建分支"
         cancelText="取消"
-        okButtonProps={{ disabled: attachGroup !== null && attachableChapterIds.length === 0 }}
-        onCancel={closeAttachGroupModal}
-        onOk={handleAttachGroupAsBranch}
+        okButtonProps={{ disabled: attachBranch !== null && attachableChapterIds.length === 0 }}
+        onCancel={closeAttachBranchModal}
+        onOk={handleAttachBranchAsBranch}
       >
-        {attachGroup ? (
+        {attachBranch ? (
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Typography.Text type="secondary">
-              {`分组路径：${attachGroup.path === '.' ? '(根目录)' : attachGroup.path}`}
-            </Typography.Text>
-            <Typography.Text type="secondary">
-              {`包含章节：${attachGroup.chapterIds.map((chapterId) => `#${chapterId}`).join(', ')}`}
+              {`选中章节：${attachBranch.chapterIds.map((chapterId) => `#${chapterId}`).join(', ')}`}
             </Typography.Text>
             <Typography.Text type="secondary">
               {`当前可挂接章节：${
@@ -1517,47 +1504,6 @@ function ChapterInfoTable({
             />
           </div>
         </Space>
-      </Modal>
-
-      <Modal
-        title="导入分组"
-        open={importGroupsModalOpen}
-        footer={null}
-        width={640}
-        onCancel={() => setImportGroupsModalOpen(false)}
-      >
-        {chapterGroups.length === 0 ? (
-          <Typography.Text type="secondary">当前没有可用的目录分组。</Typography.Text>
-        ) : (
-          <div className="chapter-import-group-list">
-            {chapterGroups.map((group) => (
-              <div
-                key={group.id}
-                className="chapter-import-group-item"
-                style={{ paddingLeft: group.depth * 16 }}
-              >
-                <Space wrap size={[8, 8]}>
-                  <Typography.Text strong>{group.name}</Typography.Text>
-                  <Typography.Text type="secondary">
-                    {group.path === '.' ? '(根目录)' : group.path}
-                  </Typography.Text>
-                  <Tag>{group.chapterIds.length} 章节</Tag>
-                  <Button size="small" onClick={() => { handleSelectGroupChapters(group); setImportGroupsModalOpen(false); }}>
-                    选中章节
-                  </Button>
-                  <Button
-                    size="small"
-                    type="dashed"
-                    onClick={() => { openAttachGroupModal(group); setImportGroupsModalOpen(false); }}
-                    disabled={group.chapterIds.length === 0}
-                  >
-                    挂接为分支
-                  </Button>
-                </Space>
-              </div>
-            ))}
-          </div>
-        )}
       </Modal>
 
       <Modal

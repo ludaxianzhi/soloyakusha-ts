@@ -3845,6 +3845,18 @@ export class ProjectService {
     }, state);
   }
 
+  async batchUpdateTopology(routes: { id: string; chapters: number[] }[]): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    await this.runAction('批量保存拓扑', async () => {
+      if (!project) throw new Error('当前没有已初始化的项目');
+      await project.batchUpdateTopology(routes);
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markTopologyChanged(state);
+      this.markRepeatedPatternsChanged(state);
+    }, state);
+  }
+
   async moveChapterToRoute(
     chapterId: number,
     targetRouteId: string,

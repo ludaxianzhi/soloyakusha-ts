@@ -912,6 +912,12 @@ export function createProjectRoutes(
     return c.json({ ok: true });
   });
 
+  app.put('/topology/batch', async (c) => {
+    const body = await c.req.json<{ routes: { id: string; chapters: number[] }[] }>();
+    await projectService.batchUpdateTopology(body.routes);
+    return c.json({ ok: true });
+  });
+
   app.delete('/topology/routes/:id', async (c) => {
     const routeId = c.req.param('id');
     await projectService.removeStoryRoute(routeId);

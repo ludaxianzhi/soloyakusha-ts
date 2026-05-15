@@ -1920,6 +1920,17 @@ export function AppShell() {
     [getSelectedWorkspaceId, message, refreshChapters, refreshTopology, runAction],
   );
 
+  const handleBatchSaveTopology = useCallback(
+    async (routes: { id: string; chapters: number[] }[]) => {
+      await runAction(async () => {
+        await api.batchUpdateTopology(routes, getSelectedWorkspaceId());
+        await Promise.all([refreshChapters(), refreshTopology()]);
+        message.success('拓扑已保存');
+      });
+    },
+    [getSelectedWorkspaceId, message, refreshChapters, refreshTopology, runAction],
+  );
+
   const handleDownloadExport= useCallback(
     async (format: string, params?: Record<string, unknown>) => {
       await runAction(async () => {
@@ -2777,6 +2788,7 @@ export function AppShell() {
                       onImportChapterArchive={handleImportChapterArchive}
                       onDownloadExport={handleDownloadExport}
                       onDownloadChapters={handleDownloadChapters}
+                      onBatchSaveTopology={handleBatchSaveTopology}
                       onResetProject={handleResetProject}
                       onAbortTaskActivity={handleAbortTaskActivity}
                       onForceAbortTaskActivity={handleForceAbortTaskActivity}

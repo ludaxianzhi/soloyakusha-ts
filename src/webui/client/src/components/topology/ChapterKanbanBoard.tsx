@@ -21,6 +21,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   BranchesOutlined,
+  CaretDownOutlined,
+  CaretUpOutlined,
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
@@ -28,6 +30,8 @@ import {
   LockOutlined,
   MoreOutlined,
   PlusOutlined,
+  VerticalAlignBottomOutlined,
+  VerticalAlignTopOutlined,
 } from '@ant-design/icons';
 import { Button, Checkbox, Dropdown, Empty, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd';
 import { useNavigate } from 'react-router-dom';
@@ -44,12 +48,6 @@ import type {
 interface ChapterKanbanBoardProps {
   topology: StoryTopologyDescriptor | null;
   chapters: WorkspaceChapterDescriptor[];
-  onReorderRouteChapters: (routeId: string, chapterIds: number[]) => void | Promise<void>;
-  onMoveChapterToRoute: (
-    chapterId: number,
-    targetRouteId: string,
-    targetIndex: number,
-  ) => void | Promise<void>;
   onCreateBranch: (payload: CreateStoryBranchPayload) => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
@@ -59,6 +57,7 @@ interface ChapterKanbanBoardProps {
   onRemoveRoute: (routeId: string) => void | Promise<void>;
   onUpdateRoute: (routeId: string, payload: UpdateStoryRoutePayload) => void | Promise<void>;
   onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  onBatchSaveTopology: (routes: { id: string; chapters: number[] }[]) => void | Promise<void>;
 }
 
 type ColumnItems = Record<string, number[]>;
@@ -68,14 +67,13 @@ type ColumnItems = Record<string, number[]>;
 export function ChapterKanbanBoard({
   topology,
   chapters,
-  onReorderRouteChapters,
-  onMoveChapterToRoute,
   onCreateBranch,
   onClearChapterTranslations,
   onRemoveChapters,
   onRemoveRoute,
   onUpdateRoute,
   onDownloadChapters,
+  onBatchSaveTopology,
 }: ChapterKanbanBoardProps) {
   const chapterMap = useMemo(
     () => new Map(chapters.map((c) => [c.id, c] as const)),
@@ -118,20 +116,25 @@ export function ChapterKanbanBoard({
 
   const routes = topology?.routes ?? [];
 
-  // ─── Drag state ───────────────────────────────
+  // ─── Draft state ──────────────────────────────
 
-  const [dragItems, setDragItems] = useState<ColumnItems | null>(null);
+  const [draftItems, setDraftItems] = useState<ColumnItems | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [exportParams, setExportParams] = useState<Record<string, unknown>>({});
   const dragSourceRef = useRef<{ routeId: string; index: number } | null>(null);
 
-  const items = dragItems ?? topologyItems;
+  const items = draftItems ?? topologyItems;
+  const hasUnsavedChanges = draftItems !== null;
 
-  // Sync when topology changes externally
+  // Sync when topology changes externally (e.g. branch created)
   useEffect(() => {
-    setDragItems(null);
+    setDraftItems(null);
     setActiveId(null);
   }, [topologyItems]);
+
+  // Ref of topologyItems for use in setState callbacks
+  const topologyItemsRef = useRef<ColumnItems>(topologyItems);
+  topologyItemsRef.current = topologyItems;
 
   // ─── Modals ───────────────────────────────────
 
@@ -174,21 +177,29 @@ export function ChapterKanbanBoard({
 
   // ─── DnD Handlers ────────────────────────────
 
+  const ensureDraft = useCallback(() => {
+    setDraftItems((prev) => {
+      if (prev) return prev;
+      const copy: ColumnItems = {};
+      for (const [routeId, chapterIds] of Object.entries(topologyItemsRef.current)) {
+        copy[routeId] = [...chapterIds];
+      }
+      return copy;
+    });
+  }, []);
+
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
       const id = Number(event.active.id);
       if (forkPointIds.has(id)) return;
       setActiveId(id);
 
-      // Deep-copy current items for drag state
-      const copy: ColumnItems = {};
-      for (const [routeId, chapterIds] of Object.entries(topologyItems)) {
-        copy[routeId] = [...chapterIds];
-      }
-      setDragItems(copy);
+      // Ensure draft exists before drag
+      ensureDraft();
 
       // Record source position
-      for (const [routeId, chapterIds] of Object.entries(topologyItems)) {
+      const currentItems = draftItems ?? topologyItemsRef.current;
+      for (const [routeId, chapterIds] of Object.entries(currentItems)) {
         const idx = chapterIds.indexOf(id);
         if (idx !== -1) {
           dragSourceRef.current = { routeId, index: idx };
@@ -196,25 +207,24 @@ export function ChapterKanbanBoard({
         }
       }
     },
-    [topologyItems, forkPointIds],
+    [forkPointIds, draftItems, ensureDraft],
   );
 
   const handleDragOver = useCallback(
     (event: DragOverEvent) => {
       const { active, over } = event;
-      if (!over || !dragItems) return;
+      if (!over || !draftItems) return;
 
       const activeContainer = findContainer(active.id);
       let overContainer = findContainer(over.id);
 
-      // If over.id is a route ID (empty column), use it directly
-      if (!overContainer && typeof over.id === 'string' && dragItems[over.id] !== undefined) {
+      if (!overContainer && typeof over.id === 'string' && draftItems[over.id] !== undefined) {
         overContainer = over.id;
       }
 
       if (!activeContainer || !overContainer || activeContainer === overContainer) return;
 
-      setDragItems((prev) => {
+      setDraftItems((prev) => {
         if (!prev) return prev;
         const activeItems = [...prev[activeContainer]!];
         const overItems = [...prev[overContainer]!];
@@ -222,10 +232,8 @@ export function ChapterKanbanBoard({
         const activeIndex = activeItems.indexOf(Number(active.id));
         if (activeIndex === -1) return prev;
 
-        // Remove from source
         activeItems.splice(activeIndex, 1);
 
-        // Find insertion index in target
         const overIndex = typeof over.id === 'number' || !isNaN(Number(over.id))
           ? overItems.indexOf(Number(over.id))
           : -1;
@@ -240,7 +248,7 @@ export function ChapterKanbanBoard({
         };
       });
     },
-    [dragItems, findContainer],
+    [draftItems, findContainer],
   );
 
   const handleDragEnd = useCallback(
@@ -248,9 +256,8 @@ export function ChapterKanbanBoard({
       const { active, over } = event;
       const source = dragSourceRef.current;
 
-      if (!over || !source || !dragItems) {
+      if (!over || !source || !draftItems) {
         setActiveId(null);
-        setDragItems(null);
         dragSourceRef.current = null;
         return;
       }
@@ -260,36 +267,21 @@ export function ChapterKanbanBoard({
 
       if (!targetContainer) {
         setActiveId(null);
-        setDragItems(null);
         dragSourceRef.current = null;
         return;
       }
 
-      const targetItems = dragItems[targetContainer];
-      const targetIndex = targetItems ? targetItems.indexOf(chapterId) : -1;
-
-      if (targetContainer === source.routeId) {
-        // Same route — reorder
-        if (targetItems && targetIndex !== -1) {
-          void onReorderRouteChapters(targetContainer, targetItems);
-        }
-      } else {
-        // Cross-route move
-        const finalIndex = targetIndex === -1 ? 0 : targetIndex;
-        void onMoveChapterToRoute(chapterId, targetContainer, finalIndex);
-      }
-
+      // Draft already updated via handleDragOver — just clear active drag state
       setActiveId(null);
-      setDragItems(null);
       dragSourceRef.current = null;
     },
-    [dragItems, findContainer, onReorderRouteChapters, onMoveChapterToRoute],
+    [draftItems, findContainer],
   );
 
   const handleDragCancel = useCallback(() => {
     setActiveId(null);
-    setDragItems(null);
     dragSourceRef.current = null;
+    // Don't discard draft — user may want to keep changes
   }, []);
 
   // ─── Branch creation ──────────────────────────
@@ -335,6 +327,73 @@ export function ChapterKanbanBoard({
     setEditRouteName('');
   }, [editRouteModal, editRouteName, onUpdateRoute]);
 
+  // ─── Save / Discard ─────────────────────────
+
+  const handleSave = useCallback(() => {
+    if (!draftItems) return;
+    const routesSnapshot = Object.entries(draftItems).map(([id, chapters]) => ({
+      id,
+      chapters: [...chapters],
+    }));
+    void onBatchSaveTopology(routesSnapshot);
+    setDraftItems(null);
+    setActiveId(null);
+  }, [draftItems, onBatchSaveTopology]);
+
+  const handleDiscard = useCallback(() => {
+    setDraftItems(null);
+    setActiveId(null);
+  }, []);
+
+  // ─── Move chapter within route ──────────────
+
+  const moveChapter = useCallback(
+    (routeId: string, chapterId: number, direction: 'up' | 'down' | 'top' | 'bottom') => {
+      setDraftItems((prev) => {
+        const base = prev ?? {};
+        const source = prev ? undefined : topologyItemsRef.current;
+        const currentRouteChapters = prev ? prev[routeId] : source?.[routeId];
+        if (!currentRouteChapters) return prev ?? null;
+
+        const index = currentRouteChapters.indexOf(chapterId);
+        if (index === -1) return prev ?? null;
+
+        const newChapters = [...currentRouteChapters];
+        switch (direction) {
+          case 'up':
+            if (index === 0) return prev ?? null;
+            [newChapters[index - 1]!, newChapters[index]!] = [newChapters[index]!, newChapters[index - 1]!];
+            break;
+          case 'down':
+            if (index === newChapters.length - 1) return prev ?? null;
+            [newChapters[index]!, newChapters[index + 1]!] = [newChapters[index + 1]!, newChapters[index]!];
+            break;
+          case 'top':
+            newChapters.splice(index, 1);
+            newChapters.unshift(chapterId);
+            break;
+          case 'bottom':
+            newChapters.splice(index, 1);
+            newChapters.push(chapterId);
+            break;
+        }
+
+        // Initialize draft from topology if not yet started
+        if (!prev) {
+          const copy: ColumnItems = {};
+          for (const [rid, cids] of Object.entries(topologyItemsRef.current)) {
+            copy[rid] = [...cids];
+          }
+          copy[routeId] = newChapters;
+          return copy;
+        }
+
+        return { ...prev, [routeId]: newChapters };
+      });
+    },
+    [],
+  );
+
   // ─── Render ───────────────────────────────────
 
   if (!topology || routes.length === 0) {
@@ -345,13 +404,24 @@ export function ChapterKanbanBoard({
 
   return (
     <>
-      <div style={{ padding: '0 16px 8px' }}>
+      <div style={{ padding: '0 16px 8px', display: 'flex', alignItems: 'center', gap: 12 }}>
         <Checkbox
           checked={Boolean(exportParams.keepSourceName)}
           onChange={(e) => setExportParams({ ...exportParams, keepSourceName: e.target.checked })}
         >
           保持名称
         </Checkbox>
+        {hasUnsavedChanges ? (
+          <>
+            <Tag color="warning">有未保存的更改</Tag>
+            <Button size="small" type="primary" onClick={handleSave}>
+              保存草稿
+            </Button>
+            <Button size="small" onClick={handleDiscard}>
+              放弃改动
+            </Button>
+          </>
+        ) : null}
       </div>
       <DndContext
         sensors={sensors}
@@ -377,6 +447,7 @@ export function ChapterKanbanBoard({
               onEditRoute={handleEditRoute}
               onRemoveRoute={onRemoveRoute}
               onDownloadChapters={onDownloadChapters}
+              onMoveChapter={moveChapter}
               params={exportParams}
             />
           ))}
@@ -461,6 +532,7 @@ interface KanbanColumnProps {
   onEditRoute: (route: StoryTopologyRouteDescriptor) => void;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
   onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  onMoveChapter: (routeId: string, chapterId: number, direction: 'up' | 'down' | 'top' | 'bottom') => void;
   params?: Record<string, unknown>;
 }
 
@@ -477,6 +549,7 @@ function KanbanColumn({
   onEditRoute,
   onRemoveRoute,
   onDownloadChapters,
+  onMoveChapter,
   params,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: route.id });
@@ -570,6 +643,7 @@ function KanbanColumn({
                   onClearChapterTranslations={onClearChapterTranslations}
                   onRemoveChapters={onRemoveChapters}
                   onDownloadChapters={onDownloadChapters}
+                  onMoveChapter={onMoveChapter}
                   params={params}
                 />
               );
@@ -597,6 +671,7 @@ interface KanbanCardProps {
     options?: { cascadeBranches?: boolean },
   ) => void | Promise<void>;
   onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  onMoveChapter: (routeId: string, chapterId: number, direction: 'up' | 'down' | 'top' | 'bottom') => void;
   params?: Record<string, unknown>;
 }
 
@@ -611,6 +686,7 @@ function KanbanCard({
   onClearChapterTranslations,
   onRemoveChapters,
   onDownloadChapters,
+  onMoveChapter,
   params,
 }: KanbanCardProps) {
   const navigate = useNavigate();
@@ -718,6 +794,22 @@ function KanbanCard({
 
       {/* Actions row */}
       <div className="kanban-card-actions">
+        {!isForkPoint ? (
+          <>
+            <Tooltip title="置顶">
+              <Button type="text" size="small" icon={<VerticalAlignTopOutlined />} onClick={() => onMoveChapter(routeId, chapterId, 'top')} />
+            </Tooltip>
+            <Tooltip title="上移">
+              <Button type="text" size="small" icon={<CaretUpOutlined />} onClick={() => onMoveChapter(routeId, chapterId, 'up')} />
+            </Tooltip>
+            <Tooltip title="下移">
+              <Button type="text" size="small" icon={<CaretDownOutlined />} onClick={() => onMoveChapter(routeId, chapterId, 'down')} />
+            </Tooltip>
+            <Tooltip title="置底">
+              <Button type="text" size="small" icon={<VerticalAlignBottomOutlined />} onClick={() => onMoveChapter(routeId, chapterId, 'bottom')} />
+            </Tooltip>
+          </>
+        ) : null}
         <Tooltip title="从此章节创建分支路线">
           <Button
             type="text"

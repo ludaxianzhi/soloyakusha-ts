@@ -151,6 +151,7 @@ export interface WorkspaceViewProps {
   }) => Promise<ImportArchiveResult>;
   onDownloadExport: (format: string, params?: Record<string, unknown>) => void | Promise<void>;
   onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  onBatchSaveTopology: (routes: { id: string; chapters: number[] }[]) => void | Promise<void>;
   onResetProject: (
     payload: Record<string, unknown>,
     successText: string,

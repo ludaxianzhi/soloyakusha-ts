@@ -890,6 +890,61 @@ export class TranslationProject
     await this.saveStoryTopology(topology);
   }
 
+  async batchUpdateTopology(routes: { id: string; chapters: number[] }[]): Promise<void> {
+    this.ensureInitialized();
+    if (routes.length === 0) {
+      throw new Error('提交的拓扑数据为空');
+    }
+
+    const topology = this.getMutableStoryTopology();
+
+    // 校验所有路线存在
+    for (const routeUpdate of routes) {
+      const existingRoute = topology.getRoute(routeUpdate.id);
+      if (!existingRoute) {
+        throw new Error(`路线不存在: ${routeUpdate.id}`);
+      }
+    }
+
+    // 校验章节不跨路线重复
+    const chapterRouteMap = new Map<number, string>();
+    for (const routeUpdate of routes) {
+      for (const chapterId of routeUpdate.chapters) {
+        const existingRoute = chapterRouteMap.get(chapterId);
+        if (existingRoute) {
+          throw new Error(`章节 ${chapterId} 同时出现在路线 "${existingRoute}" 和 "${routeUpdate.id}" 中`);
+        }
+        chapterRouteMap.set(chapterId, routeUpdate.id);
+      }
+    }
+
+    // 校验每个路线中的章节没有重复
+    for (const routeUpdate of routes) {
+      if (new Set(routeUpdate.chapters).size !== routeUpdate.chapters.length) {
+        throw new Error(`路线 "${routeUpdate.id}" 的章节列表包含重复`);
+      }
+    }
+
+    // 批量应用
+    const topologyDoc = topology.toDocument();
+    for (const routeUpdate of routes) {
+      const existing = topologyDoc.routes.find((r) => r.id === routeUpdate.id);
+      if (existing) {
+        existing.chapters = [...routeUpdate.chapters];
+      }
+    }
+
+    // 从文档重建拓扑
+    const newTopology = StoryTopology.fromDocument(topologyDoc);
+    const validation = newTopology.validate();
+    if (!validation.valid) {
+      throw new Error(`拓扑校验失败: ${validation.errors.join('; ')}`);
+    }
+
+    this.storyTopology = newTopology;
+    await this.saveStoryTopology(newTopology);
+  }
+
   async exportChapter(
     chapterId: number,
     outputPath: string,

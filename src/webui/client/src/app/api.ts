@@ -508,6 +508,11 @@ export const api = {
       method: 'POST',
       body: { chapterId, targetRouteId, targetIndex },
     }),
+  batchUpdateTopology: (routes: { id: string; chapters: number[] }[], workspaceId?: string) =>
+    request(`/api/project/topology/batch${buildWorkspaceQueryString(workspaceId)}`, {
+      method: 'PUT',
+      body: { routes },
+    }),
 
   getWorkspaceConfig: (workspaceId?: string) => request<WorkspaceConfig>(`/api/project/config${buildWorkspaceQueryString(workspaceId)}`),
   updateWorkspaceConfig: (patch: Record<string, unknown>, workspaceId?: string) =>
