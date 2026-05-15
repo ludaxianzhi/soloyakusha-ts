@@ -2564,7 +2564,8 @@ export class TranslationProject
 
   private createSyntheticStoryTopology(): StoryTopology {
     const topology = StoryTopology.createEmpty();
-    topology.setMainRouteChapters(this.chapters.map((chapter) => chapter.id));
+    const chapterIds = this.workspaceManager.getChapterDescriptors().map((chapter) => chapter.id);
+    topology.setMainRouteChapters(chapterIds);
     return topology;
   }
 
