@@ -152,6 +152,8 @@ export type TranslatorEntry = {
    * 默认值为 2。
    */
   reviewIterations?: number;
+  /** 是否在风格迁移提示词中注入原文；默认 true（保持原行为）。 */
+  includeSourceText?: boolean;
 };
 
 /** 命名校对器注册条目，对应一种校对工作流 + 参数组合。 */

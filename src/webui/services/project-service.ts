@@ -5497,6 +5497,7 @@ async function createProcessorForProject(
     steps: entry.steps,
     models: entry.models,
     reviewIterations: entry.reviewIterations,
+    includeSourceText: entry.includeSourceText,
   };
 
   const globalConfig = await manager.getTranslationGlobalConfig();

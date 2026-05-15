@@ -349,6 +349,10 @@ export function normalizeTranslatorEntry(
     requestOptions,
     models,
     reviewIterations,
+    includeSourceText: readOptionalBoolean(
+      value.includeSourceText,
+      `${sourceLabel}.includeSourceText`,
+    ),
   };
 
   if (effectiveSteps) {
@@ -1022,6 +1026,7 @@ export function cloneTranslatorEntry(entry: TranslatorEntry): TranslatorEntry {
       : undefined,
     models: entry.models ? { ...entry.models } : undefined,
     reviewIterations: entry.reviewIterations,
+    includeSourceText: entry.includeSourceText,
   };
 
   const steps = cloneTranslationProcessorStepConfigs(entry.steps);
