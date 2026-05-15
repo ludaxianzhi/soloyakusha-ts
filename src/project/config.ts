@@ -256,9 +256,14 @@ export class TranslationGlobalConfig {
       clientResolver: provider.getChatClientWithFallback(config.modelNames),
       additionalClientResolvers,
       stepRequestOptions: buildStepRequestOptions(config.steps),
-      workflowOptions: config.reviewIterations !== undefined
-        ? { reviewIterations: config.reviewIterations }
-        : undefined,
+      workflowOptions: {
+        ...(config.reviewIterations !== undefined
+          ? { reviewIterations: config.reviewIterations }
+          : {}),
+        ...(config.includeSourceText !== undefined
+          ? { includeSourceText: config.includeSourceText }
+          : {}),
+      },
       promptManager: options.promptManager,
       defaultRequestOptions: config.requestOptions,
       defaultSlidingWindow: config.slidingWindow,

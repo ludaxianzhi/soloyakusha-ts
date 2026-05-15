@@ -76,6 +76,8 @@ export type StyleTransferTranslationProcessorOptions = {
   outputRepairer?: TranslationOutputRepairer;
   styleLibraryService?: StyleLibraryService;
   stepRequestOptions?: Partial<Record<StyleTransferStepName, ChatRequestOptions>>;
+  /** 是否在风格迁移提示词中注入原文；默认 true（保持原行为）。 */
+  includeSourceText?: boolean;
 };
 
 export class StyleTransferTranslationProcessor implements TranslationProcessor {
@@ -88,6 +90,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
   private readonly stepRequestOptions?: Partial<Record<StyleTransferStepName, ChatRequestOptions>>;
   private readonly outputRepairer?: TranslationOutputRepairer;
   private readonly styleLibraryService?: StyleLibraryService;
+  private readonly includeSourceText?: boolean;
 
   constructor(
     private readonly defaultClientResolver: TranslationProcessorClientResolver,
@@ -104,6 +107,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
     this.stepRequestOptions = options.stepRequestOptions;
     this.outputRepairer = options.outputRepairer;
     this.styleLibraryService = options.styleLibraryService;
+    this.includeSourceText = options.includeSourceText;
     this.glossaryUpdater =
       options.glossaryUpdater ??
       new DefaultGlossaryUpdater(this.resolveClient("styleTransfer"), {
@@ -257,6 +261,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
           ? request.styleRequirementsText
           : undefined,
       styleExamples,
+      includeSourceText: this.includeSourceText,
     });
     this.logger.info?.("风格迁移阶段", { processorName: this.processorName });
     const styleTransferClient = this.resolveClient("styleTransfer");

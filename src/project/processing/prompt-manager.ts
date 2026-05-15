@@ -57,6 +57,8 @@ export type StyleTransferPromptInput = {
   requirements: string[];
   styleRequirementsText?: string;
   styleExamples?: string[];
+  /** 是否注入原文；默认 true（保持原行为）。 */
+  includeSourceText?: boolean;
 };
 
 export type MultiStageEditorPromptInput = {
@@ -239,6 +241,7 @@ export class PromptManager {
       requirements: input.requirements,
       styleRequirementsText: resolveStyleRequirementsText(input.styleRequirementsText),
       styleExamples: input.styleExamples ?? [],
+      includeSourceText: input.includeSourceText,
       responseSchemaJson: JSON.stringify(responseSchema, null, 2),
     });
 

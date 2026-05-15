@@ -197,6 +197,9 @@ export class TranslationProcessorFactory {
             outputRepairer: options.outputRepairer,
             styleLibraryService: options.styleLibraryService,
             stepRequestOptions: options.stepRequestOptions,
+            includeSourceText: typeof options.workflowOptions?.includeSourceText === "boolean"
+              ? options.workflowOptions.includeSourceText
+              : undefined,
           });
         },
         metadata: {
@@ -218,6 +221,13 @@ export class TranslationProcessorFactory {
               section: "basic",
             },
             ...buildStyleTransferStepFields(),
+            {
+              key: "includeSourceText",
+              label: "注入原文（风格迁移）",
+              description: "关闭后风格迁移阶段只注入初译，不显示日文原文。",
+              input: "switch",
+              section: "advanced",
+            },
             {
               key: "slidingWindow.overlapChars",
               label: "滑窗重叠字符数",
