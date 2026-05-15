@@ -14,6 +14,7 @@
 
 import { ChatClient, EmbeddingClient, ManagedLlmClient } from "./base.ts";
 import { AnthropicChatClient } from "./anthropic-chat-client.ts";
+import { GeminiChatClient } from "./gemini-chat-client.ts";
 import {
   FallbackChatClient,
   type FallbackChatClientOptions,
@@ -169,6 +170,10 @@ export class LlmClientProvider {
 
       if (config.provider === "anthropic") {
         return new AnthropicChatClient(config, hooks);
+      }
+
+      if (config.provider === "gemini") {
+        return new GeminiChatClient(config, hooks);
       }
 
       throw new Error(`不支持的 Chat Provider: ${config.provider}`);

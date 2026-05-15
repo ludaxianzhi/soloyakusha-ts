@@ -251,6 +251,7 @@ export function SettingsView({
                             options={[
                               { label: 'OpenAI Compatible', value: 'openai' },
                               { label: 'Anthropic', value: 'anthropic' },
+                              { label: 'Gemini', value: 'gemini' },
                             ]}
                           />
                         </Form.Item>
@@ -368,18 +369,18 @@ export function SettingsView({
                   >
                     <Row gutter={16}>
                       <Col span={8}>
-                        <Form.Item
-                          name="provider"
-                          label="Provider"
-                          rules={[{ required: true }]}
-                        >
-                          <Select
-                            options={[
-                              { label: 'OpenAI Compatible', value: 'openai' },
-                              { label: 'Anthropic', value: 'anthropic' },
-                            ]}
-                          />
-                        </Form.Item>
+                      <Form.Item
+                        name="provider"
+                        label="Provider"
+                        rules={[{ required: true }]}
+                      >
+                        <Select
+                          options={[
+                            { label: 'OpenAI Compatible', value: 'openai' },
+                            { label: 'Anthropic', value: 'anthropic' },
+                          ]}
+                        />
+                      </Form.Item>
                       </Col>
                       <Col span={8}>
                         <Form.Item
@@ -476,18 +477,18 @@ export function SettingsView({
                       label="Provider"
                       rules={[{ required: true }]}
                     >
-                      <Select
-                        options={[
-                          { label: 'Qdrant', value: 'qdrant' },
-                          { label: 'Chroma', value: 'chroma' },
-                        ]}
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col span={8}>
-                    <Form.Item
-                      name="distance"
-                      label="距离度量"
+                          <Select
+                              options={[
+                                { label: 'Qdrant', value: 'qdrant' },
+                                { label: 'Chroma', value: 'chroma' },
+                              ]}
+                            />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item
+                        name="distance"
+                        label="距离度量"
                       rules={[{ required: true }]}
                       extra={
                         selectedVectorProvider === 'chroma'

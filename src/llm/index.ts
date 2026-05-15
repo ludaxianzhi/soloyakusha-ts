@@ -20,6 +20,7 @@
 
 export * from "./anthropic-chat-client.ts";
 export * from "./base.ts";
+export * from "./gemini-chat-client.ts";
 export * from "./chat-request.ts";
 export * from "./fallback-chat-client.ts";
 export * from "./history.ts";

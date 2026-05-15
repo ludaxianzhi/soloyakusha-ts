@@ -8,7 +8,7 @@
  * - 钩子类：RequestObserver、ClientHooks
  */
 
-export type LlmProvider = "openai" | "anthropic";
+export type LlmProvider = "openai" | "anthropic" | "gemini";
 
 export type LlmModelType = "chat" | "embedding";
 

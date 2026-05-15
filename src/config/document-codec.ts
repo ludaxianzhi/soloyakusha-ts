@@ -1550,7 +1550,7 @@ function normalizeLlmProvider(value: unknown, sourceLabel: string): LlmProvider 
     return "openai";
   }
 
-  if (value === "openai" || value === "anthropic") {
+  if (value === "openai" || value === "anthropic" || value === "gemini") {
     return value;
   }
 
