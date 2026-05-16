@@ -1438,7 +1438,8 @@ export class ProjectService {
   // ─── Lifecycle ──────────────────────────────────────
 
   async initializeProject(input: InitializeProjectInput): Promise<boolean> {
-    if (this.isBusy) {
+    const state = this.currentState;
+    if (state.isBusy) {
       this.log('warning', '正在执行其他操作，请稍候');
       return false;
     }
@@ -1458,7 +1459,7 @@ export class ProjectService {
       return true;
     }
 
-    this.isBusy = true;
+    state.isBusy = true;
 
     try {
       const configPath = join(normalizedDir, 'Data', 'workspace-config.json');
@@ -1602,7 +1603,7 @@ export class ProjectService {
       this.log('error', `初始化项目失败：${toMsg(error)}`);
       return false;
     } finally {
-      this.isBusy = false;
+      state.isBusy = false;
     }
   }
 
