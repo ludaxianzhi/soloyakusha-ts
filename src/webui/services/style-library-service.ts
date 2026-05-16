@@ -18,10 +18,6 @@ export class StyleLibraryService {
     this.service = options.service ?? new CoreStyleLibraryService();
   }
 
-  async listVectorStoreNames(): Promise<string[]> {
-    return await this.service.listVectorStoreNames();
-  }
-
   async listLibraries(): Promise<StyleLibraryCatalog> {
     return await this.service.listLibraries();
   }
@@ -48,21 +44,7 @@ export class StyleLibraryService {
     return await this.service.queryLibrary(name, text);
   }
 
-  async deleteLibrary(
-    name: string,
-    deleteCollection = true,
-  ): Promise<DeleteStyleLibraryResult> {
-    return await this.service.deleteLibrary({
-      libraryName: name,
-      deleteCollection,
-    });
-  }
-
-  async deleteExternalCollection(input: {
-    vectorStoreName: string;
-    collectionName: string;
-    deleteCollection?: boolean;
-  }): Promise<DeleteStyleLibraryResult> {
-    return await this.service.deleteLibrary(input);
+  async deleteLibrary(name: string): Promise<DeleteStyleLibraryResult> {
+    return await this.service.deleteLibrary(name);
   }
 }

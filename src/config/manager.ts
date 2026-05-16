@@ -485,12 +485,6 @@ export class GlobalConfigManager {
     return Object.keys((await this.loadDocument()).vector?.stores ?? {}).sort();
   }
 
-  async listStyleLibraryVectorStoreNames(): Promise<string[]> {
-    const names = new Set(await this.listVectorStoreNames());
-    names.add(BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME);
-    return Array.from(names).sort();
-  }
-
   async getDefaultVectorStoreName(): Promise<string | undefined> {
     return (await this.loadDocument()).vector?.defaultStoreName;
   }
@@ -611,14 +605,6 @@ export class GlobalConfigManager {
   ): Promise<PersistedStyleLibraryConfig> {
     validateStyleLibraryName(libraryName);
     const document = await this.loadDocument();
-    const vectorStores = document.vector?.stores ?? {};
-    if (
-      !vectorStores[config.vectorStoreName] &&
-      config.vectorStoreName !== BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME
-    ) {
-      throw new Error(`风格库引用了不存在的向量数据库配置: ${config.vectorStoreName}`);
-    }
-
     const styleLibraries = document.styleLibraries ?? { libraries: {} };
     const normalized = normalizePersistedStyleLibraryConfig(
       config,

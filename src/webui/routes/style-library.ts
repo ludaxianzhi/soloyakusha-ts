@@ -8,10 +8,6 @@ export function createStyleLibraryRoutes(styleLibraryService: StyleLibraryServic
     return c.json(await styleLibraryService.listLibraries());
   });
 
-  app.get('/vector-stores', async (c) => {
-    return c.json({ names: await styleLibraryService.listVectorStoreNames() });
-  });
-
   app.put('/:name', async (c) => {
     const body = await c.req.json();
     const library = await styleLibraryService.saveLibrary(c.req.param('name'), body);
@@ -44,26 +40,8 @@ export function createStyleLibraryRoutes(styleLibraryService: StyleLibraryServic
     return c.json(await styleLibraryService.queryLibrary(c.req.param('name'), text));
   });
 
-  app.delete('/external', async (c) => {
-    const body = await c.req.json<{
-      vectorStoreName?: string;
-      collectionName?: string;
-      deleteCollection?: boolean;
-    }>();
-    if (!body.vectorStoreName || !body.collectionName) {
-      return c.json({ error: '缺少 vectorStoreName 或 collectionName' }, 400);
-    }
-
-    return c.json(await styleLibraryService.deleteExternalCollection({
-      vectorStoreName: body.vectorStoreName,
-      collectionName: body.collectionName,
-      deleteCollection: body.deleteCollection,
-    }));
-  });
-
   app.delete('/:name', async (c) => {
-    const deleteCollection = parseBooleanQuery(c.req.query('deleteCollection'), true);
-    return c.json(await styleLibraryService.deleteLibrary(c.req.param('name'), deleteCollection));
+    return c.json(await styleLibraryService.deleteLibrary(c.req.param('name')));
   });
 
   return app;
@@ -76,12 +54,4 @@ function normalizeOptionalString(value: FormDataEntryValue | null): string | und
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function parseBooleanQuery(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined) {
-    return fallback;
-  }
-
-  return value === '1' || value.toLowerCase() === 'true';
 }

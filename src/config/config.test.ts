@@ -535,18 +535,12 @@ describe("GlobalConfigManager", () => {
 
     await manager.setStyleLibrary("jp-narration", {
       displayName: "日文叙事风格",
-      vectorStoreName: "memory",
-      collectionName: "stylelib__jp_narration",
       targetLanguage: "zh-CN",
       chunkLength: 400,
       embeddingFingerprint: "openai:text-embedding-3-small",
-      discoveryMode: "managed",
       managedByApp: true,
       createdAt: "2026-04-29T00:00:00.000Z",
       updatedAt: "2026-04-29T00:00:00.000Z",
-      metadata: {
-        resourceType: "style-library",
-      },
       sourceSummary: {
         fileCount: 2,
         chunkCount: 18,
@@ -557,22 +551,15 @@ describe("GlobalConfigManager", () => {
     expect(await reloaded.listStyleLibraryNames()).toEqual(["jp-narration"]);
     expect(await reloaded.getStyleLibrary("jp-narration")).toEqual({
       displayName: "日文叙事风格",
-      vectorStoreName: "memory",
-      collectionName: "stylelib__jp_narration",
       targetLanguage: "zh-CN",
       chunkLength: 400,
       embeddingFingerprint: "openai:text-embedding-3-small",
-      discoveryMode: "managed",
       managedByApp: true,
       createdAt: "2026-04-29T00:00:00.000Z",
       updatedAt: "2026-04-29T00:00:00.000Z",
-      metadata: {
-        resourceType: "style-library",
-      },
       sourceSummary: {
         fileCount: 2,
         chunkCount: 18,
-        characterCount: undefined,
       },
     });
 
@@ -580,13 +567,11 @@ describe("GlobalConfigManager", () => {
       styleLibraries?: {
         libraries?: {
           [key: string]: {
-            vectorStoreName?: string;
             chunkLength?: number;
           };
         };
       };
     };
-    expect(saved.styleLibraries?.libraries?.["jp-narration"]?.vectorStoreName).toBe("memory");
     expect(saved.styleLibraries?.libraries?.["jp-narration"]?.chunkLength).toBe(400);
   });
 
@@ -605,12 +590,9 @@ describe("GlobalConfigManager", () => {
       retries: 1,
     });
     await manager.setStyleLibrary("temp", {
-      vectorStoreName: "memory",
-      collectionName: "stylelib__temp",
       targetLanguage: "zh-CN",
       chunkLength: 256,
       embeddingFingerprint: "test-fingerprint",
-      discoveryMode: "managed",
       managedByApp: true,
       createdAt: "2026-04-29T00:00:00.000Z",
       updatedAt: "2026-04-29T00:00:00.000Z",

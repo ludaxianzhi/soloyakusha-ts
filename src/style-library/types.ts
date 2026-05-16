@@ -1,8 +1,4 @@
-import type { JsonObject } from "../llm/types.ts";
-import type {
-  PersistedStyleLibraryConfig,
-  StyleLibrarySourceSummary,
-} from "../config/types.ts";
+import type { StyleLibrarySourceSummary } from "../config/types.ts";
 import type { VectorSearchResult } from "../vector/types.ts";
 
 export const STYLE_LIBRARY_RESOURCE_TYPE = "style-library";
@@ -13,34 +9,24 @@ export type StyleLibraryEmbeddingState = "compatible" | "invalid" | "unknown";
 export type StyleLibrarySummary = {
   name: string;
   displayName?: string;
-  vectorStoreName: string;
-  collectionName: string;
   targetLanguage?: string;
   chunkLength?: number;
   embeddingFingerprint?: string;
   embeddingState: StyleLibraryEmbeddingState;
   invalidationReason?: string;
-  source: "registered" | "discovered";
-  discoveryMode: PersistedStyleLibraryConfig["discoveryMode"];
   managedByApp: boolean;
-  existsInVectorStore: boolean;
-  metadata?: JsonObject;
   sourceSummary?: StyleLibrarySourceSummary;
 };
 
 export type StyleLibraryCatalog = {
   libraries: StyleLibrarySummary[];
-  discoveryErrors: Record<string, string>;
 };
 
 export type CreateStyleLibraryInput = {
   displayName?: string;
-  vectorStoreName: string;
-  collectionName?: string;
   targetLanguage: string;
   chunkLength: number;
   managedByApp?: boolean;
-  metadata?: JsonObject;
 };
 
 export type ImportStyleLibraryInput = {
@@ -51,7 +37,6 @@ export type ImportStyleLibraryInput = {
 
 export type StyleLibraryImportResult = {
   libraryName: string;
-  collectionName: string;
   importedFiles: string[];
   skippedFiles: string[];
   chunkCount: number;
@@ -72,7 +57,6 @@ export type StyleLibraryQueryChunkResult = {
 
 export type StyleLibraryQueryResult = {
   libraryName: string;
-  collectionName: string;
   chunks: StyleLibraryQueryChunkResult[];
   matches: StyleLibraryChunkMatch[];
 };
@@ -82,6 +66,5 @@ export type StyleLibraryQueryOptions = {
 };
 
 export type DeleteStyleLibraryResult = {
-  removedRegistry: boolean;
-  removedCollection: boolean;
+  success: boolean;
 };

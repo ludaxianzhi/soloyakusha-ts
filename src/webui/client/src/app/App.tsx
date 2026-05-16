@@ -369,7 +369,6 @@ export function AppShell() {
   >([]);
   const [styleLibraryCatalog, setStyleLibraryCatalog] = useState<StyleLibraryCatalog>({
     libraries: [],
-    discoveryErrors: {},
   });
   const [proofreaders, setProofreaders] = useState<Record<string, ProofreaderEntry>>({});
   const [proofreadWorkflows, setProofreadWorkflows] = useState<
@@ -448,7 +447,7 @@ export function AppShell() {
   const styleLibraryOptions = useMemo(
     () =>
       styleLibraryCatalog.libraries
-        .filter((library) => library.existsInVectorStore && library.embeddingState !== 'invalid')
+        .filter((library) => library.embeddingState !== 'invalid')
         .map((library) => ({
           label: library.displayName ?? library.name,
           value: library.name,

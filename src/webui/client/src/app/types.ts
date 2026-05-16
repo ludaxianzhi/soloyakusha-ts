@@ -724,18 +724,12 @@ export interface VectorStoreConnectionStatus {
 export interface StyleLibrarySummary {
   name: string;
   displayName?: string;
-  vectorStoreName: string;
-  collectionName: string;
   targetLanguage?: string;
   chunkLength?: number;
   embeddingFingerprint?: string;
   embeddingState: 'compatible' | 'invalid' | 'unknown';
   invalidationReason?: string;
-  source: 'registered' | 'discovered';
-  discoveryMode: 'managed' | 'discovered';
   managedByApp: boolean;
-  existsInVectorStore: boolean;
-  metadata?: Record<string, unknown>;
   sourceSummary?: {
     fileCount?: number;
     chunkCount?: number;
@@ -745,22 +739,17 @@ export interface StyleLibrarySummary {
 
 export interface StyleLibraryCatalog {
   libraries: StyleLibrarySummary[];
-  discoveryErrors: Record<string, string>;
 }
 
 export interface CreateStyleLibraryInput {
   displayName?: string;
-  vectorStoreName: string;
-  collectionName?: string;
   targetLanguage: string;
   chunkLength: number;
   managedByApp?: boolean;
-  metadata?: Record<string, unknown>;
 }
 
 export interface StyleLibraryImportResult {
   libraryName: string;
-  collectionName: string;
   importedFiles: string[];
   skippedFiles: string[];
   chunkCount: number;
@@ -787,7 +776,6 @@ export interface StyleLibraryQueryChunkResult {
 
 export interface StyleLibraryQueryResult {
   libraryName: string;
-  collectionName: string;
   chunks: StyleLibraryQueryChunkResult[];
   matches: StyleLibraryChunkMatch[];
 }

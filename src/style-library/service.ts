@@ -19,7 +19,6 @@ import { GLOBAL_EMBEDDING_CLIENT_NAME } from "../project/config.ts";
 import type { TranslationUnit } from "../project/types.ts";
 import { VectorStoreClientProvider } from "../vector/provider.ts";
 import { VectorRetriever } from "../vector/retriever.ts";
-import type { VectorCollectionInfo } from "../vector/types.ts";
 import type { VectorStoreClient } from "../vector/base.ts";
 import { extractArchiveToDirectory } from "../webui/services/archive-extractor.ts";
 import type {
@@ -62,17 +61,6 @@ type SourceChunk = ChunkedText & {
   chunkIndex: number;
 };
 
-type DiscoveredCollection = {
-  vectorStoreName: string;
-  collection: VectorCollectionInfo;
-  styleLibraryName?: string;
-  targetLanguage?: string;
-  chunkLength?: number;
-  embeddingFingerprint?: string;
-  managedByApp: boolean;
-  metadata?: JsonObject;
-};
-
 const SUPPORTED_ARCHIVE_EXTENSIONS = new Set([".zip"]);
 const SUPPORTED_SINGLE_FILE_EXTENSIONS = new Set(["", ".txt", ".text", ".m3t", ".json"]);
 
@@ -82,6 +70,8 @@ export class StyleLibraryService {
   private readonly tempRootDir: string;
   private readonly embeddingClientResolver?: StyleLibraryServiceOptions["embeddingClientResolver"];
   private readonly vectorClientResolver?: StyleLibraryServiceOptions["vectorClientResolver"];
+  private vectorStoreProvider: VectorStoreClientProvider | null = null;
+  private vectorStoreClient: VectorStoreClient | null = null;
 
   constructor(options: StyleLibraryServiceOptions = {}) {
     this.manager = options.manager ?? new GlobalConfigManager();
@@ -91,91 +81,31 @@ export class StyleLibraryService {
     this.vectorClientResolver = options.vectorClientResolver;
   }
 
-  async listVectorStoreNames(): Promise<string[]> {
-    return await this.manager.listStyleLibraryVectorStoreNames();
-  }
-
   async listLibraries(): Promise<StyleLibraryCatalog> {
     const registered = (await this.manager.getStyleLibraryConfig())?.libraries ?? {};
-    const discoveryErrors: Record<string, string> = {};
     const currentEmbeddingState = await this.resolveCurrentEmbeddingState();
-    const discoveredByKey = new Map<string, DiscoveredCollection>();
 
-    for (const storeName of await this.listVectorStoreNames()) {
-      try {
-        const collections = await this.listStoreCollections(storeName);
-        for (const collection of collections) {
-          if (!isStyleLibraryCollection(collection)) {
-            continue;
-          }
-
-          const parsed = parseDiscoveredCollection(storeName, collection);
-          discoveredByKey.set(buildLibraryLocationKey(storeName, collection.name), parsed);
-        }
-      } catch (error) {
-        discoveryErrors[storeName] = error instanceof Error ? error.message : String(error);
-      }
-    }
-
-    const libraries: StyleLibrarySummary[] = [];
-    for (const [name, config] of Object.entries(registered)) {
-      const key = buildLibraryLocationKey(config.vectorStoreName, config.collectionName);
-      const discovered = discoveredByKey.get(key);
-      discoveredByKey.delete(key);
+    const libraries: StyleLibrarySummary[] = Object.entries(registered).map(([name, config]) => {
       const compatibility = evaluateEmbeddingCompatibility(
         config.embeddingFingerprint,
         currentEmbeddingState.fingerprint,
         currentEmbeddingState.available,
       );
-      libraries.push({
+      return {
         name,
         displayName: config.displayName,
-        vectorStoreName: config.vectorStoreName,
-        collectionName: config.collectionName,
         targetLanguage: config.targetLanguage,
         chunkLength: config.chunkLength,
         embeddingFingerprint: config.embeddingFingerprint,
         embeddingState: compatibility.state,
         invalidationReason: compatibility.reason,
-        source: "registered",
-        discoveryMode: config.discoveryMode,
         managedByApp: config.managedByApp,
-        existsInVectorStore: discovered !== undefined,
-        metadata: config.metadata ?? discovered?.metadata,
         sourceSummary: config.sourceSummary,
-      });
-    }
-
-    for (const discovered of discoveredByKey.values()) {
-      const compatibility = evaluateEmbeddingCompatibility(
-        discovered.embeddingFingerprint,
-        currentEmbeddingState.fingerprint,
-        currentEmbeddingState.available,
-      );
-      libraries.push({
-        name: discovered.styleLibraryName ?? discovered.collection.name,
-        displayName: undefined,
-        vectorStoreName: discovered.vectorStoreName,
-        collectionName: discovered.collection.name,
-        targetLanguage: discovered.targetLanguage,
-        chunkLength: discovered.chunkLength,
-        embeddingFingerprint: discovered.embeddingFingerprint,
-        embeddingState: compatibility.state,
-        invalidationReason: compatibility.reason,
-        source: "discovered",
-        discoveryMode: "discovered",
-        managedByApp: discovered.managedByApp,
-        existsInVectorStore: true,
-        metadata: discovered.metadata,
-        sourceSummary: undefined,
-      });
-    }
+      };
+    });
 
     libraries.sort((left, right) => left.name.localeCompare(right.name));
-    return {
-      libraries,
-      discoveryErrors,
-    };
+    return { libraries };
   }
 
   async createLibrary(
@@ -184,34 +114,27 @@ export class StyleLibraryService {
   ): Promise<StyleLibrarySummary> {
     const embeddingConfig = await this.manager.getResolvedEmbeddingConfig();
     const embeddingFingerprint = buildStyleLibraryEmbeddingFingerprint(embeddingConfig);
-    const collectionName = normalizeCollectionName(
-      input.collectionName ?? buildManagedStyleLibraryCollectionName(libraryName),
-    );
+    const collectionName = buildManagedStyleLibraryCollectionName(libraryName);
     const timestamp = this.now().toISOString();
     const persisted: PersistedStyleLibraryConfig = {
       displayName: input.displayName?.trim() || undefined,
-      vectorStoreName: input.vectorStoreName,
-      collectionName,
       targetLanguage: input.targetLanguage,
       chunkLength: input.chunkLength,
       embeddingFingerprint,
-      discoveryMode: "managed",
       managedByApp: input.managedByApp ?? true,
       createdAt: timestamp,
       updatedAt: timestamp,
-      metadata: input.metadata ? { ...input.metadata } : undefined,
       sourceSummary: undefined,
     };
 
     await this.withEmbeddingClient(async (embeddingClient) => {
       const dimension = await measureEmbeddingDimension(embeddingClient);
-      await this.withVectorStoreClient(persisted.vectorStoreName, async (vectorClient) => {
-        await vectorClient.ensureCollection({
-          name: persisted.collectionName,
-          dimension,
-          distance: "cosine",
-          metadata: buildCollectionMetadata(libraryName, persisted),
-        });
+      const vectorClient = await this.getOrCreateVectorStoreClient();
+      await vectorClient.ensureCollection({
+        name: collectionName,
+        dimension,
+        distance: "cosine",
+        metadata: buildCollectionMetadata(libraryName, persisted),
       });
     });
 
@@ -219,17 +142,11 @@ export class StyleLibraryService {
     return {
       name: libraryName,
       displayName: persisted.displayName,
-      vectorStoreName: persisted.vectorStoreName,
-      collectionName: persisted.collectionName,
       targetLanguage: persisted.targetLanguage,
       chunkLength: persisted.chunkLength,
       embeddingFingerprint: persisted.embeddingFingerprint,
       embeddingState: "compatible",
-      source: "registered",
-      discoveryMode: persisted.discoveryMode,
       managedByApp: persisted.managedByApp,
-      existsInVectorStore: true,
-      metadata: persisted.metadata,
       sourceSummary: persisted.sourceSummary,
     };
   }
@@ -240,6 +157,7 @@ export class StyleLibraryService {
   ): Promise<StyleLibraryImportResult> {
     const config = await this.manager.getRequiredStyleLibrary(libraryName);
     await this.assertLibraryCompatible(config);
+    const collectionName = buildManagedStyleLibraryCollectionName(libraryName);
 
     const tempDir = await mkdtemp(join(this.tempRootDir, "soloyakusha-style-library-"));
     try {
@@ -254,37 +172,36 @@ export class StyleLibraryService {
 
       await this.withEmbeddingClient(async (embeddingClient) => {
         const dimension = await measureEmbeddingDimension(embeddingClient);
-        await this.withVectorStoreClient(config.vectorStoreName, async (vectorClient) => {
-          const retriever = new VectorRetriever(vectorClient, embeddingClient, {
-            defaultCollectionName: config.collectionName,
-          });
-          await retriever.ensureCollection({
-            name: config.collectionName,
-            dimension,
-            distance: "cosine",
-            metadata: buildCollectionMetadata(libraryName, config),
-          });
-          await retriever.delete({
-            filter: {
+        const vectorClient = await this.getOrCreateVectorStoreClient();
+        const retriever = new VectorRetriever(vectorClient, embeddingClient, {
+          defaultCollectionName: collectionName,
+        });
+        await retriever.ensureCollection({
+          name: collectionName,
+          dimension,
+          distance: "cosine",
+          metadata: buildCollectionMetadata(libraryName, config),
+        });
+        await retriever.delete({
+          filter: {
+            resourceType: STYLE_LIBRARY_RESOURCE_TYPE,
+            styleLibraryName: libraryName,
+          },
+        });
+        await retriever.upsertTexts({
+          records: chunks.map((chunk) => ({
+            id: buildChunkId(libraryName, chunk.sourceFile, chunk.chunkIndex),
+            text: chunk.text,
+            document: chunk.text,
+            payload: {
               resourceType: STYLE_LIBRARY_RESOURCE_TYPE,
               styleLibraryName: libraryName,
+              sourceFile: chunk.sourceFile,
+              sourceFileIndex: chunk.sourceFileIndex,
+              chunkIndex: chunk.chunkIndex,
+              charCount: chunk.charCount,
             },
-          });
-          await retriever.upsertTexts({
-            records: chunks.map((chunk) => ({
-              id: buildChunkId(libraryName, chunk.sourceFile, chunk.chunkIndex),
-              text: chunk.text,
-              document: chunk.text,
-              payload: {
-                resourceType: STYLE_LIBRARY_RESOURCE_TYPE,
-                styleLibraryName: libraryName,
-                sourceFile: chunk.sourceFile,
-                sourceFileIndex: chunk.sourceFileIndex,
-                chunkIndex: chunk.chunkIndex,
-                charCount: chunk.charCount,
-              },
-            })),
-          });
+          })),
         });
       });
 
@@ -301,7 +218,6 @@ export class StyleLibraryService {
 
       return {
         libraryName,
-        collectionName: config.collectionName,
         importedFiles: parsedFiles.map((file) => file.relativePath),
         skippedFiles: files
           .map((file) => file.relativePath)
@@ -321,95 +237,78 @@ export class StyleLibraryService {
   ): Promise<StyleLibraryQueryResult> {
     const config = await this.manager.getRequiredStyleLibrary(libraryName);
     await this.assertLibraryCompatible(config);
+    const collectionName = buildManagedStyleLibraryCollectionName(libraryName);
     const chunks = splitTextIntoChunks(text, config.chunkLength);
     if (chunks.length === 0) {
       return {
         libraryName,
-        collectionName: config.collectionName,
         chunks: [],
         matches: [],
       };
     }
 
     return await this.withEmbeddingClient(async (embeddingClient) => {
-      return await this.withVectorStoreClient(config.vectorStoreName, async (vectorClient) => {
-        const retriever = new VectorRetriever(vectorClient, embeddingClient, {
-          defaultCollectionName: config.collectionName,
-        });
-        const topKPerChunk =
-          options.topKPerChunk === "source-ratio"
-            ? Math.max(1, chunks.length)
-            : Math.max(1, Math.floor(options.topKPerChunk ?? 1));
-        const chunkResults: StyleLibraryQueryChunkResult[] = [];
-        for (const [chunkIndex, chunk] of chunks.entries()) {
-          const matches = (await retriever.searchText({
-            text: chunk.text,
-            topK: topKPerChunk,
-            filter: {
-              resourceType: STYLE_LIBRARY_RESOURCE_TYPE,
-              styleLibraryName: libraryName,
-            },
-          })).map((match) => ({
-            ...match,
-            chunkIndex,
-            queryText: chunk.text,
-          }));
-          chunkResults.push({
-            chunkIndex,
-            text: chunk.text,
-            charCount: chunk.charCount,
-            matches,
-          });
-        }
-
-        return {
-          libraryName,
-          collectionName: config.collectionName,
-          chunks: chunkResults,
-          matches: chunkResults.flatMap((chunk) => chunk.matches),
-        };
+      const vectorClient = await this.getOrCreateVectorStoreClient();
+      const retriever = new VectorRetriever(vectorClient, embeddingClient, {
+        defaultCollectionName: collectionName,
       });
+      const topKPerChunk =
+        options.topKPerChunk === "source-ratio"
+          ? Math.max(1, chunks.length)
+          : Math.max(1, Math.floor(options.topKPerChunk ?? 1));
+      const chunkResults: StyleLibraryQueryChunkResult[] = [];
+      for (const [chunkIndex, chunk] of chunks.entries()) {
+        const matches = (await retriever.searchText({
+          text: chunk.text,
+          topK: topKPerChunk,
+          filter: {
+            resourceType: STYLE_LIBRARY_RESOURCE_TYPE,
+            styleLibraryName: libraryName,
+          },
+        })).map((match) => ({
+          ...match,
+          chunkIndex,
+          queryText: chunk.text,
+        }));
+        chunkResults.push({
+          chunkIndex,
+          text: chunk.text,
+          charCount: chunk.charCount,
+          matches,
+        });
+      }
+
+      return {
+        libraryName,
+        chunks: chunkResults,
+        matches: chunkResults.flatMap((chunk) => chunk.matches),
+      };
     });
   }
 
-  async deleteLibrary(
-    selector:
-      | { libraryName: string; deleteCollection?: boolean }
-      | { vectorStoreName: string; collectionName: string; deleteCollection?: boolean },
-  ): Promise<DeleteStyleLibraryResult> {
-    if ("libraryName" in selector) {
-      const config = await this.manager.getStyleLibrary(selector.libraryName);
-      const removedRegistry = await this.manager.removeStyleLibrary(selector.libraryName);
-      let removedCollection = false;
-      if (config && selector.deleteCollection !== false) {
-        removedCollection = await this.deleteCollection(config.vectorStoreName, config.collectionName);
+  async deleteLibrary(libraryName: string): Promise<DeleteStyleLibraryResult> {
+    const config = await this.manager.getStyleLibrary(libraryName);
+    const removedRegistry = await this.manager.removeStyleLibrary(libraryName);
+    if (config) {
+      const collectionName = buildManagedStyleLibraryCollectionName(libraryName);
+      try {
+        const vectorClient = await this.getOrCreateVectorStoreClient();
+        await vectorClient.deleteCollection({ collectionName });
+      } catch {
+        // 集合可能已被删除
       }
-      return {
-        removedRegistry,
-        removedCollection,
-      };
     }
-
-    return {
-      removedRegistry: false,
-      removedCollection:
-        selector.deleteCollection === false
-          ? false
-          : await this.deleteCollection(selector.vectorStoreName, selector.collectionName),
-    };
+    return { success: removedRegistry };
   }
 
-  private async deleteCollection(
-    vectorStoreName: string,
-    collectionName: string,
-  ): Promise<boolean> {
-    try {
-      await this.withVectorStoreClient(vectorStoreName, async (vectorClient) => {
-        await vectorClient.deleteCollection({ collectionName });
-      });
-      return true;
-    } catch {
-      return false;
+  /**
+   * 释放缓存的向量存储客户端连接。在批量翻译会话结束后调用。
+   */
+  async releaseVectorStoreClients(): Promise<void> {
+    if (this.vectorStoreProvider) {
+      await this.vectorStoreProvider.closeAll();
+      this.vectorStoreProvider = null;
+      this.vectorStoreClient = null;
     }
   }
 
@@ -471,10 +370,6 @@ export class StyleLibraryService {
     return parsed;
   }
 
-  private async listStoreCollections(storeName: string): Promise<VectorCollectionInfo[]> {
-    return await this.withVectorStoreClient(storeName, (vectorClient) => vectorClient.listCollections());
-  }
-
   private async assertLibraryCompatible(config: PersistedStyleLibraryConfig): Promise<void> {
     const current = await this.resolveCurrentEmbeddingState();
     const compatibility = evaluateEmbeddingCompatibility(
@@ -504,6 +399,29 @@ export class StyleLibraryService {
     };
   }
 
+  private async getOrCreateVectorStoreClient(): Promise<VectorStoreClient> {
+    if (this.vectorStoreClient && this.vectorStoreProvider) {
+      return this.vectorStoreClient;
+    }
+
+    const config = await this.manager.getResolvedStyleLibraryVectorStoreConfig(
+      BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME,
+    );
+
+    if (this.vectorClientResolver) {
+      this.vectorStoreClient = await this.vectorClientResolver(
+        BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME,
+        config as unknown as { provider: string } & JsonObject,
+      );
+      return this.vectorStoreClient;
+    }
+
+    this.vectorStoreProvider = new VectorStoreClientProvider();
+    this.vectorStoreProvider.register(BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME, config);
+    this.vectorStoreClient = this.vectorStoreProvider.getClient(BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME);
+    return this.vectorStoreClient;
+  }
+
   private async withEmbeddingClient<T>(
     operation: (client: EmbeddingClient) => Promise<T>,
   ): Promise<T> {
@@ -516,24 +434,6 @@ export class StyleLibraryService {
     provider.register(GLOBAL_EMBEDDING_CLIENT_NAME, config);
     try {
       return await operation(provider.getEmbeddingClient(GLOBAL_EMBEDDING_CLIENT_NAME));
-    } finally {
-      await provider.closeAll();
-    }
-  }
-
-  private async withVectorStoreClient<T>(
-    storeName: string,
-    operation: (client: VectorStoreClient) => Promise<T>,
-  ): Promise<T> {
-    const config = await this.manager.getResolvedStyleLibraryVectorStoreConfig(storeName);
-    if (this.vectorClientResolver) {
-      return await operation(await this.vectorClientResolver(storeName, config as unknown as { provider: string } & JsonObject));
-    }
-
-    const provider = new VectorStoreClientProvider();
-    provider.register(storeName, config);
-    try {
-      return await operation(provider.getClient(storeName));
     } finally {
       await provider.closeAll();
     }
@@ -615,45 +515,7 @@ function buildCollectionMetadata(
     chunkLength: config.chunkLength,
     embeddingFingerprint: config.embeddingFingerprint,
     managedByApp: config.managedByApp,
-    discoveryMode: config.discoveryMode,
-    ...(config.metadata ?? {}),
   };
-}
-
-function parseDiscoveredCollection(
-  vectorStoreName: string,
-  collection: VectorCollectionInfo,
-): DiscoveredCollection {
-  const metadata = collection.metadata;
-  return {
-    vectorStoreName,
-    collection,
-    styleLibraryName:
-      readStringField(metadata, "styleLibraryName") ??
-      deriveLibraryNameFromCollection(collection.name),
-    targetLanguage: readStringField(metadata, "targetLanguage"),
-    chunkLength: readNumberField(metadata, "chunkLength"),
-    embeddingFingerprint: readStringField(metadata, "embeddingFingerprint"),
-    managedByApp: readBooleanField(metadata, "managedByApp") ?? false,
-    metadata,
-  };
-}
-
-function buildLibraryLocationKey(vectorStoreName: string, collectionName: string): string {
-  return `${vectorStoreName}::${collectionName}`;
-}
-
-function isStyleLibraryCollection(collection: VectorCollectionInfo): boolean {
-  return (
-    readStringField(collection.metadata, "resourceType") === STYLE_LIBRARY_RESOURCE_TYPE ||
-    collection.name.startsWith(STYLE_LIBRARY_COLLECTION_PREFIX)
-  );
-}
-
-function deriveLibraryNameFromCollection(collectionName: string): string {
-  return collectionName.startsWith(STYLE_LIBRARY_COLLECTION_PREFIX)
-    ? collectionName.slice(STYLE_LIBRARY_COLLECTION_PREFIX.length)
-    : collectionName;
 }
 
 function evaluateEmbeddingCompatibility(
@@ -807,15 +669,6 @@ function splitOversizedLine(line: string, chunkLength: number): string[] {
   return parts;
 }
 
-function normalizeCollectionName(collectionName: string): string {
-  const trimmed = collectionName.trim();
-  if (!trimmed) {
-    throw new Error("collectionName 不能为空字符串");
-  }
-
-  return trimmed;
-}
-
 function sanitizeFileName(fileName: string): string {
   const normalized = fileName.trim().replace(/[/\\:*?"<>|]+/g, "-");
   return normalized.length > 0 ? normalized : "upload.txt";
@@ -829,17 +682,3 @@ function toArrayBuffer(content: Uint8Array | ArrayBuffer): ArrayBuffer {
   return Uint8Array.from(content).buffer;
 }
 
-function readStringField(metadata: JsonObject | undefined, key: string): string | undefined {
-  const value = metadata?.[key];
-  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
-
-function readNumberField(metadata: JsonObject | undefined, key: string): number | undefined {
-  const value = metadata?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function readBooleanField(metadata: JsonObject | undefined, key: string): boolean | undefined {
-  const value = metadata?.[key];
-  return typeof value === "boolean" ? value : undefined;
-}

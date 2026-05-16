@@ -36,7 +36,6 @@ import type {
   PersistedLlmRequestConfig,
   PersistedStyleLibraryConfig,
   PersistedVectorStoreConfig,
-  StyleLibraryDiscoveryMode,
   StyleLibrarySourceSummary,
   TranslatorMetadata,
   TranslatorEntry,
@@ -630,22 +629,15 @@ export function normalizePersistedStyleLibraryConfig(
 
   return {
     displayName: readOptionalStringAllowEmpty(value.displayName, `${sourceLabel}.displayName`)?.trim() || undefined,
-    vectorStoreName: readRequiredString(value.vectorStoreName, `${sourceLabel}.vectorStoreName`),
-    collectionName: readRequiredString(value.collectionName, `${sourceLabel}.collectionName`),
     targetLanguage: readRequiredString(value.targetLanguage, `${sourceLabel}.targetLanguage`),
     chunkLength: readPositiveInteger(value.chunkLength, `${sourceLabel}.chunkLength`),
     embeddingFingerprint: readRequiredString(
       value.embeddingFingerprint,
       `${sourceLabel}.embeddingFingerprint`,
     ),
-    discoveryMode: normalizeStyleLibraryDiscoveryMode(
-      value.discoveryMode,
-      `${sourceLabel}.discoveryMode`,
-    ),
     managedByApp: readOptionalBoolean(value.managedByApp, `${sourceLabel}.managedByApp`) ?? true,
     createdAt: normalizeIsoDateString(value.createdAt, `${sourceLabel}.createdAt`),
     updatedAt: normalizeIsoDateString(value.updatedAt, `${sourceLabel}.updatedAt`),
-    metadata: normalizeOptionalJsonObject(value.metadata, `${sourceLabel}.metadata`),
     sourceSummary: normalizeOptionalStyleLibrarySourceSummary(
       value.sourceSummary,
       `${sourceLabel}.sourceSummary`,
@@ -1240,16 +1232,12 @@ export function clonePersistedStyleLibraryConfig(
 ): PersistedStyleLibraryConfig {
   return {
     displayName: config.displayName,
-    vectorStoreName: config.vectorStoreName,
-    collectionName: config.collectionName,
     targetLanguage: config.targetLanguage,
     chunkLength: config.chunkLength,
     embeddingFingerprint: config.embeddingFingerprint,
-    discoveryMode: config.discoveryMode,
     managedByApp: config.managedByApp,
     createdAt: config.createdAt,
     updatedAt: config.updatedAt,
-    metadata: config.metadata ? cloneJsonObject(config.metadata) : undefined,
     sourceSummary: config.sourceSummary ? { ...config.sourceSummary } : undefined,
   };
 }
@@ -1790,21 +1778,6 @@ function readOptionalBoolean(value: unknown, sourceLabel: string): boolean | und
   }
 
   return value;
-}
-
-function normalizeStyleLibraryDiscoveryMode(
-  value: unknown,
-  sourceLabel: string,
-): StyleLibraryDiscoveryMode {
-  if (value === undefined) {
-    return "managed";
-  }
-
-  if (value === "managed" || value === "discovered") {
-    return value;
-  }
-
-  throw new Error(`style library discoveryMode 非法: ${sourceLabel}`);
 }
 
 function normalizeOptionalStyleLibrarySourceSummary(

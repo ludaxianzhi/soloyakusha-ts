@@ -646,8 +646,6 @@ downloadChaptersExport: (chapterIds: number[], format: string, params?: Record<s
     ),
   getStyleLibraries: () =>
     request<StyleLibraryCatalog>('/api/style-libraries'),
-  getStyleLibraryVectorStores: () =>
-    request<{ names: string[] }>('/api/style-libraries/vector-stores'),
   saveStyleLibrary: (name: string, input: CreateStyleLibraryInput) =>
     request('/api/style-libraries/' + encodeURIComponent(name), {
       method: 'PUT',
@@ -675,23 +673,11 @@ downloadChaptersExport: (chapterIds: number[], format: string, params?: Record<s
         body: { text },
       },
     ),
-  deleteStyleLibrary: (name: string, deleteCollection = true) =>
-    request<{ removedRegistry: boolean; removedCollection: boolean }>(
-      '/api/style-libraries/' + encodeURIComponent(name) + buildQueryString({ deleteCollection: deleteCollection ? 1 : 0 }),
+  deleteStyleLibrary: (name: string) =>
+    request<{ success: boolean }>(
+      '/api/style-libraries/' + encodeURIComponent(name),
       {
         method: 'DELETE',
-      },
-    ),
-  deleteExternalStyleLibrary: (input: {
-    vectorStoreName: string;
-    collectionName: string;
-    deleteCollection?: boolean;
-  }) =>
-    request<{ removedRegistry: boolean; removedCollection: boolean }>(
-      '/api/style-libraries/external',
-      {
-        method: 'DELETE',
-        body: input,
       },
     ),
 

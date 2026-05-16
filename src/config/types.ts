@@ -88,20 +88,14 @@ export type StyleLibrarySourceSummary = {
   characterCount?: number;
 };
 
-export type StyleLibraryDiscoveryMode = "managed" | "discovered";
-
 export type PersistedStyleLibraryConfig = {
   displayName?: string;
-  vectorStoreName: string;
-  collectionName: string;
   targetLanguage: string;
   chunkLength: number;
   embeddingFingerprint: string;
-  discoveryMode: StyleLibraryDiscoveryMode;
   managedByApp: boolean;
   createdAt: string;
   updatedAt: string;
-  metadata?: JsonObject;
   sourceSummary?: StyleLibrarySourceSummary;
 };
 

@@ -6,9 +6,7 @@ import { join } from "node:path";
 import { GlobalConfigManager } from "../config/manager.ts";
 import { EmbeddingClient } from "../llm/base.ts";
 import type { LlmClientConfig } from "../llm/types.ts";
-import { VectorStoreClientProvider } from "../vector/provider.ts";
 import {
-  BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME,
   buildManagedStyleLibraryCollectionName,
   buildStyleLibraryEmbeddingFingerprint,
   splitTextIntoChunks,
@@ -17,7 +15,7 @@ import {
 import { STYLE_LIBRARY_COLLECTION_PREFIX } from "./types.ts";
 
 describe("StyleLibraryService", () => {
-  test("creates, imports, queries, and discovers managed libraries", async () => {
+  test("creates, imports, and queries managed libraries", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-style-library-"));
     const manager = new GlobalConfigManager({ filePath: join(workspaceDir, "config.json") });
     await manager.setEmbeddingConfig(createEmbeddingConfig("embed-a"));
@@ -37,11 +35,11 @@ describe("StyleLibraryService", () => {
 
     try {
       const created = await service.createLibrary("campus-style", {
-        vectorStoreName: "memory",
         targetLanguage: "zh-CN",
         chunkLength: 8,
       });
-      expect(created.collectionName).toBe(`${STYLE_LIBRARY_COLLECTION_PREFIX}campus_style`);
+      expect(created.name).toBe("campus-style");
+      expect(created.embeddingState).toBe("compatible");
 
       const imported = await service.importLibrary("campus-style", {
         fileName: "sample.txt",
@@ -55,15 +53,13 @@ describe("StyleLibraryService", () => {
       expect(query.matches[0]?.document).toContain("校园");
 
       const catalog = await service.listLibraries();
-      expect(catalog.discoveryErrors).toEqual({});
       expect(catalog.libraries).toHaveLength(1);
       expect(catalog.libraries[0]).toMatchObject({
         name: "campus-style",
-        source: "registered",
         embeddingState: "compatible",
-        existsInVectorStore: true,
       });
     } finally {
+      await service.releaseVectorStoreClients();
       await rm(workspaceDir, { recursive: true, force: true });
     }
   });
@@ -81,12 +77,10 @@ describe("StyleLibraryService", () => {
 
     try {
       const created = await service.createLibrary("builtin-memory-style", {
-        vectorStoreName: BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME,
         targetLanguage: "zh-CN",
         chunkLength: 8,
       });
-
-      expect(created.vectorStoreName).toBe(BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME);
+      expect(created.name).toBe("builtin-memory-style");
 
       await service.importLibrary("builtin-memory-style", {
         fileName: "sample.txt",
@@ -99,11 +93,10 @@ describe("StyleLibraryService", () => {
       const catalog = await service.listLibraries();
       expect(catalog.libraries).toContainEqual(expect.objectContaining({
         name: "builtin-memory-style",
-        vectorStoreName: BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME,
-        source: "registered",
-        existsInVectorStore: true,
+        embeddingState: "compatible",
       }));
     } finally {
+      await service.releaseVectorStoreClients();
       await rm(workspaceDir, { recursive: true, force: true });
     }
   });
@@ -128,7 +121,6 @@ describe("StyleLibraryService", () => {
 
     try {
       await service.createLibrary("dialog-style", {
-        vectorStoreName: "memory",
         targetLanguage: "zh-CN",
         chunkLength: 32,
       });
@@ -155,6 +147,7 @@ describe("StyleLibraryService", () => {
       const query = await service.queryLibrary("dialog-style", "晨光映在走廊里");
       expect(query.matches[0]?.document).toContain("晨光轻轻落下");
     } finally {
+      await service.releaseVectorStoreClients();
       await rm(workspaceDir, { recursive: true, force: true });
     }
   });
@@ -179,7 +172,6 @@ describe("StyleLibraryService", () => {
 
     try {
       await service.createLibrary("invalid-test", {
-        vectorStoreName: "memory",
         targetLanguage: "zh-CN",
         chunkLength: 10,
       });
@@ -194,11 +186,12 @@ describe("StyleLibraryService", () => {
       expect(catalog.libraries[0]?.embeddingState).toBe("invalid");
       await expect(service.queryLibrary("invalid-test", "校园")).rejects.toThrow("风格库绑定的嵌入模型与当前全局嵌入模型不一致");
     } finally {
+      await service.releaseVectorStoreClients();
       await rm(workspaceDir, { recursive: true, force: true });
     }
   });
 
-  test("discovers external style library collections by prefix fallback", async () => {
+  test("reuses vector store client across multiple queries", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-style-library-"));
     const manager = new GlobalConfigManager({ filePath: join(workspaceDir, "config.json") });
     await manager.setEmbeddingConfig(createEmbeddingConfig("embed-a"));
@@ -217,52 +210,27 @@ describe("StyleLibraryService", () => {
     });
 
     try {
-      await manager.setStyleLibrary("registered", {
-        displayName: "已注册",
-        vectorStoreName: "memory",
-        collectionName: "stylelib__registered",
+      await service.createLibrary("reuse-test", {
         targetLanguage: "zh-CN",
-        chunkLength: 32,
-        embeddingFingerprint: buildStyleLibraryEmbeddingFingerprint(createEmbeddingConfig("embed-a")),
-        discoveryMode: "managed",
-        managedByApp: true,
-        createdAt: "2026-04-29T00:00:00.000Z",
-        updatedAt: "2026-04-29T00:00:00.000Z",
+        chunkLength: 10,
+      });
+      await service.importLibrary("reuse-test", {
+        fileName: "sample.txt",
+        content: new TextEncoder().encode("校园\n微风\n铃声\n"),
       });
 
-      const directVectorService = new StyleLibraryService({
-        manager,
-        tempRootDir: workspaceDir,
-        embeddingClientResolver: async () => new FakeEmbeddingClient(createEmbeddingConfig("embed-a")),
-      });
-      await directVectorService.createLibrary("registered", {
-        vectorStoreName: "memory",
-        targetLanguage: "zh-CN",
-        chunkLength: 32,
-        collectionName: "stylelib__registered",
-      });
-      await directVectorService.deleteLibrary({ libraryName: "registered", deleteCollection: false });
+      // Multiple queries should reuse the same vector store client
+      const first = await service.queryLibrary("reuse-test", "校园里很安静");
+      const second = await service.queryLibrary("reuse-test", "微风拂面");
+      expect(first.matches.length).toBeGreaterThan(0);
+      expect(second.matches.length).toBeGreaterThan(0);
 
-      const provider = new VectorStoreClientProvider();
-      provider.register("memory", await manager.getResolvedVectorStoreConfig("memory"));
-      try {
-        const client = provider.getClient("memory");
-        await client.ensureCollection({
-          name: "stylelib__external_lib",
-          dimension: 4,
-        });
-      } finally {
-        await provider.closeAll();
-      }
-
-      const catalog = await service.listLibraries();
-      const discovered = catalog.libraries.find((item) => item.source === "discovered");
-      expect(discovered).toMatchObject({
-        name: "external_lib",
-        collectionName: "stylelib__external_lib",
-        embeddingState: "unknown",
-      });
+      // After releasing, queries still work (creates new client)
+      await service.releaseVectorStoreClients();
+      const third = await service.queryLibrary("reuse-test", "铃声响起");
+      expect(third.matches.length).toBeGreaterThan(0);
     } finally {
+      await service.releaseVectorStoreClients();
       await rm(workspaceDir, { recursive: true, force: true });
     }
   });
