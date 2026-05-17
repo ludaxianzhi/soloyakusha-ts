@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { keepSourceNameInTarget } from "./base.ts";
 import { TranslationFileHandlerFactory } from "./factory.ts";
 import { DblTp1FileHandler } from "./dbl-tp1-file-handler.ts";
+import { DblTp2FileHandler } from "./dbl-tp2-file-handler.ts";
 import { GaltranslJsonFileHandler } from "./galtransl-json-file-handler.ts";
 import { NdWithMetaFileHandler } from "./nd-with-meta-file-handler.ts";
 import { NatureDialogFileHandler } from "./nature-dialog-file-handler.ts";
@@ -450,6 +451,220 @@ describe("file handlers", () => {
       expect(parsed.units[0]!.source).toBe("hello");
       expect(parsed.units[0]!.target).toEqual([]);
       expect(parsed.units[0]!.metadata).toEqual({ source: "▷000001◁" });
+    });
+  });
+
+  describe("dbl_tp2 handler", () => {
+    test("parses standalone R entry without name", () => {
+      const handler = new DblTp2FileHandler();
+      const content = "☆000000R☆少しだけ素直に\n★000000R★少しだけ素直に\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(1);
+      expect(parsed.units[0]!.source).toBe("少しだけ素直に");
+      expect(parsed.units[0]!.target).toEqual(["少しだけ素直に"]);
+      expect(parsed.units[0]!.metadata).toEqual({ source: "☆000000R☆", target: "★000000R★" });
+    });
+
+    test("merges N entry with following T entry", () => {
+      const handler = new DblTp2FileHandler();
+      const content =
+        "☆000001N☆{fn}\n" +
+        "★000001N☆{fn}\n" +
+        "\n" +
+        "☆000002T☆「んんぅ……ふぁ……」\\r\\n\n" +
+        "★000002T☆「んんぅ……ふぁ……」\\r\\n\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(1);
+      expect(parsed.units[0]!.source).toBe("【{fn}】「んんぅ……ふぁ……」\\r\\n");
+      expect(parsed.units[0]!.target).toEqual(["【{fn}】「んんぅ……ふぁ……」\\r\\n"]);
+      expect(parsed.units[0]!.metadata).toEqual({
+        source: "☆000002T☆",
+        target: "★000002T☆",
+        nameSource: "☆000001N☆",
+        nameTarget: "★000001N☆",
+      });
+    });
+
+    test("does not merge name with non-consecutive T entry", () => {
+      const handler = new DblTp2FileHandler();
+      const content =
+        "☆000001N☆{fn}\n" +
+        "★000001N☆{fn}\n" +
+        "\n" +
+        "☆000002T☆text1\\r\\n\n" +
+        "★000002T☆text1\\r\\n\n" +
+        "\n" +
+        "☆000003T☆text2\\r\\n\n" +
+        "★000003T☆text2\\r\\n\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(2);
+      expect(parsed.units[0]!.source).toBe("【{fn}】text1\\r\\n");
+      expect(parsed.units[1]!.source).toBe("text2\\r\\n");
+    });
+
+    test("handles multiple name entries in sequence", () => {
+      const handler = new DblTp2FileHandler();
+      const content =
+        "☆000001N☆Alice\n" +
+        "★000001N☆アリス\n" +
+        "\n" +
+        "☆000002T☆Hello\n" +
+        "★000002T☆こんにちは\n" +
+        "\n" +
+        "☆000003N☆Bob\n" +
+        "★000003N☆ボブ\n" +
+        "\n" +
+        "☆000004T☆Goodbye\n" +
+        "★000004T☆さようなら\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(2);
+      expect(parsed.units[0]!.source).toBe("【Alice】Hello");
+      expect(parsed.units[1]!.source).toBe("【Bob】Goodbye");
+    });
+
+    test("round-trips parse and format preserving structure", () => {
+      const handler = new DblTp2FileHandler();
+      const input =
+        "☆000000R☆タイトル\n" +
+        "★000000R★タイトル\n" +
+        "\n" +
+        "☆000001N☆Alice\n" +
+        "★000001N☆アリス\n" +
+        "\n" +
+        "☆000002T☆Hello\\r\\n\n" +
+        "★000002T☆こんにちは\\r\\n";
+
+      const parsed = handler.parseTranslationDocument(input);
+      const output = handler.formatTranslationUnits(parsed.units);
+      expect(output).toBe(input);
+    });
+
+    test("supports custom regex patterns", () => {
+      const handler = new DblTp2FileHandler();
+      handler.applyParams({
+        sourceMetaRegex: "@\\d+\\w@",
+        targetMetaRegex: "#\\d+\\w#",
+        nameMetaRegex: "\\d+N",
+      });
+      const content =
+        "@000001N@Alice\n" +
+        "#000001N#Alice\n" +
+        "\n" +
+        "@000002T@Hello\n" +
+        "#000002T#こんにちは\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(1);
+      expect(parsed.units[0]!.source).toBe("【Alice】Hello");
+      expect(parsed.units[0]!.target).toEqual(["【Alice】こんにちは"]);
+    });
+
+    test("writes and reads files correctly", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "soloyakusha-dbltp2-"));
+      cleanupTargets.push(dir);
+
+      const filePath = join(dir, "dialog.txt");
+      const handler = new DblTp2FileHandler();
+      await handler.writeTranslationUnits(filePath, [
+        {
+          source: "【Alice】Hello\\r\\n",
+          target: ["【Alice】こんにちは\\r\\n"],
+          metadata: { source: "☆000001T☆", target: "★000001T☆", nameSource: "☆000000N☆", nameTarget: "★000000N☆" },
+        },
+      ]);
+
+      const units = await handler.readTranslationUnits(filePath);
+      expect(units).toHaveLength(1);
+      expect(units[0]!.source).toBe("【Alice】Hello\\r\\n");
+      expect(units[0]!.target).toEqual(["【Alice】こんにちは\\r\\n"]);
+    });
+
+    test("keeps source name on export when keepSourceName is true", () => {
+      const handler = new DblTp2FileHandler();
+      handler.applyParams({ keepSourceName: true });
+
+      const result = handler.formatTranslationUnits([
+        {
+          source: "【Alice】Hello",
+          target: ["【アリス】こんにちは"],
+          metadata: {
+            source: "☆000001T☆",
+            target: "★000001T☆",
+            nameSource: "☆000000N☆",
+            nameTarget: "★000000N☆",
+          },
+        },
+      ]);
+
+      const lines = result.split("\n");
+      expect(lines[0]).toBe("☆000000N☆Alice");
+      expect(lines[1]).toBe("★000000N☆Alice");
+    });
+
+    test("keeps target name on export when keepSourceName is false", () => {
+      const handler = new DblTp2FileHandler();
+      handler.applyParams({ keepSourceName: false });
+
+      const result = handler.formatTranslationUnits([
+        {
+          source: "【Alice】Hello",
+          target: ["【アリス】こんにちは"],
+          metadata: {
+            source: "☆000001T☆",
+            target: "★000001T☆",
+            nameSource: "☆000000N☆",
+            nameTarget: "★000000N☆",
+          },
+        },
+      ]);
+
+      const lines = result.split("\n");
+      expect(lines[0]).toBe("☆000000N☆Alice");
+      expect(lines[1]).toBe("★000000N☆アリス");
+    });
+
+    test("handles standalone message entry without name", () => {
+      const handler = new DblTp2FileHandler();
+      const content = "☆000001T☆plain text\n★000001T☆訳文\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(1);
+      expect(parsed.units[0]!.source).toBe("plain text");
+      expect(parsed.units[0]!.target).toEqual(["訳文"]);
+    });
+
+    test("retrieves handler through factory", () => {
+      const handler = TranslationFileHandlerFactory.getHandler("dbl_tp2");
+      expect(handler).toBeInstanceOf(DblTp2FileHandler);
+      expect(handler.formatName).toBe("dbl_tp2");
+    });
+
+    test("handles source-only entries (no target)", () => {
+      const handler = new DblTp2FileHandler();
+      const content = "☆000001T☆only source\n";
+
+      const parsed = handler.parseTranslationDocument(content);
+      expect(parsed.units).toHaveLength(1);
+      expect(parsed.units[0]!.source).toBe("only source");
+      expect(parsed.units[0]!.target).toEqual([]);
+    });
+
+    test("assigns imported metadata on export", () => {
+      const handler = new DblTp2FileHandler();
+      const input =
+        "☆000001N☆Alice\n" +
+        "★000001N☆Alice\n" +
+        "\n" +
+        "☆000002T☆Hello\\r\\n\n" +
+        "★000002T☆World\\r\\n";
+
+      const parsed = handler.parseTranslationDocument(input);
+      const output = handler.formatTranslationUnits(parsed.units);
+      expect(output).toBe(input);
     });
   });
 });

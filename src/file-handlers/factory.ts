@@ -13,6 +13,7 @@ import { extname } from "node:path";
 import type { FileHandlerParamDef, TranslationFileHandlerResolver } from "./base.ts";
 import { TranslationFileHandler } from "./base.ts";
 import { DblTp1FileHandler } from "./dbl-tp1-file-handler.ts";
+import { DblTp2FileHandler } from "./dbl-tp2-file-handler.ts";
 import { GaltranslJsonFileHandler } from "./galtransl-json-file-handler.ts";
 import { M3TFileHandler } from "./m3t-file-handler.ts";
 import { NdWithMetaFileHandler } from "./nd-with-meta-file-handler.ts";
@@ -38,6 +39,7 @@ export class TranslationFileHandlerFactory {
     ["m3t", () => new M3TFileHandler()],
     ["galtransl_json", () => new GaltranslJsonFileHandler()],
     ["dbl_tp1", () => new DblTp1FileHandler()],
+    ["dbl_tp2", () => new DblTp2FileHandler()],
     ["nd_with_meta", () => new NdWithMetaFileHandler()],
   ]);
 
