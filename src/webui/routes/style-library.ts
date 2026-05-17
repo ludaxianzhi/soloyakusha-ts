@@ -44,6 +44,20 @@ export function createStyleLibraryRoutes(styleLibraryService: StyleLibraryServic
     return c.json(await styleLibraryService.deleteLibrary(c.req.param('name')));
   });
 
+  app.post('/:name/reembed', async (c) => {
+    const body = await c.req.json<{ embeddingProfileName?: string }>();
+    const embeddingProfileName = body.embeddingProfileName?.trim();
+    if (!embeddingProfileName) {
+      return c.json({ error: 'embeddingProfileName 不能为空' }, 400);
+    }
+    try {
+      const result = await styleLibraryService.reEmbedLibrary(c.req.param('name'), embeddingProfileName);
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
+
   return app;
 }
 

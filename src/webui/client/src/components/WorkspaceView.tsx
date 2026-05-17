@@ -34,6 +34,7 @@ export function WorkspaceView({
   styleLibraryOptions,
   selectedTranslatorWorkflow,
   llmProfileOptions,
+  embeddingProfileOptions,
   defaultLlmProfileName,
   onRefreshProjectStatus,
   onRefreshDictionary,
@@ -154,6 +155,7 @@ export function WorkspaceView({
                 onRefreshProjectStatus={onRefreshProjectStatus}
                 onProjectCommand={onProjectCommand}
                 onBuildContextNetwork={onBuildContextNetwork}
+                embeddingProfileOptions={embeddingProfileOptions}
                 onAbortTaskActivity={onAbortTaskActivity}
                 onForceAbortTaskActivity={onForceAbortTaskActivity}
                 onRemoveTaskActivity={onRemoveTaskActivity}

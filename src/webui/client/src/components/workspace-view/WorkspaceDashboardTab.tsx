@@ -11,6 +11,7 @@ import {
   Popconfirm,
   Progress,
   Row,
+  Select,
   Space,
   Statistic,
   Tag,
@@ -38,7 +39,9 @@ interface WorkspaceDashboardTabProps {
   onProjectCommand: (command: ProjectCommand) => void | Promise<void>;
   onBuildContextNetwork: (input: {
     maxOutgoingCandidates: number;
+    embeddingProfileName: string;
   }) => void | Promise<void>;
+  embeddingProfileOptions?: Array<{ label: string; value: string }>;
   onAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onForceAbortTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onRemoveTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
@@ -56,6 +59,7 @@ export function WorkspaceDashboardTab({
   onRefreshProjectStatus,
   onProjectCommand,
   onBuildContextNetwork,
+  embeddingProfileOptions = [],
   onAbortTaskActivity,
   onForceAbortTaskActivity,
   onRemoveTaskActivity,
@@ -64,6 +68,7 @@ export function WorkspaceDashboardTab({
 }: WorkspaceDashboardTabProps) {
   const [contextNetworkModalOpen, setContextNetworkModalOpen] = useState(false);
   const [maxOutgoingCandidates, setMaxOutgoingCandidates] = useState(3);
+  const [selectedEmbeddingProfile, setSelectedEmbeddingProfile] = useState<string>('');
 
   usePollingTask({
     enabled: active && !sseConnected,
@@ -250,7 +255,7 @@ export function WorkspaceDashboardTab({
         confirmLoading={projectStatus?.isBusy === true}
         onCancel={() => setContextNetworkModalOpen(false)}
         onOk={async () => {
-          await onBuildContextNetwork({ maxOutgoingCandidates });
+          await onBuildContextNetwork({ maxOutgoingCandidates, embeddingProfileName: selectedEmbeddingProfile });
           setContextNetworkModalOpen(false);
         }}
       >
@@ -273,6 +278,19 @@ export function WorkspaceDashboardTab({
             <Typography.Text type="secondary">
               当前值为 {maxOutgoingCandidates}，每个文本块将最多保留 {maxOutgoingCandidates} 个前序备选连接。
             </Typography.Text>
+          </Space>
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Typography.Text>嵌入模型预设</Typography.Text>
+            <Select
+              style={{ width: '100%' }}
+              placeholder="选择嵌入模型"
+              value={selectedEmbeddingProfile || undefined}
+              onChange={(value) => setSelectedEmbeddingProfile(value)}
+              options={embeddingProfileOptions}
+            />
+            {embeddingProfileOptions.length === 0 && (
+              <Typography.Text type="warning">请先在设置中配置嵌入模型预设</Typography.Text>
+            )}
           </Space>
         </Space>
       </Modal>

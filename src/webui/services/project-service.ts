@@ -3940,6 +3940,8 @@ export class ProjectService {
 
   async buildContextNetwork(input: {
     maxOutgoingCandidates?: number;
+    /** 用于生成 tiny chunk 向量的嵌入模型预设名称。 */
+    embeddingProfileName: string;
   }): Promise<ContextNetworkBuildResult> {
     const { state, project } = this.getActiveWorkspaceContext();
     if (state.isBusy) {
@@ -3967,8 +3969,10 @@ export class ProjectService {
     try {
       const globalConfigManager = new GlobalConfigManager();
       const globalConfig = await globalConfigManager.getTranslationGlobalConfig();
-      if (!globalConfig.getEmbeddingConfig()) {
-        throw new ProjectServiceUserInputError('请先在设置中配置全局 Embedding 模型');
+      const embeddingProfileName = input.embeddingProfileName;
+
+      if (!globalConfig.getEmbeddingProfile(embeddingProfileName)) {
+        throw new ProjectServiceUserInputError(`未找到名为 '${embeddingProfileName}' 的嵌入模型预设，请先在设置中配置。`);
       }
 
       provider = globalConfig.createProvider();
@@ -3989,7 +3993,7 @@ export class ProjectService {
 
       this.log('info', `正在生成 Tiny Chunk 向量（${chunks.length} 个 chunk，来自 ${orderedFragments.length} 个文本块）...`);
       const embeddings = await provider
-        .getEmbeddingClient(GLOBAL_EMBEDDING_CLIENT_NAME)
+        .getEmbeddingClient(embeddingProfileName)
         .getEmbeddings(chunks.map((chunk) => chunk.text), "context_network");
 
       this.log('info', '正在计算上下文网络连接...');

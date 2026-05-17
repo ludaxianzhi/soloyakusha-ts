@@ -729,6 +729,7 @@ export interface StyleLibrarySummary {
   targetLanguage?: string;
   chunkLength?: number;
   embeddingFingerprint?: string;
+  embeddingProfileName?: string;
   embeddingState: 'compatible' | 'invalid' | 'unknown';
   invalidationReason?: string;
   managedByApp: boolean;
@@ -747,6 +748,7 @@ export interface CreateStyleLibraryInput {
   displayName?: string;
   targetLanguage: string;
   chunkLength: number;
+  embeddingProfileName?: string;
   managedByApp?: boolean;
 }
 
@@ -898,5 +900,6 @@ export interface PlotSummaryConfig {
 
 export interface AlignmentRepairConfig {
   modelNames: string[];
+  embeddingProfileName?: string;
   requestOptions?: Record<string, unknown>;
 }

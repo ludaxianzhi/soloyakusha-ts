@@ -63,7 +63,10 @@ export type PersistedLlmClientConfig = {
 export type GlobalLlmConfig = {
   defaultProfileName?: string;
   profiles: Record<string, PersistedLlmClientConfig>;
+  /** @deprecated 使用 embeddingProfiles 替代。启动时自动迁移到 embeddingProfiles。 */
   embedding?: PersistedLlmClientConfig;
+  /** 命名嵌入模型预设集，key 为预设名称。 */
+  embeddingProfiles?: Record<string, PersistedLlmClientConfig>;
 };
 
 export type PersistedVectorStoreConfig = {
@@ -95,6 +98,8 @@ export type PersistedStyleLibraryConfig = {
   targetLanguage: string;
   chunkLength: number;
   embeddingFingerprint: string;
+  /** 绑定的嵌入预设名称。创建时写入，用于查询时解析嵌入客户端。 */
+  embeddingProfileName?: string;
   managedByApp: boolean;
   createdAt: string;
   updatedAt: string;

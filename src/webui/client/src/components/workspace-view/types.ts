@@ -99,8 +99,10 @@ export interface WorkspaceViewProps {
   onBuildContextNetwork: (
     input: {
       maxOutgoingCandidates: number;
+      embeddingProfileName: string;
     },
   ) => void | Promise<void>;
+  embeddingProfileOptions: Array<{ label: string; value: string }>;
   onStartProofread: (input: {
     chapterIds: number[];
     mode?: ProofreadTaskMode;

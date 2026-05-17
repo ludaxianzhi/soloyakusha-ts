@@ -967,15 +967,17 @@ export function createProjectRoutes(
     }
   });
 
-  app.post('/context-network', async (c) => {
-    try {
-      const body = await c.req.json<{
-        maxOutgoingCandidates?: number;
-      }>();
-      return c.json(await projectService.buildContextNetwork({
-        maxOutgoingCandidates: body.maxOutgoingCandidates,
-      }));
-    } catch (error) {
+app.post('/context-network', async (c) => {
+  try {
+    const body = await c.req.json<{
+      maxOutgoingCandidates?: number;
+      embeddingProfileName: string;
+    }>();
+    return c.json(await projectService.buildContextNetwork({
+      maxOutgoingCandidates: body.maxOutgoingCandidates,
+      embeddingProfileName: body.embeddingProfileName,
+    }));
+  } catch (error) {
       if (error instanceof ProjectServiceUserInputError) {
         return c.json({ error: error.message }, 400);
       }

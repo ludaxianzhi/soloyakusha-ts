@@ -99,6 +99,11 @@ export function normalizeGlobalConfigDocument(
     );
   }
 
+  /**
+   * @deprecated 兼容层 — 旧版 llm.embedding 单值字段。
+   * 新配置已迁移到 llm.embeddingProfiles。
+   * 移除清单见 src/config/manager.ts:migrateEmbeddingIfNeeded。
+   */
   const embedding =
     llmValue.embedding === undefined
       ? undefined
@@ -108,6 +113,24 @@ export function normalizeGlobalConfigDocument(
         );
   if (embedding && embedding.modelType !== "embedding") {
     throw new Error(`llm.embedding 必须是 embedding 类型配置: ${sourceLabel}`);
+  }
+
+  const embeddingProfilesValue = llmValue.embeddingProfiles ?? {};
+  if (!isRecord(embeddingProfilesValue)) {
+    throw new Error(`全局配置的 llm.embeddingProfiles 字段必须是对象: ${sourceLabel}`);
+  }
+
+  const embeddingProfiles: Record<string, PersistedLlmClientConfig> = {};
+  for (const [profileName, profileValue] of Object.entries(embeddingProfilesValue)) {
+    validateProfileName(profileName);
+    const normalized = normalizePersistedLlmClientConfig(
+      profileValue,
+      `${sourceLabel}:llm.embeddingProfiles.${profileName}`,
+    );
+    if (normalized.modelType !== "embedding") {
+      throw new Error(`llm.embeddingProfiles.${profileName} 必须是 embedding 类型配置: ${sourceLabel}`);
+    }
+    embeddingProfiles[profileName] = normalized;
   }
 
   const vector =
@@ -136,6 +159,7 @@ export function normalizeGlobalConfigDocument(
       defaultProfileName,
       profiles,
       embedding,
+      ...(Object.keys(embeddingProfiles).length > 0 ? { embeddingProfiles } : {}),
     },
     vector,
     styleLibraries,
@@ -658,6 +682,7 @@ export function normalizePersistedStyleLibraryConfig(
       value.embeddingFingerprint,
       `${sourceLabel}.embeddingFingerprint`,
     ),
+    embeddingProfileName: readOptionalString(value.embeddingProfileName, `${sourceLabel}.embeddingProfileName`),
     managedByApp: readOptionalBoolean(value.managedByApp, `${sourceLabel}.managedByApp`) ?? true,
     createdAt: normalizeIsoDateString(value.createdAt, `${sourceLabel}.createdAt`),
     updatedAt: normalizeIsoDateString(value.updatedAt, `${sourceLabel}.updatedAt`),
@@ -819,6 +844,7 @@ export function normalizeAlignmentRepairConfig(
 
   return {
     modelNames: readRequiredModelNames(value, sourceLabel),
+    embeddingProfileName: readOptionalString(value.embeddingProfileName, `${sourceLabel}.embeddingProfileName`),
     requestOptions:
       value.requestOptions === undefined
         ? undefined
@@ -969,6 +995,7 @@ export function cloneLlmConfig(config: GlobalLlmConfig): GlobalLlmConfig {
     defaultProfileName: config.defaultProfileName,
     profiles: cloneProfiles(config.profiles),
     embedding: config.embedding ? clonePersistedLlmClientConfig(config.embedding) : undefined,
+    embeddingProfiles: config.embeddingProfiles ? cloneProfiles(config.embeddingProfiles) : undefined,
   };
 }
 
@@ -1185,6 +1212,7 @@ export function cloneAlignmentRepairConfig(
 
   return {
     modelNames: [...config.modelNames],
+    embeddingProfileName: config.embeddingProfileName,
     requestOptions: config.requestOptions
       ? clonePersistedChatRequestOptions(config.requestOptions)
       : undefined,
@@ -1260,6 +1288,7 @@ export function clonePersistedStyleLibraryConfig(
     targetLanguage: config.targetLanguage,
     chunkLength: config.chunkLength,
     embeddingFingerprint: config.embeddingFingerprint,
+    embeddingProfileName: config.embeddingProfileName,
     managedByApp: config.managedByApp,
     createdAt: config.createdAt,
     updatedAt: config.updatedAt,

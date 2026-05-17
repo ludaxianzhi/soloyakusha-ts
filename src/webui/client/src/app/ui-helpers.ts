@@ -71,6 +71,7 @@ export function profileToForm(
       modelType: 'chat',
       retries: 2,
       pcaEnabled: false,
+      isInstructionModel: false,
     };
   }
   return {
@@ -91,6 +92,8 @@ export function profileToForm(
     injectVirtualTool: profile.injectVirtualTool ?? false,
     pcaEnabled: profile.pca?.enabled ?? false,
     pcaWeightsFilePath: profile.pca?.weightsFilePath,
+    isInstructionModel: profile.isInstructionModel ?? false,
+    instructionTemplate: profile.instructionTemplate,
   };
 }
 

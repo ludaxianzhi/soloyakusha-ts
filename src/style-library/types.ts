@@ -12,6 +12,8 @@ export type StyleLibrarySummary = {
   targetLanguage?: string;
   chunkLength?: number;
   embeddingFingerprint?: string;
+  /** 绑定的嵌入预设名称。 */
+  embeddingProfileName?: string;
   embeddingState: StyleLibraryEmbeddingState;
   invalidationReason?: string;
   managedByApp: boolean;
@@ -26,6 +28,8 @@ export type CreateStyleLibraryInput = {
   displayName?: string;
   targetLanguage: string;
   chunkLength: number;
+  /** 绑定的嵌入预设名称。默认使用第一个可用的嵌入预设。 */
+  embeddingProfileName?: string;
   managedByApp?: boolean;
 };
 

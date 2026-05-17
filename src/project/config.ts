@@ -91,6 +91,8 @@ export type AlignmentRepairConfig = {
   /** 用于对齐补翻 LLM 调用的命名 Chat 配置。 */
   modelNames: string[];
   requestOptions?: ChatRequestOptions;
+  /** 用于文本对齐的嵌入模型预设名称。未指定时抛出错误。 */
+  embeddingProfileName?: string;
 };
 
 export type TranslationRuntimeConfig = {
@@ -104,7 +106,10 @@ export type TranslationRuntimeConfig = {
 
 export type TranslationGlobalLlmConfig = {
   profiles: Record<string, LlmClientConfigInput>;
+  /** @deprecated 使用 embeddingProfiles 替代。 */
   embedding?: LlmClientConfigInput;
+  /** 命名嵌入模型预设集。 */
+  embeddingProfiles?: Record<string, LlmClientConfigInput>;
 };
 
 export type TranslationGlobalConfigInput = {
@@ -206,12 +211,31 @@ export class TranslationGlobalConfig {
     return this.llm.embedding ? { ...this.llm.embedding } : undefined;
   }
 
+  getEmbeddingProfileNames(): string[] {
+    return Object.keys(this.llm.embeddingProfiles ?? {});
+  }
+
+  getEmbeddingProfile(name: string): LlmClientConfigInput | undefined {
+    const config = this.llm.embeddingProfiles?.[name];
+    return config ? { ...config } : undefined;
+  }
+
+  hasEmbeddingConfig(): boolean {
+    return (
+      this.llm.embedding !== undefined ||
+      (this.llm.embeddingProfiles !== undefined && Object.keys(this.llm.embeddingProfiles).length > 0)
+    );
+  }
+
   createProvider(hooks?: ClientHooks): LlmClientProvider {
     return createProviderFromConfigs(
       {
         ...this.llm.profiles,
         ...(this.llm.embedding
           ? { [GLOBAL_EMBEDDING_CLIENT_NAME]: this.llm.embedding }
+          : {}),
+        ...(this.llm.embeddingProfiles
+          ? this.llm.embeddingProfiles
           : {}),
       },
       hooks,
@@ -456,11 +480,21 @@ function createOutputRepairer(
   }
 
   if (!hasEmbeddingConfig) {
-    throw new Error("已配置对齐补翻，但未配置 llm.embedding，无法执行文本对齐。");
+    throw new Error("已配置对齐补翻，但未配置任何嵌入模型预设，无法执行文本对齐。");
+  }
+
+  const embeddingClientName = config.embeddingProfileName ?? GLOBAL_EMBEDDING_CLIENT_NAME;
+  let embeddingClient: ReturnType<LlmClientProvider["getEmbeddingClient"]>;
+  try {
+    embeddingClient = provider.getEmbeddingClient(embeddingClientName);
+  } catch {
+    throw new Error(
+      `对齐补翻指定的嵌入模型预设 '${embeddingClientName}' 未找到，请在设置中更新对齐补翻配置。`,
+    );
   }
 
   const tool = new AlignmentRepairTool(
-    new DefaultTextAligner(provider.getEmbeddingClient(GLOBAL_EMBEDDING_CLIENT_NAME)),
+    new DefaultTextAligner(embeddingClient),
     provider.getChatClientWithFallback(config.modelNames),
   );
 

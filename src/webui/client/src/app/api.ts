@@ -46,6 +46,7 @@ import type {
   TranslationPreviewChapter,
   UpdateStoryRoutePayload,
   CreateStyleLibraryInput,
+  StyleLibrarySummary,
   StyleLibraryCatalog,
   StyleLibraryImportResult,
   StyleLibraryQueryResult,
@@ -522,6 +523,7 @@ export const api = {
     }),
   buildContextNetwork: (payload: {
     maxOutgoingCandidates: number;
+    embeddingProfileName: string;
   }, workspaceId?: string) =>
     request<ContextNetworkBuildResult>(`/api/project/context-network${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
@@ -608,13 +610,22 @@ downloadChaptersExport: (chapterIds: number[], format: string, params?: Record<s
       body: { name },
     }),
   getEmbeddingConfig: () =>
-    request<LlmProfileConfig | null>('/api/config/embedding'),
+    request<Record<string, LlmProfileConfig>>('/api/config/embedding'),
+  getEmbeddingProfile: (name: string) =>
+    request<LlmProfileConfig | null>(`/api/config/embedding/${encodeURIComponent(name)}`),
+  saveEmbeddingProfile: (name: string, config: LlmProfileConfig) =>
+    request(`/api/config/embedding/${encodeURIComponent(name)}`, { method: 'PUT', body: config }),
+  deleteEmbeddingProfile: (name: string) =>
+    request<{ ok: boolean }>(`/api/config/embedding/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   saveEmbeddingConfig: (config: LlmProfileConfig) =>
     request('/api/config/embedding', { method: 'PUT', body: config }),
-  uploadEmbeddingPcaWeights: (file: File) => {
+  uploadEmbeddingPcaWeights: (file: File, profileName?: string) => {
     const formData = new FormData();
     formData.set('file', file);
-    return request<{ filePath: string }>('/api/config/embedding/pca/upload', {
+    const path = profileName
+      ? `/api/config/embedding/${encodeURIComponent(profileName)}/pca/upload`
+      : '/api/config/embedding/pca/upload';
+    return request<{ filePath: string }>(path, {
       method: 'POST',
       body: formData,
     });
@@ -678,6 +689,14 @@ downloadChaptersExport: (chapterIds: number[], format: string, params?: Record<s
       '/api/style-libraries/' + encodeURIComponent(name),
       {
         method: 'DELETE',
+      },
+    ),
+  reEmbedStyleLibrary: (name: string, embeddingProfileName: string) =>
+    request<StyleLibrarySummary>(
+      '/api/style-libraries/' + encodeURIComponent(name) + '/reembed',
+      {
+        method: 'POST',
+        body: { embeddingProfileName },
       },
     ),
 

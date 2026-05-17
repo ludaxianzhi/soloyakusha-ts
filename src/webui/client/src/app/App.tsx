@@ -375,7 +375,8 @@ export function AppShell() {
   const [proofreadWorkflows, setProofreadWorkflows] = useState<
     TranslationProcessorWorkflowMetadata[]
   >([]);
-  const [embeddingConfig, setEmbeddingConfig] = useState<LlmProfileConfig | null>(null);
+  const [embeddingProfiles, setEmbeddingProfiles] = useState<Record<string, LlmProfileConfig>>({});
+  const [selectedEmbeddingName, setSelectedEmbeddingName] = useState<string>();
   const [vectorConfig, setVectorConfig] = useState<VectorStoreConfig | null>(null);
   const [vectorConnectionStatus, setVectorConnectionStatus] =
     useState<VectorStoreConnectionStatus>({ state: 'idle' });
@@ -991,7 +992,7 @@ export function AppShell() {
 
       setLlmProfiles(llmRes.profiles);
       setDefaultLlmName(llmRes.defaultName);
-      setEmbeddingConfig(embeddingRes);
+      setEmbeddingProfiles(embeddingRes ?? {});
       setVectorConfig(vectorRes.config);
       setVectorConnectionStatus(vectorRes.status);
       setTranslators(translatorsRes.translators);
@@ -1304,10 +1305,11 @@ export function AppShell() {
     if (location.pathname !== '/settings') {
       return;
     }
+    const selected = selectedEmbeddingName ? embeddingProfiles[selectedEmbeddingName] : undefined;
     embeddingForm.setFieldsValue(
-      profileToForm(embeddingConfig, 'embedding') as Record<string, {} | undefined>,
+      profileToForm(selected ?? null, 'embedding') as Record<string, {} | undefined>,
     );
-  }, [embeddingConfig, embeddingForm, location.pathname]);
+  }, [embeddingProfiles, selectedEmbeddingName, embeddingForm, location.pathname]);
 
   useEffect(() => {
     if (location.pathname !== '/settings') {
@@ -1364,6 +1366,17 @@ export function AppShell() {
           value: name,
         })),
     [llmProfiles],
+  );
+
+  const embeddingProfileOptions = useMemo(
+    () =>
+      Object.keys(embeddingProfiles)
+        .sort()
+        .map((name) => ({
+          label: name,
+          value: name,
+        })),
+    [embeddingProfiles],
   );
 
   const openedWorkspaceByDir = useMemo(
@@ -1791,6 +1804,7 @@ export function AppShell() {
   const handleBuildContextNetwork = useCallback(
     async (input: {
       maxOutgoingCandidates: number;
+      embeddingProfileName: string;
     }) => {
       await runAction(async () => {
         const result = await api.buildContextNetwork(input, getSelectedWorkspaceId());
@@ -2201,6 +2215,9 @@ export function AppShell() {
   const handleSaveEmbedding = useCallback(
     async (values: Record<string, unknown>) => {
       await runAction(async () => {
+        const profileName = String(values.profileName ?? '');
+        if (!profileName) return;
+
         const pcaEnabled = values.pcaEnabled === true;
         const pcaWeightsFilePath = optionalString(values.pcaWeightsFilePath);
         const payload: LlmProfileConfig = {
@@ -2216,6 +2233,8 @@ export function AppShell() {
           defaultRequestConfig: parseLlmRequestConfigYaml(
             values.defaultRequestConfigYaml,
           ),
+          isInstructionModel: values.isInstructionModel === true,
+          instructionTemplate: optionalString(values.instructionTemplate),
           ...(pcaEnabled
             ? {
                 pca: {
@@ -2228,21 +2247,60 @@ export function AppShell() {
             : {}),
         };
         await runSettingsAction(['embedding'], async () => {
-          await api.saveEmbeddingConfig(payload);
-          setEmbeddingConfig(payload);
+          await api.saveEmbeddingProfile(profileName, payload);
+          setEmbeddingProfiles((prev) => ({ ...prev, [profileName]: payload }));
         });
-        message.success('Embedding 配置已保存');
+        setSelectedEmbeddingName(profileName);
+        message.success('Embedding 预设已保存');
       });
     },
     [message, runAction, runSettingsAction],
   );
+
+  const handleCreateEmbeddingProfile = useCallback(() => {
+    setSelectedEmbeddingName(undefined);
+    embeddingForm.resetFields();
+    embeddingForm.setFieldsValue({
+      provider: 'openai',
+      modelType: 'embedding',
+      retries: 2,
+      isInstructionModel: false,
+      pcaEnabled: false,
+    });
+  }, [embeddingForm]);
+
+  const handleSelectEmbeddingProfile = useCallback(
+    (name: string) => {
+      setSelectedEmbeddingName(name);
+    },
+    [],
+  );
+
+  const handleDeleteEmbeddingProfile = useCallback(async () => {
+    if (!selectedEmbeddingName) return;
+    const name = selectedEmbeddingName;
+    await runAction(async () => {
+      await runSettingsAction(['embedding'], async () => {
+        await api.deleteEmbeddingProfile(name);
+      });
+      setEmbeddingProfiles((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+      setSelectedEmbeddingName((current) =>
+        current === name ? undefined : current,
+      );
+      message.success('Embedding 预设已删除');
+    });
+  }, [message, runAction, runSettingsAction, selectedEmbeddingName]);
 
   const handleUploadEmbeddingPcaWeights = useCallback(
     async (file: File): Promise<string> => {
       try {
         let uploadedPath = '';
         await runSettingsAction(['embedding'], async () => {
-          const result = await api.uploadEmbeddingPcaWeights(file);
+          const result = await api.uploadEmbeddingPcaWeights(file, selectedEmbeddingName);
           uploadedPath = result.filePath;
         });
         if (!uploadedPath) {
@@ -2489,6 +2547,7 @@ export function AppShell() {
         } else {
           const payload: AlignmentRepairConfig = {
             modelNames: normalizeModelChain(values.modelNames),
+            embeddingProfileName: optionalString(values.embeddingProfileName),
             requestOptions: parseYamlObject(values.requestOptionsYaml),
           };
           await runSettingsAction(['alignment'], async () => {
@@ -2754,6 +2813,7 @@ export function AppShell() {
                       styleLibraryOptions={styleLibraryOptions}
                       selectedTranslatorWorkflow={selectedWorkspaceWorkflow}
                       llmProfileOptions={llmProfileOptions}
+                      embeddingProfileOptions={embeddingProfileOptions}
                       defaultLlmProfileName={defaultLlmName}
                       onRefreshProjectStatus={refreshProjectStatus}
                       onRefreshDictionary={refreshDictionary}
@@ -2884,6 +2944,8 @@ export function AppShell() {
                         llmProfiles={llmProfiles}
                         defaultLlmName={defaultLlmName}
                         selectedLlmName={selectedLlmName}
+                        embeddingProfiles={embeddingProfiles}
+                        selectedEmbeddingName={selectedEmbeddingName}
                         vectorConfig={vectorConfig}
                         vectorConnectionStatus={vectorConnectionStatus}
                         selectedTranslatorName={selectedTranslatorName}
@@ -2907,6 +2969,9 @@ export function AppShell() {
                         onSetDefaultLlmProfile={handleSetDefaultLlmProfile}
                         onDeleteLlmProfile={handleDeleteLlmProfile}
                         onSaveEmbedding={handleSaveEmbedding}
+                        onCreateEmbeddingProfile={handleCreateEmbeddingProfile}
+                        onSelectEmbeddingProfile={handleSelectEmbeddingProfile}
+                        onDeleteEmbeddingProfile={handleDeleteEmbeddingProfile}
                         onUploadEmbeddingPcaWeights={handleUploadEmbeddingPcaWeights}
                         onSaveVectorStore={handleSaveVectorStore}
                         onConnectVectorStore={handleConnectVectorStore}

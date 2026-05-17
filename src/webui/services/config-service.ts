@@ -93,6 +93,9 @@ export class ConfigService {
     return this.manager.getEmbeddingConfig();
   }
 
+  /**
+   * @deprecated 使用 setEmbeddingProfile 替代。
+   */
   async setEmbeddingConfig(
     config: PersistedLlmClientConfig | undefined,
   ): Promise<void> {
@@ -100,9 +103,30 @@ export class ConfigService {
     await this.manager.setEmbeddingConfig(config);
   }
 
+  async listEmbeddingProfiles(): Promise<Record<string, PersistedLlmClientConfig>> {
+    return this.manager.listEmbeddingProfiles();
+  }
+
+  async getEmbeddingProfile(name: string): Promise<PersistedLlmClientConfig | undefined> {
+    return this.manager.getEmbeddingProfile(name);
+  }
+
+  async setEmbeddingProfile(
+    name: string,
+    config: PersistedLlmClientConfig,
+  ): Promise<void> {
+    this.validateEmbeddingPcaConfig(config);
+    await this.manager.setEmbeddingProfile(name, config);
+  }
+
+  async removeEmbeddingProfile(name: string): Promise<boolean> {
+    return this.manager.deleteEmbeddingProfile(name);
+  }
+
   async uploadEmbeddingPcaWeights(input: {
     fileName: string;
     content: Uint8Array;
+    profileName?: string;
   }): Promise<{ filePath: string }> {
     const extension = extname(input.fileName).toLowerCase();
     if (extension !== '.json') {

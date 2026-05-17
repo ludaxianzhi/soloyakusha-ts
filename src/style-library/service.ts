@@ -83,26 +83,29 @@ export class StyleLibraryService {
 
   async listLibraries(): Promise<StyleLibraryCatalog> {
     const registered = (await this.manager.getStyleLibraryConfig())?.libraries ?? {};
-    const currentEmbeddingState = await this.resolveCurrentEmbeddingState();
 
-    const libraries: StyleLibrarySummary[] = Object.entries(registered).map(([name, config]) => {
-      const compatibility = evaluateEmbeddingCompatibility(
-        config.embeddingFingerprint,
-        currentEmbeddingState.fingerprint,
-        currentEmbeddingState.available,
-      );
-      return {
-        name,
-        displayName: config.displayName,
-        targetLanguage: config.targetLanguage,
-        chunkLength: config.chunkLength,
-        embeddingFingerprint: config.embeddingFingerprint,
-        embeddingState: compatibility.state,
-        invalidationReason: compatibility.reason,
-        managedByApp: config.managedByApp,
-        sourceSummary: config.sourceSummary,
-      };
-    });
+    const libraries: StyleLibrarySummary[] = await Promise.all(
+      Object.entries(registered).map(async ([name, config]) => {
+        const currentEmbeddingState = await this.resolveCurrentEmbeddingState(config.embeddingProfileName);
+        const compatibility = evaluateEmbeddingCompatibility(
+          config.embeddingFingerprint,
+          currentEmbeddingState.fingerprint,
+          currentEmbeddingState.available,
+        );
+        return {
+          name,
+          displayName: config.displayName,
+          targetLanguage: config.targetLanguage,
+          chunkLength: config.chunkLength,
+          embeddingFingerprint: config.embeddingFingerprint,
+          embeddingProfileName: config.embeddingProfileName,
+          embeddingState: compatibility.state,
+          invalidationReason: compatibility.reason,
+          managedByApp: config.managedByApp,
+          sourceSummary: config.sourceSummary,
+        };
+      }),
+    );
 
     libraries.sort((left, right) => left.name.localeCompare(right.name));
     return { libraries };
@@ -112,7 +115,10 @@ export class StyleLibraryService {
     libraryName: string,
     input: CreateStyleLibraryInput,
   ): Promise<StyleLibrarySummary> {
-    const embeddingConfig = await this.manager.getResolvedEmbeddingConfig();
+    const embeddingProfileName = input.embeddingProfileName;
+    const embeddingConfig = embeddingProfileName
+      ? await this.manager.getResolvedEmbeddingConfigByName(embeddingProfileName)
+      : await this.manager.getResolvedEmbeddingConfig();
     const embeddingFingerprint = buildStyleLibraryEmbeddingFingerprint(embeddingConfig);
     const collectionName = buildManagedStyleLibraryCollectionName(libraryName);
     const timestamp = this.now().toISOString();
@@ -121,6 +127,7 @@ export class StyleLibraryService {
       targetLanguage: input.targetLanguage,
       chunkLength: input.chunkLength,
       embeddingFingerprint,
+      embeddingProfileName,
       managedByApp: input.managedByApp ?? true,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -136,7 +143,7 @@ export class StyleLibraryService {
         distance: "cosine",
         metadata: buildCollectionMetadata(libraryName, persisted),
       });
-    });
+    }, embeddingProfileName);
 
     await this.manager.setStyleLibrary(libraryName, persisted);
     return {
@@ -145,6 +152,7 @@ export class StyleLibraryService {
       targetLanguage: persisted.targetLanguage,
       chunkLength: persisted.chunkLength,
       embeddingFingerprint: persisted.embeddingFingerprint,
+      embeddingProfileName: persisted.embeddingProfileName,
       embeddingState: "compatible",
       managedByApp: persisted.managedByApp,
       sourceSummary: persisted.sourceSummary,
@@ -204,7 +212,7 @@ export class StyleLibraryService {
             },
           })),
         });
-      });
+      }, config.embeddingProfileName);
 
       const sourceSummary: StyleLibrarySourceSummary = {
         fileCount: parsedFiles.length,
@@ -285,7 +293,7 @@ export class StyleLibraryService {
         chunks: chunkResults,
         matches: chunkResults.flatMap((chunk) => chunk.matches),
       };
-    });
+    }, config.embeddingProfileName);
   }
 
   async deleteLibrary(libraryName: string): Promise<DeleteStyleLibraryResult> {
@@ -301,6 +309,112 @@ export class StyleLibraryService {
       }
     }
     return { success: removedRegistry };
+  }
+
+  /**
+   * 使用新的嵌入预设重新索引风格库，无需重新上传文件。
+   * 从向量库中读取已有文本，使用新预设重新生成向量并更新。
+   */
+  async reEmbedLibrary(
+    libraryName: string,
+    embeddingProfileName: string,
+  ): Promise<StyleLibrarySummary> {
+    const config = await this.manager.getRequiredStyleLibrary(libraryName);
+    const collectionName = buildManagedStyleLibraryCollectionName(libraryName);
+
+    const existingRecords = await this.fetchAllStyleLibraryRecords(collectionName, libraryName);
+    if (existingRecords.length === 0) {
+      throw new Error("风格库中没有任何可重嵌入的记录");
+    }
+
+    await this.withEmbeddingClient(async (embeddingClient) => {
+      const dimension = await measureEmbeddingDimension(embeddingClient);
+      const vectorClient = await this.getOrCreateVectorStoreClient();
+      await vectorClient.ensureCollection({
+        name: collectionName,
+        dimension,
+        distance: "cosine",
+        metadata: buildCollectionMetadata(libraryName, config),
+      });
+
+      const embeddings = await embeddingClient.getEmbeddings(
+        existingRecords.map((record) => record.document ?? record.id),
+        "style_retrieval",
+      );
+
+      await vectorClient.upsert({
+        collectionName,
+        records: existingRecords.map((record, index) => {
+          const embedding = embeddings[index];
+          if (!embedding) {
+            throw new Error(`缺少重嵌入向量结果: ${record.id}`);
+          }
+          return {
+            id: record.id,
+            vector: [...embedding],
+            payload: record.payload as JsonObject | undefined,
+            document: record.document,
+          };
+        }),
+      });
+    }, embeddingProfileName);
+
+    const newConfig = await this.manager.getResolvedEmbeddingConfigByName(embeddingProfileName);
+    const newFingerprint = buildStyleLibraryEmbeddingFingerprint(newConfig);
+
+    await this.manager.setStyleLibrary(libraryName, {
+      ...config,
+      embeddingFingerprint: newFingerprint,
+      embeddingProfileName,
+      updatedAt: this.now().toISOString(),
+    });
+
+    return {
+      name: libraryName,
+      displayName: config.displayName,
+      targetLanguage: config.targetLanguage,
+      chunkLength: config.chunkLength,
+      embeddingFingerprint: newFingerprint,
+      embeddingProfileName,
+      embeddingState: "compatible",
+      managedByApp: config.managedByApp,
+      sourceSummary: config.sourceSummary,
+    };
+  }
+
+  /**
+   * 从向量库中获取指定风格库的所有记录。
+   * 使用虚拟向量 + 大 topK 方式遍历获取全部文本。
+   */
+  private async fetchAllStyleLibraryRecords(
+    collectionName: string,
+    libraryName: string,
+  ): Promise<Array<{ id: string; document?: string; payload?: Record<string, unknown> }>> {
+    const vectorClient = await this.getOrCreateVectorStoreClient();
+
+    const collections = await vectorClient.listCollections();
+    const targetCollection = collections.find((col) => col.name === collectionName);
+    if (!targetCollection) {
+      return [];
+    }
+
+    const dimension = targetCollection.dimension ?? 768;
+    const dummyVector = Array.from({ length: dimension }, () => 0);
+
+    const results = await vectorClient.query({
+      collectionName,
+      vector: dummyVector,
+      topK: 100000,
+      includeVectors: false,
+    });
+
+    return results
+      .filter((result) => result.payload?.styleLibraryName === libraryName)
+      .map((result) => ({
+        id: result.id,
+        document: result.document,
+        payload: result.payload ? { ...result.payload } : undefined,
+      }));
   }
 
   /**
@@ -373,7 +487,7 @@ export class StyleLibraryService {
   }
 
   private async assertLibraryCompatible(config: PersistedStyleLibraryConfig): Promise<void> {
-    const current = await this.resolveCurrentEmbeddingState();
+    const current = await this.resolveCurrentEmbeddingState(config.embeddingProfileName);
     const compatibility = evaluateEmbeddingCompatibility(
       config.embeddingFingerprint,
       current.fingerprint,
@@ -384,10 +498,24 @@ export class StyleLibraryService {
     }
   }
 
-  private async resolveCurrentEmbeddingState(): Promise<{
+  private async resolveCurrentEmbeddingState(embeddingProfileName?: string): Promise<{
     available: boolean;
     fingerprint?: string;
   }> {
+    if (embeddingProfileName) {
+      const embedding = await this.manager.getEmbeddingProfile(embeddingProfileName);
+      if (!embedding) {
+        return { available: false };
+      }
+
+      return {
+        available: true,
+        fingerprint: buildStyleLibraryEmbeddingFingerprint(
+          await this.manager.getResolvedEmbeddingConfigByName(embeddingProfileName),
+        ),
+      };
+    }
+
     const embedding = await this.manager.getEmbeddingConfig();
     if (!embedding) {
       return { available: false };
@@ -426,16 +554,20 @@ export class StyleLibraryService {
 
   private async withEmbeddingClient<T>(
     operation: (client: EmbeddingClient) => Promise<T>,
+    embeddingProfileName?: string,
   ): Promise<T> {
-    const config = await this.manager.getResolvedEmbeddingConfig();
+    const config = embeddingProfileName
+      ? await this.manager.getResolvedEmbeddingConfigByName(embeddingProfileName)
+      : await this.manager.getResolvedEmbeddingConfig();
     if (this.embeddingClientResolver) {
       return await operation(await this.embeddingClientResolver(config));
     }
 
+    const clientName = embeddingProfileName ?? GLOBAL_EMBEDDING_CLIENT_NAME;
     const provider = new LlmClientProvider();
-    provider.register(GLOBAL_EMBEDDING_CLIENT_NAME, config);
+    provider.register(clientName, config);
     try {
-      return await operation(provider.getEmbeddingClient(GLOBAL_EMBEDDING_CLIENT_NAME));
+      return await operation(provider.getEmbeddingClient(clientName));
     } finally {
       await provider.closeAll();
     }

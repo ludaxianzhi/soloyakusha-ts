@@ -5,6 +5,7 @@ import {
   type StyleLibraryCatalog,
   type StyleLibraryImportResult,
   type StyleLibraryQueryResult,
+  type StyleLibrarySummary,
 } from '../../style-library/index.ts';
 
 type WebStyleLibraryServiceOptions = {
@@ -46,5 +47,12 @@ export class StyleLibraryService {
 
   async deleteLibrary(name: string): Promise<DeleteStyleLibraryResult> {
     return await this.service.deleteLibrary(name);
+  }
+
+  async reEmbedLibrary(
+    name: string,
+    embeddingProfileName: string,
+  ): Promise<StyleLibrarySummary> {
+    return await this.service.reEmbedLibrary(name, embeddingProfileName);
   }
 }

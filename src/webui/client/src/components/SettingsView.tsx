@@ -42,6 +42,8 @@ interface SettingsViewProps {
   llmProfiles: Record<string, LlmProfileConfig>;
   defaultLlmName?: string;
   selectedLlmName?: string;
+  embeddingProfiles: Record<string, LlmProfileConfig>;
+  selectedEmbeddingName?: string;
   vectorConfig: VectorStoreConfig | null;
   vectorConnectionStatus: VectorStoreConnectionStatus;
   selectedTranslatorName?: string;
@@ -64,7 +66,10 @@ interface SettingsViewProps {
   onSaveLlmProfile: (values: Record<string, unknown>) => void | Promise<void>;
   onSetDefaultLlmProfile: () => void | Promise<void>;
   onDeleteLlmProfile: () => void | Promise<void>;
+  onCreateEmbeddingProfile: () => void;
+  onSelectEmbeddingProfile: (name: string) => void;
   onSaveEmbedding: (values: Record<string, unknown>) => void | Promise<void>;
+  onDeleteEmbeddingProfile: () => void | Promise<void>;
   onUploadEmbeddingPcaWeights: (file: File) => Promise<string>;
   onSaveVectorStore: (values: Record<string, unknown>) => void | Promise<void>;
   onConnectVectorStore: () => void | Promise<void>;
@@ -88,6 +93,8 @@ export function SettingsView({
   llmProfiles,
   defaultLlmName,
   selectedLlmName,
+  embeddingProfiles,
+  selectedEmbeddingName,
   vectorConfig,
   vectorConnectionStatus,
   selectedTranslatorName,
@@ -110,7 +117,10 @@ export function SettingsView({
   onSaveLlmProfile,
   onSetDefaultLlmProfile,
   onDeleteLlmProfile,
+  onCreateEmbeddingProfile,
+  onSelectEmbeddingProfile,
   onSaveEmbedding,
+  onDeleteEmbeddingProfile,
   onUploadEmbeddingPcaWeights,
   onSaveVectorStore,
   onConnectVectorStore,
@@ -127,6 +137,7 @@ export function SettingsView({
 }: SettingsViewProps) {
   const [uploadingPcaWeights, setUploadingPcaWeights] = useState(false);
   const llmNames = Object.keys(llmProfiles);
+  const embeddingProfileNames = Object.keys(embeddingProfiles);
   const translatorNames = Object.keys(translators);
   const proofreaderNames = Object.keys(proofreaders);
   const embeddingPcaEnabled =
@@ -152,6 +163,10 @@ export function SettingsView({
   const selectedProofreadWorkflow =
     proofreadWorkflowMap.get(selectedProofreadWorkflowKey ?? '') ?? proofreadWorkflows[0];
   const llmProfileOptions = llmNames.map((name) => ({
+    label: name,
+    value: name,
+  }));
+  const embeddingProfileOptions = embeddingProfileNames.map((name) => ({
     label: name,
     value: name,
   }));
@@ -359,8 +374,41 @@ export function SettingsView({
                     </Space>
                   </Form>
                 </Card>
-
-                <Card title="Embedding 配置" loading={settingsLoading.embedding} className="mt-2">
+              </Col>
+            </Row>
+          ),
+        },
+        {
+          key: 'embedding',
+          label: 'Embedding Models',
+          children: (
+            <Row gutter={12} className="settings-split-row">
+              <Col span={7} className="settings-split-panel">
+                <Card
+                  size="small"
+                  title="Embedding Presets"
+                  loading={settingsLoading.embedding}
+                  extra={<Button onClick={onCreateEmbeddingProfile}>新建</Button>}
+                >
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    {embeddingProfileNames.map((name) => (
+                      <button
+                        type="button"
+                        key={name}
+                        onClick={() => onSelectEmbeddingProfile(name)}
+                        className={`settings-list-card${name === selectedEmbeddingName ? ' active' : ''}`}
+                      >
+                        <Space wrap>
+                          <span>{name}</span>
+                        </Space>
+                        <div>{embeddingProfiles[name]?.modelName}</div>
+                      </button>
+                    ))}
+                  </Space>
+                </Card>
+              </Col>
+              <Col span={17} className="settings-split-panel">
+                <Card size="small" title="编辑 Embedding 预设" loading={settingsLoading.embedding}>
                   <Form
                     form={embeddingForm}
                     layout="vertical"
@@ -369,20 +417,36 @@ export function SettingsView({
                   >
                     <Row gutter={16}>
                       <Col span={8}>
-                      <Form.Item
-                        name="provider"
-                        label="Provider"
-                        rules={[{ required: true }]}
-                      >
-                        <Select
-                          options={[
-                            { label: 'OpenAI Compatible', value: 'openai' },
-                            { label: 'Anthropic', value: 'anthropic' },
-                          ]}
-                        />
-                      </Form.Item>
+                        <Form.Item
+                          name="profileName"
+                          label="预设名称"
+                          rules={[{ required: true }]}
+                        >
+                          <Input />
+                        </Form.Item>
                       </Col>
                       <Col span={8}>
+                        <Form.Item
+                          name="provider"
+                          label="Provider"
+                          rules={[{ required: true }]}
+                        >
+                          <Select
+                            options={[
+                              { label: 'OpenAI Compatible', value: 'openai' },
+                              { label: 'Anthropic', value: 'anthropic' },
+                            ]}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item name="modelType" label="类型">
+                          <Select options={[{ label: 'embedding', value: 'embedding' }]} disabled />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <Row gutter={16}>
+                      <Col span={12}>
                         <Form.Item
                           name="modelName"
                           label="模型名"
@@ -391,7 +455,7 @@ export function SettingsView({
                           <Input />
                         </Form.Item>
                       </Col>
-                      <Col span={8}>
+                      <Col span={12}>
                         <Form.Item
                           name="endpoint"
                           label="Endpoint"
@@ -458,9 +522,19 @@ export function SettingsView({
                         }
                       />
                     </Form.Item>
-                    <Button type="primary" htmlType="submit">
-                      保存 Embedding
-                    </Button>
+                    <Space>
+                      <Button type="primary" htmlType="submit">
+                        保存预设
+                      </Button>
+                      {selectedEmbeddingName && (
+                        <Popconfirm
+                          title="确认删除该 Embedding 预设？"
+                          onConfirm={() => void onDeleteEmbeddingProfile()}
+                        >
+                          <Button danger>删除</Button>
+                        </Popconfirm>
+                      )}
+                    </Space>
                   </Form>
                 </Card>
               </Col>
@@ -902,7 +976,7 @@ export function SettingsView({
                 <Button type="primary" htmlType="submit">保存设置</Button>
               </Form>
 
-              <Divider titlePlacement="left">对齐补翻</Divider>
+               <Divider titlePlacement="left">对齐补翻</Divider>
               <Form
                 form={alignmentForm}
                 layout="horizontal"
@@ -915,6 +989,20 @@ export function SettingsView({
                 <Row gutter={16}>
                   <Col xs={24} lg={12}>
                     <AuxiliaryModelChainField llmProfileOptions={llmProfileOptions} />
+                  </Col>
+                  <Col xs={24} lg={12}>
+                    <Form.Item
+                      name="embeddingProfileName"
+                      label="嵌入模型"
+                      tooltip="选择用于文本对齐的嵌入模型预设"
+                    >
+                      <Select
+                        allowClear
+                        showSearch
+                        options={embeddingProfileOptions}
+                        placeholder="选择嵌入模型预设"
+                      />
+                    </Form.Item>
                   </Col>
                 </Row>
                 <AuxiliaryYamlCollapse name="requestOptionsYaml" placeholder="temperature: 0.1" />

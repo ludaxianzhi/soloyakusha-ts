@@ -293,6 +293,9 @@ export class GlobalConfigManager {
         embedding: document.llm.embedding
           ? clonePersistedLlmClientConfig(document.llm.embedding)
           : undefined,
+        embeddingProfiles: document.llm.embeddingProfiles
+          ? cloneProfiles(document.llm.embeddingProfiles)
+          : undefined,
       },
       translation: cloneTranslationConfig(document.translation),
     });
@@ -447,11 +450,22 @@ export class GlobalConfigManager {
     return true;
   }
 
+  /**
+   * @deprecated 兼容层 — 读取旧版全局嵌入配置。
+   * 新代码应使用 {@link getEmbeddingProfile} 或 {@link listEmbeddingProfiles}。
+   * 移除清单见 {@link migrateEmbeddingIfNeeded}。
+   */
   async getEmbeddingConfig(): Promise<PersistedLlmClientConfig | undefined> {
+    await this.migrateEmbeddingIfNeeded();
     const embedding = (await this.loadDocument()).llm.embedding;
     return embedding ? clonePersistedLlmClientConfig(embedding) : undefined;
   }
 
+  /**
+   * @deprecated 兼容层 — 保存旧版全局嵌入配置。
+   * 新代码应使用 {@link setEmbeddingProfile}。
+   * 移除清单见 {@link migrateEmbeddingIfNeeded}。
+   */
   async setEmbeddingConfig(
     config?: PersistedLlmClientConfig,
   ): Promise<PersistedLlmClientConfig | undefined> {
@@ -469,6 +483,7 @@ export class GlobalConfigManager {
   }
 
   async getRequiredEmbeddingConfig(): Promise<PersistedLlmClientConfig> {
+    await this.migrateEmbeddingIfNeeded();
     const config = await this.getEmbeddingConfig();
     if (!config) {
       throw new Error("未配置全局嵌入模型");
@@ -479,6 +494,77 @@ export class GlobalConfigManager {
 
   async getResolvedEmbeddingConfig(): Promise<LlmClientConfig> {
     return createLlmClientConfig(await this.getRequiredEmbeddingConfig());
+  }
+
+  // ─── Embedding Profiles CRUD ────────────────────────
+
+  async listEmbeddingProfileNames(): Promise<string[]> {
+    await this.migrateEmbeddingIfNeeded();
+    return Object.keys((await this.loadDocument()).llm.embeddingProfiles ?? {}).sort();
+  }
+
+  async listEmbeddingProfiles(): Promise<Record<string, PersistedLlmClientConfig>> {
+    await this.migrateEmbeddingIfNeeded();
+    const profiles = (await this.loadDocument()).llm.embeddingProfiles ?? {};
+    return cloneProfiles(profiles);
+  }
+
+  async getEmbeddingProfile(name: string): Promise<PersistedLlmClientConfig | undefined> {
+    await this.migrateEmbeddingIfNeeded();
+    const profiles = (await this.loadDocument()).llm.embeddingProfiles ?? {};
+    const config = profiles[name];
+    return config ? clonePersistedLlmClientConfig(config) : undefined;
+  }
+
+  async setEmbeddingProfile(
+    name: string,
+    config: PersistedLlmClientConfig,
+  ): Promise<PersistedLlmClientConfig> {
+    validateProfileName(name);
+    const document = await this.loadDocument();
+    const normalized = normalizePersistedLlmClientConfig(
+      config,
+      `llm.embeddingProfiles.${name}`,
+    );
+    if (normalized.modelType !== "embedding") {
+      throw new Error("嵌入模型预设必须是 embedding 类型");
+    }
+
+    const embeddingProfiles = document.llm.embeddingProfiles ?? {};
+    embeddingProfiles[name] = normalized;
+    document.llm.embeddingProfiles = embeddingProfiles;
+    await this.persistDocument(document);
+    return clonePersistedLlmClientConfig(normalized);
+  }
+
+  async deleteEmbeddingProfile(name: string): Promise<boolean> {
+    validateProfileName(name);
+    const document = await this.loadDocument();
+    const embeddingProfiles = document.llm.embeddingProfiles;
+    if (!embeddingProfiles?.[name]) {
+      return false;
+    }
+
+    delete embeddingProfiles[name];
+    if (Object.keys(embeddingProfiles).length === 0) {
+      document.llm.embeddingProfiles = undefined;
+    }
+
+    await this.persistDocument(document);
+    return true;
+  }
+
+  async getRequiredEmbeddingConfigByName(name: string): Promise<PersistedLlmClientConfig> {
+    await this.migrateEmbeddingIfNeeded();
+    const config = await this.getEmbeddingProfile(name);
+    if (!config) {
+      throw new Error(`未找到名为 '${name}' 的嵌入模型预设`);
+    }
+    return config;
+  }
+
+  async getResolvedEmbeddingConfigByName(name: string): Promise<LlmClientConfig> {
+    return createLlmClientConfig(await this.getRequiredEmbeddingConfigByName(name));
   }
 
   async listVectorStoreNames(): Promise<string[]> {
@@ -654,6 +740,78 @@ export class GlobalConfigManager {
     const entries = document.recentWorkspaces ?? [];
     document.recentWorkspaces = entries.filter((e) => e.dir !== dir);
     await this.persistDocument(document);
+  }
+
+  /**
+   * 将旧的 llm.embedding 单值配置迁移到 llm.embeddingProfiles。
+   *
+   * ## 迁移逻辑
+   *
+   * **触发条件**：`llm.embedding` 存在 **且** `llm.embeddingProfiles` 为空或不存在。
+   *
+   * **迁移操作**：
+   * 1. 将 `llm.embedding` 的值原样复制到 `llm.embeddingProfiles["default"]`
+   * 2. 将 `llm.embedding` 置为 `undefined`
+   * 3. 持久化文档到磁盘，更新内存缓存
+   *
+   * **调用时机**：在所有读取 embedding 配置的 public 方法入口处调用
+   * （`getEmbeddingConfig`, `getEmbeddingProfile`, `listEmbeddingProfiles` 等）。
+   *
+   * ---
+   *
+   * ## 后续移除清单
+   *
+   * 当确认所有用户的 config.json 都已迁移（`llm.embedding` 字段不再存在）后，
+   * 按以下顺序移除兼容代码：
+   *
+   * ### 1. 删除迁移方法本身
+   * - 删除本方法 `migrateEmbeddingIfNeeded()`
+   * - 删除所有调用点（`getEmbeddingConfig`, `getEmbeddingProfile`, `listEmbeddingProfiles`,
+   *   `getRequiredEmbeddingConfig`, `getRequiredEmbeddingConfigByName`, `getTranslationGlobalConfig`）
+   *
+   * ### 2. 删除旧单值字段
+   * - `src/config/types.ts:GlobalLlmConfig.embedding` — 删除该字段及 `@deprecated` 注释
+   * - `src/project/config.ts:TranslationGlobalLlmConfig.embedding` — 删除该字段
+   *
+   * ### 3. 清理 codec 层
+   * - `src/config/document-codec.ts:normalizeGlobalConfigDocument` — 删除 `embedding` 字段的解析逻辑
+   *   （约 10 行，搜索 `llmValue.embedding`）
+   * - `src/config/document-codec.ts:cloneLlmConfig` — 删除 `embedding:` 行
+   *
+   * ### 4. 清理 manager 层
+   * - 删除 `getEmbeddingConfig()`（约 4 行）
+   * - 删除 `setEmbeddingConfig()`（约 14 行）
+   * - 删除 `getRequiredEmbeddingConfig()`（约 8 行）
+   * - 删除 `getResolvedEmbeddingConfig()`（约 3 行）
+   *
+   * ### 5. 清理 project config
+   * - `src/project/config.ts:createProvider` — 删除 `llm.embedding` 的展开
+   * - `src/project/config.ts:getEmbeddingConfig` — 删除该方法
+   * - `src/project/config.ts:GLOBAL_EMBEDDING_CLIENT_NAME` — 可保留（风格库 fallback 仍使用）
+   *
+   * ### 6. 清理 config service / routes（可选）
+   * - `src/webui/services/config-service.ts:getEmbeddingConfig/setEmbeddingConfig` — 标记为
+   *   `@deprecated` 的包装方法可直接删除
+   *
+   * ### 7. 清理文档
+   * - 删除本注释块
+   */
+  private async migrateEmbeddingIfNeeded(): Promise<void> {
+    const document = await this.loadDocument();
+    if (!document.llm.embedding) {
+      return;
+    }
+    if (document.llm.embeddingProfiles && Object.keys(document.llm.embeddingProfiles).length > 0) {
+      return;
+    }
+
+    const defaultName = "default";
+    document.llm.embeddingProfiles = document.llm.embeddingProfiles ?? {};
+    document.llm.embeddingProfiles[defaultName] = document.llm.embedding;
+    document.llm.embedding = undefined;
+
+    await this.persistDocument(document);
+    this.cachedDocument = document;
   }
 
   private async loadDocument(): Promise<GlobalConfigDocument> {

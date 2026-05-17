@@ -42,20 +42,31 @@ export function createConfigRoutes(configService: ConfigService): Hono {
     return c.json({ ok: true });
   });
 
-  // ─── Embedding ──────────────────────────────────
+  // ─── Embedding Profiles ─────────────────────────
 
   app.get('/embedding', async (c) => {
-    const config = await configService.getEmbeddingConfig();
-    return c.json(config ?? null);
+    const result = await configService.listEmbeddingProfiles();
+    return c.json(result);
   });
 
-  app.put('/embedding', async (c) => {
+  app.get('/embedding/:name', async (c) => {
+    const profile = await configService.getEmbeddingProfile(c.req.param('name'));
+    if (!profile) return c.json({ error: '未找到' }, 404);
+    return c.json(profile);
+  });
+
+  app.put('/embedding/:name', async (c) => {
     const body = await c.req.json();
-    await configService.setEmbeddingConfig(body);
+    await configService.setEmbeddingProfile(c.req.param('name'), body);
     return c.json({ ok: true });
   });
 
-  app.post('/embedding/pca/upload', async (c) => {
+  app.delete('/embedding/:name', async (c) => {
+    const removed = await configService.removeEmbeddingProfile(c.req.param('name'));
+    return c.json({ ok: removed });
+  });
+
+  app.post('/embedding/:name/pca/upload', async (c) => {
     const formData = await c.req.formData();
     const file = formData.get('file');
     if (!(file instanceof File)) {
@@ -66,6 +77,7 @@ export function createConfigRoutes(configService: ConfigService): Hono {
     const result = await configService.uploadEmbeddingPcaWeights({
       fileName: file.name,
       content,
+      profileName: c.req.param('name'),
     });
     return c.json(result);
   });
