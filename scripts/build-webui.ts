@@ -36,6 +36,13 @@ const consistencyPromptCatalogPath = resolve(
   'resources',
   'consistency-prompts.yaml',
 );
+const embeddingInstructionsPath = resolve(
+  projectRoot,
+  'src',
+  'prompts',
+  'resources',
+  'embedding-instructions.yaml',
+);
 const executableFileName =
   process.platform === 'win32' ? 'soloyakusha-webui.exe' : 'soloyakusha-webui';
 const executableOutputPath = resolve(distDir, executableFileName);
@@ -59,9 +66,10 @@ async function main() {
     throw new Error('WebUI client build produced no files.');
   }
 
-  const [defaultPromptCatalogText, consistencyPromptCatalogText] = await Promise.all([
+  const [defaultPromptCatalogText, consistencyPromptCatalogText, embeddingInstructionsText] = await Promise.all([
     readFile(defaultPromptCatalogPath, 'utf8'),
     readFile(consistencyPromptCatalogPath, 'utf8'),
+    readFile(embeddingInstructionsPath, 'utf8'),
   ]);
 
   await writeFile(
@@ -76,6 +84,7 @@ async function main() {
       embeddedAssetsModulePath,
       defaultPromptCatalogText,
       consistencyPromptCatalogText,
+      embeddingInstructionsText,
     ),
     'utf8',
   );
@@ -205,6 +214,7 @@ function buildStandaloneEntryModule(
   assetsModulePath: string,
   defaultPromptCatalogText: string,
   consistencyPromptCatalogText: string,
+  embeddingInstructionsText: string,
 ): string {
   const serverImport = toImportSpecifier(
     modulePath,
@@ -219,12 +229,17 @@ function buildStandaloneEntryModule(
     modulePath,
     resolve(projectRoot, 'src', 'consistency', 'prompt-manager.ts'),
   );
+  const embeddingInstructionsImport = toImportSpecifier(
+    modulePath,
+    resolve(projectRoot, 'src', 'prompts', 'embedding-instructions.ts'),
+  );
 
   return `import { createWebUiServer, logWebUiServerStart } from ${JSON.stringify(serverImport)};
 import { resolveWebUiPort } from ${JSON.stringify(serverImport)};
 import { embeddedStaticAssets } from ${JSON.stringify(assetsImport)};
 import { getDefaultPromptFilePath, registerEmbeddedPromptCatalog } from ${JSON.stringify(promptManagerImport)};
 import { getConsistencyPromptFilePath } from ${JSON.stringify(consistencyPromptManagerImport)};
+import { getEmbeddingInstructionFilePath, registerEmbeddedInstructionText } from ${JSON.stringify(embeddingInstructionsImport)};
 
 (globalThis as { __SOLOYAKUSHA_STANDALONE__?: boolean }).__SOLOYAKUSHA_STANDALONE__ = true;
 
@@ -235,6 +250,9 @@ registerEmbeddedPromptCatalog(
 registerEmbeddedPromptCatalog(
   getConsistencyPromptFilePath(),
   ${JSON.stringify(consistencyPromptCatalogText)},
+);
+registerEmbeddedInstructionText(
+  ${JSON.stringify(embeddingInstructionsText)},
 );
 
 const port = await resolveWebUiPort();

@@ -175,6 +175,7 @@ export class StyleLibraryService {
         const vectorClient = await this.getOrCreateVectorStoreClient();
         const retriever = new VectorRetriever(vectorClient, embeddingClient, {
           defaultCollectionName: collectionName,
+          taskType: "style_retrieval",
         });
         await retriever.ensureCollection({
           name: collectionName,
@@ -251,6 +252,7 @@ export class StyleLibraryService {
       const vectorClient = await this.getOrCreateVectorStoreClient();
       const retriever = new VectorRetriever(vectorClient, embeddingClient, {
         defaultCollectionName: collectionName,
+        taskType: "style_retrieval",
       });
       const topKPerChunk =
         options.topKPerChunk === "source-ratio"
@@ -442,6 +444,12 @@ export class StyleLibraryService {
 
 export { BUILTIN_STYLE_LIBRARY_VECTOR_STORE_NAME };
 
+/**
+ * 计算风格库的嵌入指纹，用于检测嵌入模型变更。
+ *
+ * 注意：isInstructionModel 和 instructionTemplate 不参与指纹计算，
+ * 因为修改指令设置不影响已索引 embedding 的兼容性。
+ */
 export function buildStyleLibraryEmbeddingFingerprint(config: LlmClientConfig): string {
   const fingerprintSource = {
     provider: config.provider,

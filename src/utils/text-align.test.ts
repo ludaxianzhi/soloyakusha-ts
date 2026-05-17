@@ -13,11 +13,11 @@ class FakeEmbeddingClient extends EmbeddingClient {
     super(config);
   }
 
-  override async getEmbedding(text: string): Promise<number[]> {
+  override async getEmbedding(text: string, _taskType?: string): Promise<number[]> {
     return embeddingTable[text] ?? [0.1, 0.1, 0.1];
   }
 
-  override async getEmbeddings(texts: string[]): Promise<number[][]> {
+  override async getEmbeddings(texts: string[], _taskType?: string): Promise<number[][]> {
     return Promise.all(texts.map((text) => this.getEmbedding(text)));
   }
 }

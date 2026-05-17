@@ -243,8 +243,8 @@ export class PcaEmbeddingClient extends EmbeddingClient {
    * 获取单个文本的 PCA 降维嵌入向量。
    * 先由内部客户端获取原始嵌入，再通过 {@link PcaProjection.project} 降维。
    */
-  override async getEmbedding(text: string): Promise<number[]> {
-    const raw = await this.innerClient.getEmbedding(text);
+  override async getEmbedding(text: string, taskType?: string): Promise<number[]> {
+    const raw = await this.innerClient.getEmbedding(text, taskType);
     return this.projection.project(raw);
   }
 
@@ -252,8 +252,8 @@ export class PcaEmbeddingClient extends EmbeddingClient {
    * 批量获取 PCA 降维嵌入向量。
    * 先由内部客户端批量获取原始嵌入，再批量降维（共用 Float64Array 缓冲区）。
    */
-  override async getEmbeddings(texts: string[]): Promise<number[][]> {
-    const raws = await this.innerClient.getEmbeddings(texts);
+  override async getEmbeddings(texts: string[], taskType?: string): Promise<number[][]> {
+    const raws = await this.innerClient.getEmbeddings(texts, taskType);
     return this.projection.projectBatch(raws);
   }
 

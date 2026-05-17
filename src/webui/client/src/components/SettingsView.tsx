@@ -414,6 +414,14 @@ export function SettingsView({
                       </Col>
                     </Row>
                     <Form.Item
+                      name="isInstructionModel"
+                      valuePropName="checked"
+                      extra="启用后可在嵌入文本前添加指令前缀，使模型在不同任务间切换语义空间。"
+                    >
+                      <Checkbox>是否为指令模型</Checkbox>
+                    </Form.Item>
+                    <InstructionTemplateCollapse embeddingForm={embeddingForm} />
+                    <Form.Item
                       name="pcaEnabled"
                       valuePropName="checked"
                       extra="启用后会使用 PCA 降维后的向量替代原始嵌入结果。"
@@ -955,6 +963,46 @@ function AuxiliaryYamlCollapse({ name, placeholder }: { name: string; placeholde
         <Form.Item name={name} style={{ marginBottom: 0 }}>
           <YamlCodeEditor height={180} placeholder={placeholder} />
         </Form.Item>
+      </Collapse.Panel>
+    </Collapse>
+  );
+}
+
+const DEFAULT_INSTRUCTION_TEMPLATE = "Instruction:{{instruction}}\nQuery:{{text}}";
+
+function InstructionTemplateCollapse({
+  embeddingForm,
+}: {
+  embeddingForm: FormInstance<Record<string, unknown>>;
+}) {
+  const isInstructionModel =
+    (Form.useWatch('isInstructionModel', embeddingForm) as boolean | undefined) === true;
+
+  if (!isInstructionModel) {
+    return null;
+  }
+
+  return (
+    <Collapse size="small" ghost style={{ marginBottom: 16 }}>
+      <Collapse.Panel key="1" header={<Text type="secondary">指令内插模板</Text>}>
+        <Form.Item
+          name="instructionTemplate"
+          extra="必须包含 {{instruction}} 和 {{text}} 两个占位符。"
+          style={{ marginBottom: 8 }}
+        >
+          <TextArea
+            rows={3}
+            placeholder={DEFAULT_INSTRUCTION_TEMPLATE}
+          />
+        </Form.Item>
+        <Button
+          size="small"
+          onClick={() => {
+            embeddingForm.setFieldValue('instructionTemplate', DEFAULT_INSTRUCTION_TEMPLATE);
+          }}
+        >
+          还原默认模板
+        </Button>
       </Collapse.Panel>
     </Collapse>
   );

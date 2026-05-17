@@ -24,6 +24,7 @@ import {
   joinUrl,
   retryAsync,
 } from "./utils.ts";
+import { getEmbeddingInstruction } from "../prompts/embedding-instructions.ts";
 
 const REQUEST_TIMEOUT_MS = 60_000;
 
@@ -68,30 +69,32 @@ export class OpenAIEmbeddingClient extends EmbeddingClient {
     this.cacheTtlMs = options.cacheTtlMs ?? 3_600_000;
   }
 
-  override async getEmbedding(text: string): Promise<number[]> {
-    const cached = this.getFromCache(text);
+  override async getEmbedding(text: string, taskType?: string): Promise<number[]> {
+    const finalText = await this.resolveInstructedText(text, taskType);
+    const cached = this.getFromCache(finalText);
     if (cached) {
       return cached;
     }
 
-    const [embedding] = await this.requestEmbeddings([text]);
+    const [embedding] = await this.requestEmbeddings([finalText]);
     if (!embedding) {
       throw new Error("Embedding 响应缺少首个向量");
     }
 
-    this.saveToCache(text, embedding);
+    this.saveToCache(finalText, embedding);
     return embedding;
   }
 
-  override async getEmbeddings(texts: string[]): Promise<number[][]> {
+  override async getEmbeddings(texts: string[], taskType?: string): Promise<number[][]> {
     if (texts.length === 0) {
       return [];
     }
 
+    const resolvedTexts = await this.resolveInstructedTexts(texts, taskType);
     const results: Array<number[] | undefined> = new Array(texts.length);
     const pending: Array<{ index: number; text: string }> = [];
 
-    for (const [index, text] of texts.entries()) {
+    for (const [index, text] of resolvedTexts.entries()) {
       const cached = this.getFromCache(text);
       if (cached) {
         results[index] = cached;
@@ -240,6 +243,44 @@ export class OpenAIEmbeddingClient extends EmbeddingClient {
       embedding,
       timestamp: Date.now(),
     });
+  }
+
+  /**
+   * 根据 taskType 解析指令文本并渲染模板。
+   * 仅当 config.isInstructionModel 为 true 且 taskType 非空时生效。
+   */
+  private async resolveInstructedText(text: string, taskType?: string): Promise<string> {
+    if (!this.config.isInstructionModel || !taskType) {
+      return text;
+    }
+
+    const instruction = await getEmbeddingInstruction(taskType);
+    return this.renderTemplate(instruction, text);
+  }
+
+  /**
+   * 批量解析指令文本。仅当 config.isInstructionModel 为 true 且 taskType 非空时生效。
+   * 同一批次的指令文本只解析一次。
+   */
+  private async resolveInstructedTexts(
+    texts: string[],
+    taskType?: string,
+  ): Promise<string[]> {
+    if (!this.config.isInstructionModel || !taskType) {
+      return texts;
+    }
+
+    const instruction = await getEmbeddingInstruction(taskType);
+    return texts.map((text) => this.renderTemplate(instruction, text));
+  }
+
+  /**
+   * 使用 config.instructionTemplate 渲染指令模板。
+   * 默认模板为 "{{instruction}}\n\n{{text}}"。
+   */
+  private renderTemplate(instruction: string, text: string): string {
+    const template = this.config.instructionTemplate ?? "{{instruction}}\n\n{{text}}";
+    return template.replace("{{instruction}}", instruction).replace("{{text}}", text);
   }
 }
 

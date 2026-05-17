@@ -3990,7 +3990,7 @@ export class ProjectService {
       this.log('info', `正在生成 Tiny Chunk 向量（${chunks.length} 个 chunk，来自 ${orderedFragments.length} 个文本块）...`);
       const embeddings = await provider
         .getEmbeddingClient(GLOBAL_EMBEDDING_CLIENT_NAME)
-        .getEmbeddings(chunks.map((chunk) => chunk.text));
+        .getEmbeddings(chunks.map((chunk) => chunk.text), "context_network");
 
       this.log('info', '正在计算上下文网络连接...');
       const network = buildContextNetworkDataFromTinyChunkEmbeddings({

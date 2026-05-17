@@ -699,6 +699,8 @@ export interface LlmProfileConfig {
     enabled: boolean;
     weightsFilePath?: string;
   };
+  isInstructionModel?: boolean;
+  instructionTemplate?: string;
 }
 
 export interface VectorStoreConfig {

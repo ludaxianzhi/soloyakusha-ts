@@ -185,8 +185,11 @@ export abstract class ChatClient extends ManagedLlmClient {
  * 子类需要实现这两个方法，通常包含：
  * - 批量请求优化
  * - 结果缓存
+ *
+ * getEmbedding 和 getEmbeddings 均接受可选的 taskType 参数，
+ * 用于指令型嵌入模型在不同任务间切换语义空间。
  */
 export abstract class EmbeddingClient extends ManagedLlmClient {
-  abstract getEmbedding(text: string): Promise<number[]>;
-  abstract getEmbeddings(texts: string[]): Promise<number[][]>;
+  abstract getEmbedding(text: string, taskType?: string): Promise<number[]>;
+  abstract getEmbeddings(texts: string[], taskType?: string): Promise<number[][]>;
 }

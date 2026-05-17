@@ -191,6 +191,27 @@ export function normalizePersistedLlmClientConfig(
     throw new Error(`${sourceLabel}.pca 仅可用于 embedding 类型配置`);
   }
 
+  const isInstructionModel =
+    readOptionalBoolean(value.isInstructionModel, `${sourceLabel}.isInstructionModel`) ??
+    false;
+  const instructionTemplate = readOptionalString(
+    value.instructionTemplate,
+    `${sourceLabel}.instructionTemplate`,
+  );
+
+  if (isInstructionModel && modelType !== "embedding") {
+    throw new Error(`${sourceLabel}.isInstructionModel 仅可用于 embedding 类型配置`);
+  }
+
+  if (instructionTemplate !== undefined) {
+    if (!instructionTemplate.includes("{{instruction}}")) {
+      throw new Error(`${sourceLabel}.instructionTemplate 必须包含 {{instruction}} 占位符`);
+    }
+    if (!instructionTemplate.includes("{{text}}")) {
+      throw new Error(`${sourceLabel}.instructionTemplate 必须包含 {{text}} 占位符`);
+    }
+  }
+
   return {
     provider,
     modelName,
@@ -205,6 +226,8 @@ export function normalizePersistedLlmClientConfig(
     supportsStructuredOutput,
     injectVirtualTool,
     ...(pca ? { pca } : {}),
+    ...(isInstructionModel ? { isInstructionModel: true } : {}),
+    ...(instructionTemplate ? { instructionTemplate } : {}),
   };
 }
 
@@ -1207,6 +1230,8 @@ export function clonePersistedLlmClientConfig(
           },
         }
       : {}),
+    ...(config.isInstructionModel === true ? { isInstructionModel: true } : {}),
+    ...(config.instructionTemplate ? { instructionTemplate: config.instructionTemplate } : {}),
   };
 }
 

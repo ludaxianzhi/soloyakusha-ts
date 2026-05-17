@@ -56,6 +56,8 @@ export type PersistedLlmClientConfig = {
   supportsStructuredOutput?: boolean;
   injectVirtualTool?: boolean;
   pca?: PcaEmbeddingConfig;
+  isInstructionModel?: boolean;
+  instructionTemplate?: string;
 };
 
 export type GlobalLlmConfig = {

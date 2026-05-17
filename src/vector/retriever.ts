@@ -16,6 +16,8 @@ export class VectorRetriever {
     private readonly embeddingClient: EmbeddingClient,
     private readonly options: {
       defaultCollectionName?: string;
+      /** 嵌入指令任务类型，用于指令型嵌入模型在不同任务间切换语义空间 */
+      taskType?: string;
     } = {},
   ) {}
 
@@ -43,6 +45,7 @@ export class VectorRetriever {
   async upsertTexts(params: TextUpsertParams): Promise<void> {
     const embeddings = await this.embeddingClient.getEmbeddings(
       params.records.map((record) => record.text),
+      this.options.taskType,
     );
 
     await this.storeClient.upsert({
@@ -74,7 +77,10 @@ export class VectorRetriever {
   }
 
   async searchText(params: TextSearchParams): Promise<VectorSearchResult[]> {
-    const vector = await this.embeddingClient.getEmbedding(params.text);
+    const vector = await this.embeddingClient.getEmbedding(
+      params.text,
+      this.options.taskType,
+    );
     return this.searchVector({
       collectionName: params.collectionName,
       vector,

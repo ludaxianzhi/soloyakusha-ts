@@ -893,11 +893,11 @@ class FakeEmbeddingClient extends EmbeddingClient {
     super(createStubEmbeddingConfig());
   }
 
-  override async getEmbedding(text: string): Promise<number[]> {
+  override async getEmbedding(text: string, _taskType?: string): Promise<number[]> {
     return [text.length, Math.max(1, Math.floor(text.length / 2))];
   }
 
-  override async getEmbeddings(texts: string[]): Promise<number[][]> {
+  override async getEmbeddings(texts: string[], _taskType?: string): Promise<number[][]> {
     return Promise.all(texts.map((text) => this.getEmbedding(text)));
   }
 }

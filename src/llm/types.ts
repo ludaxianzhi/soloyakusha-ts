@@ -60,6 +60,10 @@ export type LlmClientConfig = {
   supportsStructuredOutput?: boolean;
   injectVirtualTool?: boolean;
   pca?: PcaEmbeddingConfig;
+  /** 是否为指令型嵌入模型，开启后可使用指令模板为不同任务添加语义指导 */
+  isInstructionModel?: boolean;
+  /** 指令内插模板，须包含 {{instruction}} 和 {{text}} 两个占位符，isInstructionModel 为 true 时有效 */
+  instructionTemplate?: string;
 };
 
 export type LlmClientConfigInput = {
@@ -76,6 +80,8 @@ export type LlmClientConfigInput = {
   supportsStructuredOutput?: boolean;
   injectVirtualTool?: boolean;
   pca?: PcaEmbeddingConfig;
+  isInstructionModel?: boolean;
+  instructionTemplate?: string;
 };
 
 export type LlmToolDefinition = {
@@ -312,6 +318,11 @@ export function createLlmClientConfig(
         }
       : undefined;
 
+  const normalizedInstructionTemplate =
+    input.isInstructionModel === true && input.instructionTemplate
+      ? input.instructionTemplate.trim()
+      : undefined;
+
   return {
     provider: input.provider ?? "openai",
     modelName: input.modelName,
@@ -327,6 +338,10 @@ export function createLlmClientConfig(
     supportsStructuredOutput: input.supportsStructuredOutput === true,
     injectVirtualTool: input.injectVirtualTool === true,
     ...(normalizedPca ? { pca: normalizedPca } : {}),
+    ...(input.isInstructionModel === true ? { isInstructionModel: true } : {}),
+    ...(normalizedInstructionTemplate
+      ? { instructionTemplate: normalizedInstructionTemplate }
+      : {}),
   };
 }
 
