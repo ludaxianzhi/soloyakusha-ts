@@ -105,7 +105,22 @@ export class TranslationProjectWorkspace {
   }
 
   getChapterDescriptors(): WorkspaceChapterDescriptor[] {
-    return this.chapters.map((chapter) => this.getRequiredChapterDescriptor(chapter.id));
+    const descriptors = this.documentManager.getAllChapterDescriptors();
+    return this.chapters.map((chapter) => {
+      const desc = descriptors.get(chapter.id);
+      if (!desc) {
+        throw new Error(`章节 ${chapter.id} 不存在`);
+      }
+      return {
+        id: chapter.id,
+        filePath: chapter.filePath,
+        displayName: getChapterDisplayName(chapter.filePath),
+        fragmentCount: desc.fragmentCount,
+        sourceLineCount: desc.sourceLineCount,
+        translatedLineCount: desc.translatedLineCount,
+        hasTranslationData: desc.translatedLineCount > 0,
+      };
+    });
   }
 
   getChapterDescriptor(chapterId: number): WorkspaceChapterDescriptor | undefined {

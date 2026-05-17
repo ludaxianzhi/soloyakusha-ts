@@ -455,6 +455,10 @@ export class TranslationDocumentManager {
     return this.ensureChapterLoaded(chapterId);
   }
 
+  getAllChapterDescriptors(): Map<number, { fragmentCount: number; sourceLineCount: number; translatedLineCount: number }> {
+    return this.storage.loadChapterDescriptorsSync();
+  }
+
   getAllChapters(): ChapterEntry[] {
     return this.chapterOrder
       .map((chapterId) => this.ensureChapterLoaded(chapterId))

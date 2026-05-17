@@ -146,6 +146,49 @@ export class SqliteProjectStorage {
     }
   }
 
+  loadChapterDescriptorsSync(): Map<number, { fragmentCount: number; sourceLineCount: number; translatedLineCount: number }> {
+    const db = this.openDatabase();
+    try {
+      const rows = db
+        .query(
+          `SELECT c.chapter_id,
+                  COALESCE(fc.fragment_count, 0)       AS fragment_count,
+                  COALESCE(fc.source_line_count, 0)     AS source_line_count,
+                  COALESCE(tlc.translated_line_count, 0) AS translated_line_count
+             FROM chapters c
+             LEFT JOIN (SELECT chapter_id,
+                               COUNT(*)                     AS fragment_count,
+                               SUM(json_array_length(source_json)) AS source_line_count
+                          FROM fragments
+                         GROUP BY chapter_id) fc ON fc.chapter_id = c.chapter_id
+             LEFT JOIN (SELECT chapter_id,
+                               COUNT(*) AS translated_line_count
+                          FROM fragment_lines
+                         WHERE translation IS NOT NULL AND translation != ''
+                         GROUP BY chapter_id) tlc ON tlc.chapter_id = c.chapter_id
+            ORDER BY c.chapter_id`,
+        )
+        .all() as Array<{
+          chapter_id: number;
+          fragment_count: number;
+          source_line_count: number;
+          translated_line_count: number;
+        }>;
+
+      const result = new Map<number, { fragmentCount: number; sourceLineCount: number; translatedLineCount: number }>();
+      for (const row of rows) {
+        result.set(row.chapter_id, {
+          fragmentCount: row.fragment_count,
+          sourceLineCount: row.source_line_count,
+          translatedLineCount: row.translated_line_count,
+        });
+      }
+      return result;
+    } finally {
+      db.close();
+    }
+  }
+
   async loadChapterIndex(chapterId: number): Promise<PersistedChapterIndex | undefined> {
     return this.loadChapterIndexSync(chapterId);
   }
