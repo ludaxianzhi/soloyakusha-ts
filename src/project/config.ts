@@ -227,6 +227,11 @@ export class TranslationGlobalConfig {
     );
   }
 
+  getFirstEmbeddingProfileName(): string | undefined {
+    const names = Object.keys(this.llm.embeddingProfiles ?? {});
+    return names[0];
+  }
+
   createProvider(hooks?: ClientHooks): LlmClientProvider {
     return createProviderFromConfigs(
       {
@@ -267,7 +272,8 @@ export class TranslationGlobalConfig {
     const outputRepairer = createOutputRepairer(
       provider,
       this.getAlignmentRepairConfig(),
-      Boolean(this.llm.embedding),
+      this.hasEmbeddingConfig(),
+      this.getFirstEmbeddingProfileName(),
     );
 
     const additionalClientResolvers = {
@@ -310,7 +316,8 @@ export class TranslationGlobalConfig {
     const outputRepairer = createOutputRepairer(
       provider,
       this.getAlignmentRepairConfig(),
-      Boolean(this.llm.embedding),
+      this.hasEmbeddingConfig(),
+      this.getFirstEmbeddingProfileName(),
     );
 
     return ProofreadProcessorFactory.createProcessor({
@@ -474,6 +481,7 @@ function createOutputRepairer(
   provider: LlmClientProvider,
   config: AlignmentRepairConfig | undefined,
   hasEmbeddingConfig: boolean,
+  defaultEmbeddingProfileName?: string,
 ): TranslationOutputRepairer | undefined {
   if (!config) {
     return undefined;
@@ -483,7 +491,13 @@ function createOutputRepairer(
     throw new Error("已配置对齐补翻，但未配置任何嵌入模型预设，无法执行文本对齐。");
   }
 
-  const embeddingClientName = config.embeddingProfileName ?? GLOBAL_EMBEDDING_CLIENT_NAME;
+  const embeddingClientName = config.embeddingProfileName ?? defaultEmbeddingProfileName;
+  if (!embeddingClientName) {
+    throw new Error(
+      "对齐补翻未指定嵌入模型预设，请在设置中指定。",
+    );
+  }
+
   let embeddingClient: ReturnType<LlmClientProvider["getEmbeddingClient"]>;
   try {
     embeddingClient = provider.getEmbeddingClient(embeddingClientName);
@@ -519,6 +533,7 @@ function normalizeLlmConfigInput(
     return {
       profiles: { ...(typed.profiles ?? {}) },
       embedding: typed.embedding ? { ...typed.embedding } : undefined,
+      embeddingProfiles: typed.embeddingProfiles ? { ...typed.embeddingProfiles } : undefined,
     };
   }
 
@@ -539,6 +554,9 @@ function resolveLlmConfig(value: unknown): TranslationGlobalLlmConfig {
         : {},
       embedding: isRecord(value.embedding)
         ? (value.embedding as LlmClientConfigInput)
+        : undefined,
+      embeddingProfiles: isRecord(value.embeddingProfiles)
+        ? (value.embeddingProfiles as Record<string, LlmClientConfigInput>)
         : undefined,
     };
   }

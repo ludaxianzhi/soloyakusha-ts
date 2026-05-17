@@ -15,7 +15,6 @@ import type { EmbeddingClient } from "../llm/base.ts";
 import { LlmClientProvider } from "../llm/provider.ts";
 import type { JsonObject, LlmClientConfig } from "../llm/types.ts";
 import { stableStringify } from "../llm/utils.ts";
-import { GLOBAL_EMBEDDING_CLIENT_NAME } from "../project/config.ts";
 import type { TranslationUnit } from "../project/types.ts";
 import { VectorStoreClientProvider } from "../vector/provider.ts";
 import { VectorRetriever } from "../vector/retriever.ts";
@@ -115,10 +114,8 @@ export class StyleLibraryService {
     libraryName: string,
     input: CreateStyleLibraryInput,
   ): Promise<StyleLibrarySummary> {
-    const embeddingProfileName = input.embeddingProfileName;
-    const embeddingConfig = embeddingProfileName
-      ? await this.manager.getResolvedEmbeddingConfigByName(embeddingProfileName)
-      : await this.manager.getResolvedEmbeddingConfig();
+    const embeddingProfileName = await this.resolveEmbeddingProfileName(input.embeddingProfileName);
+    const embeddingConfig = await this.manager.getResolvedEmbeddingConfigByName(embeddingProfileName);
     const embeddingFingerprint = buildStyleLibraryEmbeddingFingerprint(embeddingConfig);
     const collectionName = buildManagedStyleLibraryCollectionName(libraryName);
     const timestamp = this.now().toISOString();
@@ -516,16 +513,11 @@ export class StyleLibraryService {
       };
     }
 
-    const embedding = await this.manager.getEmbeddingConfig();
-    if (!embedding) {
-      return { available: false };
-    }
-
+    const resolvedName = await this.resolveEmbeddingProfileName();
+    const config = await this.manager.getResolvedEmbeddingConfigByName(resolvedName);
     return {
       available: true,
-      fingerprint: buildStyleLibraryEmbeddingFingerprint(
-        await this.manager.getResolvedEmbeddingConfig(),
-      ),
+      fingerprint: buildStyleLibraryEmbeddingFingerprint(config),
     };
   }
 
@@ -556,21 +548,40 @@ export class StyleLibraryService {
     operation: (client: EmbeddingClient) => Promise<T>,
     embeddingProfileName?: string,
   ): Promise<T> {
-    const config = embeddingProfileName
-      ? await this.manager.getResolvedEmbeddingConfigByName(embeddingProfileName)
-      : await this.manager.getResolvedEmbeddingConfig();
+    const resolvedName = await this.resolveEmbeddingProfileName(embeddingProfileName);
+    const config = await this.manager.getResolvedEmbeddingConfigByName(resolvedName);
     if (this.embeddingClientResolver) {
       return await operation(await this.embeddingClientResolver(config));
     }
 
-    const clientName = embeddingProfileName ?? GLOBAL_EMBEDDING_CLIENT_NAME;
     const provider = new LlmClientProvider();
-    provider.register(clientName, config);
+    provider.register(resolvedName, config);
     try {
-      return await operation(provider.getEmbeddingClient(clientName));
+      return await operation(provider.getEmbeddingClient(resolvedName));
     } finally {
       await provider.closeAll();
     }
+  }
+
+  /**
+   * 解析有效的嵌入预设名称。
+   * 若显式指定了名称则直接使用；否则使用第一个可用的嵌入预设。
+   */
+  private async resolveEmbeddingProfileName(explicitName?: string): Promise<string> {
+    if (explicitName) {
+      const exists = await this.manager.getEmbeddingProfile(explicitName);
+      if (!exists) {
+        throw new Error(`嵌入模型预设 '${explicitName}' 未找到`);
+      }
+      return explicitName;
+    }
+
+    const profiles = await this.manager.listEmbeddingProfiles();
+    const names = Object.keys(profiles);
+    if (names.length === 0) {
+      throw new Error("未配置任何嵌入模型预设，请先在设置中添加");
+    }
+    return names[0]!;
   }
 }
 
