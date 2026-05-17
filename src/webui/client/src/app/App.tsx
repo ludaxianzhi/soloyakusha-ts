@@ -349,6 +349,7 @@ export function AppShell() {
   const workspaceConfigRef = useRef<WorkspaceConfig | null>(null);
   const chaptersRefreshPromiseRef = useRef<Promise<void> | null>(null);
   const topologyRefreshPromiseRef = useRef<Promise<void> | null>(null);
+  const refreshGenerationRef = useRef(0);
   const [chapters, setChapters] = useState<WorkspaceChapterDescriptor[]>([]);
   const [topology, setTopology] = useState<StoryTopologyDescriptor | null>(null);
   const [dictionaryModalOpen, setDictionaryModalOpen] = useState(false);
@@ -654,6 +655,8 @@ export function AppShell() {
   }, []);
 
   const resetWorkspaceDataCaches = useCallback(() => {
+    chaptersRefreshPromiseRef.current = null;
+    topologyRefreshPromiseRef.current = null;
     setDictionary([]);
     setRepeatedPatterns(null);
     setChapters([]);
@@ -814,6 +817,7 @@ export function AppShell() {
     }
 
     const refreshPromise = (async () => {
+      const generation = ++refreshGenerationRef.current;
       let nextRevision: number | undefined;
       try {
         const versions = await api.getProjectResourceVersions(workspaceId);
@@ -825,6 +829,9 @@ export function AppShell() {
         // ignore version probe failures and fall back to direct fetch
       }
       const chaptersRes = await api.getChapters(workspaceId).catch(() => ({ chapters: [] }));
+      if (generation !== refreshGenerationRef.current) {
+        return;
+      }
       setChapters(chaptersRes.chapters);
       workspaceResourceVersionsRef.current = {
         ...workspaceResourceVersionsRef.current,
@@ -854,6 +861,7 @@ export function AppShell() {
     }
 
     const refreshPromise = (async () => {
+      const generation = ++refreshGenerationRef.current;
       let nextRevision: number | undefined;
       try {
         const versions = await api.getProjectResourceVersions(workspaceId);
@@ -865,6 +873,9 @@ export function AppShell() {
         // ignore version probe failures and fall back to direct fetch
       }
       const topologyRes = await api.getTopology(workspaceId).catch(() => ({ topology: null }));
+      if (generation !== refreshGenerationRef.current) {
+        return;
+      }
       setTopology(topologyRes.topology);
       workspaceResourceVersionsRef.current = {
         ...workspaceResourceVersionsRef.current,
@@ -1194,6 +1205,13 @@ export function AppShell() {
       setRepeatedPatterns(null);
     });
   }, [refreshRepeatedPatterns, snapshot]);
+
+  useEffect(() => {
+    if (!snapshot) {
+      return;
+    }
+    void refreshDictionary();
+  }, [refreshDictionary, snapshot]);
 
   useEffect(() => {
     if (location.pathname !== '/settings') {
