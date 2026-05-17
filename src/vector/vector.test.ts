@@ -716,8 +716,8 @@ describe("SqliteMemoryVectorStoreClient", () => {
     try {
       await expect(client.ensureCollection({
         name: "too-wide",
-        dimension: 257,
-      })).rejects.toThrow("仅支持 1-256 维向量");
+        dimension: 1025,
+      })).rejects.toThrow("仅支持 1-1025 维向量");
     } finally {
       await client.close();
       await rm(workspaceDir, { recursive: true, force: true });

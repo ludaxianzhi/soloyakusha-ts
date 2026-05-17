@@ -9,7 +9,7 @@ import type {
   VectorStoreUpsertParams,
 } from "./types.ts";
 
-export const SQLITE_MEMORY_MAX_DIMENSION = 256;
+export const SQLITE_MEMORY_MAX_DIMENSION = 1024;
 export const SQLITE_MEMORY_MAX_RECORDS = 50_000;
 
 export type SqliteMemoryInitRequest = {
