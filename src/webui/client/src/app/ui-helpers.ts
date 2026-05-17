@@ -22,6 +22,7 @@ export const IMPORT_FORMAT_OPTIONS = [
   { label: 'GalTransl JSON', value: 'galtransl_json' },
   { label: 'DBL TP1', value: 'dbl_tp1' },
   { label: 'ND With Meta', value: 'nd_with_meta' },
+  { label: 'DBL TP2', value: 'dbl_tp2' },
 ];
 
 export const EXPORT_FORMAT_EXTENSIONS: Record<string, string> = {
@@ -31,6 +32,7 @@ export const EXPORT_FORMAT_EXTENSIONS: Record<string, string> = {
   galtransl_json: '.json',
   dbl_tp1: '.txt',
   nd_with_meta: '.nd',
+  dbl_tp2: '.txt',
 };
 
 export const DEFAULT_ARCHIVE_IMPORT_PATTERN = '**/*';

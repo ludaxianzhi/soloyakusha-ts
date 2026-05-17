@@ -239,6 +239,7 @@ const EXPORT_FORMATS: Array<{ label: string; value: string }> = [
   { label: 'M3T', value: 'm3t' },
   { label: 'GalTransl JSON', value: 'galtransl_json' },
   { label: 'ND With Meta', value: 'nd_with_meta' },
+  { label: 'DBL TP2', value: 'dbl_tp2' },
 ];
 
 function ExportFormatDropdown({

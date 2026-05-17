@@ -489,6 +489,7 @@ const ChapterTableSection = memo(function ChapterTableSection({
                         { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([record.id], 'galtransl_json', params) },
                         { key: 'download-dbl_tp1', label: 'DBL TP1', onClick: () => onDownloadChapters([record.id], 'dbl_tp1', params) },
                         { key: 'download-nd_with_meta', label: 'ND With Meta', onClick: () => onDownloadChapters([record.id], 'nd_with_meta', params) },
+                        { key: 'download-dbl_tp2', label: 'DBL TP2', onClick: () => onDownloadChapters([record.id], 'dbl_tp2', params) },
                       ],
                     },
                     { type: 'divider' as const },
@@ -1531,6 +1532,7 @@ function ChapterInfoTable({
               { value: 'galtransl_json', label: 'GalTransl JSON' },
               { value: 'dbl_tp1', label: 'DBL TP1' },
               { value: 'nd_with_meta', label: 'ND With Meta' },
+              { value: 'dbl_tp2', label: 'DBL TP2' },
             ]}
           />
           <Checkbox
