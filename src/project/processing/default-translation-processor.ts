@@ -44,6 +44,7 @@ import {
   resolveTranslatedGlossaryTerms,
   resolveUntranslatedGlossaryTerms,
   splitSourceTextIntoUnits,
+  applyPreProcessingToLines,
 } from "./translation-prompt-context.ts";
 import type { SlidingWindowOptions, SlidingWindowFragment } from "../types.ts";
 
@@ -88,7 +89,7 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
     workItem: TranslationWorkItem,
     options: Pick<
       TranslationProcessorRequest,
-      "glossary" | "requestOptions" | "documentManager" | "slidingWindow" | "editorRequirementsText"
+      "glossary" | "requestOptions" | "documentManager" | "slidingWindow" | "editorRequirementsText" | "preProcessors"
     > = {},
   ): Promise<TranslationProcessorResult> {
     const shouldUseSlidingWindow =
@@ -104,6 +105,7 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
       disableSlidingWindow: !shouldUseSlidingWindow,
       documentManager: shouldUseSlidingWindow ? options.documentManager : undefined,
       slidingWindow: shouldUseSlidingWindow ? options.slidingWindow : undefined,
+      preProcessors: options.preProcessors,
       workItemRef: {
         chapterId: workItem.chapterId,
         fragmentIndex: workItem.fragmentIndex,
@@ -115,7 +117,9 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
   async process(request: TranslationProcessorRequest): Promise<TranslationProcessorResult> {
     const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
     const sourceUnits = window
-      ? buildSourceUnitsFromLines(window.source.lines)
+      ? buildSourceUnitsFromLines(
+          applyPreProcessingToLines(window.source.lines, request.preProcessors),
+        )
       : splitSourceTextIntoUnits(request.sourceText);
     if (sourceUnits.length === 0) {
       return {

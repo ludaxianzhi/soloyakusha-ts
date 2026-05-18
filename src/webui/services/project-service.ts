@@ -2066,6 +2066,7 @@ export class ProjectService {
                 editorRequirementsText: firstPrepared.editorRequirementsText,
                 disableSlidingWindow: true,
                 documentManager: project.getDocumentManager(),
+                preProcessors: project.getWorkspaceConfig().preProcessors,
                 workItemRef: {
                   chapterId: firstItem.chapterId,
                   fragmentIndex: firstItem.fragmentIndex,
@@ -2148,6 +2149,7 @@ export class ProjectService {
                 requirements: prepared.requirements,
                 editorRequirementsText: prepared.editorRequirementsText,
                 documentManager: project.getDocumentManager(),
+                preProcessors: project.getWorkspaceConfig().preProcessors,
                 workItemRef: {
                   chapterId: firstItem.chapterId,
                   fragmentIndex: firstItem.fragmentIndex,
@@ -5204,6 +5206,7 @@ export class ProjectService {
                 styleGuidanceMode,
                 styleRequirementsText,
                 styleLibraryName,
+                preProcessors: currentProject.getWorkspaceConfig().preProcessors,
               });
             } catch (error) {
               processError = error;

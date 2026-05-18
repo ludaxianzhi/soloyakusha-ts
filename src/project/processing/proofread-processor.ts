@@ -29,6 +29,7 @@ import type {
 import type { ChatClient } from "../../llm/base.ts";
 import type { StoryTopology } from "../context/story-topology.ts";
 import type { SlidingWindowFragment, SlidingWindowOptions, FragmentAuxData, FragmentAuxDataContract } from "../types.ts";
+import { applyPreProcessingToLines } from "./translation-prompt-context.ts";
 
 export const PROOFREAD_STEP_NAMES = ["editor", "proofreader"] as const;
 
@@ -85,6 +86,8 @@ export type ProofreadProcessorRequest = {
   dependencyTrackingSourceRevision?: number;
   /** 该文本块当前已持久化的辅助数据，供消费方按需读取。 */
   fragmentAuxData?: FragmentAuxData;
+  /** 原文预处理步骤配置，用于对滑动窗口中的原文行执行预处理。 */
+  preProcessors?: ReadonlyArray<{ id: string; params?: Record<string, unknown> }>;
 };
 
 export interface ProofreadProcessor {
@@ -172,7 +175,9 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
   async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
     const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
     const sourceUnits = window
-      ? buildSourceUnitsFromLines(window.source.lines)
+      ? buildSourceUnitsFromLines(
+          applyPreProcessingToLines(window.source.lines, request.preProcessors),
+        )
       : splitTextIntoUnits(request.sourceText);
     const currentTranslations = window
       ? buildSourceUnitsFromLines(window.translation.lines)
@@ -436,7 +441,9 @@ export class SingleStepProofreadProcessor implements ProofreadProcessor {
   async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
     const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
     const sourceUnits = window
-      ? buildSourceUnitsFromLines(window.source.lines)
+      ? buildSourceUnitsFromLines(
+          applyPreProcessingToLines(window.source.lines, request.preProcessors),
+        )
       : splitTextIntoUnits(request.sourceText);
     const currentTranslations = window
       ? buildSourceUnitsFromLines(window.translation.lines)
@@ -602,7 +609,9 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
   async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
     const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
     const sourceUnits = window
-      ? buildSourceUnitsFromLines(window.source.lines)
+      ? buildSourceUnitsFromLines(
+          applyPreProcessingToLines(window.source.lines, request.preProcessors),
+        )
       : splitTextIntoUnits(request.sourceText);
     const currentTranslations = window
       ? buildSourceUnitsFromLines(window.translation.lines)

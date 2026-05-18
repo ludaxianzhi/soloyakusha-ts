@@ -35,6 +35,8 @@ export type TranslationProcessorRequest = {
   };
   /** 该文本块当前已持久化的辅助数据，供消费方按需读取。 */
   fragmentAuxData?: FragmentAuxData;
+  /** 原文预处理步骤配置，用于对滑动窗口中的原文行执行预处理。 */
+  preProcessors?: ReadonlyArray<{ id: string; params?: Record<string, unknown> }>;
 };
 
 export type TranslationProcessorTranslation = {
@@ -77,6 +79,7 @@ export interface TranslationProcessor {
       | "styleGuidanceMode"
       | "styleRequirementsText"
       | "styleLibraryName"
+      | "preProcessors"
     >,
   ): Promise<TranslationProcessorResult>;
 

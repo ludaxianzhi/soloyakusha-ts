@@ -1868,7 +1868,7 @@ export class TranslationProject
   }
 
   private applyPreProcessing(text: string): string {
-    const steps = this.workspaceConfig?.preProcessors;
+    const steps = this.getWorkspaceConfig().preProcessors;
     if (!steps || steps.length === 0) return text;
     const pipeline = TextPreProcessorRegistry.createPipeline(steps);
     return pipeline.process(text);

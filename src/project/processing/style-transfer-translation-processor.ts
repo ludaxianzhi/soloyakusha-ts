@@ -42,6 +42,7 @@ import {
 } from "./translation-output-repair.ts";
 import type { SlidingWindowOptions, SlidingWindowFragment } from "../types.ts";
 import type { FragmentAuxDataContract } from "../types.ts";
+import { applyPreProcessingToLines } from "./translation-prompt-context.ts";
 
 export const STYLE_TRANSFER_STEP_NAMES = ["analyzer", "translator", "styleTransfer"] as const;
 
@@ -128,6 +129,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       | "styleGuidanceMode"
       | "styleRequirementsText"
       | "styleLibraryName"
+      | "preProcessors"
     > = {},
   ): Promise<TranslationProcessorResult> {
     const shouldUseSlidingWindow =
@@ -145,6 +147,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       disableSlidingWindow: !shouldUseSlidingWindow,
       documentManager: shouldUseSlidingWindow ? options.documentManager : undefined,
       slidingWindow: shouldUseSlidingWindow ? options.slidingWindow : undefined,
+      preProcessors: options.preProcessors,
       workItemRef: {
         chapterId: workItem.chapterId,
         fragmentIndex: workItem.fragmentIndex,
@@ -156,7 +159,9 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
   async process(request: TranslationProcessorRequest): Promise<TranslationProcessorResult> {
     const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
     const sourceUnits = window
-      ? buildSourceUnitsFromLines(window.source.lines)
+      ? buildSourceUnitsFromLines(
+          applyPreProcessingToLines(window.source.lines, request.preProcessors),
+        )
       : splitSourceTextIntoUnits(request.sourceText);
 
     if (sourceUnits.length === 0) {

@@ -1,6 +1,7 @@
 import type { Glossary, ResolvedGlossaryTerm } from "../../glossary/glossary.ts";
 import type { TranslationContextView } from "../context/context-view.ts";
 import { PromptManager, type PromptTranslationUnit, type RenderedPrompt } from "./prompt-manager.ts";
+import { TextPreProcessorRegistry } from "../../utils/text-pre-processor.ts";
 
 export type TranslationPromptContextInput = {
   sourceText: string;
@@ -61,4 +62,23 @@ export async function renderSimpleTranslationPrompt(
     translatedGlossaryTerms: resolveTranslatedGlossaryTerms(options),
     requirements: [...(options.requirements ?? [])],
   });
+}
+
+/**
+ * 对滑动窗口中的原文行执行预处理。
+ *
+ * 将所有行用换行符连接后整体执行预处理管线，再按换行拆分回行数组，
+ * 保证与 buildWorkItem 中对 request.sourceText 的预处理行为一致。
+ */
+export function applyPreProcessingToLines(
+  lines: ReadonlyArray<string>,
+  preProcessors?: ReadonlyArray<{ id: string; params?: Record<string, unknown> }>,
+): string[] {
+  if (!preProcessors || preProcessors.length === 0) {
+    return [...lines];
+  }
+  const pipeline = TextPreProcessorRegistry.createPipeline([...preProcessors]);
+  const joined = lines.join("\n");
+  const processed = pipeline.process(joined);
+  return processed.split("\n");
 }
