@@ -928,6 +928,7 @@ export function AppShell() {
       batchFragmentCount: configRes.batchFragmentCount,
       customRequirements: configRes.customRequirements.join('\n'),
       editorRequirementsText: configRes.editorRequirementsText,
+      preProcessors: configRes.preProcessors ?? [],
     });
     setWorkspacePipelineStrategy(configRes.pipelineStrategy ?? 'default');
     workspaceConfigRef.current = configRes;
@@ -1772,6 +1773,10 @@ export function AppShell() {
                 : null,
             customRequirements: splitLines(String(values.customRequirements ?? '')),
             editorRequirementsText: String(values.editorRequirementsText ?? '').trim() || null,
+            preProcessors:
+              (values.preProcessors as
+                | Array<{ id: string; params: Record<string, unknown> }>
+                | undefined) ?? null,
             ...buildClearedWorkspaceWorkflowPatch(previousWorkflow, nextWorkflow),
             ...buildWorkspaceWorkflowPatch(values, nextWorkflow),
           },
