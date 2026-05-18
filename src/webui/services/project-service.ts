@@ -5,7 +5,7 @@
  * 改用 EventBus 发布状态变更事件。
  */
 
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { basename, dirname, extname, join, normalize, relative } from 'node:path';
 import { GlobalConfigManager } from '../../config/manager.ts';
@@ -3507,6 +3507,7 @@ export class ProjectService {
   async exportProject(
     formatName: string,
     params?: Record<string, unknown>,
+    processors?: { id: string; params?: Record<string, unknown> }[],
   ): Promise<ProjectExportResult | null> {
     const { state, project } = this.getActiveWorkspaceContext();
     if (!project) {
@@ -3517,6 +3518,9 @@ export class ProjectService {
     let result: ProjectExportResult | null = null;
     await this.runAction('导出翻译文件', async () => {
       const exported = await project.exportProject(formatName, params);
+      if (exported && processors && processors.length > 0) {
+        await ProjectService.applyPostProcessingToExport(exported, processors);
+      }
       result = exported;
       this.log(
         'success',
@@ -3530,6 +3534,7 @@ export class ProjectService {
     chapterIds: number[],
     formatName: string,
     params?: Record<string, unknown>,
+    processors?: { id: string; params?: Record<string, unknown> }[],
   ): Promise<ProjectExportResult | null> {
     const { state, project } = this.getActiveWorkspaceContext();
     if (!project) {
@@ -3564,6 +3569,21 @@ export class ProjectService {
         results.push({ chapterId, outputPath, unitCount: chapter.fragmentCount });
       }
 
+      if (processors && processors.length > 0) {
+        const exportResult: ProjectExportResult = {
+          exportDir: exportRootDir,
+          routes: [{
+            routeId: 'export',
+            routeName: '导出',
+            exportDir: exportRootDir,
+            chapters: results,
+          }],
+          totalChapters: results.length,
+          totalUnits: results.reduce((sum, r) => sum + r.unitCount, 0),
+        };
+        await ProjectService.applyPostProcessingToExport(exportResult, processors);
+      }
+
       const totalChapters = results.length;
       const totalUnits = results.reduce((sum, r) => sum + r.unitCount, 0);
 
@@ -3585,6 +3605,28 @@ export class ProjectService {
       );
     }, state);
     return result;
+  }
+
+  // ─── Post-Processing on Export ──────────────────────
+
+  private static async applyPostProcessingToExport(
+    result: ProjectExportResult,
+    processors: { id: string; params?: Record<string, unknown> }[],
+  ): Promise<void> {
+    const pipeline = TextPostProcessorRegistry.createPipeline(processors.map((p) => p.id));
+    for (const route of result.routes) {
+      for (const chapter of route.chapters) {
+        const filePath = chapter.outputPath;
+        try {
+          const content = await readFile(filePath, 'utf-8');
+          const lines = content.split('\n');
+          const processedLines = lines.map((line) => pipeline.process(line, line));
+          await writeFile(filePath, processedLines.join('\n'), 'utf-8');
+        } catch {
+          // skip files that can't be read or written (binary, etc.)
+        }
+      }
+    }
   }
 
   // ─── Chapter Management ─────────────────────────────

@@ -51,6 +51,7 @@ import type {
   StyleLibraryImportResult,
   StyleLibraryQueryResult,
   TextPostProcessorDescriptor,
+  PipelineStep,
   WorkspaceArchiveManifest,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
@@ -570,16 +571,16 @@ getFormatParams: (formatName: string, mode?: 'import' | 'export', workspaceId?: 
       `/api/project/format-params/${formatName}?mode=${mode ?? 'export'}${buildWorkspaceQueryString(workspaceId)}`,
     ),
 
-downloadExport: (format: string, params?: Record<string, unknown>, workspaceId?: string) =>
+downloadExport: (format: string, params?: Record<string, unknown>, processors?: PipelineStep[], workspaceId?: string) =>
     requestBlob(`/api/project/export${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
-      body: { format, params },
+      body: { format, params, processors },
     }),
 
-downloadChaptersExport: (chapterIds: number[], format: string, params?: Record<string, unknown>, workspaceId?: string) =>
+downloadChaptersExport: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: PipelineStep[], workspaceId?: string) =>
     requestBlob(`/api/project/chapters/export${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
-      body: { chapterIds, format, params },
+      body: { chapterIds, format, params, processors },
     }),
 
   downloadWorkspaceArchive: (dir: string) =>

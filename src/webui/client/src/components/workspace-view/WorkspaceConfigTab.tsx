@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { DeleteOutlined, DownOutlined, DownloadOutlined, ExportOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownloadOutlined, ExportOutlined } from '@ant-design/icons';
 import {
   Alert,
   Button,
   Card,
-  Checkbox,
   Col,
-  Dropdown,
   Form,
   Input,
   InputNumber,
@@ -14,17 +12,16 @@ import {
   Select,
   Space,
 } from 'antd';
-import { FormatParamFields, useFormatParams } from './FormatParamFields.tsx';
 import type { FormInstance } from 'antd';
 import type { TranslationProcessorWorkflowMetadata } from '../../app/types.ts';
 import {
   getWorkspaceWorkflowFields,
-  IMPORT_FORMAT_OPTIONS,
   WORKSPACE_PIPELINE_STRATEGY_OPTIONS,
   workspaceFieldName,
 } from '../../app/ui-helpers.ts';
 import { WorkflowFieldSections } from '../WorkflowFieldSections.tsx';
 import { usePollingTask } from '../../app/usePollingTask.ts';
+import { ExportFormatSelector } from './ExportFormatSelector.tsx';
 
 const { TextArea } = Input;
 
@@ -42,14 +39,12 @@ interface WorkspaceConfigTabProps {
   onRefreshWorkspaceConfig: () => void | Promise<void>;
   onRefreshStyleLibraryOptions?: () => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
-  onDownloadExport: (format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  onDownloadExport: (format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[]) => void | Promise<void>;
   onResetProject: (
     payload: Record<string, unknown>,
     successText: string,
   ) => void | Promise<void>;
 }
-
-export { EXPORT_FORMATS };
 
 export function WorkspaceConfigTab({
   active,
@@ -64,6 +59,19 @@ export function WorkspaceConfigTab({
   onResetProject,
 }: WorkspaceConfigTabProps) {
   const formValues = Form.useWatch([], workspaceForm) as Record<string, unknown> | undefined;
+  const [exportSelectorOpen, setExportSelectorOpen] = useState(false);
+
+  const handleOpenExportSelector = useCallback(() => {
+    setExportSelectorOpen(true);
+  }, []);
+
+  const handleExportConfirm = useCallback(
+    (config: { format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[] }) => {
+      setExportSelectorOpen(false);
+      void onDownloadExport(config.format, config.params, config.processors);
+    },
+    [onDownloadExport],
+  );
 
   useEffect(() => {
     if (!active) {
@@ -125,16 +133,7 @@ export function WorkspaceConfigTab({
             </Col>
           </Row>
           <Row gutter={16}>
-            <Col span={6}>
-              <Form.Item name="defaultImportFormat" label="默认导入格式">
-                <Select options={IMPORT_FORMAT_OPTIONS} />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item name="defaultExportFormat" label="默认导出格式">
-                <Select options={IMPORT_FORMAT_OPTIONS} />
-              </Form.Item>
-            </Col>
+
             <Col span={6}>
               <Form.Item
                 name="batchFragmentCount"
@@ -182,10 +181,21 @@ export function WorkspaceConfigTab({
         <Col span={12}>
           <Card title="导出项目" extra={<ExportOutlined />}>
             <Space direction="vertical" style={{ width: '100%' }}>
-              <ExportFormatDropdown
-                onExport={(format) => void onDownloadExport(format)}
-              />
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                onClick={handleOpenExportSelector}
+                block
+              >
+                导出项目
+              </Button>
             </Space>
+            <ExportFormatSelector
+              open={exportSelectorOpen}
+              onCancel={() => setExportSelectorOpen(false)}
+              onConfirm={handleExportConfirm}
+              storageKey="exportSelector:project"
+            />
           </Card>
         </Col>
         <Col span={12}>
@@ -229,67 +239,5 @@ export function WorkspaceConfigTab({
         </Col>
       </Row>
     </div>
-  );
-}
-
-const EXPORT_FORMATS: Array<{ label: string; value: string }> = [
-  { label: '纯文本', value: 'plain_text' },
-  { label: 'Nature Dialog', value: 'naturedialog' },
-  { label: 'DBL TP1', value: 'dbl_tp1' },
-  { label: 'M3T', value: 'm3t' },
-  { label: 'GalTransl JSON', value: 'galtransl_json' },
-  { label: 'ND With Meta', value: 'nd_with_meta' },
-  { label: 'DBL TP2', value: 'dbl_tp2' },
-];
-
-function ExportFormatDropdown({
-  onExport,
-}: {
-  onExport: (format: string, params?: Record<string, unknown>) => void;
-}) {
-  const [selectedFormat, setSelectedFormat] = useState(EXPORT_FORMATS[0]!.value);
-  const { paramDefs, buildParams } = useFormatParams(selectedFormat, 'export');
-  const [paramValues, setParamValues] = useState<Record<string, unknown>>({});
-
-  useEffect(() => {
-    const defaults: Record<string, unknown> = {};
-    for (const def of paramDefs) {
-      defaults[def.key] = def.defaultValue;
-    }
-    setParamValues(defaults);
-  }, [paramDefs]);
-
-  const handleParamChange = useCallback((key: string, value: unknown) => {
-    setParamValues((prev) => ({ ...prev, [key]: value }));
-  }, []);
-
-  const handleExport = useCallback(() => {
-    onExport(selectedFormat, buildParams(paramValues));
-  }, [onExport, selectedFormat, buildParams, paramValues]);
-
-  const items = EXPORT_FORMATS.map((fmt) => ({
-    key: fmt.value,
-    label: fmt.label,
-  }));
-
-  return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      <Dropdown.Button
-        type="primary"
-        icon={<DownloadOutlined />}
-        menu={{
-          items,
-          onClick: ({ key }) => setSelectedFormat(key),
-        }}
-        onClick={handleExport}
-      >
-        导出为更多格式
-      </Dropdown.Button>
-      <FormatParamFields
-        paramDefs={paramDefs}
-        values={paramValues}
-        onChange={handleParamChange}
-      />
-    </Space>
   );
 }

@@ -55,7 +55,6 @@ export interface WorkspaceViewProps {
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
   workspaceForm: FormInstance<Record<string, unknown>>;
-  defaultImportFormat?: string;
   translatorOptions: Array<{ label: string; value: string }>;
   styleLibraryOptions: Array<{ label: string; value: string; description?: string }>;
   selectedTranslatorWorkflow?: TranslationProcessorWorkflowMetadata;

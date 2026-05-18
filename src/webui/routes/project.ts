@@ -427,8 +427,8 @@ export function createProjectRoutes(
   });
 
   app.post('/export', async (c) => {
-    const body = await c.req.json<{ format: string; params?: Record<string, unknown> }>();
-    const result = await projectService.exportProject(body.format, body.params);
+    const body = await c.req.json<{ format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[] }>();
+    const result = await projectService.exportProject(body.format, body.params, body.processors);
     if (!result) {
       return c.json({ error: '当前没有可导出的项目' }, 400);
     }
@@ -721,7 +721,7 @@ export function createProjectRoutes(
   });
 
   app.post('/chapters/export', async (c) => {
-    const body = await c.req.json<{ chapterIds: number[]; format: string; params?: Record<string, unknown> }>();
+    const body = await c.req.json<{ chapterIds: number[]; format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[] }>();
     if (!Array.isArray(body.chapterIds) || body.chapterIds.length === 0) {
       return c.json({ error: '请提供至少一个章节 ID' }, 400);
     }
@@ -730,7 +730,7 @@ export function createProjectRoutes(
       return c.json({ error: '请提供导出格式' }, 400);
     }
 
-    const result = await projectService.exportChapters(body.chapterIds, format, body.params);
+    const result = await projectService.exportChapters(body.chapterIds, format, body.params, body.processors);
     if (!result) {
       return c.json({ error: '导出失败' }, 400);
     }

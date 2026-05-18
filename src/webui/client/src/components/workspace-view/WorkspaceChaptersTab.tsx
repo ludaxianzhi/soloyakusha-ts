@@ -1,4 +1,4 @@
-import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   App as AntdApp,
@@ -39,6 +39,7 @@ import { TranslationPreviewModal } from '../TranslationPreviewModal.tsx';
 import { ChapterKanbanBoard } from '../topology/ChapterKanbanBoard.tsx';
 import { ChapterFindReplaceModal } from './ChapterFindReplaceModal.tsx';
 import { PostProcessModal } from './PostProcessModal.tsx';
+import { ExportFormatSelector } from './ExportFormatSelector.tsx';
 import { formatChapterLabel } from './utils.ts';
 
 interface WorkspaceChaptersTabProps {
@@ -46,7 +47,6 @@ interface WorkspaceChaptersTabProps {
   mobileMode?: boolean;
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
-  defaultImportFormat?: string;
   proofreaders: Record<string, ProofreaderEntry>;
   defaultProofreaderName?: string;
   onRefreshChapters: () => void | Promise<void>;
@@ -73,7 +73,7 @@ interface WorkspaceChaptersTabProps {
     importTranslation?: boolean;
     importParams?: Record<string, unknown>;
   }) => Promise<ImportArchiveResult>;
-  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[]) => void | Promise<void>;
   onBatchSaveTopology: (routes: { id: string; chapters: number[] }[]) => void | Promise<void>;
 }
 
@@ -106,7 +106,6 @@ export function WorkspaceChaptersTab({
   mobileMode = false,
   chapters,
   topology,
-  defaultImportFormat,
   proofreaders,
   defaultProofreaderName,
   onRefreshChapters,
@@ -189,7 +188,6 @@ export function WorkspaceChaptersTab({
           mobileMode={mobileMode}
           chapters={chapters}
           topology={topology}
-          defaultImportFormat={defaultImportFormat}
           proofreaders={proofreaders}
           defaultProofreaderName={defaultProofreaderName}
           onClearChapterTranslations={onClearChapterTranslations}
@@ -314,8 +312,7 @@ const ChapterTableSection = memo(function ChapterTableSection({
   setPreviewOpen,
   onClearChapterTranslations,
   onRemoveChapters,
-  onDownloadChapters,
-  params,
+  onOpenPerChapterExport,
 }: {
   chapters: WorkspaceChapterDescriptor[];
   selectedChapterIds: number[];
@@ -329,8 +326,7 @@ const ChapterTableSection = memo(function ChapterTableSection({
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
   ) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
-  params?: Record<string, unknown>;
+  onOpenPerChapterExport: (chapterId: number) => void;
 }) {
   const navigate = useNavigate();
 
@@ -482,15 +478,7 @@ const ChapterTableSection = memo(function ChapterTableSection({
                       key: 'download',
                       icon: <DownloadOutlined />,
                       label: '下载章节',
-                      children: [
-                        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([record.id], 'plain_text', params) },
-                        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([record.id], 'naturedialog', params) },
-                        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([record.id], 'm3t', params) },
-                        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([record.id], 'galtransl_json', params) },
-                        { key: 'download-dbl_tp1', label: 'DBL TP1', onClick: () => onDownloadChapters([record.id], 'dbl_tp1', params) },
-                        { key: 'download-nd_with_meta', label: 'ND With Meta', onClick: () => onDownloadChapters([record.id], 'nd_with_meta', params) },
-                        { key: 'download-dbl_tp2', label: 'DBL TP2', onClick: () => onDownloadChapters([record.id], 'dbl_tp2', params) },
-                      ],
+                      onClick: () => onOpenPerChapterExport(record.id),
                     },
                     { type: 'divider' as const },
                     {
@@ -536,7 +524,6 @@ function ChapterInfoTable({
   mobileMode,
   chapters,
   topology,
-  defaultImportFormat,
   proofreaders,
   defaultProofreaderName,
   onClearChapterTranslations,
@@ -550,7 +537,6 @@ function ChapterInfoTable({
   mobileMode?: boolean;
   chapters: WorkspaceChapterDescriptor[];
   topology: StoryTopologyDescriptor | null;
-  defaultImportFormat?: string;
   proofreaders: Record<string, ProofreaderEntry>;
   defaultProofreaderName?: string;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
@@ -571,7 +557,7 @@ function ChapterInfoTable({
     importTranslation?: boolean;
     importParams?: Record<string, unknown>;
   }) => Promise<ImportArchiveResult>;
-  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[]) => void | Promise<void>;
   onRefreshChapters: () => void | Promise<void>;
 }) {
   const { message } = AntdApp.useApp();
@@ -588,8 +574,8 @@ function ChapterInfoTable({
   const [proofreadModalOpen, setProofreadModalOpen] = useState(false);
   const [proofreadMode, setProofreadMode] = useState<'linear' | 'simultaneous'>('linear');
   const [proofreaderName, setProofreaderName] = useState<string | undefined>(defaultProofreaderName);
-  const [batchDownloadModalOpen, setBatchDownloadModalOpen] = useState(false);
-  const [batchDownloadFormat, setBatchDownloadFormat] = useState('plain_text');
+  const [batchExportSelectorOpen, setBatchExportSelectorOpen] = useState(false);
+  const [perChapterExportId, setPerChapterExportId] = useState<number | undefined>(undefined);
   const [importArchiveFiles, setImportArchiveFiles] = useState<UploadFile[]>([]);
   const [importArchiveResult, setImportArchiveResult] = useState<ImportArchiveResult | null>(null);
   const [importArchiveForm] = Form.useForm<ImportArchiveFormValues>();
@@ -866,8 +852,7 @@ function ChapterInfoTable({
       message.warning('请先选择章节');
       return;
     }
-    setBatchDownloadFormat('plain_text');
-    setBatchDownloadModalOpen(true);
+    setBatchExportSelectorOpen(true);
   };
 
   const handleBatchPostProcess = () => {
@@ -886,10 +871,23 @@ function ChapterInfoTable({
     setFindReplaceModalOpen(true);
   };
 
-  const handleConfirmBatchDownload = () => {
-    void onDownloadChapters(selectedChapterIds, batchDownloadFormat, exportParams);
-    setBatchDownloadModalOpen(false);
-  };
+  const handleBatchExportConfirm = useCallback(
+    (config: { format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[] }) => {
+      setBatchExportSelectorOpen(false);
+      void onDownloadChapters(selectedChapterIds, config.format, { ...exportParams, ...config.params }, config.processors);
+    },
+    [onDownloadChapters, selectedChapterIds, exportParams],
+  );
+
+  const handlePerChapterExportConfirm = useCallback(
+    (config: { format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[] }) => {
+      const chapterId = perChapterExportId;
+      setPerChapterExportId(undefined);
+      if (chapterId == null) return;
+      void onDownloadChapters([chapterId], config.format, { ...exportParams, ...config.params }, config.processors);
+    },
+    [onDownloadChapters, perChapterExportId, exportParams],
+  );
 
   const openPreview = (chapterId: number) => {
     setPreviewChapterId(chapterId);
@@ -900,7 +898,7 @@ function ChapterInfoTable({
     setImportArchiveResult(null);
     setImportArchiveFiles([]);
     importArchiveForm.setFieldsValue({
-      importFormat: defaultImportFormat ?? '',
+      importFormat: '',
       importPattern: DEFAULT_ARCHIVE_IMPORT_PATTERN,
       importTranslation: false,
     });
@@ -1276,8 +1274,7 @@ function ChapterInfoTable({
           setPreviewOpen={setPreviewOpen}
           onClearChapterTranslations={onClearChapterTranslations}
           onRemoveChapters={onRemoveChapters}
-          onDownloadChapters={onDownloadChapters}
-          params={exportParams}
+          onOpenPerChapterExport={(chapterId) => setPerChapterExportId(chapterId)}
         />
       </div>
 
@@ -1295,7 +1292,7 @@ function ChapterInfoTable({
             form={importArchiveForm}
             layout="vertical"
             initialValues={{
-              importFormat: defaultImportFormat ?? '',
+              importFormat: '',
               importPattern: DEFAULT_ARCHIVE_IMPORT_PATTERN,
               importTranslation: false,
             }}
@@ -1507,42 +1504,21 @@ function ChapterInfoTable({
         </Space>
       </Modal>
 
-      <Modal
-        title="下载选中章节"
-        open={batchDownloadModalOpen}
-        okText="下载"
-        cancelText="取消"
-        onCancel={() => setBatchDownloadModalOpen(false)}
-        onOk={() => void handleConfirmBatchDownload()}
-      >
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Alert
-            type="info"
-            showIcon
-            message={`将下载 ${selectedChapterIds.length} 个选中章节的导出压缩包`}
-          />
-          <Select
-            style={{ width: '100%' }}
-            value={batchDownloadFormat}
-            onChange={(value) => setBatchDownloadFormat(value)}
-            options={[
-              { value: 'plain_text', label: '纯文本' },
-              { value: 'naturedialog', label: 'Nature Dialog' },
-              { value: 'm3t', label: 'M3T' },
-              { value: 'galtransl_json', label: 'GalTransl JSON' },
-              { value: 'dbl_tp1', label: 'DBL TP1' },
-              { value: 'nd_with_meta', label: 'ND With Meta' },
-              { value: 'dbl_tp2', label: 'DBL TP2' },
-            ]}
-          />
-          <Checkbox
-            checked={Boolean(exportParams.keepSourceName)}
-            onChange={(e) => setExportParams((prev) => ({ ...prev, keepSourceName: e.target.checked }))}
-          >
-            保持名称
-          </Checkbox>
-        </Space>
-      </Modal>
+      <ExportFormatSelector
+        open={batchExportSelectorOpen}
+        onCancel={() => setBatchExportSelectorOpen(false)}
+        onConfirm={handleBatchExportConfirm}
+        storageKey="exportSelector:chapters"
+        chapterCount={selectedChapterIds.length}
+      />
+
+      <ExportFormatSelector
+        open={perChapterExportId != null}
+        onCancel={() => setPerChapterExportId(undefined)}
+        onConfirm={handlePerChapterExportConfirm}
+        storageKey="exportSelector:chapterTable"
+        chapterCount={perChapterExportId != null ? 1 : 0}
+      />
     </>
   );
 }

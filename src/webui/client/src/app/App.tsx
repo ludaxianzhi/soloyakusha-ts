@@ -73,6 +73,7 @@ import type {
   VectorStoreConnectionStatus,
   WorkspaceChapterDescriptor,
   WorkspaceConfig,
+  PipelineStep,
 } from './types.ts';
 import { useEventStream } from './useEventStream.ts';
 import { DictionaryEditorModal } from '../components/DictionaryEditorModal.tsx';
@@ -409,7 +410,7 @@ export function AppShell() {
   const [updaterForm] = Form.useForm<Record<string, unknown>>();
   const [plotForm] = Form.useForm<Record<string, unknown>>();
   const [alignmentForm] = Form.useForm<Record<string, unknown>>();
-  const defaultImportFormat = Form.useWatch('defaultImportFormat', workspaceForm);
+
   const selectedWorkspaceTranslatorName = Form.useWatch('translatorName', workspaceForm) as
     | string
     | undefined;
@@ -923,8 +924,7 @@ export function AppShell() {
       pipelineStrategy: configRes.pipelineStrategy ?? 'default',
       glossaryPath: configRes.glossary.path,
       translatorName: configRes.translator.translatorName,
-      defaultImportFormat: configRes.defaultImportFormat,
-      defaultExportFormat: configRes.defaultExportFormat,
+
       batchFragmentCount: configRes.batchFragmentCount,
       customRequirements: configRes.customRequirements.join('\n'),
       editorRequirementsText: configRes.editorRequirementsText,
@@ -1765,8 +1765,7 @@ export function AppShell() {
             translator: {
               translatorName: nextTranslatorName,
             },
-            defaultImportFormat: String(values.defaultImportFormat ?? '') || null,
-            defaultExportFormat: String(values.defaultExportFormat ?? '') || null,
+
             batchFragmentCount:
               typeof values.batchFragmentCount === 'number'
                 ? values.batchFragmentCount
@@ -1963,9 +1962,9 @@ export function AppShell() {
   );
 
   const handleDownloadExport= useCallback(
-    async (format: string, params?: Record<string, unknown>) => {
+    async (format: string, params?: Record<string, unknown>, processors?: PipelineStep[]) => {
       await runAction(async () => {
-        const blob = await api.downloadExport(format, params, getSelectedWorkspaceId());
+        const blob = await api.downloadExport(format, params, processors, getSelectedWorkspaceId());
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -1995,12 +1994,13 @@ export function AppShell() {
   );
 
   const handleDownloadChapters = useCallback(
-    async (chapterIds: number[], format: string, params?: Record<string, unknown>) => {
+    async (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: PipelineStep[]) => {
       await runAction(async () => {
         const blob = await api.downloadChaptersExport(
           chapterIds,
           format,
           params,
+          processors,
           getSelectedWorkspaceId(),
         );
         const url = URL.createObjectURL(blob);
@@ -2802,11 +2802,7 @@ export function AppShell() {
                       chapters={chapters}
                       topology={topology}
                       workspaceForm={workspaceForm}
-                      defaultImportFormat={
-                        typeof defaultImportFormat === 'string'
-                          ? defaultImportFormat
-                          : undefined
-                      }
+
                       translatorOptions={translatorOptions}
                       proofreaders={proofreaders}
                       defaultProofreaderName={selectedProofreaderName}

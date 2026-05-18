@@ -289,6 +289,11 @@ export interface TextPostProcessorDescriptor {
   description: string;
 }
 
+export interface PipelineStep {
+  id: string;
+  params?: Record<string, unknown>;
+}
+
 export interface TranslationStepQueueEntrySnapshot {
   stepId: string;
   chapterId: number;

@@ -42,6 +42,7 @@ import type {
   UpdateStoryRoutePayload,
   WorkspaceChapterDescriptor,
 } from '../../app/types.ts';
+import { ExportFormatSelector } from '../workspace-view/ExportFormatSelector.tsx';
 
 // ─── Types ──────────────────────────────────────────
 
@@ -56,7 +57,7 @@ interface ChapterKanbanBoardProps {
   ) => void | Promise<void>;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
   onUpdateRoute: (routeId: string, payload: UpdateStoryRoutePayload) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[]) => void | Promise<void>;
   onBatchSaveTopology: (routes: { id: string; chapters: number[] }[]) => void | Promise<void>;
 }
 
@@ -149,6 +150,9 @@ export function ChapterKanbanBoard({
     name: string;
   } | null>(null);
   const [editRouteName, setEditRouteName] = useState('');
+
+  const [exportSelectorOpen, setExportSelectorOpen] = useState(false);
+  const [exportChapterId, setExportChapterId] = useState<number | undefined>(undefined);
 
   // ─── Sensors ──────────────────────────────────
 
@@ -345,6 +349,17 @@ export function ChapterKanbanBoard({
     setActiveId(null);
   }, []);
 
+  const handleExportConfirm = useCallback(
+    (config: { format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[] }) => {
+      const chapterId = exportChapterId;
+      setExportSelectorOpen(false);
+      setExportChapterId(undefined);
+      if (chapterId == null) return;
+      void onDownloadChapters([chapterId], config.format, { ...exportParams, ...config.params }, config.processors);
+    },
+    [onDownloadChapters, exportChapterId, exportParams],
+  );
+
   // ─── Move chapter within route ──────────────
 
   const moveChapter = useCallback(
@@ -446,9 +461,11 @@ export function ChapterKanbanBoard({
               onRemoveChapters={onRemoveChapters}
               onEditRoute={handleEditRoute}
               onRemoveRoute={onRemoveRoute}
-              onDownloadChapters={onDownloadChapters}
+              onOpenPerChapterExport={(chapterId) => {
+                setExportChapterId(chapterId);
+                setExportSelectorOpen(true);
+              }}
               onMoveChapter={moveChapter}
-              params={exportParams}
             />
           ))}
         </div>
@@ -510,6 +527,17 @@ export function ChapterKanbanBoard({
           autoFocus
         />
       </Modal>
+
+      <ExportFormatSelector
+        open={exportSelectorOpen}
+        onCancel={() => {
+          setExportSelectorOpen(false);
+          setExportChapterId(undefined);
+        }}
+        onConfirm={handleExportConfirm}
+        storageKey="exportSelector:kanban"
+        chapterCount={exportChapterId != null ? 1 : 0}
+      />
     </>
   );
 }
@@ -531,9 +559,8 @@ interface KanbanColumnProps {
   ) => void | Promise<void>;
   onEditRoute: (route: StoryTopologyRouteDescriptor) => void;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  onOpenPerChapterExport: (chapterId: number) => void;
   onMoveChapter: (routeId: string, chapterId: number, direction: 'up' | 'down' | 'top' | 'bottom') => void;
-  params?: Record<string, unknown>;
 }
 
 function KanbanColumn({
@@ -548,9 +575,8 @@ function KanbanColumn({
   onRemoveChapters,
   onEditRoute,
   onRemoveRoute,
-  onDownloadChapters,
+  onOpenPerChapterExport,
   onMoveChapter,
-  params,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: route.id });
 
@@ -631,21 +657,20 @@ function KanbanColumn({
               const isForkPoint = forkPointIds.has(chapterId);
               const branchCount = forkPointBranchCount.get(chapterId) ?? 0;
               return (
-                <KanbanCard
-                  key={chapterId}
-                  chapterId={chapterId}
-                  chapter={chapter}
-                  isForkPoint={isForkPoint}
-                  branchCount={branchCount}
-                  isDragging={activeId === chapterId}
-                  routeId={route.id}
-                  onCreateBranch={onCreateBranch}
-                  onClearChapterTranslations={onClearChapterTranslations}
-                  onRemoveChapters={onRemoveChapters}
-                  onDownloadChapters={onDownloadChapters}
-                  onMoveChapter={onMoveChapter}
-                  params={params}
-                />
+                  <KanbanCard
+                    key={chapterId}
+                    chapterId={chapterId}
+                    chapter={chapter}
+                    isForkPoint={isForkPoint}
+                    branchCount={branchCount}
+                    isDragging={activeId === chapterId}
+                    routeId={route.id}
+                    onCreateBranch={onCreateBranch}
+                    onClearChapterTranslations={onClearChapterTranslations}
+                    onRemoveChapters={onRemoveChapters}
+                    onOpenPerChapterExport={onOpenPerChapterExport}
+                    onMoveChapter={onMoveChapter}
+                  />
               );
             })
           )}
@@ -670,9 +695,8 @@ interface KanbanCardProps {
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
   ) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
+  onOpenPerChapterExport: (chapterId: number) => void;
   onMoveChapter: (routeId: string, chapterId: number, direction: 'up' | 'down' | 'top' | 'bottom') => void;
-  params?: Record<string, unknown>;
 }
 
 function KanbanCard({
@@ -685,9 +709,8 @@ function KanbanCard({
   onCreateBranch,
   onClearChapterTranslations,
   onRemoveChapters,
-  onDownloadChapters,
+  onOpenPerChapterExport,
   onMoveChapter,
-  params,
 }: KanbanCardProps) {
   const navigate = useNavigate();
   const {
@@ -715,15 +738,7 @@ function KanbanCard({
       key: 'download',
       icon: <DownloadOutlined />,
       label: '下载章节',
-      children: [
-        { key: 'download-plain_text', label: '纯文本', onClick: () => onDownloadChapters([chapterId], 'plain_text', params) },
-        { key: 'download-naturedialog', label: 'Nature Dialog', onClick: () => onDownloadChapters([chapterId], 'naturedialog', params) },
-        { key: 'download-m3t', label: 'M3T', onClick: () => onDownloadChapters([chapterId], 'm3t', params) },
-        { key: 'download-galtransl_json', label: 'GalTransl JSON', onClick: () => onDownloadChapters([chapterId], 'galtransl_json', params) },
-        { key: 'download-dbl_tp1', label: 'DBL TP1', onClick: () => onDownloadChapters([chapterId], 'dbl_tp1', params) },
-        { key: 'download-nd_with_meta', label: 'ND With Meta', onClick: () => onDownloadChapters([chapterId], 'nd_with_meta', params) },
-        { key: 'download-dbl_tp2', label: 'DBL TP2', onClick: () => onDownloadChapters([chapterId], 'dbl_tp2', params) },
-      ],
+      onClick: () => onOpenPerChapterExport(chapterId),
     },
     {
       key: 'clear',
