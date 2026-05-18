@@ -39,17 +39,18 @@ function renderParamField(
   def: { key: string; type: string; title: string; placeholder?: string },
   fieldPrefix: string | number,
 ) {
+  const isRegexField = def.key === 'matchRegex' || def.key === 'filterRegex';
   switch (def.type) {
     default:
       return (
         <Form.Item
-          name={[fieldPrefix, def.key]}
+          name={[fieldPrefix, 'params', def.key]}
           label={def.title}
           rules={[
             def.key === 'matchRegex'
               ? { required: true, message: '匹配 Regex 为必填项' }
               : {},
-            { validator: regexValidator },
+            ...(isRegexField ? [{ validator: regexValidator }] : []),
           ]}
           validateTrigger="onBlur"
         >
