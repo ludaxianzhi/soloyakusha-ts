@@ -37,7 +37,7 @@ describe('ProjectService batch post process', () => {
     };
     serviceAny.refreshSnapshot = () => undefined;
 
-    await service.runBatchPostProcess([1], ['speaker-bracket-aligner']);
+    await service.runBatchPostProcess([1], [{ id: 'speaker-bracket-aligner' }]);
 
     expect(updates).toHaveLength(1);
     expect(updates[0]?.lines).toEqual([

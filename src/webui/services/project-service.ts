@@ -4383,7 +4383,10 @@ export class ProjectService {
     return status === 'running' || status === 'paused';
   }
 
-  async runBatchPostProcess(chapterIds: number[], processorIds: string[]): Promise<void> {
+  async runBatchPostProcess(
+    chapterIds: number[],
+    processors: { id: string; params?: Record<string, unknown> }[],
+  ): Promise<void> {
     const { runtime, state, project } = this.getActiveWorkspaceContext();
     if (!project) {
       throw new Error('未加载项目');
@@ -4395,7 +4398,7 @@ export class ProjectService {
 
     state.isBusy = true;
     try {
-      const pipeline = TextPostProcessorRegistry.createPipeline(processorIds);
+      const pipeline = TextPostProcessorRegistry.createPipeline(processors.map((p) => p.id));
       const docManager = project.getDocumentManager();
 
       for (const chapterId of chapterIds) {

@@ -811,9 +811,12 @@ export function createProjectRoutes(
   });
 
   app.post('/chapters/post-process', async (c) => {
-    const body = await c.req.json<{ chapterIds: number[]; processorIds: string[] }>();
+    const body = await c.req.json<{
+      chapterIds: number[];
+      processors: { id: string; params?: Record<string, unknown> }[];
+    }>();
     try {
-      await projectService.runBatchPostProcess(body.chapterIds, body.processorIds);
+      await projectService.runBatchPostProcess(body.chapterIds, body.processors);
       return c.json({ ok: true });
     } catch (error) {
       if (error instanceof ProjectServiceUserInputError) {

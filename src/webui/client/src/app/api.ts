@@ -230,10 +230,10 @@ export const api = {
     request<{ processors: TextPostProcessorDescriptor[] }>(
       `/api/project/post-processors${buildWorkspaceQueryString(workspaceId)}`,
     ),
-  runBatchPostProcess: (chapterIds: number[], processorIds: string[], workspaceId?: string) =>
+  runBatchPostProcess: (chapterIds: number[], processors: { id: string; params?: Record<string, unknown> }[], workspaceId?: string) =>
     request<{ ok: boolean }>(`/api/project/chapters/post-process${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
-      body: { chapterIds, processorIds },
+      body: { chapterIds, processors },
     }),
   getSnapshot: (workspaceId?: string) =>
     request<TranslationProjectSnapshot | null>(
