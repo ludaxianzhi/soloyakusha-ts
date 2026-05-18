@@ -58,6 +58,108 @@ describe("TextPostProcessor", () => {
   });
 });
 
+describe("SpeakerBracketAlignerProcessor - quote mirroring", () => {
+  const p = new SpeakerBracketAlignerProcessor();
+
+  it("should add quotes to translation when original message has quotes (no speaker bracket)", () => {
+    const original = "「こんにちは」";
+    const translated = "你好";
+    expect(p.process(translated, { originalText: original })).toBe("「你好」");
+  });
+
+  it("should remove quotes from translation when original message has no quotes (no speaker bracket)", () => {
+    const original = "こんにちは";
+    const translated = "「你好」";
+    expect(p.process(translated, { originalText: original })).toBe("你好");
+  });
+
+  it("should add quotes to translation when original has speaker bracket and quoted message", () => {
+    const original = "【佐藤】「こんにちは」";
+    const translated = "【佐藤】你好";
+    expect(p.process(translated, { originalText: original })).toBe("【佐藤】「你好」");
+  });
+
+  it("should remove quotes from translation when original has speaker bracket and unquoted message", () => {
+    const original = "【佐藤】こんにちは";
+    const translated = "【佐藤】「你好」";
+    expect(p.process(translated, { originalText: original })).toBe("【佐藤】你好");
+  });
+
+  it("should add speaker bracket AND mirror quotes in one pass", () => {
+    const original = "【佐藤】「こんにちは」";
+    const translated = "你好";
+    expect(p.process(translated, { originalText: original })).toBe("【佐藤】「你好」");
+  });
+
+  it("should remove speaker bracket AND mirror quotes in one pass", () => {
+    const original = "こんにちは";
+    const translated = "【佐藤】「你好」";
+    expect(p.process(translated, { originalText: original })).toBe("你好");
+  });
+
+  it("should not change when both have quotes", () => {
+    const original = "【佐藤】「こんにちは」";
+    const translated = "【佐藤】「你好」";
+    expect(p.process(translated, { originalText: original })).toBe("【佐藤】「你好」");
+  });
+
+  it("should not change when neither has quotes", () => {
+    const original = "【佐藤】こんにちは";
+    const translated = "【佐藤】你好";
+    expect(p.process(translated, { originalText: original })).toBe("【佐藤】你好");
+  });
+
+  it("should handle 『』 quotes", () => {
+    const original = "『こんにちは』";
+    const translated = "你好";
+    expect(p.process(translated, { originalText: original })).toBe("『你好』");
+  });
+
+  it("should handle ASCII double quotes", () => {
+    const original = '"hello"';
+    const translated = "你好";
+    expect(p.process(translated, { originalText: original })).toBe('"你好"');
+  });
+
+  it("should handle curly double quotes", () => {
+    const original = "\u201Chello\u201D";
+    const translated = "你好";
+    expect(p.process(translated, { originalText: original })).toBe("\u201C你好\u201D");
+  });
+
+  it("should handle ASCII single quotes", () => {
+    const original = "'hello'";
+    const translated = "你好";
+    expect(p.process(translated, { originalText: original })).toBe("'你好'");
+  });
+
+  it("should handle curly single quotes", () => {
+    const original = "\u2018hello\u2019";
+    const translated = "你好";
+    expect(p.process(translated, { originalText: original })).toBe("\u2018你好\u2019");
+  });
+
+  it("should not treat empty quote pair as wrapped", () => {
+    const original = "「」";
+    const translated = "你好";
+    // 「」 has no inner content, so it's NOT considered "包裹"
+    expect(p.process(translated, { originalText: original })).toBe("你好");
+  });
+
+  it("should trim leading/trailing whitespace before checking quotes", () => {
+    const original = "  「こんにちは」";
+    const translated = "  你好";
+    expect(p.process(translated, { originalText: original })).toBe("  「你好」");
+  });
+
+  it("should not treat message with quote only at start as wrapped", () => {
+    const original = "「こんにちは」と言った";
+    const translated = "他说「你好」";
+    // original has extra text after the closing quote → not fully quoted
+    expect(p.process(translated, { originalText: original })).toBe("他说「你好」");
+  });
+});
+
 describe("CharacterReplaceProcessor", () => {
   it("should replace text using regex", () => {
     const p = new CharacterReplaceProcessor({

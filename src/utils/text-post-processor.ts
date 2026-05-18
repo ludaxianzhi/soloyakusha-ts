@@ -82,12 +82,28 @@ export class PeriodInsideQuoteRemoverProcessor implements TextPostProcessor {
 export class SpeakerBracketAlignerProcessor implements TextPostProcessor {
   id = "speaker-bracket-aligner";
   name = "对话括号对齐";
-  description = "根据原文是否存在【人名】标识，自动补全或移除译文中的对应标识";
+  description = "根据原文是否存在【人名】标识，自动补全或移除译文中的对应标识；并镜像原文消息部分的引号包裹状态";
+
+  private static readonly QUOTE_PAIRS: [string, string][] = [
+    ['「', '」'],
+    ['『', '』'],
+    ['"', '"'],
+    ['\u201C', '\u201D'], // “ ”
+    ["'", "'"],
+    ['\u2018', '\u2019'], // ‘ ’
+  ];
 
   private bracketRegex = /^【(.*?)】/;
 
   process(translatedText: string, context: TextPostProcessorContext): string {
-    const originalMatch = context.originalText.match(this.bracketRegex);
+    return this.mirrorQuotes(
+      context.originalText,
+      this.alignSpeakerBracket(translatedText, context.originalText),
+    );
+  }
+
+  private alignSpeakerBracket(translatedText: string, originalText: string): string {
+    const originalMatch = originalText.match(this.bracketRegex);
     const translationMatch = translatedText.match(this.bracketRegex);
 
     if (originalMatch && !translationMatch) {
@@ -99,6 +115,53 @@ export class SpeakerBracketAlignerProcessor implements TextPostProcessor {
     }
 
     return translatedText;
+  }
+
+  private mirrorQuotes(originalText: string, translatedText: string): string {
+    const speakerMatch = translatedText.match(this.bracketRegex);
+
+    const translatedHeader = speakerMatch ? speakerMatch[0] : '';
+    const translatedMessage = speakerMatch ? translatedText.slice(speakerMatch[0].length) : translatedText;
+
+    const origMatch = originalText.match(this.bracketRegex);
+    const origMessage = origMatch ? originalText.slice(origMatch[0].length) : originalText;
+
+    const origTrimmed = origMessage.trim();
+    const transTrimmed = translatedMessage.trim();
+
+    const origPair = this.findOuterQuotePair(origTrimmed);
+    const transPair = this.findOuterQuotePair(transTrimmed);
+
+    if (origPair !== null && transPair === null) {
+      const leadingWS = translatedMessage.slice(0, translatedMessage.length - translatedMessage.trimStart().length);
+      const trailingWS = translatedMessage.slice(translatedMessage.trimEnd().length);
+      const [open, close] = origPair;
+      return translatedHeader + leadingWS + open + transTrimmed + close + trailingWS;
+    }
+
+    if (origPair === null && transPair !== null) {
+      const [open, close] = transPair;
+      const inner = transTrimmed.slice(open.length, transTrimmed.length - close.length);
+      const leadingWS = translatedMessage.slice(0, translatedMessage.length - translatedMessage.trimStart().length);
+      const trailingWS = translatedMessage.slice(translatedMessage.trimEnd().length);
+      return translatedHeader + leadingWS + inner + trailingWS;
+    }
+
+    return translatedText;
+  }
+
+  private findOuterQuotePair(text: string): [string, string] | null {
+    if (text.length === 0) return null;
+    for (const [open, close] of SpeakerBracketAlignerProcessor.QUOTE_PAIRS) {
+      if (
+        text.startsWith(open)
+        && text.endsWith(close)
+        && text.length > open.length + close.length
+      ) {
+        return [open, close];
+      }
+    }
+    return null;
   }
 }
 
@@ -363,7 +426,7 @@ export class TextPostProcessorRegistry {
     {
       id: 'speaker-bracket-aligner',
       name: '对话括号对齐',
-      description: '根据原文是否存在【人名】标识，自动补全或移除译文中的对应标识',
+      description: '根据原文是否存在【人名】标识，自动补全或移除译文中的对应标识；并镜像原文消息部分的引号包裹状态',
       factory: () => new SpeakerBracketAlignerProcessor(),
     },
     {
