@@ -3613,7 +3613,7 @@ export class ProjectService {
     result: ProjectExportResult,
     processors: { id: string; params?: Record<string, unknown> }[],
   ): Promise<void> {
-    const pipeline = TextPostProcessorRegistry.createPipeline(processors.map((p) => p.id));
+    const pipeline = TextPostProcessorRegistry.createPipeline(processors);
     for (const route of result.routes) {
       for (const chapter of route.chapters) {
         const filePath = chapter.outputPath;
@@ -4440,7 +4440,7 @@ export class ProjectService {
 
     state.isBusy = true;
     try {
-      const pipeline = TextPostProcessorRegistry.createPipeline(processors.map((p) => p.id));
+      const pipeline = TextPostProcessorRegistry.createPipeline(processors);
       const docManager = project.getDocumentManager();
 
       for (const chapterId of chapterIds) {

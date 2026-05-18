@@ -283,10 +283,28 @@ export interface TranslationStepQueueSnapshot {
   };
 }
 
+export interface ProcessorParamDef {
+  type: 'string' | 'number' | 'boolean';
+  title: string;
+  description?: string;
+  default?: string | number | boolean;
+  required?: boolean;
+  placeholder?: string;
+  minimum?: number;
+  maximum?: number;
+}
+
+export interface ProcessorParamSchema {
+  type: 'object';
+  properties: Record<string, ProcessorParamDef>;
+  required?: string[];
+}
+
 export interface TextPostProcessorDescriptor {
   id: string;
   name: string;
   description: string;
+  paramsSchema?: ProcessorParamSchema;
 }
 
 export interface PipelineStep {
@@ -459,6 +477,7 @@ export interface TextPostProcessorDescriptor {
   id: string;
   name: string;
   description: string;
+  paramsSchema?: import('./types').ProcessorParamSchema;
 }
 
 export interface ImportArchiveFailedFile {
