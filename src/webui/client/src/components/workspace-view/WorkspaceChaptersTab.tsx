@@ -130,7 +130,7 @@ export function WorkspaceChaptersTab({
   usePollingTask({
     enabled: active,
     intervalMs: 5_000,
-    runImmediately: false,
+    runImmediately: true,
     task: async () => {
       await onRefreshChapters();
     },
