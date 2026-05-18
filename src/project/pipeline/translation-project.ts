@@ -119,6 +119,7 @@ import type {
   ReadyOrderingItem,
   TranslationOrderingStrategy,
 } from "./translation-ordering-strategy.ts";
+import { TextPreProcessorRegistry } from "../../utils/text-pre-processor.ts";
 
 export class TranslationProject
   implements TranslationPipelineRuntime, TranslationWorkQueueRuntime
@@ -452,13 +453,15 @@ export class TranslationProject
       }) ?? { ready: true };
     const metadata = resolution.ready ? (resolution.metadata ?? {}) : {};
 
+    const rawInputText = step.buildInput({
+      chapterId,
+      fragmentIndex,
+      runtime: this,
+      previousStepOutput,
+    });
+
     return {
-      sourceText: step.buildInput({
-        chapterId,
-        fragmentIndex,
-        runtime: this,
-        previousStepOutput,
-      }),
+      sourceText: this.applyPreProcessing(rawInputText),
       currentTranslationText: this.documentManager.getTranslatedText(chapterId, fragmentIndex),
       contextView: step.buildContextView?.({
         chapterId,
@@ -1864,6 +1867,13 @@ export class TranslationProject
     return this.documentManager.getSourceText(chapterId, fragmentIndex);
   }
 
+  private applyPreProcessing(text: string): string {
+    const steps = this.workspaceConfig?.preProcessors;
+    if (!steps || steps.length === 0) return text;
+    const pipeline = TextPreProcessorRegistry.createPipeline(steps);
+    return pipeline.process(text);
+  }
+
   getTranslatedText(chapterId: number, fragmentIndex: number): string {
     return this.documentManager.getTranslatedText(chapterId, fragmentIndex);
   }
@@ -2403,15 +2413,17 @@ export class TranslationProject
       : undefined;
     const metadata = resolution.metadata ?? {};
 
+    const rawInputText = step.buildInput({
+      chapterId: entry.chapterId,
+      fragmentIndex: entry.fragmentIndex,
+      runtime: this,
+      previousStepOutput,
+    });
+
     return {
       ...entry,
       runId: this.getCurrentRunIdOrThrow(),
-      inputText: step.buildInput({
-        chapterId: entry.chapterId,
-        fragmentIndex: entry.fragmentIndex,
-        runtime: this,
-        previousStepOutput,
-      }),
+      inputText: this.applyPreProcessing(rawInputText),
       contextView: step.buildContextView?.({
         chapterId: entry.chapterId,
         fragmentIndex: entry.fragmentIndex,

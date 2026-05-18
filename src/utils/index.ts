@@ -17,3 +17,4 @@
 export * from "./alignment-repair.ts";
 export * from "./text-align.ts";
 export * from "./text-post-processor.ts";
+export * from "./text-pre-processor.ts";

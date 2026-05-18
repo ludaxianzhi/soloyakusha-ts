@@ -465,6 +465,7 @@ export type WorkspaceConfig = {
   styleLibraryName?: string;
   defaultImportFormat?: string;
   defaultExportFormat?: string;
+  preProcessors?: Array<{ id: string; params?: Record<string, unknown> }>;
 };
 
 /**
@@ -488,6 +489,7 @@ export type WorkspaceConfigPatch = {
   styleLibraryName?: string | null;
   defaultImportFormat?: string | null;
   defaultExportFormat?: string | null;
+  preProcessors?: Array<{ id: string; params?: Record<string, unknown> }> | null;
 };
 
 /**

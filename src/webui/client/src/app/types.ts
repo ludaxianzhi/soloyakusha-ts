@@ -307,6 +307,13 @@ export interface TextPostProcessorDescriptor {
   paramsSchema?: ProcessorParamSchema;
 }
 
+export interface TextPreProcessorDescriptor {
+  id: string;
+  name: string;
+  description: string;
+  paramsSchema?: ProcessorParamSchema;
+}
+
 export interface PipelineStep {
   id: string;
   params?: Record<string, unknown>;
@@ -704,6 +711,7 @@ export interface WorkspaceConfig {
   defaultImportFormat?: string;
   defaultExportFormat?: string;
   batchFragmentCount?: number;
+  preProcessors?: Array<{ id: string; params?: Record<string, unknown> }>;
 }
 
 export interface LlmProfileConfig {

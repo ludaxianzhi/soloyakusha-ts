@@ -810,6 +810,10 @@ export function createProjectRoutes(
     return c.json({ processors: projectService.getPostProcessorDescriptors() });
   });
 
+  app.get('/pre-processors', (c) => {
+    return c.json({ processors: projectService.getPreProcessorDescriptors() });
+  });
+
   app.post('/chapters/post-process', async (c) => {
     const body = await c.req.json<{
       chapterIds: number[];

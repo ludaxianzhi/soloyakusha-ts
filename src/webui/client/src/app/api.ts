@@ -51,6 +51,7 @@ import type {
   StyleLibraryImportResult,
   StyleLibraryQueryResult,
   TextPostProcessorDescriptor,
+  TextPreProcessorDescriptor,
   PipelineStep,
   WorkspaceArchiveManifest,
   WorkspaceChapterDescriptor,
@@ -230,6 +231,10 @@ export const api = {
   getPostProcessors: (workspaceId?: string) =>
     request<{ processors: TextPostProcessorDescriptor[] }>(
       `/api/project/post-processors${buildWorkspaceQueryString(workspaceId)}`,
+    ),
+  getPreProcessors: (workspaceId?: string) =>
+    request<{ processors: TextPreProcessorDescriptor[] }>(
+      `/api/project/pre-processors${buildWorkspaceQueryString(workspaceId)}`,
     ),
   runBatchPostProcess: (chapterIds: number[], processors: { id: string; params?: Record<string, unknown> }[], workspaceId?: string) =>
     request<{ ok: boolean }>(`/api/project/chapters/post-process${buildWorkspaceQueryString(workspaceId)}`, {

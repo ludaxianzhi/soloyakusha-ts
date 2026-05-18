@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { DeleteOutlined, DownloadOutlined, ExportOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownloadOutlined, ExportOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   Alert,
   Button,
   Card,
   Col,
+  Empty,
   Form,
   Input,
   InputNumber,
@@ -13,7 +14,7 @@ import {
   Space,
 } from 'antd';
 import type { FormInstance } from 'antd';
-import type { TranslationProcessorWorkflowMetadata } from '../../app/types.ts';
+import type { TextPreProcessorDescriptor, TranslationProcessorWorkflowMetadata } from '../../app/types.ts';
 import {
   getWorkspaceWorkflowFields,
   WORKSPACE_PIPELINE_STRATEGY_OPTIONS,
@@ -22,6 +23,8 @@ import {
 import { WorkflowFieldSections } from '../WorkflowFieldSections.tsx';
 import { usePollingTask } from '../../app/usePollingTask.ts';
 import { ExportFormatSelector } from './ExportFormatSelector.tsx';
+import { PreProcessPipelineBuilder } from './PreProcessPipelineBuilder.tsx';
+import { api } from '../../app/api.ts';
 
 const { TextArea } = Input;
 
@@ -60,6 +63,14 @@ export function WorkspaceConfigTab({
 }: WorkspaceConfigTabProps) {
   const formValues = Form.useWatch([], workspaceForm) as Record<string, unknown> | undefined;
   const [exportSelectorOpen, setExportSelectorOpen] = useState(false);
+  const [preProcessorDescriptors, setPreProcessorDescriptors] = useState<TextPreProcessorDescriptor[]>([]);
+
+  useEffect(() => {
+    if (!active) return;
+    api.getPreProcessors().then((res) => {
+      setPreProcessorDescriptors(res.processors);
+    }).catch(() => {});
+  }, [active]);
 
   const handleOpenExportSelector = useCallback(() => {
     setExportSelectorOpen(true);
@@ -171,6 +182,59 @@ export function WorkspaceConfigTab({
           <Form.Item name="editorRequirementsText" label="校对-编辑要求">
             <TextArea rows={5} placeholder={DEFAULT_EDITOR_REQUIREMENTS_PLACEHOLDER} />
           </Form.Item>
+
+          <Card size="small" title="原文预处理" style={{ marginBottom: 16 }}>
+            <Form.List name="preProcessors">
+              {(fields, { add, remove, move }) => (
+                <>
+                  {fields.length === 0 ? (
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description="暂无预处理步骤"
+                      style={{ margin: '8px 0' }}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {fields.map((field, index) => {
+                        const schema = preProcessorDescriptors[0]?.paramsSchema;
+                        if (!schema) return null;
+                        return (
+                          <PreProcessPipelineBuilder
+                            key={field.key}
+                            field={field}
+                            schema={schema}
+                            remove={() => remove(index)}
+                            move={(direction) => move(index, index + direction)}
+                            index={index}
+                            total={fields.length}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                  <Button
+                    type="dashed"
+                    block
+                    icon={<PlusOutlined />}
+                    style={{ marginTop: 8 }}
+                    onClick={() =>
+                      add({
+                        id: 'text-replace',
+                        params: {
+                          matchRegex: '',
+                          replacement: '',
+                          filterRegex: '',
+                        },
+                      })
+                    }
+                  >
+                    添加文本替换步骤
+                  </Button>
+                </>
+              )}
+            </Form.List>
+          </Card>
+
           <Button type="primary" htmlType="submit">
             保存配置
           </Button>

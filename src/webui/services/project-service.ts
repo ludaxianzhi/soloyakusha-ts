@@ -101,6 +101,10 @@ import {
   TextPostProcessorRegistry, 
   type TextPostProcessorDescriptor 
 } from '../../utils/text-post-processor.ts';
+import { 
+  TextPreProcessorRegistry, 
+  type TextPreProcessorDescriptor 
+} from '../../utils/text-pre-processor.ts';
 import type { BusEventType, EventBus } from './event-bus.ts';
 import { extractArchiveToDirectory } from './archive-extractor.ts';
 import type { RequestHistoryService } from './request-history-service.ts';
@@ -933,6 +937,10 @@ export class ProjectService {
 
   getPostProcessorDescriptors(): TextPostProcessorDescriptor[] {
     return TextPostProcessorRegistry.getAllDescriptors();
+  }
+
+  getPreProcessorDescriptors(): TextPreProcessorDescriptor[] {
+    return TextPreProcessorRegistry.getAllDescriptors();
   }
 
   getResourceVersions(workspaceId?: string): ProjectResourceVersions {
@@ -3947,6 +3955,7 @@ export class ProjectService {
         throw new ProjectServiceUserInputError('请先暂停或中止翻译，再切换工作流');
       }
 
+      validatePreProcessorSteps(nextConfig);
       await validateStyleTransferWorkspaceConfig(nextConfig);
 
       await currentProject.updateWorkspaceConfig(patch);
@@ -5633,6 +5642,33 @@ async function validateStyleTransferWorkspaceConfig(
   const library = await manager.getStyleLibrary(styleLibraryName);
   if (!library) {
     throw new ProjectServiceUserInputError(`未找到名为 "${styleLibraryName}" 的风格库`);
+  }
+}
+
+function validatePreProcessorSteps(config: WorkspaceConfig): void {
+  const steps = config.preProcessors;
+  if (!steps || steps.length === 0) return;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
+    const params = step.params ?? {};
+    if (params.filterRegex && typeof params.filterRegex === 'string' && params.filterRegex.length > 0) {
+      try {
+        new RegExp(params.filterRegex);
+      } catch (e) {
+        throw new ProjectServiceUserInputError(
+          `预处理步骤 ${i + 1} 的筛选 Regex 无效：${(e as Error).message}`,
+        );
+      }
+    }
+    if (params.matchRegex && typeof params.matchRegex === 'string' && params.matchRegex.length > 0) {
+      try {
+        new RegExp(params.matchRegex);
+      } catch (e) {
+        throw new ProjectServiceUserInputError(
+          `预处理步骤 ${i + 1} 的匹配 Regex 无效：${(e as Error).message}`,
+        );
+      }
+    }
   }
 }
 
