@@ -3527,10 +3527,7 @@ export class ProjectService {
 
     let result: ProjectExportResult | null = null;
     await this.runAction('导出翻译文件', async () => {
-      const exported = await project.exportProject(formatName, params);
-      if (exported && processors && processors.length > 0) {
-        await ProjectService.applyPostProcessingToExport(exported, processors);
-      }
+      const exported = await project.exportProject(formatName, params, processors);
       result = exported;
       this.log(
         'success',
@@ -3575,23 +3572,9 @@ export class ProjectService {
         await project.exportChapter(chapterId, outputPath, {
           fileHandler: handler,
           params,
+          processors,
         });
         results.push({ chapterId, outputPath, unitCount: chapter.fragmentCount });
-      }
-
-      if (processors && processors.length > 0) {
-        const exportResult: ProjectExportResult = {
-          exportDir: exportRootDir,
-          routes: [{
-            routeId: 'export',
-            routeName: '导出',
-            exportDir: exportRootDir,
-            chapters: results,
-          }],
-          totalChapters: results.length,
-          totalUnits: results.reduce((sum, r) => sum + r.unitCount, 0),
-        };
-        await ProjectService.applyPostProcessingToExport(exportResult, processors);
       }
 
       const totalChapters = results.length;
@@ -3615,28 +3598,6 @@ export class ProjectService {
       );
     }, state);
     return result;
-  }
-
-  // ─── Post-Processing on Export ──────────────────────
-
-  private static async applyPostProcessingToExport(
-    result: ProjectExportResult,
-    processors: { id: string; params?: Record<string, unknown> }[],
-  ): Promise<void> {
-    const pipeline = TextPostProcessorRegistry.createPipeline(processors);
-    for (const route of result.routes) {
-      for (const chapter of route.chapters) {
-        const filePath = chapter.outputPath;
-        try {
-          const content = await readFile(filePath, 'utf-8');
-          const lines = content.split('\n');
-          const processedLines = lines.map((line) => pipeline.process(line, line));
-          await writeFile(filePath, processedLines.join('\n'), 'utf-8');
-        } catch {
-          // skip files that can't be read or written (binary, etc.)
-        }
-      }
-    }
   }
 
   // ─── Chapter Management ─────────────────────────────

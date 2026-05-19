@@ -310,7 +310,7 @@ export class NewlineAddProcessor implements TextPostProcessor {
     let leftBreak = -1;
 
     const emit = (content: string) => {
-      lines.push(trail ? content + trail : content);
+      lines.push(content);
     };
 
     for (const c of text) {
@@ -367,7 +367,7 @@ export class NewlineAddProcessor implements TextPostProcessor {
     }
 
     if (curLine.length > 0) {
-      lines.push(curLine);
+      lines.push(trail ? curLine + trail : curLine);
     }
 
     return lines.join(brk);
@@ -393,7 +393,7 @@ export const newlineAddParamsSchema: ProcessorParamSchema = {
     trailingSpecialChar: {
       type: 'string',
       title: '尾部特殊字符',
-      description: '在换行位置额外插入的标记字符，留空则不插入。',
+      description: '在文本末尾额外追加的标记字符，留空则不追加。',
       default: '',
       placeholder: '例如：↵',
     },

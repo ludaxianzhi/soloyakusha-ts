@@ -29,6 +29,7 @@ import {
   normalizeBlankSourceUnit,
   restoreBlankText,
 } from "../../file-handlers/base.ts";
+import { TextPostProcessorRegistry } from "../../utils/text-post-processor.ts";
 import type { SavedRepetitionPatternAnalysisResult } from "../analysis/repetition-pattern-analysis.ts";
 import type {
   ChapterEntry,
@@ -587,10 +588,19 @@ export class TranslationDocumentManager {
     outputFilePath: string,
     fileHandler: TranslationFileHandler,
     params?: Record<string, unknown>,
+    processors?: { id: string; params?: Record<string, unknown> }[],
   ): Promise<void> {
     let units = this.getChapterTranslationUnits(chapterId);
     if (params?.keepSourceName) {
       units = keepSourceNameInTarget(units);
+    }
+
+    if (processors?.length) {
+      const pipeline = TextPostProcessorRegistry.createPipeline(processors);
+      units = units.map((unit) => ({
+        ...unit,
+        target: unit.target.map((line) => pipeline.process(line, unit.source)),
+      }));
     }
 
     await fileHandler.writeTranslationUnits(outputFilePath, units);

@@ -235,10 +235,10 @@ describe("NewlineAddProcessor", () => {
     expect(result).toBe("aa \nbb cc");
   });
 
-  it("should add trailing special char", () => {
+  it("should add trailing special char at end of original text", () => {
     const p = new NewlineAddProcessor({ lineLength: 3, lineBreak: "\n", trailingSpecialChar: "↵" });
     const result = p.process("你好世界");
-    expect(result).toBe("你好世↵\n界");
+    expect(result).toBe("你好世\n界↵");
   });
 
   it("should not break if lineLength <= 0", () => {

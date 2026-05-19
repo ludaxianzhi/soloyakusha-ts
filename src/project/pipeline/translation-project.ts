@@ -955,6 +955,7 @@ export class TranslationProject
       format?: string;
       fileHandler?: TranslationFileHandler;
       params?: Record<string, unknown>;
+      processors?: { id: string; params?: Record<string, unknown> }[];
     },
   ): Promise<TranslationExportResult> {
     this.ensureInitialized();
@@ -968,6 +969,7 @@ export class TranslationProject
       fileHandler?: TranslationFileHandler;
       fileExtension?: string;
       params?: Record<string, unknown>;
+      processors?: { id: string; params?: Record<string, unknown> }[];
     },
   ): Promise<TranslationExportResult[]> {
     this.ensureInitialized();
@@ -989,6 +991,7 @@ export class TranslationProject
   async exportProject(
     formatName: string,
     params?: Record<string, unknown>,
+    processors?: { id: string; params?: Record<string, unknown> }[],
   ): Promise<ProjectExportResult> {
     this.ensureInitialized();
 
@@ -1005,6 +1008,7 @@ export class TranslationProject
         exportRootDir,
         handler,
         params,
+        processors,
       );
       routes.push({
         routeId: "main",
@@ -1026,6 +1030,7 @@ export class TranslationProject
           routeExportDir,
           handler,
           params,
+          processors,
         );
         routes.push({
           routeId: route.id,
@@ -1053,6 +1058,7 @@ export class TranslationProject
     outputDir: string,
     handler: TranslationFileHandler,
     params?: Record<string, unknown>,
+    processors?: { id: string; params?: Record<string, unknown> }[],
   ): Promise<TranslationExportResult[]> {
     await mkdir(outputDir, { recursive: true });
 
@@ -1083,6 +1089,7 @@ export class TranslationProject
         outputPath,
         handler,
         params,
+        processors,
       );
 
       const unitCount = this.documentManager.getChapterTranslationUnits(chapter.id).length;
