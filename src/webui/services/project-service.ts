@@ -5650,6 +5650,9 @@ function validatePreProcessorSteps(config: WorkspaceConfig): void {
   console.log(`[PreProcess] validatePreProcessorSteps: ${steps.length} 个步骤`, JSON.stringify(steps));
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i]!;
+    if (!step.id) {
+      console.warn(`[PreProcess] validatePreProcessorSteps: 步骤 ${i + 1} 缺少 id，将默认使用 text-replace`);
+    }
     const params = step.params ?? {};
     if (params.filterRegex && typeof params.filterRegex === 'string' && params.filterRegex.length > 0) {
       try {

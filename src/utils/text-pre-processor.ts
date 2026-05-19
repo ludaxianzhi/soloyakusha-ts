@@ -168,12 +168,16 @@ export class TextPreProcessorRegistry {
     console.log(`[PreProcess] createPipeline: steps=${steps.length}`, JSON.stringify(steps));
     const pipeline = new TextPreProcessingPipeline();
     for (const step of steps) {
-      const reg = this.registrations.find((r) => r.id === step.id);
+      const effectiveId = step.id || 'text-replace';
+      if (!step.id) {
+        console.log(`[PreProcess] createPipeline: 步骤缺少 id，默认使用 text-replace`);
+      }
+      const reg = this.registrations.find((r) => r.id === effectiveId);
       if (reg) {
-        console.log(`[PreProcess] createPipeline: 添加处理器 id=${step.id} params=${JSON.stringify(step.params)}`);
+        console.log(`[PreProcess] createPipeline: 添加处理器 id=${effectiveId} params=${JSON.stringify(step.params)}`);
         pipeline.addProcessor(reg.factory(step.params));
       } else {
-        console.log(`[PreProcess] createPipeline: 未找到注册 id=${step.id}`);
+        console.log(`[PreProcess] createPipeline: 未找到注册 id=${effectiveId}`);
       }
     }
     return pipeline;
