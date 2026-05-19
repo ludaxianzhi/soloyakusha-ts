@@ -159,10 +159,21 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
   async process(request: TranslationProcessorRequest): Promise<TranslationProcessorResult> {
     const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
     const sourceUnits = window
-      ? buildSourceUnitsFromLines(
-          applyPreProcessingToLines(window.source.lines, request.preProcessors),
-        )
-      : splitSourceTextIntoUnits(request.sourceText);
+      ? (() => {
+          const preprocessed = applyPreProcessingToLines(window.source.lines, request.preProcessors);
+          this.logger.info?.("[PreProcess] StyleTransferTranslationProcessor: 滑动窗口+预处理", {
+            windowLines: window.source.lines.length,
+            preprocessedLines: preprocessed.length,
+          });
+          return buildSourceUnitsFromLines(preprocessed);
+        })()
+      : (() => {
+          this.logger.info?.("[PreProcess] StyleTransferTranslationProcessor: 非滑动窗口", {
+            sourceTextLength: request.sourceText.length,
+            hasPreProcessors: Boolean(request.preProcessors),
+          });
+          return splitSourceTextIntoUnits(request.sourceText);
+        })();
 
     if (sourceUnits.length === 0) {
       return buildEmptyResult(window);

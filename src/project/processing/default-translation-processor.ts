@@ -117,10 +117,21 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
   async process(request: TranslationProcessorRequest): Promise<TranslationProcessorResult> {
     const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
     const sourceUnits = window
-      ? buildSourceUnitsFromLines(
-          applyPreProcessingToLines(window.source.lines, request.preProcessors),
-        )
-      : splitSourceTextIntoUnits(request.sourceText);
+      ? (() => {
+          const preprocessed = applyPreProcessingToLines(window.source.lines, request.preProcessors);
+          this.logger.info?.("[PreProcess] DefaultTranslationProcessor: 滑动窗口模式，已应用预处理", {
+            windowLines: window.source.lines.length,
+            preprocessedLines: preprocessed.length,
+          });
+          return buildSourceUnitsFromLines(preprocessed);
+        })()
+      : (() => {
+          this.logger.info?.("[PreProcess] DefaultTranslationProcessor: 非滑动窗口模式（sourceText 应由 buildWorkItem 预先处理）", {
+            sourceTextLength: request.sourceText.length,
+            hasPreProcessors: Boolean(request.preProcessors),
+          });
+          return splitSourceTextIntoUnits(request.sourceText);
+        })();
     if (sourceUnits.length === 0) {
       return {
         outputText: "",

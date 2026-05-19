@@ -59,7 +59,10 @@ export class TextReplacePreProcessor implements TextPreProcessor {
   }
 
   process(originalText: string): string {
-    if (!this.matchRegex) return originalText;
+    if (!this.matchRegex) {
+      console.log(`[PreProcess] TextReplacePreProcessor: matchRegex 为空，跳过处理`);
+      return originalText;
+    }
 
     const hasFilter = this.filterRegex && this.filterRegex.length > 0;
     let filterRe: RegExp | undefined;
@@ -67,6 +70,7 @@ export class TextReplacePreProcessor implements TextPreProcessor {
       try {
         filterRe = new RegExp(this.filterRegex!);
       } catch {
+        console.log(`[PreProcess] TextReplacePreProcessor: filterRegex 无效，已跳过`);
         return originalText;
       }
     }
@@ -75,10 +79,12 @@ export class TextReplacePreProcessor implements TextPreProcessor {
     try {
       matchRe = new RegExp(this.matchRegex, 'g');
     } catch {
+      console.log(`[PreProcess] TextReplacePreProcessor: matchRegex 无效，已跳过`);
       return originalText;
     }
 
-    return originalText
+    const inputLineCount = originalText.split('\n').length;
+    const result = originalText
       .split('\n')
       .map((line) => {
         if (hasFilter && filterRe && !filterRe.test(line)) {
@@ -87,6 +93,12 @@ export class TextReplacePreProcessor implements TextPreProcessor {
         return line.replace(matchRe, this.replacement);
       })
       .join('\n');
+    const outputLineCount = result.split('\n').length;
+    console.log(
+      `[PreProcess] TextReplacePreProcessor: match=/${this.matchRegex}/g filter=/${this.filterRegex ?? ''}/ repl="${this.replacement}" ` +
+      `lines=${inputLineCount}→${outputLineCount} chars=${originalText.length}→${result.length}`,
+    );
+    return result;
   }
 }
 
@@ -153,11 +165,15 @@ export class TextPreProcessorRegistry {
   static createPipeline(
     steps: { id: string; params?: Record<string, unknown> }[],
   ): TextPreProcessingPipeline {
+    console.log(`[PreProcess] createPipeline: steps=${steps.length}`, JSON.stringify(steps));
     const pipeline = new TextPreProcessingPipeline();
     for (const step of steps) {
       const reg = this.registrations.find((r) => r.id === step.id);
       if (reg) {
+        console.log(`[PreProcess] createPipeline: 添加处理器 id=${step.id} params=${JSON.stringify(step.params)}`);
         pipeline.addProcessor(reg.factory(step.params));
+      } else {
+        console.log(`[PreProcess] createPipeline: 未找到注册 id=${step.id}`);
       }
     }
     return pipeline;

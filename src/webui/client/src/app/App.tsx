@@ -930,6 +930,7 @@ export function AppShell() {
       editorRequirementsText: configRes.editorRequirementsText,
       preProcessors: configRes.preProcessors ?? [],
     });
+    console.log('[PreProcess] 表单加载预处理配置:', JSON.stringify(configRes.preProcessors ?? []));
     setWorkspacePipelineStrategy(configRes.pipelineStrategy ?? 'default');
     workspaceConfigRef.current = configRes;
     setWorkspaceConfigFormRevision((current) => current + 1);
@@ -1774,9 +1775,13 @@ export function AppShell() {
             customRequirements: splitLines(String(values.customRequirements ?? '')),
             editorRequirementsText: String(values.editorRequirementsText ?? '').trim() || null,
             preProcessors:
-              (values.preProcessors as
-                | Array<{ id: string; params: Record<string, unknown> }>
-                | undefined) ?? null,
+              (() => {
+                const pp = values.preProcessors as
+                  | Array<{ id: string; params: Record<string, unknown> }>
+                  | undefined;
+                console.log('[PreProcess] 表单提交预处理配置:', JSON.stringify(pp ?? null));
+                return pp ?? null;
+              })(),
             ...buildClearedWorkspaceWorkflowPatch(previousWorkflow, nextWorkflow),
             ...buildWorkspaceWorkflowPatch(values, nextWorkflow),
           },

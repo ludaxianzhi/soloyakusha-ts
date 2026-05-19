@@ -2057,6 +2057,8 @@ export class ProjectService {
                   )
                 : undefined;
 
+              const batchPreProcessors = project.getWorkspaceConfig().preProcessors;
+              this.log('info', `[PreProcess] 批量校对预处理配置: ${batchPreProcessors?.length ?? 0} 个步骤`);
               const result = await proofreadRuntime.processor.process({
                 sourceText: mergedSourceText,
                 currentTranslationText: mergedTranslationText,
@@ -2066,7 +2068,7 @@ export class ProjectService {
                 editorRequirementsText: firstPrepared.editorRequirementsText,
                 disableSlidingWindow: true,
                 documentManager: project.getDocumentManager(),
-                preProcessors: project.getWorkspaceConfig().preProcessors,
+                preProcessors: batchPreProcessors,
                 workItemRef: {
                   chapterId: firstItem.chapterId,
                   fragmentIndex: firstItem.fragmentIndex,
@@ -2141,6 +2143,8 @@ export class ProjectService {
                 await flushTaskState(false);
               }
 
+              const singlePreProcessors = project.getWorkspaceConfig().preProcessors;
+              this.log('info', `[PreProcess] 单片段校对预处理配置: ${singlePreProcessors?.length ?? 0} 个步骤`);
               const result = await proofreadRuntime.processor.process({
                 sourceText: prepared.sourceText,
                 currentTranslationText: prepared.currentTranslationText,
@@ -2149,7 +2153,7 @@ export class ProjectService {
                 requirements: prepared.requirements,
                 editorRequirementsText: prepared.editorRequirementsText,
                 documentManager: project.getDocumentManager(),
-                preProcessors: project.getWorkspaceConfig().preProcessors,
+                preProcessors: singlePreProcessors,
                 workItemRef: {
                   chapterId: firstItem.chapterId,
                   fragmentIndex: firstItem.fragmentIndex,
@@ -5161,13 +5165,15 @@ export class ProjectService {
                       }
                     ).getStyleLibraryName()
                   : undefined;
+              const translatePreProcessors = currentProject.getWorkspaceConfig().preProcessors;
+              this.log('info', `[PreProcess] 翻译预处理配置: ${translatePreProcessors?.length ?? 0} 个步骤 (batchFragmentIndices=${item.batchFragmentIndices?.length ?? 1})`);
               processResult = await processor.processWorkItem(item, {
                 glossary: currentProject.getGlossary(),
                 documentManager: currentProject.getDocumentManager(),
                 styleGuidanceMode,
                 styleRequirementsText,
                 styleLibraryName,
-                preProcessors: currentProject.getWorkspaceConfig().preProcessors,
+                preProcessors: translatePreProcessors,
               });
             } catch (error) {
               processError = error;
@@ -5612,6 +5618,7 @@ async function validateStyleTransferWorkspaceConfig(
 function validatePreProcessorSteps(config: WorkspaceConfig): void {
   const steps = config.preProcessors;
   if (!steps || steps.length === 0) return;
+  console.log(`[PreProcess] validatePreProcessorSteps: ${steps.length} 个步骤`, JSON.stringify(steps));
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i]!;
     const params = step.params ?? {};

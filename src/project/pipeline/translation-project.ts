@@ -460,8 +460,13 @@ export class TranslationProject
       previousStepOutput,
     });
 
+    const processedSourceText = this.applyPreProcessing(rawInputText);
+    console.log(
+      `[PreProcess] buildProofreadFragmentInput(chapter=${chapterId}, fragment=${fragmentIndex}): ` +
+      `raw=${rawInputText.length} processed=${processedSourceText.length}`,
+    );
     return {
-      sourceText: this.applyPreProcessing(rawInputText),
+      sourceText: processedSourceText,
       currentTranslationText: this.documentManager.getTranslatedText(chapterId, fragmentIndex),
       contextView: step.buildContextView?.({
         chapterId,
@@ -1876,9 +1881,15 @@ export class TranslationProject
 
   private applyPreProcessing(text: string): string {
     const steps = this.getWorkspaceConfig().preProcessors;
-    if (!steps || steps.length === 0) return text;
+    if (!steps || steps.length === 0) {
+      console.log(`[PreProcess] applyPreProcessing: 无预处理步骤，跳过 (text.length=${text.length})`);
+      return text;
+    }
+    console.log(`[PreProcess] applyPreProcessing: 步骤数=${steps.length} 输入长度=${text.length}`);
     const pipeline = TextPreProcessorRegistry.createPipeline(steps);
-    return pipeline.process(text);
+    const result = pipeline.process(text);
+    console.log(`[PreProcess] applyPreProcessing: 完成 ${text.length}→${result.length} 字符`);
+    return result;
   }
 
   getTranslatedText(chapterId: number, fragmentIndex: number): string {
@@ -2308,6 +2319,12 @@ export class TranslationProject
     const mergedRequirements = [...new Set(items.flatMap((item) => item.requirements))];
     const mergedMetadata: WorkItemMetadata = { ...first.metadata };
 
+    console.log(
+      `[PreProcess] buildBatchWorkItem(step=${stepId}): ` +
+      `items=${items.length} indices=[${fragmentIndices.join(',')}] ` +
+      `mergedLength=${mergedInputText.length}`,
+    );
+
     const contextView = this.buildBatchContextViewForItems(
       first.chapterId,
       stepId,
@@ -2427,10 +2444,15 @@ export class TranslationProject
       previousStepOutput,
     });
 
+    const processedInput = this.applyPreProcessing(rawInputText);
+    console.log(
+      `[PreProcess] buildWorkItem(step=${stepId}, chapter=${entry.chapterId}, fragment=${entry.fragmentIndex}): ` +
+      `raw=${rawInputText.length} processed=${processedInput.length}`,
+    );
     return {
       ...entry,
       runId: this.getCurrentRunIdOrThrow(),
-      inputText: this.applyPreProcessing(rawInputText),
+      inputText: processedInput,
       contextView: step.buildContextView?.({
         chapterId: entry.chapterId,
         fragmentIndex: entry.fragmentIndex,

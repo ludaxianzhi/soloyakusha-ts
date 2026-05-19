@@ -75,10 +75,17 @@ export function applyPreProcessingToLines(
   preProcessors?: ReadonlyArray<{ id: string; params?: Record<string, unknown> }>,
 ): string[] {
   if (!preProcessors || preProcessors.length === 0) {
+    console.log(`[PreProcess] applyPreProcessingToLines: 无预处理步骤，返回原行 (${lines.length} 行)`);
     return [...lines];
   }
+  console.log(
+    `[PreProcess] applyPreProcessingToLines: steps=${preProcessors.length} ` +
+    `输入行数=${lines.length} chars=${lines.join('\n').length}`,
+  );
   const pipeline = TextPreProcessorRegistry.createPipeline([...preProcessors]);
   const joined = lines.join("\n");
   const processed = pipeline.process(joined);
-  return processed.split("\n");
+  const resultLines = processed.split("\n");
+  console.log(`[PreProcess] applyPreProcessingToLines: 完成 ${lines.length}→${resultLines.length} 行`);
+  return resultLines;
 }

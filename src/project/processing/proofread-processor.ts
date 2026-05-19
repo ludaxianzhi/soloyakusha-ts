@@ -175,10 +175,22 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
   async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
     const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
     const sourceUnits = window
-      ? buildSourceUnitsFromLines(
-          applyPreProcessingToLines(window.source.lines, request.preProcessors),
-        )
-      : splitTextIntoUnits(request.sourceText);
+      ? (() => {
+          const preprocessed = applyPreProcessingToLines(window.source.lines, request.preProcessors);
+          this.logger.info?.("[PreProcess] MultiStageProofreadProcessor: 滑动窗口+预处理", {
+            windowLines: window.source.lines.length,
+            preprocessedLines: preprocessed.length,
+            steps: request.preProcessors?.length ?? 0,
+          });
+          return buildSourceUnitsFromLines(preprocessed);
+        })()
+      : (() => {
+          this.logger.info?.("[PreProcess] MultiStageProofreadProcessor: 非滑动窗口", {
+            sourceTextLength: request.sourceText.length,
+            hasPreProcessors: Boolean(request.preProcessors),
+          });
+          return splitTextIntoUnits(request.sourceText);
+        })();
     const currentTranslations = window
       ? buildSourceUnitsFromLines(window.translation.lines)
       : splitTextIntoUnits(request.currentTranslationText);
@@ -441,10 +453,21 @@ export class SingleStepProofreadProcessor implements ProofreadProcessor {
   async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
     const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
     const sourceUnits = window
-      ? buildSourceUnitsFromLines(
-          applyPreProcessingToLines(window.source.lines, request.preProcessors),
-        )
-      : splitTextIntoUnits(request.sourceText);
+      ? (() => {
+          const preprocessed = applyPreProcessingToLines(window.source.lines, request.preProcessors);
+          this.logger.info?.("[PreProcess] SingleStepProofreadProcessor: 滑动窗口+预处理", {
+            windowLines: window.source.lines.length,
+            preprocessedLines: preprocessed.length,
+          });
+          return buildSourceUnitsFromLines(preprocessed);
+        })()
+      : (() => {
+          this.logger.info?.("[PreProcess] SingleStepProofreadProcessor: 非滑动窗口", {
+            sourceTextLength: request.sourceText.length,
+            hasPreProcessors: Boolean(request.preProcessors),
+          });
+          return splitTextIntoUnits(request.sourceText);
+        })();
     const currentTranslations = window
       ? buildSourceUnitsFromLines(window.translation.lines)
       : splitTextIntoUnits(request.currentTranslationText);
@@ -609,10 +632,21 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
   async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
     const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
     const sourceUnits = window
-      ? buildSourceUnitsFromLines(
-          applyPreProcessingToLines(window.source.lines, request.preProcessors),
-        )
-      : splitTextIntoUnits(request.sourceText);
+      ? (() => {
+          const preprocessed = applyPreProcessingToLines(window.source.lines, request.preProcessors);
+          this.logger.info?.("[PreProcess] ConsistencyCheckProofreadProcessor: 滑动窗口+预处理", {
+            windowLines: window.source.lines.length,
+            preprocessedLines: preprocessed.length,
+          });
+          return buildSourceUnitsFromLines(preprocessed);
+        })()
+      : (() => {
+          this.logger.info?.("[PreProcess] ConsistencyCheckProofreadProcessor: 非滑动窗口", {
+            sourceTextLength: request.sourceText.length,
+            hasPreProcessors: Boolean(request.preProcessors),
+          });
+          return splitTextIntoUnits(request.sourceText);
+        })();
     const currentTranslations = window
       ? buildSourceUnitsFromLines(window.translation.lines)
       : splitTextIntoUnits(request.currentTranslationText);
