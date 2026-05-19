@@ -632,6 +632,7 @@ export interface ChapterTranslationEditorDocument {
   diagnostics: ChapterTranslationEditorDiagnostic[];
   glossaryMatches: ChapterTranslationEditorGlossaryMatch[];
   repetitionMatches: ChapterTranslationEditorRepetitionMatch[];
+  preProcessors?: Array<{ id: string; params?: Record<string, unknown> }>;
 }
 
 export interface ChapterTranslationEditorRepetitionMatch {
@@ -712,6 +713,7 @@ export interface WorkspaceConfig {
   defaultExportFormat?: string;
   batchFragmentCount?: number;
   preProcessors?: Array<{ id: string; params?: Record<string, unknown> }>;
+  preProcessorEnabled?: boolean;
 }
 
 export interface LlmProfileConfig {

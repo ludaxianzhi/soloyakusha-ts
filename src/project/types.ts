@@ -466,6 +466,7 @@ export type WorkspaceConfig = {
   defaultImportFormat?: string;
   defaultExportFormat?: string;
   preProcessors?: Array<{ id: string; params?: Record<string, unknown> }>;
+  preProcessorEnabled?: boolean;
 };
 
 /**
@@ -490,6 +491,7 @@ export type WorkspaceConfigPatch = {
   defaultImportFormat?: string | null;
   defaultExportFormat?: string | null;
   preProcessors?: Array<{ id: string; params?: Record<string, unknown> }> | null;
+  preProcessorEnabled?: boolean | null;
 };
 
 /**

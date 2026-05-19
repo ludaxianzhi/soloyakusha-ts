@@ -521,6 +521,7 @@ export function createProjectRoutes(
     }
   });
 
+  /** @deprecated 使用 POST /editor/apply-deltas 替代 */
   app.post('/editor/apply', async (c) => {
     try {
       const body = await c.req.json<{
@@ -537,6 +538,26 @@ export function createProjectRoutes(
           chapterId: Number(body.chapterId),
           format,
           content: String(body.content ?? ''),
+        }),
+      );
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post('/editor/apply-deltas', async (c) => {
+    try {
+      const body = await c.req.json<{
+        chapterId: number;
+        deltas: Array<{ fragmentIndex: number; lineIndex: number; text: string }>;
+      }>();
+      return c.json(
+        await projectService.applyChapterTranslationEditorDeltas({
+          chapterId: Number(body.chapterId),
+          deltas: body.deltas,
         }),
       );
     } catch (error) {

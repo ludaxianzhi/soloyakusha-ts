@@ -1093,6 +1093,35 @@ export class ProjectService {
     }
   }
 
+  /**
+   * 应用编辑器译文增量更新（只保存译文，不校验源文）。
+   */
+  async applyChapterTranslationEditorDeltas(input: {
+    chapterId: number;
+    deltas: Array<{ fragmentIndex: number; lineIndex: number; text: string }>;
+  }): Promise<{ appliedUpdateCount: number }> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    state.isBusy = true;
+    try {
+      const appliedUpdateCount = await project.applyChapterTranslationEditorDeltas(
+        input.chapterId,
+        input.deltas,
+      );
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      return { appliedUpdateCount };
+    } finally {
+      state.isBusy = false;
+    }
+  }
+
   getRepeatedPatterns(
     options: { chapterIds?: number[] } = {},
     workspaceId?: string,

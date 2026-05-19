@@ -158,6 +158,33 @@ export function applyAssistantDraftToSelection(input: {
   return nextLines.join('\n');
 }
 
+/**
+ * 计算当前编辑内容相对于草稿的译文增量变更。
+ * 返回结果包含 canCompute（是否能正确计算）和 deltas（译文增量数组）。
+ * 当 canCompute 为 false 时表示内容结构异常，deltas 为空。
+ */
+export function computeTranslationDeltas(input: {
+  content: string;
+  format: EditableTranslationFormat;
+  draftUnits: ReadonlyArray<{ fragmentIndex: number; lineIndex: number; translatedText: string }>;
+}): { canCompute: boolean; deltas: Array<{ fragmentIndex: number; lineIndex: number; text: string }> } {
+  const blocks = parseDisplayBlocks(input.content, input.format);
+  if (blocks.length !== input.draftUnits.length) return { canCompute: false, deltas: [] };
+  const deltas: Array<{ fragmentIndex: number; lineIndex: number; text: string }> = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    const draftUnit = input.draftUnits[i];
+    if (!block || !draftUnit) continue;
+    if (block.translatedText === draftUnit.translatedText) continue;
+    deltas.push({
+      fragmentIndex: draftUnit.fragmentIndex,
+      lineIndex: draftUnit.lineIndex,
+      text: block.translatedText,
+    });
+  }
+  return { canCompute: true, deltas };
+}
+
 type DisplayBlock = {
   unitIndex: number;
   lineIndexes: number[];
@@ -307,6 +334,71 @@ function buildLineRanges(content: string): Array<{ from: number; to: number; tex
 
 function rangesOverlap(aFrom: number, aTo: number, bFrom: number, bTo: number): boolean {
   return aFrom <= bTo && aTo >= bFrom;
+}
+
+/**
+ * 客户端预处理：对文本应用预处理器步骤（当前只支持 text-replace）。
+ */
+function clientSidePreProcess(
+  text: string,
+  preProcessors: Array<{ id: string; params?: Record<string, unknown> }>,
+): string {
+  let result = text;
+  for (const step of preProcessors) {
+    if (step.id !== 'text-replace') continue;
+    const matchRegex = step.params?.matchRegex as string | undefined;
+    const replacement = (step.params?.replacement as string) ?? '';
+    const filterRegex = step.params?.filterRegex as string | undefined;
+    if (!matchRegex) continue;
+    let matchRe: RegExp;
+    try { matchRe = new RegExp(matchRegex, 'g'); } catch { continue; }
+    let filterRe: RegExp | undefined;
+    if (filterRegex) {
+      try { filterRe = new RegExp(filterRegex); } catch { continue; }
+    }
+    result = result
+      .split('\n')
+      .map((line) => {
+        if (filterRe && !filterRe.test(line)) return line;
+        return line.replace(matchRe, replacement);
+      })
+      .join('\n');
+  }
+  return result;
+}
+
+/**
+ * 切换内容中源文行的预处理版本。
+ * 启用时：将源文行替换为预处理后的版本。
+ * 禁用时：恢复为原始源文。
+ * 译文行保持不变。
+ */
+export function togglePreProcessorInContent(
+  content: string,
+  format: EditableTranslationFormat,
+  draftUnits: ReadonlyArray<{ sourceText: string }>,
+  enable: boolean,
+  preProcessors?: Array<{ id: string; params?: Record<string, unknown> }>,
+): string | null {
+  const blocks = parseDisplayBlocks(content, format);
+  if (blocks.length !== draftUnits.length) return null;
+  const lines = content.split('\n');
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    const draftUnit = draftUnits[i];
+    if (!block || !draftUnit) return null;
+    const sourceLineIndex = block.sourceLineIndex;
+    const originalLine = lines[sourceLineIndex];
+    if (typeof originalLine !== 'string') return null;
+    let nextSourceText: string;
+    if (enable) {
+      nextSourceText = clientSidePreProcess(draftUnit.sourceText, preProcessors ?? []);
+    } else {
+      nextSourceText = draftUnit.sourceText;
+    }
+    lines[sourceLineIndex] = replaceMarkedLineBody(originalLine, nextSourceText);
+  }
+  return lines.join('\n');
 }
 
 function replaceMarkedLineBody(rawLine: string, nextBody: string): string {

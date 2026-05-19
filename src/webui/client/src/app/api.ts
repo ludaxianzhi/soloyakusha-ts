@@ -432,12 +432,21 @@ export const api = {
       method: 'POST',
       body: payload,
     }),
+  /** @deprecated 使用 applyChapterEditorDeltas 替代 */
   applyChapterEditor: (payload: {
     chapterId: number;
     format: EditableTranslationFormat;
     content: string;
   }, workspaceId?: string) =>
     request<ApplyChapterTranslationEditorResult>(`/api/project/editor/apply${buildWorkspaceQueryString(workspaceId)}`, {
+      method: 'POST',
+      body: payload,
+    }),
+  applyChapterEditorDeltas: (payload: {
+    chapterId: number;
+    deltas: Array<{ fragmentIndex: number; lineIndex: number; text: string }>;
+  }, workspaceId?: string) =>
+    request<{ appliedUpdateCount: number }>(`/api/project/editor/apply-deltas${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: payload,
     }),

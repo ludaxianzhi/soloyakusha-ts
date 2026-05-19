@@ -521,6 +521,7 @@ export function buildInitialWorkspaceConfig(
         ? (config.styleLibraryName?.trim() || undefined)
         : undefined,
     preProcessors: undefined,
+    preProcessorEnabled: undefined,
   };
 }
 
@@ -573,6 +574,8 @@ export function mergePersistedWorkspaceConfig(
     defaultExportFormat: persisted.defaultExportFormat ?? current.defaultExportFormat,
     preProcessors:
       persisted.preProcessors !== undefined ? persisted.preProcessors : current.preProcessors,
+    preProcessorEnabled:
+      persisted.preProcessorEnabled ?? current.preProcessorEnabled,
   };
 }
 
@@ -653,6 +656,10 @@ export function applyWorkspaceConfigPatch(
       patch.preProcessors === null
         ? undefined
         : (patch.preProcessors ?? config.preProcessors),
+    preProcessorEnabled:
+      patch.preProcessorEnabled === null
+        ? undefined
+        : (patch.preProcessorEnabled ?? config.preProcessorEnabled),
   };
 }
 
@@ -671,6 +678,7 @@ export function cloneWorkspaceConfig(config: WorkspaceConfig): WorkspaceConfig {
     styleRequirementsText: config.styleRequirementsText,
     styleLibraryName: config.styleLibraryName,
     preProcessors: config.preProcessors ? [...config.preProcessors] : undefined,
+    preProcessorEnabled: config.preProcessorEnabled,
   };
 }
 

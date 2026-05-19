@@ -14,6 +14,7 @@ import {
   Select,
   Space,
   Spin,
+  Switch,
   Tag,
   Tooltip,
   Typography,
@@ -39,6 +40,8 @@ import {
   buildAssistantRepetitionHints,
   buildChapterTranslationEditorSelectionSignature,
   collectChapterTranslationEditorSelection,
+  computeTranslationDeltas,
+  togglePreProcessorInContent,
   type ChapterTranslationEditorSelection,
 } from './chapter-editor-assistant.ts';
 
@@ -101,6 +104,8 @@ export function ChapterTranslationEditorPage({
   const [assistantDraft, setAssistantDraft] = useState('');
   const [assistantSending, setAssistantSending] = useState(false);
   const [assistantAnchor, setAssistantAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [preProcessorEnabled, setPreProcessorEnabled] = useState(false);
+  const [preProcessorToggling, setPreProcessorToggling] = useState(false);
   const editorShellRef = useRef<HTMLDivElement | null>(null);
   const editorViewRef = useRef<EditorView | null>(null);
   const pendingEditorScrollRef = useRef<{ top: number; left: number } | null>(null);
@@ -242,6 +247,20 @@ export function ChapterTranslationEditorPage({
     void loadDraft();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chaptersRevision]);
+
+  // 加载预处理器状态
+  useEffect(() => {
+    if (!resolvedWorkspaceId) return;
+    let cancelled = false;
+    void api.getWorkspaceConfig(resolvedWorkspaceId)
+      .then((config) => {
+        if (!cancelled) {
+          setPreProcessorEnabled(config.preProcessorEnabled ?? false);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [resolvedWorkspaceId]);
 
   useEffect(() => {
     if (!dirty || !draft || !selectedChapterId) {
@@ -586,48 +605,106 @@ export function ChapterTranslationEditorPage({
   }, [content, format, message, resolvedWorkspaceId, selectedChapterId]);
 
   const handleApply = useCallback(async () => {
-    if (!selectedChapterId) {
+    if (!selectedChapterId || !draft) {
       return;
     }
     setApplying(true);
     try {
-      const result = await api.applyChapterEditor({
-        chapterId: selectedChapterId,
-        format,
+      const { canCompute, deltas } = computeTranslationDeltas({
         content,
-      }, resolvedWorkspaceId ?? undefined);
-      setDiagnostics(result.validation.diagnostics);
-      if (!result.validation.canApply) {
-        message.error('提交失败，请先修复格式问题');
+        format,
+        draftUnits: draft.units,
+      });
+      if (!canCompute) {
+        message.warning('内容结构异常，无法计算保存变更');
         return;
       }
-      const nextContent = result.validation.normalizedContent;
-      if (nextContent !== content) {
-        const view = editorViewRef.current;
-        if (view) {
-          pendingEditorScrollRef.current = {
-            top: view.scrollDOM.scrollTop,
-            left: view.scrollDOM.scrollLeft,
-          };
-        }
+      if (deltas.length === 0) {
+        message.info('没有需要保存的变更');
+        setDirty(false);
+        return;
       }
-      setContent(nextContent);
-      setDraft((current) =>
-        current
-          ? {
-              ...current,
-              content: nextContent,
-              diagnostics: result.validation.diagnostics,
-            }
-          : current,
-      );
+      const result = await api.applyChapterEditorDeltas({
+        chapterId: selectedChapterId,
+        deltas,
+      }, resolvedWorkspaceId ?? undefined);
+      // 更新草稿中的译文，保持 draft.content 不变（源文始终以数据库为准）
+      setDraft((current) => {
+        if (!current) return current;
+        const nextUnits = current.units.map((unit) => {
+          const delta = deltas.find(
+            (d) => d.fragmentIndex === unit.fragmentIndex && d.lineIndex === unit.lineIndex,
+          );
+          return delta ? { ...unit, translatedText: delta.text } : unit;
+        });
+        return { ...current, units: nextUnits, diagnostics: [] };
+      });
+      setDirty(false);
+      setDiagnostics([]);
       message.success(`已回写 ${result.appliedUpdateCount} 行译文`);
     } catch (error) {
       message.error(toErrorMessage(error));
     } finally {
       setApplying(false);
     }
-  }, [content, format, message, resolvedWorkspaceId, selectedChapterId]);
+  }, [content, draft, format, message, resolvedWorkspaceId, selectedChapterId]);
+
+  const handleTogglePreProcessor = useCallback(async (nextEnabled: boolean) => {
+    if (!draft || !resolvedWorkspaceId || !selectedChapterId) return;
+    if (preProcessorToggling) return;
+    // 同步检查内容结构是否完整
+    const { canCompute } = computeTranslationDeltas({
+      content,
+      format,
+      draftUnits: draft.units,
+    });
+    if (!canCompute) {
+      message.warning('当前内容存在结构错误，请先修复后再切换预处理');
+      return;
+    }
+    // 同时检查服务端最近一次校验结果中的结构性错误
+    const hasServerStructuralError = diagnostics.some(
+      (d) => d.severity === 'error' && d.code !== 'source-mismatch',
+    );
+    if (hasServerStructuralError) {
+      message.warning('当前内容存在结构错误，请先修复后再切换预处理');
+      return;
+    }
+
+    const hasPreProcessors = (draft.preProcessors?.length ?? 0) > 0;
+    if (nextEnabled && !hasPreProcessors) {
+      message.warning('未配置预处理步骤，无法启用');
+      return;
+    }
+
+    setPreProcessorToggling(true);
+    const nextContent = togglePreProcessorInContent(
+      content,
+      format,
+      draft.units,
+      nextEnabled,
+      draft.preProcessors,
+    );
+    if (nextContent === null) {
+      setPreProcessorToggling(false);
+      message.warning('内容格式解析失败，无法切换预处理');
+      return;
+    }
+    setContent(nextContent);
+    setPreProcessorEnabled(nextEnabled);
+    setDirty(nextContent !== draft.content);
+    // 持久化用户偏好（异步，不影响切换体验）
+    try {
+      await api.updateWorkspaceConfig(
+        { preProcessorEnabled: nextEnabled },
+        resolvedWorkspaceId,
+      );
+    } catch {
+      message.warning('预处理偏好保存失败，但已成功切换');
+    } finally {
+      setPreProcessorToggling(false);
+    }
+  }, [content, diagnostics, draft, format, message, preProcessorToggling, resolvedWorkspaceId, selectedChapterId]);
 
   useLayoutEffect(() => {
     const scrollPosition = pendingEditorScrollRef.current;
@@ -690,7 +767,7 @@ export function ChapterTranslationEditorPage({
             message="这是独立编辑模块"
             description="当前版本不会接管工作区主界面流程；它把章节内部数据实时投影成 Nature Dialog 或 M3T 文本，允许你直接编辑译文后再做结构化回写。"
           />
-          <Typography.Text type="secondary">提示：在本页面按 Ctrl+S / Cmd+S 会直接触发提交并沿用同一套校验逻辑。</Typography.Text>
+          <Typography.Text type="secondary">提示：在本页面按 Ctrl+S / Cmd+S 会直接触发提交，只保存译文变更，不校验源文。</Typography.Text>
 
           <Space wrap className="chapter-editor-toolbar">
             <Select
@@ -722,6 +799,15 @@ export function ChapterTranslationEditorPage({
             <Tag color={errorCount > 0 ? 'red' : 'default'}>{`错误 ${errorCount}`}</Tag>
             <Tag color={warningCount > 0 ? 'gold' : 'default'}>{`警告 ${warningCount}`}</Tag>
             <Tag>{`变更行 ${changedLineCount}`}</Tag>
+            <span>
+              <Switch
+                size="small"
+                checked={preProcessorEnabled}
+                disabled={preProcessorToggling || !draft}
+                onChange={(checked) => void handleTogglePreProcessor(checked)}
+              />
+              <Typography.Text style={{ marginLeft: 6 }}>预处理</Typography.Text>
+            </span>
           </Space>
 
           {errorMessage ? <Alert type="error" showIcon message="加载编辑器失败" description={errorMessage} /> : null}

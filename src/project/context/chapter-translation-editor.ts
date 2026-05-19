@@ -79,6 +79,7 @@ export interface ChapterTranslationEditorDocument {
   diagnostics: ChapterTranslationEditorDiagnostic[];
   glossaryMatches: ChapterTranslationEditorGlossaryMatch[];
   repetitionMatches: ChapterTranslationEditorRepetitionMatch[];
+  preProcessors?: Array<{ id: string; params?: Record<string, unknown> }>;
 }
 
 export interface ChapterTranslationEditorValidationResult {
@@ -128,6 +129,7 @@ export function createChapterTranslationEditorDocument(input: {
   units: ChapterTranslationEditorUnit[];
   glossaryTerms?: ReadonlyArray<{ term: string; translation?: string }>;
   repetitionMatches?: ReadonlyArray<ChapterTranslationEditorRepetitionMatch>;
+  preProcessors?: Array<{ id: string; params?: Record<string, unknown> }>;
 }): ChapterTranslationEditorDocument {
   const handler = getEditableTranslationHandler(input.format);
   const content = handler.formatTranslationUnits(
@@ -150,6 +152,7 @@ export function createChapterTranslationEditorDocument(input: {
     diagnostics: [],
     glossaryMatches: collectGlossaryMatches(content, input.glossaryTerms ?? []),
     repetitionMatches: [...(input.repetitionMatches ?? [])],
+    preProcessors: input.preProcessors,
   };
 }
 
@@ -181,40 +184,27 @@ export function validateChapterTranslationEditorContent(input: {
     });
   }
 
-  const comparableCount = Math.min(parsed.blocks.length, input.units.length);
-  for (let index = 0; index < comparableCount; index += 1) {
-    const expected = input.units[index]!;
-    const block = parsed.blocks[index]!;
-    if (block.unit.source !== expected.sourceText) {
-      diagnostics.push({
-        ...createBlockRange(lineOffsets, block),
-        severity: "error",
-        code: "source-mismatch",
-        message: `第 ${index + 1} 条源文发生变化，编辑器模块只允许修改译文`,
-        unitIndex: expected.unitIndex,
-      });
-    }
-  }
-
-  const updates =
+  const hasBlockParseError =
     diagnostics.some((diagnostic) => diagnostic.severity === "error") ||
-    parsed.units.length !== input.units.length
-      ? []
-      : input.units.map((expected, index) => {
-          const parsedUnit = parsed.units[index]!;
-          const nextText = parsedUnit.target.at(-1) ?? "";
-          return {
-            unitIndex: expected.unitIndex,
-            fragmentIndex: expected.fragmentIndex,
-            lineIndex: expected.lineIndex,
-            sourceText: expected.sourceText,
-            previousText: expected.translatedText,
-            nextText,
-            changed: nextText !== expected.translatedText,
-          } satisfies ChapterTranslationEditorLineUpdate;
-        });
+    parsed.units.length !== input.units.length;
 
-  const normalizedContent = diagnostics.some((diagnostic) => diagnostic.severity === "error")
+  const updates = hasBlockParseError
+    ? []
+    : input.units.map((expected, index) => {
+        const parsedUnit = parsed.units[index]!;
+        const nextText = parsedUnit.target.at(-1) ?? "";
+        return {
+          unitIndex: expected.unitIndex,
+          fragmentIndex: expected.fragmentIndex,
+          lineIndex: expected.lineIndex,
+          sourceText: expected.sourceText,
+          previousText: expected.translatedText,
+          nextText,
+          changed: nextText !== expected.translatedText,
+        } satisfies ChapterTranslationEditorLineUpdate;
+      });
+
+  const normalizedContent = hasBlockParseError
     ? input.content
     : handler.formatTranslationUnits(
         parsed.units.map((unit) => ({

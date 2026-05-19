@@ -523,6 +523,7 @@ export class TranslationProject
         translation: term.translation,
       })),
       repetitionMatches: this.buildChapterEditorRepetitionMatches(chapterId),
+      preProcessors: this.getWorkspaceConfig().preProcessors,
     });
   }
 
@@ -572,6 +573,28 @@ export class TranslationProject
     }
 
     return validation;
+  }
+
+  /**
+   * 应用编辑器译文增量更新。
+   * 只接受译文侧变更，直接按 fragment/line 写回，不校验源文。
+   */
+  async applyChapterTranslationEditorDeltas(
+    chapterId: number,
+    deltas: Array<{ fragmentIndex: number; lineIndex: number; text: string }>,
+  ): Promise<number> {
+    this.ensureInitialized();
+    let appliedCount = 0;
+    for (const delta of deltas) {
+      await this.documentManager.updateTranslatedLine(
+        chapterId,
+        delta.fragmentIndex,
+        delta.lineIndex,
+        delta.text,
+      );
+      appliedCount += 1;
+    }
+    return appliedCount;
   }
 
   async addChapter(
