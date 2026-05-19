@@ -246,6 +246,21 @@ describe("NewlineAddProcessor", () => {
     const result = p.process("你好世界");
     expect(result).toBe("你好世界");
   });
+
+  it("should not accumulate trailing special char on re-processing", () => {
+    const p = new NewlineAddProcessor({ lineLength: 2, lineBreak: "\n", trailingSpecialChar: "↵" });
+    const first = p.process("abc");
+    expect(first).toBe("abc↵");
+    const second = p.process(first);
+    // Should strip existing trail before processing, preventing accumulation
+    expect(second).toBe("abc↵");
+  });
+
+  it("should keep natural trailingSpecialChar if input does not end with it", () => {
+    const p = new NewlineAddProcessor({ lineLength: 10, lineBreak: "\n", trailingSpecialChar: "↵" });
+    const result = p.process("你好世界");
+    expect(result).toBe("你好世界↵");
+  });
 });
 
 describe("TextPostProcessorRegistry", () => {

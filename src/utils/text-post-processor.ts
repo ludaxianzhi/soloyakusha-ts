@@ -303,6 +303,12 @@ export class NewlineAddProcessor implements TextPostProcessor {
     const brk = this.lineBreak;
     const trail = this.trailingSpecialChar;
 
+    // 去除上一次处理可能遗留的尾部标记，防止累积导致标记出现在行首
+    let input = text;
+    if (trail && input.endsWith(trail)) {
+      input = input.slice(0, -trail.length);
+    }
+
     const lines: string[] = [];
     let curLine = '';
     let curWidth = 0;
@@ -313,7 +319,7 @@ export class NewlineAddProcessor implements TextPostProcessor {
       lines.push(content);
     };
 
-    for (const c of text) {
+    for (const c of input) {
       if (isRightSkipChar(c)) {
         curLine += c;
         rightBreak = curLine.length;
