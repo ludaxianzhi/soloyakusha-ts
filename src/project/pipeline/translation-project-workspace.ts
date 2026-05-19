@@ -239,6 +239,7 @@ export class TranslationProjectWorkspace {
       fileHandler,
       options?.params,
       options?.processors,
+      workspaceConfig.preProcessors,
     );
     return {
       chapterId,

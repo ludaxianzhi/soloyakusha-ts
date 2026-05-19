@@ -959,6 +959,7 @@ export class ProjectService {
     input: ChapterFindReplaceRequest,
     workspaceId?: string,
   ): ChapterFindReplacePreviewResult {
+    console.log('[PreProcess] previewBatchFindReplace 被调用', JSON.stringify(input));
     const { project } = this.getWorkspaceContext(workspaceId);
     if (!project) {
       throw new ProjectServiceUserInputError('当前没有已初始化的项目');
@@ -972,6 +973,7 @@ export class ProjectService {
   async applyBatchFindReplace(
     input: ChapterFindReplaceRequest,
   ): Promise<ChapterFindReplaceApplyResult> {
+    console.log('[PreProcess] applyBatchFindReplace 被调用', JSON.stringify(input));
     const { runtime, state, project } = this.getActiveWorkspaceContext();
     if (state.isBusy) {
       throw new ProjectServiceUserInputError('当前正在运行其他任务，请稍后再试');
@@ -4448,6 +4450,15 @@ export class ProjectService {
       const pipeline = TextPostProcessorRegistry.createPipeline(processors);
       const docManager = project.getDocumentManager();
 
+      // 后处理的原文上下文以预处理后的版本为准
+      const preProcessorSteps = project.getWorkspaceConfig().preProcessors;
+      const prePipeline = preProcessorSteps?.length
+        ? TextPreProcessorRegistry.createPipeline(preProcessorSteps)
+        : undefined;
+      if (prePipeline) {
+        console.log('[PreProcess] runBatchPostProcess: 已创建预处理流水线');
+      }
+
       for (const chapterId of chapterIds) {
         const chapter = docManager.getChapterById(chapterId);
         if (!chapter) continue;
@@ -4462,7 +4473,8 @@ export class ProjectService {
           let changed = false;
           const newTranslatedLines = translatedLines.map((line, lineIndex) => {
             const originalLine = restoreBlankText(fragment.source.lines[lineIndex] ?? '');
-            const processed = pipeline.process(line, originalLine);
+            const contextSource = prePipeline ? prePipeline.process(originalLine) : originalLine;
+            const processed = pipeline.process(line, contextSource);
             if (processed !== line) {
               changed = true;
             }
@@ -4526,6 +4538,17 @@ export class ProjectService {
       );
     }
 
+    // 若启用了原文预处理，对 sourceRegex 的匹配原文也进行预处理
+    const preProcessorSteps = project.getWorkspaceConfig().preProcessors;
+    const prePipeline = preProcessorSteps?.length
+      ? TextPreProcessorRegistry.createPipeline(preProcessorSteps)
+      : undefined;
+    if (prePipeline) {
+      console.log(`[PreProcess] analyzeBatchFindReplace: 已创建预处理流水线`);
+    } else {
+      console.log(`[PreProcess] analyzeBatchFindReplace: 无预处理步骤`, preProcessorSteps);
+    }
+
     const docManager = project.getDocumentManager();
     const chapterMap = new Map<number, ReturnType<typeof docManager.getChapterById>>();
     const descriptorMap = new Map(
@@ -4550,8 +4573,18 @@ export class ProjectService {
         for (let lineIndex = 0; lineIndex < fragment.translation.lines.length; lineIndex += 1) {
           const rawSourceText = fragment.source.lines[lineIndex] ?? '';
           const rawTranslatedText = fragment.translation.lines[lineIndex] ?? '';
-          const sourceText = restoreBlankText(rawSourceText);
+          const sourceText = prePipeline
+            ? prePipeline.process(restoreBlankText(rawSourceText))
+            : restoreBlankText(rawSourceText);
           const previousText = restoreBlankText(rawTranslatedText);
+
+          if (prePipeline && lineIndex === 0) {
+            console.log(`[PreProcess] analyzeBatchFindReplace Ch${chapterId} 首行:`, {
+              raw: restoreBlankText(rawSourceText).slice(0, 50),
+              processed: sourceText.slice(0, 50),
+              changed: restoreBlankText(rawSourceText) !== sourceText,
+            });
+          }
 
           if (sourceRegex) {
             sourceRegex.lastIndex = 0;

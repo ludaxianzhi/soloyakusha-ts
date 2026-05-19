@@ -1030,6 +1030,8 @@ export class TranslationProject
 
     const routes: RouteExportResult[] = [];
 
+    const preProcessorSteps = this.getWorkspaceConfig().preProcessors;
+
     if (!topology) {
       const chapterResults = await this.exportChaptersToDir(
         this.chapters,
@@ -1037,6 +1039,7 @@ export class TranslationProject
         handler,
         params,
         processors,
+        preProcessorSteps,
       );
       routes.push({
         routeId: "main",
@@ -1059,6 +1062,7 @@ export class TranslationProject
           handler,
           params,
           processors,
+          preProcessorSteps,
         );
         routes.push({
           routeId: route.id,
@@ -1087,6 +1091,7 @@ export class TranslationProject
     handler: TranslationFileHandler,
     params?: Record<string, unknown>,
     processors?: { id: string; params?: Record<string, unknown> }[],
+    preProcessors?: { id: string; params?: Record<string, unknown> }[],
   ): Promise<TranslationExportResult[]> {
     await mkdir(outputDir, { recursive: true });
 
@@ -1118,6 +1123,7 @@ export class TranslationProject
         handler,
         params,
         processors,
+        preProcessors,
       );
 
       const unitCount = this.documentManager.getChapterTranslationUnits(chapter.id).length;

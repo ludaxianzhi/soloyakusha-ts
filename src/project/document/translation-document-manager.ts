@@ -30,6 +30,7 @@ import {
   restoreBlankText,
 } from "../../file-handlers/base.ts";
 import { TextPostProcessorRegistry } from "../../utils/text-post-processor.ts";
+import { TextPreProcessorRegistry } from "../../utils/text-pre-processor.ts";
 import type { SavedRepetitionPatternAnalysisResult } from "../analysis/repetition-pattern-analysis.ts";
 import type {
   ChapterEntry,
@@ -589,6 +590,7 @@ export class TranslationDocumentManager {
     fileHandler: TranslationFileHandler,
     params?: Record<string, unknown>,
     processors?: { id: string; params?: Record<string, unknown> }[],
+    preProcessors?: { id: string; params?: Record<string, unknown> }[],
   ): Promise<void> {
     let units = this.getChapterTranslationUnits(chapterId);
     if (params?.keepSourceName) {
@@ -597,10 +599,18 @@ export class TranslationDocumentManager {
 
     if (processors?.length) {
       const pipeline = TextPostProcessorRegistry.createPipeline(processors);
-      units = units.map((unit) => ({
-        ...unit,
-        target: unit.target.map((line) => pipeline.process(line, unit.source)),
-      }));
+      const prePipeline = preProcessors?.length
+        ? TextPreProcessorRegistry.createPipeline(preProcessors)
+        : undefined;
+      units = units.map((unit) => {
+        const sourceForPostProcess = prePipeline
+          ? prePipeline.process(unit.source)
+          : unit.source;
+        return {
+          ...unit,
+          target: unit.target.map((line) => pipeline.process(line, sourceForPostProcess)),
+        };
+      });
     }
 
     await fileHandler.writeTranslationUnits(outputFilePath, units);
