@@ -345,7 +345,7 @@ function clientSidePreProcess(
 ): string {
   let result = text;
   for (const step of preProcessors) {
-    if (step.id !== 'text-replace') continue;
+    if (step.id && step.id !== 'text-replace') continue;
     const matchRegex = step.params?.matchRegex as string | undefined;
     const replacement = (step.params?.replacement as string) ?? '';
     const filterRegex = step.params?.filterRegex as string | undefined;

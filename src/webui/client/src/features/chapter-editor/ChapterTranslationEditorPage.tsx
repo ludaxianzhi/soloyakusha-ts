@@ -106,6 +106,8 @@ export function ChapterTranslationEditorPage({
   const [assistantAnchor, setAssistantAnchor] = useState<{ top: number; left: number } | null>(null);
   const [preProcessorEnabled, setPreProcessorEnabled] = useState(false);
   const [preProcessorToggling, setPreProcessorToggling] = useState(false);
+  const [preProcessorSteps, setPreProcessorSteps] = useState<Array<{ id: string; params?: Record<string, unknown> }> | undefined>(undefined);
+  const initialPreProcessAppliedRef = useRef(false);
   const editorShellRef = useRef<HTMLDivElement | null>(null);
   const editorViewRef = useRef<EditorView | null>(null);
   const pendingEditorScrollRef = useRef<{ top: number; left: number } | null>(null);
@@ -217,6 +219,7 @@ export function ChapterTranslationEditorPage({
       setContent(nextDraft.content);
       setDiagnostics(nextDraft.diagnostics);
       setDirty(false);
+      setPreProcessorSteps((previous) => nextDraft.preProcessors ?? previous);
       setAssistantSelection(null);
       setAssistantModalOpen(false);
       setAssistantConversation([]);
@@ -256,11 +259,32 @@ export function ChapterTranslationEditorPage({
       .then((config) => {
         if (!cancelled) {
           setPreProcessorEnabled(config.preProcessorEnabled ?? false);
+          setPreProcessorSteps(config.preProcessors);
         }
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [resolvedWorkspaceId]);
+
+  // 页面加载时自动应用预处理
+  useEffect(() => {
+    if (initialPreProcessAppliedRef.current) return;
+    if (!draft || !resolvedWorkspaceId) return;
+    if (!preProcessorEnabled) return;
+    const effectivePP = draft.preProcessors ?? preProcessorSteps;
+    if (!effectivePP?.length) return;
+    const nextContent = togglePreProcessorInContent(
+      draft.content,
+      format,
+      draft.units,
+      true,
+      effectivePP,
+    );
+    if (nextContent && nextContent !== draft.content) {
+      setContent(nextContent);
+    }
+    initialPreProcessAppliedRef.current = true;
+  }, [draft, preProcessorEnabled, preProcessorSteps, format, resolvedWorkspaceId]);
 
   useEffect(() => {
     if (!dirty || !draft || !selectedChapterId) {
@@ -671,7 +695,8 @@ export function ChapterTranslationEditorPage({
       return;
     }
 
-    const hasPreProcessors = (draft.preProcessors?.length ?? 0) > 0;
+    const effectivePreProcessors = draft.preProcessors ?? preProcessorSteps;
+    const hasPreProcessors = (effectivePreProcessors?.length ?? 0) > 0;
     if (nextEnabled && !hasPreProcessors) {
       message.warning('未配置预处理步骤，无法启用');
       return;
@@ -683,7 +708,7 @@ export function ChapterTranslationEditorPage({
       format,
       draft.units,
       nextEnabled,
-      draft.preProcessors,
+      effectivePreProcessors,
     );
     if (nextContent === null) {
       setPreProcessorToggling(false);
@@ -692,7 +717,12 @@ export function ChapterTranslationEditorPage({
     }
     setContent(nextContent);
     setPreProcessorEnabled(nextEnabled);
-    setDirty(nextContent !== draft.content);
+    const afterDirtyResult = computeTranslationDeltas({
+      content: nextContent,
+      format,
+      draftUnits: draft.units,
+    });
+    setDirty(afterDirtyResult.canCompute ? afterDirtyResult.deltas.length > 0 : true);
     // 持久化用户偏好（异步，不影响切换体验）
     try {
       await api.updateWorkspaceConfig(
@@ -704,7 +734,7 @@ export function ChapterTranslationEditorPage({
     } finally {
       setPreProcessorToggling(false);
     }
-  }, [content, diagnostics, draft, format, message, preProcessorToggling, resolvedWorkspaceId, selectedChapterId]);
+  }, [content, diagnostics, draft, format, message, preProcessorSteps, preProcessorToggling, resolvedWorkspaceId, selectedChapterId]);
 
   useLayoutEffect(() => {
     const scrollPosition = pendingEditorScrollRef.current;
@@ -865,7 +895,12 @@ export function ChapterTranslationEditorPage({
                   }}
                   onChange={(value) => {
                     setContent(value);
-                    setDirty(value !== draft.content);
+                    const dirtyResult = computeTranslationDeltas({
+                      content: value,
+                      format,
+                      draftUnits: draft.units,
+                    });
+                    setDirty(dirtyResult.canCompute ? dirtyResult.deltas.length > 0 : true);
                   }}
                 />
               </div>

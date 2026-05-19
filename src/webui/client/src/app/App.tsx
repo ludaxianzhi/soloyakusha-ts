@@ -1777,10 +1777,14 @@ export function AppShell() {
             preProcessors:
               (() => {
                 const pp = values.preProcessors as
-                  | Array<{ id: string; params: Record<string, unknown> }>
+                  | Array<{ params: Record<string, unknown> }>
                   | undefined;
-                console.log('[PreProcess] 表单提交预处理配置:', JSON.stringify(pp ?? null));
-                return pp ?? null;
+                const normalized = (pp ?? []).map((item) => ({
+                  id: 'text-replace',
+                  params: item.params,
+                }));
+                console.log('[PreProcess] 表单提交预处理配置:', JSON.stringify(normalized.length ? normalized : null));
+                return normalized.length > 0 ? normalized : null;
               })(),
             ...buildClearedWorkspaceWorkflowPatch(previousWorkflow, nextWorkflow),
             ...buildWorkspaceWorkflowPatch(values, nextWorkflow),
