@@ -11,6 +11,7 @@ import {
   type StaticAssetMap,
 } from './static-assets.ts';
 import { EventBus } from './services/event-bus.ts';
+import { LogService } from './services/log-service.ts';
 import { WorkspaceManager } from './services/workspace-manager.ts';
 import { ProjectService } from './services/project-service.ts';
 import { ConfigService } from './services/config-service.ts';
@@ -31,6 +32,8 @@ export interface CreateAppOptions {
 
 export function createApp(options: CreateAppOptions = {}) {
   const eventBus = new EventBus();
+  const logService = new LogService();
+  eventBus.setLogService(logService);
   const workspaceManager = new WorkspaceManager();
   const usageStatsService = new UsageStatsService();
   const requestHistoryService = new RequestHistoryService({
@@ -62,7 +65,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.route('/api/activity', createActivityRoutes(requestHistoryService, usageStatsService));
   app.route('/api/config', createConfigRoutes(configService));
   app.route('/api/style-libraries', createStyleLibraryRoutes(styleLibraryService));
-  app.route('/api/events', createEventsRoute(eventBus, projectService));
+  app.route('/api/events', createEventsRoute(eventBus, logService, projectService));
 
   const clientDistDir = options.clientDistDir ?? join(process.cwd(), 'dist', 'webui');
   app.get('*', async (c) => {

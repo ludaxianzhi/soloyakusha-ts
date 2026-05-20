@@ -6,6 +6,7 @@ import {
   Collapse,
   Descriptions,
   Empty,
+  Input,
   List,
   Modal,
   Popconfirm,
@@ -15,6 +16,7 @@ import {
   Tabs,
   Typography,
 } from 'antd';
+import { SearchOutlined } from '@ant-design/icons';
 import type {
   LlmRequestHistoryDetail,
   LlmRequestHistoryDigest,
@@ -30,8 +32,9 @@ import { UsageStatsPanel } from './UsageStatsPanel.tsx';
 
 const LOG_PAGE_SIZE = 50;
 const HISTORY_PAGE_SIZE = 20;
+const MAX_LOG_COUNT = 500;
 
-// ─── Main Page ──────────────────────────────────────────────────────────────
+const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
 export function ActivityCenterPage() {
   const [activeTab, setActiveTab] = useState('runtime-logs');
@@ -71,60 +74,20 @@ export function ActivityCenterPage() {
   );
 }
 
-// ─── Runtime Logs Panel ─────────────────────────────────────────────────────
-
 function RuntimeLogsPanel({ active }: { active: boolean }) {
   const { message } = AntdApp.useApp();
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [initialized, setInitialized] = useState(false);
-  const [nextBeforeId, setNextBeforeId] = useState<number>();
-  const [digest, setDigest] = useState<LogDigest>({ total: 0, latestId: 0 });
   const [session, setSession] = useState<LogSession | null>(null);
+  const [connected, setConnected] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const autoScrollRef = useRef(true);
 
-  const loadLogs = useCallback(
-    async (mode: 'replace' | 'append' = 'replace') => {
-      if (mode === 'append' && nextBeforeId === undefined) return;
-      if (mode === 'replace') setLoading(true);
-      else setLoadingMore(true);
-      try {
-        const sessionSnapshot =
-          mode === 'replace' || !session ? await api.getLogSession() : session;
-        const page = await api.getLogs({
-          limit: LOG_PAGE_SIZE,
-          beforeId: mode === 'append' ? nextBeforeId : undefined,
-        });
-        setLogs((prev) => (mode === 'append' ? [...prev, ...page.items] : page.items));
-        setNextBeforeId(page.nextBeforeId);
-        setDigest({ total: page.total, latestId: page.latestId });
-        setSession(sessionSnapshot);
-        setInitialized(true);
-      } catch (error) {
-        message.error(toErrorMessage(error));
-      } finally {
-        if (mode === 'replace') setLoading(false);
-        else setLoadingMore(false);
-      }
-    },
-    [message, nextBeforeId, session],
-  );
-
-  const refreshIfChanged = useCallback(async () => {
-    try {
-      const nextDigest = await api.getLogsSummary();
-      if (
-        !initialized ||
-        nextDigest.latestId !== digest.latestId ||
-        nextDigest.total !== digest.total
-      ) {
-        await loadLogs('replace');
-      }
-    } catch {
-      // keep background polling quiet
-    }
-  }, [digest.latestId, digest.total, initialized, loadLogs]);
+  const handleAutoScroll = useCallback(() => {
+    if (!autoScrollRef.current || !scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, []);
 
   useEffect(() => {
     if (!active) {
@@ -132,18 +95,67 @@ function RuntimeLogsPanel({ active }: { active: boolean }) {
       return;
     }
     if (initialized) return;
-    void loadLogs('replace');
-  }, [active, initialized, loadLogs]);
 
-  usePollingTask({ enabled: active, intervalMs: 2_000, task: refreshIfChanged });
+    let disposed = false;
+    const init = async () => {
+      setLoading(true);
+      try {
+        const [sessionSnapshot, page] = await Promise.all([
+          api.getLogSession(),
+          api.getLogs({ limit: LOG_PAGE_SIZE }),
+        ]);
+        if (disposed) return;
+        setSession(sessionSnapshot);
+        const allLogs = [...page.items].reverse();
+        setLogs(allLogs.slice(-MAX_LOG_COUNT));
+        setInitialized(true);
+      } catch (error) {
+        if (!disposed) message.error(toErrorMessage(error));
+      } finally {
+        if (!disposed) setLoading(false);
+      }
+    };
+    void init();
+    return () => { disposed = true; };
+  }, [active, initialized, message]);
+
+  useEffect(() => {
+    if (!active || !initialized) return;
+
+    setConnected(true);
+    const query = new URLSearchParams({ includeLogs: '1' });
+    const source = new EventSource(`${API_BASE}/api/events?${query.toString()}`);
+
+    source.addEventListener('open', () => setConnected(true));
+    source.addEventListener('error', () => setConnected(false));
+
+    source.addEventListener('log', (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent<string>).data) as LogEntry;
+        if (!data || typeof data !== 'object') return;
+        setLogs((prev) => {
+          const next = [...prev, data as LogEntry];
+          return next.length > MAX_LOG_COUNT
+            ? next.slice(-Math.floor(MAX_LOG_COUNT * 0.6))
+            : next;
+        });
+        requestAnimationFrame(() => handleAutoScroll());
+      } catch {
+        // ignore parse errors
+      }
+    });
+
+    return () => {
+      source.close();
+      setConnected(false);
+    };
+  }, [active, handleAutoScroll, initialized]);
 
   const handleClear = useCallback(async () => {
     try {
       await api.clearLogs();
       setLogs([]);
-      setSelectedLog(null);
-      setNextBeforeId(undefined);
-      setDigest({ total: 0, latestId: 0 });
+      setSession(null);
       setInitialized(true);
       message.success('运行日志已清空');
     } catch (error) {
@@ -162,102 +174,80 @@ function RuntimeLogsPanel({ active }: { active: boolean }) {
     }
   }, [message, session]);
 
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    autoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  }, []);
+
   return (
-    <>
-      <Card
-        title="运行日志"
-        extra={
-          <Space>
-            {session ? (
-              <Tag color="blue">{`启动于 ${new Date(session.startedAt).toLocaleString()}`}</Tag>
-            ) : null}
-            <Tag>{`共 ${digest.total} 条`}</Tag>
-            <Button onClick={() => void handleExport()}>导出</Button>
-            <Button onClick={() => void handleClear()}>清空</Button>
-          </Space>
-        }
-      >
-        {logs.length === 0 && !loading ? (
-          <Empty description="当前运行暂无日志" />
-        ) : (
-          <List
-            loading={loading}
-            dataSource={logs}
-            loadMore={
-              nextBeforeId ? (
-                <div style={{ textAlign: 'center', marginTop: 12 }}>
-                  <Button loading={loadingMore} onClick={() => void loadLogs('append')}>
-                    加载更多
-                  </Button>
-                </div>
-              ) : undefined
-            }
-            renderItem={(item) => (
-              <List.Item
-                key={item.id}
-                actions={[
-                  <Button key="detail" type="link" onClick={() => setSelectedLog(item)}>
-                    详情
-                  </Button>,
-                ]}
-              >
-                <Space wrap size={[8, 8]}>
-                  <Tag color={logColor(item.level)}>{item.level.toUpperCase()}</Tag>
-                  <Typography.Text type="secondary">
-                    {new Date(item.timestamp).toLocaleString()}
-                  </Typography.Text>
-                  <Typography.Text
-                    ellipsis={{ tooltip: item.message }}
-                    style={{ maxWidth: 680 }}
-                  >
-                    {item.message}
-                  </Typography.Text>
-                </Space>
-              </List.Item>
-            )}
-          />
-        )}
-      </Card>
-      <Modal
-        open={selectedLog !== null}
-        title="日志详情"
-        footer={<Button onClick={() => setSelectedLog(null)}>关闭</Button>}
-        onCancel={() => setSelectedLog(null)}
-      >
-        {selectedLog ? (
-          <Space direction="vertical" style={{ width: '100%' }} size="middle">
-            <Descriptions column={1} size="small" bordered>
-              <Descriptions.Item label="级别">
-                <Tag color={logColor(selectedLog.level)}>
-                  {selectedLog.level.toUpperCase()}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="时间">
-                {new Date(selectedLog.timestamp).toLocaleString()}
-              </Descriptions.Item>
-              <Descriptions.Item label="ID">{selectedLog.id}</Descriptions.Item>
-            </Descriptions>
-            <DetailTextBlock title="消息" content={selectedLog.message} />
-          </Space>
-        ) : null}
-      </Modal>
-    </>
+    <Card
+      title="运行日志"
+      extra={
+        <Space>
+          {session ? (
+            <Tag color="blue">{`启动于 ${new Date(session.startedAt).toLocaleString()}`}</Tag>
+          ) : null}
+          <Tag color={connected ? 'green' : 'default'}>
+            {connected ? '实时' : '离线'}
+          </Tag>
+          <Tag>{`共 ${logs.length} 条`}</Tag>
+          <Button onClick={() => void handleExport()}>导出</Button>
+          <Button onClick={() => void handleClear()}>清空</Button>
+        </Space>
+      }
+    >
+      {logs.length === 0 && !loading ? (
+        <Empty description="当前运行暂无日志" />
+      ) : (
+        <div
+          ref={scrollRef}
+          className="runtime-log-stream"
+          onScroll={handleScroll}
+        >
+          {logs.map((entry) => (
+            <div key={entry.id} className={`runtime-log-line runtime-log-line--${entry.level}`}>
+              <span className="runtime-log-time">
+                {formatLogTime(entry.timestamp)}
+              </span>
+              <span className={`runtime-log-level runtime-log-level--${entry.level}`}>
+                {entry.level.toUpperCase().padEnd(7)}
+              </span>
+              {entry.workspaceId ? (
+                <span className="runtime-log-workspace">{`[${entry.workspaceId}]`}</span>
+              ) : null}
+              <span className="runtime-log-msg">{entry.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 
-// ─── Request History Panel (two-column) ─────────────────────────────────────
+function formatLogTime(timestamp: string): string {
+  try {
+    const d = new Date(timestamp);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  } catch {
+    return timestamp;
+  }
+}
 
 function RequestHistoryPanel({ active }: { active: boolean }) {
   const { message } = AntdApp.useApp();
   const [items, setItems] = useState<LlmRequestHistorySummaryItem[]>([]);
   const [selectedEntry, setSelectedEntry] = useState<LlmRequestHistoryDetail | null>(null);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [nextBeforeId, setNextBeforeId] = useState<number>();
   const [digest, setDigest] = useState<LlmRequestHistoryDigest>({ total: 0, latestId: 0 });
+  const [searchText, setSearchText] = useState('');
   const detailRequestRef = useRef(0);
 
   const loadHistory = useCallback(
@@ -310,9 +300,21 @@ function RequestHistoryPanel({ active }: { active: boolean }) {
 
   usePollingTask({ enabled: active, intervalMs: 5_000, task: refreshIfChanged });
 
+  const filteredItems = useMemo(() => {
+    if (!searchText.trim()) return items;
+    const q = searchText.toLowerCase();
+    return items.filter((entry) => {
+      if (entry.modelName?.toLowerCase().includes(q)) return true;
+      if (entry.meta?.label?.toLowerCase().includes(q)) return true;
+      if (entry.source?.toLowerCase().includes(q)) return true;
+      if (entry.meta?.stage?.toLowerCase().includes(q)) return true;
+      if (entry.requestId?.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [items, searchText]);
+
   const handleOpenDetail = useCallback(
     async (entryId: number) => {
-      setSelectedId(entryId);
       const requestId = detailRequestRef.current + 1;
       detailRequestRef.current = requestId;
       setDetailLoading(true);
@@ -337,7 +339,6 @@ function RequestHistoryPanel({ active }: { active: boolean }) {
     detailRequestRef.current += 1;
     setDetailLoading(false);
     setSelectedEntry(null);
-    setSelectedId(null);
   }, []);
 
   const handleDelete = useCallback(
@@ -395,147 +396,145 @@ function RequestHistoryPanel({ active }: { active: boolean }) {
   }, [message, selectedEntry]);
 
   return (
-    <div className="history-panel">
-      {/* ── Left: list ───────────────────────────────────────── */}
-      <div className="history-list-pane">
-        <div className="history-list-header">
-          <Space size={6} wrap>
+    <>
+      <Card
+        title="LLM 请求历史"
+        extra={
+          <Space>
             <Tag>{`共 ${digest.total} 条`}</Tag>
-            <Button size="small" onClick={() => void handleExportAll()}>
-              导出
-            </Button>
+            <Button onClick={() => void handleExportAll()}>导出</Button>
             <Popconfirm
               title="确认清空全部请求历史？"
               description="该操作不可撤销。"
               onConfirm={() => void handleClear()}
             >
-              <Button size="small" danger>
-                清空
-              </Button>
+              <Button danger>清空</Button>
             </Popconfirm>
           </Space>
+        }
+      >
+        <div style={{ marginBottom: 12 }}>
+          <Input
+            placeholder="搜索任务、模型、来源..."
+            prefix={<SearchOutlined />}
+            allowClear
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
         </div>
 
-        <div className="history-list-scroll">
-          {items.length === 0 && !loading ? (
-            <Empty
-              description="暂无请求历史"
-              style={{ marginTop: 48 }}
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-            />
-          ) : (
-            <List
-              loading={loading}
-              dataSource={items}
-              loadMore={
-                nextBeforeId ? (
-                  <div style={{ textAlign: 'center', padding: '8px 0 12px' }}>
-                    <Button size="small" loading={loadingMore} onClick={() => void loadHistory('append')}>
-                      加载更多
-                    </Button>
-                  </div>
-                ) : undefined
-              }
-              renderItem={(entry) => {
-                const ctx = readHistoryContext(entry);
-                const isSelected = entry.id === selectedId;
-                return (
-                  <div
-                    key={entry.id}
-                    className={`history-entry-item${isSelected ? ' history-entry-item--selected' : ''}`}
-                    onClick={() => void handleOpenDetail(entry.id)}
-                  >
-                    <div className="history-entry-top">
-                      <Tag
-                        color={entry.type === 'error' ? 'error' : 'success'}
-                        style={{ marginRight: 4 }}
-                      >
-                        {entry.type === 'error' ? 'ERR' : 'OK'}
-                      </Tag>
-                      {entry.modelName ? (
-                        <Typography.Text className="history-entry-model">
-                          {entry.modelName}
-                        </Typography.Text>
-                      ) : null}
-                      {entry.durationSeconds != null ? (
-                        <Typography.Text type="secondary" className="history-entry-meta">
-                          {entry.durationSeconds.toFixed(2)}s
-                        </Typography.Text>
-                      ) : null}
-                    </div>
-                    <div className="history-entry-tags">
-                      {entry.meta?.label ? <Tag color="purple">{entry.meta.label}</Tag> : null}
-                      {entry.meta?.stage ? (
-                        <Tag>{`stage ${entry.meta.stage}`}</Tag>
-                      ) : null}
-                      {entry.source ? <Tag>{entry.source}</Tag> : null}
-                      {entry.statistics ? (
-                        <Tag color="blue">{`${entry.statistics.totalTokens} tok`}</Tag>
-                      ) : null}
-                    </div>
+        {filteredItems.length === 0 && !loading ? (
+          <Empty
+            description={searchText ? '无匹配的请求记录' : '暂无请求历史'}
+          />
+        ) : (
+          <List
+            loading={loading}
+            dataSource={filteredItems}
+            loadMore={
+              nextBeforeId && !searchText ? (
+                <div style={{ textAlign: 'center', marginTop: 12 }}>
+                  <Button loading={loadingMore} onClick={() => void loadHistory('append')}>
+                    加载更多
+                  </Button>
+                </div>
+              ) : undefined
+            }
+            renderItem={(entry) => {
+              const ctx = readHistoryContext(entry);
+              const tps =
+                entry.statistics?.totalTokens != null && entry.durationSeconds != null && entry.durationSeconds > 0
+                  ? entry.statistics.totalTokens / entry.durationSeconds
+                  : undefined;
+              return (
+                <List.Item
+                  key={entry.id}
+                  actions={[
+                    <Button
+                      key="detail"
+                      type="link"
+                      onClick={() => void handleOpenDetail(entry.id)}
+                    >
+                      详情
+                    </Button>,
+                    <Popconfirm
+                      key="delete"
+                      title="确认删除该请求历史？"
+                      onConfirm={() => void handleDelete(entry.id)}
+                    >
+                      <Button danger type="link">
+                        删除
+                      </Button>
+                    </Popconfirm>,
+                  ]}
+                >
+                  <Space wrap size={[8, 8]}>
+                    <Tag color={entry.type === 'error' ? 'error' : 'success'}>
+                      {entry.type === 'error' ? 'ERROR' : 'COMPLETION'}
+                    </Tag>
+                    {ctx.projectName ? <Tag color="gold">{ctx.projectName}</Tag> : null}
+                    {entry.meta?.label ? <Tag color="purple">{entry.meta.label}</Tag> : null}
+                    {entry.source ? <Tag>{entry.source}</Tag> : null}
+                    {entry.meta?.stage ? <Tag>{`stage ${entry.meta.stage}`}</Tag> : null}
+                    {entry.modelName ? <Tag color="blue">{entry.modelName}</Tag> : null}
+                    {entry.durationSeconds != null ? (
+                      <Tag>{`${entry.durationSeconds.toFixed(3)}s`}</Tag>
+                    ) : null}
+                    {tps != null ? (
+                      <Tag color="green">{`${tps.toFixed(1)} t/s`}</Tag>
+                    ) : null}
+                    {entry.statistics ? (
+                      <Tag color="orange">{`${entry.statistics.totalTokens} tok`}</Tag>
+                    ) : null}
                     {entry.errorMessage ? (
-                      <Typography.Text
-                        type="danger"
-                        className="history-entry-error"
-                        ellipsis
-                      >
+                      <Typography.Text type="danger" ellipsis style={{ maxWidth: 260 }}>
                         {entry.errorMessage}
                       </Typography.Text>
                     ) : null}
-                    {ctx.projectName ? (
-                      <Typography.Text
-                        type="secondary"
-                        className="history-entry-project"
-                        ellipsis
-                      >
-                        {ctx.projectName}
-                      </Typography.Text>
-                    ) : null}
-                    <Typography.Text type="secondary" className="history-entry-time">
+                    <Typography.Text type="secondary">
                       {new Date(entry.timestamp).toLocaleString()}
                     </Typography.Text>
-                  </div>
-                );
-              }}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* ── Right: detail ────────────────────────────────────── */}
-      <div className="history-detail-pane">
-        {detailLoading ? (
-          <div className="history-detail-loading">
-            <Spin tip="正在加载详情..." />
-          </div>
-        ) : selectedEntry ? (
-          <HistoryDetailPanel
-            entry={selectedEntry}
-            onExport={handleExportSelected}
-            onDelete={() => void handleDelete(selectedEntry.id)}
+                  </Space>
+                </List.Item>
+              );
+            }}
           />
-        ) : (
-          <div className="history-detail-empty">
-            <Empty
-              description="从左侧列表选择一条请求记录"
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-            />
-          </div>
         )}
-      </div>
-    </div>
+      </Card>
+
+      <Modal
+        open={selectedEntry !== null || detailLoading}
+        title="LLM 请求详情"
+        width={960}
+        footer={
+          <Space>
+            <Button onClick={handleExportSelected} disabled={!selectedEntry}>
+              导出
+            </Button>
+            {selectedEntry ? (
+              <Popconfirm
+                title="确认删除该请求历史？"
+                onConfirm={() => void handleDelete(selectedEntry.id)}
+              >
+                <Button danger>删除</Button>
+              </Popconfirm>
+            ) : null}
+            <Button onClick={handleCloseDetail}>关闭</Button>
+          </Space>
+        }
+        onCancel={handleCloseDetail}
+      >
+        {detailLoading ? (
+          <Typography.Text type="secondary">正在加载详情...</Typography.Text>
+        ) : selectedEntry ? (
+          <HistoryDetailModalContent entry={selectedEntry} />
+        ) : null}
+      </Modal>
+    </>
   );
 }
 
-// ─── History Detail Panel ───────────────────────────────────────────────────
-
-interface HistoryDetailPanelProps {
-  entry: LlmRequestHistoryDetail;
-  onExport: () => void;
-  onDelete: () => void;
-}
-
-function HistoryDetailPanel({ entry, onExport, onDelete }: HistoryDetailPanelProps) {
+function HistoryDetailModalContent({ entry }: { entry: LlmRequestHistoryDetail }) {
   const ctx = readHistoryContext(entry);
 
   const collapseItems = useMemo(() => {
@@ -637,7 +636,9 @@ function HistoryDetailPanel({ entry, onExport, onDelete }: HistoryDetailPanelPro
       sections.push({
         key: 'request-config',
         label: 'Request Config',
-        children: <JsonCodeBlock content={JSON.stringify(entry.requestConfig, null, 2)} />,
+        children: (
+          <JsonCodeBlock content={JSON.stringify(entry.requestConfig, null, 2)} />
+        ),
       });
     }
 
@@ -645,112 +646,22 @@ function HistoryDetailPanel({ entry, onExport, onDelete }: HistoryDetailPanelPro
   }, [entry, ctx.projectName, ctx.workspaceDir]);
 
   return (
-    <div className="history-detail-content">
-      <div className="history-detail-content-header">
-        <Typography.Text strong>{`请求 #${entry.id}`}</Typography.Text>
-        <Space size={6}>
-          <Button size="small" onClick={onExport}>
-            导出
-          </Button>
-          <Popconfirm title="确认删除该请求历史？" onConfirm={onDelete}>
-            <Button size="small" danger>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      </div>
-      <Collapse
-        defaultActiveKey={['overview', 'user-prompt', 'response', ...(entry.errorMessage ? ['error'] : [])]}
-        items={collapseItems}
-        size="small"
-      />
-    </div>
+    <Collapse
+      defaultActiveKey={[
+        'overview',
+        'user-prompt',
+        'response',
+        ...(entry.errorMessage ? ['error'] : []),
+      ]}
+      items={collapseItems}
+      size="small"
+    />
   );
-}
-
-// ─── JSON Code Block ─────────────────────────────────────────────────────────
-
-type JsonTokenType = 'key' | 'string' | 'number' | 'bool' | 'null' | 'punct' | 'space';
-
-interface JsonToken {
-  type: JsonTokenType;
-  text: string;
-}
-
-function tokenizeJson(json: string): JsonToken[] {
-  const tokens: JsonToken[] = [];
-  let i = 0;
-
-  while (i < json.length) {
-    const ch = json.charAt(i);
-
-    // Whitespace
-    if (/\s/.test(ch)) {
-      let j = i + 1;
-      while (j < json.length && /\s/.test(json.charAt(j))) j++;
-      tokens.push({ type: 'space', text: json.slice(i, j) });
-      i = j;
-      continue;
-    }
-
-    // String
-    if (ch === '"') {
-      let j = i + 1;
-      while (j < json.length) {
-        const c = json.charAt(j);
-        if (c === '\\') {
-          j += 2;
-        } else if (c === '"') {
-          j++;
-          break;
-        } else {
-          j++;
-        }
-      }
-      const str = json.slice(i, j);
-      const rest = json.slice(j).replace(/^\s*/, '');
-      tokens.push({ type: rest.startsWith(':') ? 'key' : 'string', text: str });
-      i = j;
-      continue;
-    }
-
-    // Number
-    const numMatch = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(json.slice(i));
-    if (numMatch) {
-      tokens.push({ type: 'number', text: numMatch[0] });
-      i += numMatch[0].length;
-      continue;
-    }
-
-    // Boolean / null keywords
-    if (json.startsWith('true', i)) {
-      tokens.push({ type: 'bool', text: 'true' });
-      i += 4;
-      continue;
-    }
-    if (json.startsWith('false', i)) {
-      tokens.push({ type: 'bool', text: 'false' });
-      i += 5;
-      continue;
-    }
-    if (json.startsWith('null', i)) {
-      tokens.push({ type: 'null', text: 'null' });
-      i += 4;
-      continue;
-    }
-
-    // Punctuation / everything else
-    tokens.push({ type: 'punct', text: ch });
-    i++;
-  }
-
-  return tokens;
 }
 
 function JsonCodeBlock({ content }: { content: string }) {
   const tokens = useMemo(() => {
     try {
-      // Pretty-print if the content is valid JSON but might be compact
       const parsed = JSON.parse(content) as unknown;
       return tokenizeJson(JSON.stringify(parsed, null, 2));
     } catch {
@@ -775,7 +686,77 @@ function JsonCodeBlock({ content }: { content: string }) {
   );
 }
 
-// ─── Detail Text Block ───────────────────────────────────────────────────────
+type JsonTokenType = 'key' | 'string' | 'number' | 'bool' | 'null' | 'punct' | 'space';
+
+interface JsonToken {
+  type: JsonTokenType;
+  text: string;
+}
+
+function tokenizeJson(json: string): JsonToken[] {
+  const tokens: JsonToken[] = [];
+  let i = 0;
+
+  while (i < json.length) {
+    const ch = json.charAt(i);
+
+    if (/\s/.test(ch)) {
+      let j = i + 1;
+      while (j < json.length && /\s/.test(json.charAt(j))) j++;
+      tokens.push({ type: 'space', text: json.slice(i, j) });
+      i = j;
+      continue;
+    }
+
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < json.length) {
+        const c = json.charAt(j);
+        if (c === '\\') {
+          j += 2;
+        } else if (c === '"') {
+          j++;
+          break;
+        } else {
+          j++;
+        }
+      }
+      const str = json.slice(i, j);
+      const rest = json.slice(j).replace(/^\s*/, '');
+      tokens.push({ type: rest.startsWith(':') ? 'key' : 'string', text: str });
+      i = j;
+      continue;
+    }
+
+    const numMatch = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(json.slice(i));
+    if (numMatch) {
+      tokens.push({ type: 'number', text: numMatch[0] });
+      i += numMatch[0].length;
+      continue;
+    }
+
+    if (json.startsWith('true', i)) {
+      tokens.push({ type: 'bool', text: 'true' });
+      i += 4;
+      continue;
+    }
+    if (json.startsWith('false', i)) {
+      tokens.push({ type: 'bool', text: 'false' });
+      i += 5;
+      continue;
+    }
+    if (json.startsWith('null', i)) {
+      tokens.push({ type: 'null', text: 'null' });
+      i += 4;
+      continue;
+    }
+
+    tokens.push({ type: 'punct', text: ch });
+    i++;
+  }
+
+  return tokens;
+}
 
 function DetailTextBlock({
   title,
@@ -799,8 +780,6 @@ function DetailTextBlock({
     </div>
   );
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);

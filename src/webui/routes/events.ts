@@ -5,9 +5,14 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { BusEvent, EventBus } from '../services/event-bus.ts';
+import type { LogService } from '../services/log-service.ts';
 import type { ProjectService } from '../services/project-service.ts';
 
-export function createEventsRoute(eventBus: EventBus, projectService: ProjectService): Hono {
+export function createEventsRoute(
+  eventBus: EventBus,
+  logService: LogService,
+  projectService: ProjectService,
+): Hono {
   const app = new Hono();
 
   app.get('/', (c) => {
@@ -56,7 +61,7 @@ export function createEventsRoute(eventBus: EventBus, projectService: ProjectSer
   /** 获取当前所有日志 */
   app.get('/logs', (c) => {
     return c.json(
-      eventBus.getLogPage({
+      logService.getLogPage({
         limit: readPositiveIntegerQuery(c.req.query('limit'), 50, 200),
         beforeId: readOptionalPositiveIntegerQuery(c.req.query('beforeId')),
       }),
@@ -64,16 +69,16 @@ export function createEventsRoute(eventBus: EventBus, projectService: ProjectSer
   });
 
   app.get('/logs/summary', (c) => {
-    return c.json(eventBus.getLogDigest());
+    return c.json(logService.getLogDigest());
   });
 
   app.get('/logs/session', (c) => {
-    return c.json(eventBus.getLogSession());
+    return c.json(logService.getLogSession());
   });
 
   app.get('/logs/export', (c) => {
     const format = readLogExportFormatQuery(c.req.query('format'));
-    const exported = eventBus.formatLogExport(format);
+    const exported = logService.formatLogExport(format);
     return new Response(exported.content, {
       headers: {
         'Content-Type': exported.contentType,
@@ -84,7 +89,7 @@ export function createEventsRoute(eventBus: EventBus, projectService: ProjectSer
 
   /** 清空日志 */
   app.post('/logs/clear', (c) => {
-    eventBus.clearLogs();
+    logService.clearLogs();
     return c.json({ ok: true });
   });
 
