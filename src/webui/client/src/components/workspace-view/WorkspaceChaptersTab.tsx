@@ -129,7 +129,7 @@ export function WorkspaceChaptersTab({
 
   usePollingTask({
     enabled: active,
-    intervalMs: 5_000,
+    intervalMs: 15_000,
     runImmediately: true,
     task: async () => {
       await onRefreshChapters();
@@ -334,7 +334,12 @@ const ChapterTableSection = memo(function ChapterTableSection({
     <Table
       rowKey="id"
       dataSource={chapters}
-      pagination={false}
+      pagination={{
+        defaultPageSize: 50,
+        showSizeChanger: true,
+        pageSizeOptions: ['20', '50', '100', '200'],
+        showTotal: (total) => `共 ${total} 章节`,
+      }}
       size="small"
       scroll={{ x: 1100 }}
       rowSelection={{
@@ -520,7 +525,7 @@ const ChapterTableSection = memo(function ChapterTableSection({
   );
 });
 
-function ChapterInfoTable({
+const ChapterInfoTable = memo(function ChapterInfoTable({
   mobileMode,
   chapters,
   topology,
@@ -1521,8 +1526,7 @@ function ChapterInfoTable({
       />
     </>
   );
-}
-
+});
 
 
 
