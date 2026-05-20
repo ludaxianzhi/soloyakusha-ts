@@ -142,6 +142,7 @@ export class TranslationProject
   private workspaceConfig!: WorkspaceConfig;
   private initialized = false;
   private readonly batchFragmentCount: number;
+  private abortController: AbortController | null = null;
 
   constructor(
     private readonly config: TranslationProjectConfig,
@@ -1170,19 +1171,34 @@ export class TranslationProject
     for (const step of this.pipeline.steps) {
       await this.orderingStrategy.initializeForRun(step.id);
     }
-    return this.lifecycleManager.startTranslation();
+    const snapshot = await this.lifecycleManager.startTranslation();
+    if (snapshot.status === "running" && snapshot.currentRunId) {
+      this.abortController = new AbortController();
+    }
+    return snapshot;
   }
 
   async stopTranslation(
     options: { mode?: TranslationStopMode } = {},
   ): Promise<TranslationProjectLifecycleSnapshot> {
     this.ensureInitialized();
+    if (options.mode === "immediate") {
+      this.abortController?.abort();
+      this.abortController = null;
+    }
     return this.lifecycleManager.stopTranslation(options);
   }
 
   async abortTranslation(reason?: string): Promise<TranslationProjectLifecycleSnapshot> {
     this.ensureInitialized();
+    this.abortController?.abort();
+    this.abortController = null;
     return this.lifecycleManager.abortTranslation(reason);
+  }
+
+  /** 返回当前翻译运行的 AbortSignal，用于取消正在进行的 LLM 请求。 */
+  getTranslationAbortSignal(): AbortSignal | undefined {
+    return this.abortController?.signal;
   }
 
   getWorkQueue(stepId: string): TranslationStepWorkQueue {

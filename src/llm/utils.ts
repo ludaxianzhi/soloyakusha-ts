@@ -41,8 +41,33 @@ export class ApiConnectionError extends Error {
   }
 }
 
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * 请求被外部取消（AbortSignal）时抛出的错误。
+ * 上层应据此区分「请求被打断」和「真正的错误」，避免误记失败日志。
+ */
+export class AbortError extends Error {
+  constructor(message = "请求已被取消") {
+    super(message);
+    this.name = "AbortError";
+  }
+}
+
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(new AbortError());
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeoutHandle = setTimeout(resolve, ms);
+
+    if (signal) {
+      const onAbort = () => {
+        clearTimeout(timeoutHandle);
+        reject(new AbortError());
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
 }
 
 export function joinUrl(baseUrl: string, path: string): string {
@@ -119,6 +144,7 @@ export async function retryAsync<T>(
     multiplier: number;
     shouldRetry: (error: unknown) => boolean;
     onRetry?: (context: RetryContext) => void | Promise<void>;
+    signal?: AbortSignal;
   },
 ): Promise<T> {
   let attempt = 1;
@@ -127,6 +153,10 @@ export async function retryAsync<T>(
     try {
       return await run(attempt);
     } catch (error) {
+      if (error instanceof AbortError || (options.signal?.aborted)) {
+        throw new AbortError();
+      }
+
       const maxAttempts = Math.max(1, options.retries);
       if (attempt >= maxAttempts || !options.shouldRetry(error)) {
         throw error;
@@ -146,7 +176,7 @@ export async function retryAsync<T>(
         });
       }
 
-      await sleep(nextDelayMs);
+      await sleep(nextDelayMs, options.signal);
       attempt += 1;
     }
   }
@@ -156,16 +186,21 @@ export async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit,
   timeoutMs: number,
+  externalSignal?: AbortSignal,
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => {
     controller.abort();
   }, timeoutMs);
 
+  const combinedSignal = externalSignal
+    ? AbortSignal.any([controller.signal, externalSignal])
+    : controller.signal;
+
   try {
     return await fetch(input, {
       ...init,
-      signal: controller.signal,
+      signal: combinedSignal,
     });
   } finally {
     clearTimeout(timeoutHandle);
@@ -183,6 +218,7 @@ export async function collectJsonSse<T>(
   onEvent: (event: T) => void | Promise<void>,
   options: {
     idleTimeoutMs?: number;
+    signal?: AbortSignal;
   } = {},
 ): Promise<SseReadResult<T>> {
   if (!response.body) {
@@ -197,8 +233,15 @@ export async function collectJsonSse<T>(
   const parseErrors: string[] = [];
   const events: T[] = [];
 
+  const signal = options.signal;
+
   while (true) {
-    const { done, value } = await readWithIdleTimeout(reader, options.idleTimeoutMs);
+    if (signal?.aborted) {
+      await reader.cancel("aborted").catch(() => {});
+      throw new AbortError();
+    }
+
+    const { done, value } = await readWithIdleTimeout(reader, options.idleTimeoutMs, signal);
     if (done) {
       buffer += decoder.decode();
       break;
@@ -275,19 +318,35 @@ export async function collectJsonSse<T>(
 async function readWithIdleTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   idleTimeoutMs?: number,
+  signal?: AbortSignal,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (signal?.aborted) {
+    await reader.cancel("aborted").catch(() => {});
+    throw new AbortError();
+  }
+
   if (!idleTimeoutMs || idleTimeoutMs <= 0) {
-    return reader.read();
+    if (signal) {
+      return readWithSignal(reader, signal);
+    }
+    return reader.read() as Promise<ReadableStreamReadResult<Uint8Array>>;
   }
 
   return new Promise((resolve, reject) => {
     let settled = false;
+
+    const cleanup = () => {
+      settled = true;
+      clearTimeout(timeoutHandle);
+      signal?.removeEventListener("abort", onAbort);
+    };
+
     const timeoutHandle = setTimeout(() => {
       if (settled) {
         return;
       }
 
-      settled = true;
+      cleanup();
       void reader.cancel("idle-timeout");
       reject(
         new ApiConnectionError(
@@ -296,14 +355,27 @@ async function readWithIdleTimeout(
       );
     }, idleTimeoutMs);
 
-    reader.read().then(
+    const onAbort = () => {
+      if (settled) {
+        return;
+      }
+
+      cleanup();
+      void reader.cancel("aborted");
+      reject(new AbortError());
+    };
+
+    if (signal) {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    (reader.read() as Promise<ReadableStreamReadResult<Uint8Array>>).then(
       (result) => {
         if (settled) {
           return;
         }
 
-        settled = true;
-        clearTimeout(timeoutHandle);
+        cleanup();
         resolve(result);
       },
       (error) => {
@@ -311,8 +383,46 @@ async function readWithIdleTimeout(
           return;
         }
 
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
+async function readWithSignal(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (signal.aborted) {
+    await reader.cancel("aborted").catch(() => {});
+    throw new AbortError();
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      void reader.cancel("aborted");
+      reject(new AbortError());
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    (reader.read() as Promise<ReadableStreamReadResult<Uint8Array>>).then(
+      (result) => {
+        if (settled) return;
         settled = true;
-        clearTimeout(timeoutHandle);
+        signal.removeEventListener("abort", onAbort);
+        resolve(result);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
         reject(error);
       },
     );

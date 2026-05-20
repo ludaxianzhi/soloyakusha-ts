@@ -153,6 +153,7 @@ export class AnthropicChatClient extends ChatClient {
                 body: JSON.stringify(requestBody),
                 },
                 REQUEST_TIMEOUT_MS,
+                options.signal,
               );
             } catch (error) {
               throw new ApiConnectionError(
@@ -248,6 +249,7 @@ export class AnthropicChatClient extends ChatClient {
               },
               {
                 idleTimeoutMs: REQUEST_TIMEOUT_MS,
+                signal: options.signal,
               },
             );
 
@@ -293,6 +295,7 @@ export class AnthropicChatClient extends ChatClient {
           maxDelayMs: 10_000,
           multiplier: 2,
           shouldRetry: isRetryableAnthropicError,
+          signal: options.signal,
         },
       );
 

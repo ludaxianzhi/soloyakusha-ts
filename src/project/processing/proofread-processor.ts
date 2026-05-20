@@ -27,6 +27,7 @@ import type {
   TranslationProcessorTranslation,
 } from "./translation-processor.ts";
 import type { ChatClient } from "../../llm/base.ts";
+import { AbortError } from "../../llm/utils.ts";
 import type { StoryTopology } from "../context/story-topology.ts";
 import type { SlidingWindowFragment, SlidingWindowOptions, FragmentAuxData, FragmentAuxDataContract } from "../types.ts";
 import { applyPreProcessingToLines } from "./translation-prompt-context.ts";
@@ -88,6 +89,8 @@ export type ProofreadProcessorRequest = {
   fragmentAuxData?: FragmentAuxData;
   /** 原文预处理步骤配置，用于对滑动窗口中的原文行执行预处理。 */
   preProcessors?: ReadonlyArray<{ id: string; params?: Record<string, unknown> }>;
+  /** 用于在请求进行中取消 LLM 调用。 */
+  signal?: AbortSignal;
 };
 
 export interface ProofreadProcessor {
@@ -234,6 +237,10 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
     let lastResponseSchema: JsonObject = buildTranslationResponseSchema(sourceUnits);
 
     for (let round = 0; round < this.reviewIterations; round++) {
+      if (request.signal?.aborted) {
+        throw new AbortError("校对流程已被取消");
+      }
+
       const editorIncludeReason = this.resolveIncludeReason("editor");
       const editorPrompt = await this.promptManager.renderMultiStageEditorPrompt({
         sourceUnits,
@@ -255,27 +262,30 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
       const editorClient = this.resolveClient("editor");
       const editorResponseText = await editorClient.singleTurnRequest(
         editorPrompt.userPrompt,
-        withRequestMeta(
-          withOutputValidator(
-            buildJsonSchemaChatRequestOptions(
-              this.buildStepRequestOptions("editor", request.requestOptions),
-              {
-                name: editorPrompt.name,
-                systemPrompt: editorPrompt.systemPrompt,
-                responseSchema: editorPrompt.responseSchema,
+        {
+          ...withRequestMeta(
+            withOutputValidator(
+              buildJsonSchemaChatRequestOptions(
+                this.buildStepRequestOptions("editor", request.requestOptions),
+                {
+                  name: editorPrompt.name,
+                  systemPrompt: editorPrompt.systemPrompt,
+                  responseSchema: editorPrompt.responseSchema,
+                },
+                editorClient.supportsStructuredOutput,
+              ),
+              (candidateResponseText) => {
+                parseProofreadModificationResponse(
+                  candidateResponseText,
+                  sourceUnits.map((unit) => unit.id),
+                  false,
+                );
               },
-              editorClient.supportsStructuredOutput,
             ),
-            (candidateResponseText) => {
-              parseProofreadModificationResponse(
-                candidateResponseText,
-                sourceUnits.map((unit) => unit.id),
-                false,
-              );
-            },
+            this.buildStepRequestMeta("editor", request, round),
           ),
-          this.buildStepRequestMeta("editor", request, round),
-        ),
+          signal: request.signal,
+        },
       );
       latestTranslations = applyProofreadModifications(
         latestTranslations,
@@ -307,27 +317,30 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
       const proofreaderClient = this.resolveClient("proofreader");
       const proofreaderResponseText = await proofreaderClient.singleTurnRequest(
         proofreaderPrompt.userPrompt,
-        withRequestMeta(
-          withOutputValidator(
-            buildJsonSchemaChatRequestOptions(
-              this.buildStepRequestOptions("proofreader", request.requestOptions),
-              {
-                name: proofreaderPrompt.name,
-                systemPrompt: proofreaderPrompt.systemPrompt,
-                responseSchema: proofreaderPrompt.responseSchema,
+        {
+          ...withRequestMeta(
+            withOutputValidator(
+              buildJsonSchemaChatRequestOptions(
+                this.buildStepRequestOptions("proofreader", request.requestOptions),
+                {
+                  name: proofreaderPrompt.name,
+                  systemPrompt: proofreaderPrompt.systemPrompt,
+                  responseSchema: proofreaderPrompt.responseSchema,
+                },
+                proofreaderClient.supportsStructuredOutput,
+              ),
+              (candidateResponseText) => {
+                parseProofreadModificationResponse(
+                  candidateResponseText,
+                  sourceUnits.map((unit) => unit.id),
+                  false,
+                );
               },
-              proofreaderClient.supportsStructuredOutput,
             ),
-            (candidateResponseText) => {
-              parseProofreadModificationResponse(
-                candidateResponseText,
-                sourceUnits.map((unit) => unit.id),
-                false,
-              );
-            },
+            this.buildStepRequestMeta("proofreader", request, round),
           ),
-          this.buildStepRequestMeta("proofreader", request, round),
-        ),
+          signal: request.signal,
+        },
       );
       latestTranslations = applyProofreadModifications(
         latestTranslations,
@@ -534,27 +547,30 @@ export class SingleStepProofreadProcessor implements ProofreadProcessor {
     const client = this.resolveClient();
     const responseText = await client.singleTurnRequest(
       prompt.userPrompt,
-      withRequestMeta(
-        withOutputValidator(
-          buildJsonSchemaChatRequestOptions(
-            mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
-            {
-              name: prompt.name,
-              systemPrompt: prompt.systemPrompt,
-              responseSchema: prompt.responseSchema,
+      {
+        ...withRequestMeta(
+          withOutputValidator(
+            buildJsonSchemaChatRequestOptions(
+              mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
+              {
+                name: prompt.name,
+                systemPrompt: prompt.systemPrompt,
+                responseSchema: prompt.responseSchema,
+              },
+              client.supportsStructuredOutput,
+            ),
+            (candidateResponseText) => {
+              parseProofreadModificationResponse(
+                candidateResponseText,
+                sourceUnits.map((unit) => unit.id),
+                false,
+              );
             },
-            client.supportsStructuredOutput,
           ),
-          (candidateResponseText) => {
-            parseProofreadModificationResponse(
-              candidateResponseText,
-              sourceUnits.map((unit) => unit.id),
-              false,
-            );
-          },
+          buildSingleStepRequestMeta(this.options.step, request, this.processorName),
         ),
-        buildSingleStepRequestMeta(this.options.step, request, this.processorName),
-      ),
+        signal: request.signal,
+      },
     );
 
     let translations = applyProofreadModifications(
@@ -700,27 +716,30 @@ export class ConsistencyCheckProofreadProcessor implements ProofreadProcessor {
     const client = this.resolveClient();
     const responseText = await client.singleTurnRequest(
       prompt.userPrompt,
-      withRequestMeta(
-        withOutputValidator(
-          buildJsonSchemaChatRequestOptions(
-            this.defaultRequestOptions,
-            {
-              name: prompt.name,
-              systemPrompt: prompt.systemPrompt,
-              responseSchema: prompt.responseSchema,
+      {
+        ...withRequestMeta(
+          withOutputValidator(
+            buildJsonSchemaChatRequestOptions(
+              this.defaultRequestOptions,
+              {
+                name: prompt.name,
+                systemPrompt: prompt.systemPrompt,
+                responseSchema: prompt.responseSchema,
+              },
+              client.supportsStructuredOutput,
+            ),
+            (candidateResponseText) => {
+              parseProofreadModificationResponse(
+                candidateResponseText,
+                sourceUnits.map((unit) => unit.id),
+                false,
+              );
             },
-            client.supportsStructuredOutput,
           ),
-          (candidateResponseText) => {
-            parseProofreadModificationResponse(
-              candidateResponseText,
-              sourceUnits.map((unit) => unit.id),
-              false,
-            );
-          },
+          this.buildRequestMeta(request, relatedReferencePairs.length, randomReferencePairs.length),
         ),
-        this.buildRequestMeta(request, relatedReferencePairs.length, randomReferencePairs.length),
-      ),
+        signal: request.signal,
+      },
     );
 
     let translations = applyProofreadModifications(

@@ -89,7 +89,7 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
     workItem: TranslationWorkItem,
     options: Pick<
       TranslationProcessorRequest,
-      "glossary" | "requestOptions" | "documentManager" | "slidingWindow" | "editorRequirementsText" | "preProcessors"
+      "glossary" | "requestOptions" | "documentManager" | "slidingWindow" | "editorRequirementsText" | "preProcessors" | "signal"
     > = {},
   ): Promise<TranslationProcessorResult> {
     const shouldUseSlidingWindow =
@@ -106,6 +106,7 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
       documentManager: shouldUseSlidingWindow ? options.documentManager : undefined,
       slidingWindow: shouldUseSlidingWindow ? options.slidingWindow : undefined,
       preProcessors: options.preProcessors,
+      signal: options.signal,
       workItemRef: {
         chapterId: workItem.chapterId,
         fragmentIndex: workItem.fragmentIndex,
@@ -167,9 +168,8 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
       promptManager: this.promptManager,
     });
     const chatClient = this.resolveChatClient();
-    const responseText = await chatClient.singleTurnRequest(
-      renderedPrompt.userPrompt,
-      withRequestMeta(
+    const requestOptions: ChatRequestOptions = {
+      ...withRequestMeta(
         withOutputValidator(
           buildJsonSchemaChatRequestOptions(
             mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
@@ -185,6 +185,11 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
         ),
         this.buildTranslationRequestMeta(request),
       ),
+      signal: request.signal,
+    };
+    const responseText = await chatClient.singleTurnRequest(
+      renderedPrompt.userPrompt,
+      requestOptions,
     );
     let translations = parseTranslationResponse(
       responseText,

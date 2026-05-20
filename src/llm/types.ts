@@ -194,6 +194,8 @@ export type ChatRequestOptions = {
   meta?: LlmRequestMetadata;
   tools?: LlmToolDefinition[];
   toolChoice?: LlmToolChoice;
+  /** 用于在请求进行中取消 LLM 调用。传给 fetch 的 AbortSignal。 */
+  signal?: AbortSignal;
 };
 
 export type CompletionLogEntry = {

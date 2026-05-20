@@ -464,6 +464,7 @@ type WorkspaceRuntimeState = {
   transcribeTaskState: TranscribeDictionaryTaskState | null;
   plotTaskState: PlotSummaryTaskState | null;
   proofreadTaskState: ProofreadTaskState | null;
+  proofreadAbortController: AbortController | null;
   repetitionPatternConsistencyFixProgress: RepetitionPatternConsistencyFixProgress | null;
   plotSummaryReady: boolean;
   resourceVersions: ProjectResourceVersions;
@@ -500,6 +501,7 @@ function createWorkspaceRuntimeState(): WorkspaceRuntimeState {
     transcribeTaskState: null,
     plotTaskState: null,
     proofreadTaskState: null,
+    proofreadAbortController: null,
     repetitionPatternConsistencyFixProgress: null,
     plotSummaryReady: false,
     resourceVersions: createProjectResourceVersions(0),
@@ -1806,8 +1808,10 @@ export class ProjectService {
 
     state.proofreadTaskState.abortRequested = true;
     state.proofreadTaskState.updatedAt = new Date().toISOString();
+    state.proofreadAbortController?.abort();
+    state.proofreadAbortController = null;
     await (runtime?.project ?? this.project)?.saveProofreadTaskState(state.proofreadTaskState);
-    this.log('warning', '已提交校对任务中止请求');
+    this.log('warning', '已强行中止校对任务，当前正在处理的片段结果将被丢弃');
   }
 
   async forceAbortProofread(): Promise<void> {
@@ -1819,6 +1823,8 @@ export class ProjectService {
     }
 
     state.processingToken += 1;
+    state.proofreadAbortController?.abort();
+    state.proofreadAbortController = null;
     state.isBusy = false;
     state.proofreadTaskState.status = 'paused';
     state.proofreadTaskState.abortRequested = false;
@@ -2039,7 +2045,14 @@ export class ProjectService {
       };
 
       const worker = async () => {
+        const proofreadAbortController = new AbortController();
+        state.proofreadAbortController = proofreadAbortController;
+
         while (taskToken === state.processingToken && !task.abortRequested && !workerFailure) {
+          if (proofreadAbortController.signal.aborted) {
+            return;
+          }
+
           const batch = takeNextBatchOfWorkItems();
           if (!batch) {
             return;
@@ -2050,6 +2063,10 @@ export class ProjectService {
           beginActiveChapter(firstItem.chapterId);
 
           try {
+            const processOptions = {
+              signal: proofreadAbortController.signal,
+            };
+
             if (isBatch) {
               // Batched proofread processing
               const fragmentIndices = batch.map((item) => item.fragmentIndex);
@@ -2119,6 +2136,7 @@ export class ProjectService {
                 dependencyTrackingSourceRevision:
                   project.getWorkspaceConfig().dependencyTracking?.sourceRevision,
                 fragmentAuxData: mergedAuxData,
+                ...processOptions,
               });
 
               if (
@@ -2199,6 +2217,7 @@ export class ProjectService {
                 dependencyTrackingSourceRevision:
                   project.getWorkspaceConfig().dependencyTracking?.sourceRevision,
                 fragmentAuxData: prepared.fragmentAuxData,
+                ...processOptions,
               });
 
               if (
@@ -2219,6 +2238,9 @@ export class ProjectService {
 
             await flushTaskState(true);
           } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') {
+              return;
+            }
             workerFailure ??= error;
             return;
           } finally {
@@ -2229,6 +2251,7 @@ export class ProjectService {
 
       const workerCount = Math.max(1, Math.min(maxConcurrentWorkItems, pendingWorkItems.length || 1));
       await Promise.all(Array.from({ length: workerCount }, () => worker()));
+      state.proofreadAbortController = null;
       await persistChain;
 
       if (workerFailure !== undefined) {
@@ -2286,6 +2309,7 @@ export class ProjectService {
       this.broadcastProofreadProgress(state);
       this.log('error', `校对任务失败：${task.errorMessage}`);
     } finally {
+      state.proofreadAbortController = null;
       await proofreadExecutionRuntime?.close().catch(() => undefined);
       if (taskToken === state.processingToken) {
         state.isBusy = false;
@@ -5236,6 +5260,7 @@ export class ProjectService {
                 styleRequirementsText,
                 styleLibraryName,
                 preProcessors: translatePreProcessors,
+                signal: currentProject.getTranslationAbortSignal(),
               });
             } catch (error) {
               processError = error;

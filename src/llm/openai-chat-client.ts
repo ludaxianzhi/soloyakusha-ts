@@ -147,6 +147,7 @@ export class OpenAIChatClient extends ChatClient {
                 body: JSON.stringify(requestBody),
                 },
                 REQUEST_TIMEOUT_MS,
+                options.signal,
               );
             } catch (error) {
               throw new ApiConnectionError(
@@ -238,6 +239,7 @@ export class OpenAIChatClient extends ChatClient {
               },
               {
                 idleTimeoutMs: REQUEST_TIMEOUT_MS,
+                signal: options.signal,
               },
             );
 
@@ -299,6 +301,7 @@ export class OpenAIChatClient extends ChatClient {
           maxDelayMs: 120_000,
           multiplier: 2,
           shouldRetry: isRetryableOpenAiError,
+          signal: options.signal,
           onRetry: ({ attempt, maxAttempts, nextDelayMs, error }) => {
             if (error instanceof ThinkingLoopError) {
               console.warn(

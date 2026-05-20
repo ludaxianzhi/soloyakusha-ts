@@ -130,6 +130,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       | "styleRequirementsText"
       | "styleLibraryName"
       | "preProcessors"
+      | "signal"
     > = {},
   ): Promise<TranslationProcessorResult> {
     const shouldUseSlidingWindow =
@@ -148,6 +149,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       documentManager: shouldUseSlidingWindow ? options.documentManager : undefined,
       slidingWindow: shouldUseSlidingWindow ? options.slidingWindow : undefined,
       preProcessors: options.preProcessors,
+      signal: options.signal,
       workItemRef: {
         chapterId: workItem.chapterId,
         fragmentIndex: workItem.fragmentIndex,
@@ -203,13 +205,16 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
     this.logger.info?.("分析阶段", { processorName: this.processorName });
     const analysisText = await this.resolveClient("analyzer").singleTurnRequest(
       analyzerPrompt.userPrompt,
-      withRequestMeta(
-        withSystemPrompt(
-          this.buildStepRequestOptions("analyzer", request.requestOptions),
-          analyzerPrompt.systemPrompt,
+      {
+        ...withRequestMeta(
+          withSystemPrompt(
+            this.buildStepRequestOptions("analyzer", request.requestOptions),
+            analyzerPrompt.systemPrompt,
+          ),
+          this.buildStepRequestMeta("analyzer", request),
         ),
-        this.buildStepRequestMeta("analyzer", request),
-      ),
+        signal: request.signal,
+      },
     );
 
     const translatorPrompt = await this.promptManager.renderMultiStageTranslatorPrompt({
@@ -223,26 +228,29 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
     const translatorClient = this.resolveClient("translator");
     const initialResponseText = await translatorClient.singleTurnRequest(
       translatorPrompt.userPrompt,
-      withRequestMeta(
-        withOutputValidator(
-          buildJsonSchemaChatRequestOptions(
-            this.buildStepRequestOptions("translator", request.requestOptions),
-            {
-              name: translatorPrompt.name,
-              systemPrompt: translatorPrompt.systemPrompt,
-              responseSchema: translatorPrompt.responseSchema,
+      {
+        ...withRequestMeta(
+          withOutputValidator(
+            buildJsonSchemaChatRequestOptions(
+              this.buildStepRequestOptions("translator", request.requestOptions),
+              {
+                name: translatorPrompt.name,
+                systemPrompt: translatorPrompt.systemPrompt,
+                responseSchema: translatorPrompt.responseSchema,
+              },
+              translatorClient.supportsStructuredOutput,
+            ),
+            (candidateResponseText) => {
+              parseTranslationResponse(
+                candidateResponseText,
+                sourceUnits.map((unit) => unit.id),
+              );
             },
-            translatorClient.supportsStructuredOutput,
           ),
-          (candidateResponseText) => {
-            parseTranslationResponse(
-              candidateResponseText,
-              sourceUnits.map((unit) => unit.id),
-            );
-          },
+          this.buildStepRequestMeta("translator", request),
         ),
-        this.buildStepRequestMeta("translator", request),
-      ),
+        signal: request.signal,
+      },
     );
     let currentTranslations = parseTranslationResponse(
       initialResponseText,
@@ -283,26 +291,29 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
     const styleTransferClient = this.resolveClient("styleTransfer");
     const styleTransferResponseText = await styleTransferClient.singleTurnRequest(
       styleTransferPrompt.userPrompt,
-      withRequestMeta(
-        withOutputValidator(
-          buildJsonSchemaChatRequestOptions(
-            this.buildStepRequestOptions("styleTransfer", request.requestOptions),
-            {
-              name: styleTransferPrompt.name,
-              systemPrompt: styleTransferPrompt.systemPrompt,
-              responseSchema: styleTransferPrompt.responseSchema,
+      {
+        ...withRequestMeta(
+          withOutputValidator(
+            buildJsonSchemaChatRequestOptions(
+              this.buildStepRequestOptions("styleTransfer", request.requestOptions),
+              {
+                name: styleTransferPrompt.name,
+                systemPrompt: styleTransferPrompt.systemPrompt,
+                responseSchema: styleTransferPrompt.responseSchema,
+              },
+              styleTransferClient.supportsStructuredOutput,
+            ),
+            (candidateResponseText) => {
+              parseStyleTransferResponse(
+                candidateResponseText,
+                sourceUnits.map((unit) => unit.id),
+              );
             },
-            styleTransferClient.supportsStructuredOutput,
           ),
-          (candidateResponseText) => {
-            parseStyleTransferResponse(
-              candidateResponseText,
-              sourceUnits.map((unit) => unit.id),
-            );
-          },
+          this.buildStepRequestMeta("styleTransfer", request),
         ),
-        this.buildStepRequestMeta("styleTransfer", request),
-      ),
+        signal: request.signal,
+      },
     );
     const styleTransferModifications = parseStyleTransferResponse(
       styleTransferResponseText,

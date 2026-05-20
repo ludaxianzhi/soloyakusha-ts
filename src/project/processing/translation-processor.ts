@@ -37,6 +37,8 @@ export type TranslationProcessorRequest = {
   fragmentAuxData?: FragmentAuxData;
   /** 原文预处理步骤配置，用于对滑动窗口中的原文行执行预处理。 */
   preProcessors?: ReadonlyArray<{ id: string; params?: Record<string, unknown> }>;
+  /** 用于在请求进行中取消 LLM 调用。 */
+  signal?: AbortSignal;
 };
 
 export type TranslationProcessorTranslation = {
@@ -80,6 +82,7 @@ export interface TranslationProcessor {
       | "styleRequirementsText"
       | "styleLibraryName"
       | "preProcessors"
+      | "signal"
     >,
   ): Promise<TranslationProcessorResult>;
 

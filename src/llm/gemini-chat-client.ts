@@ -160,6 +160,7 @@ export class GeminiChatClient extends ChatClient {
                   body: JSON.stringify(requestBody),
                 },
                 REQUEST_TIMEOUT_MS,
+                options.signal,
               );
             } catch (error) {
               throw new ApiConnectionError(
@@ -248,11 +249,12 @@ export class GeminiChatClient extends ChatClient {
               },
               {
                 idleTimeoutMs: REQUEST_TIMEOUT_MS,
+                signal: options.signal,
               },
             );
 
             if (!content.trim()) {
-              const finalizedToolCalls = finalizeGeminiToolCalls(toolCalls);
+              const finalizedToolCalls = finalizeGeminiToolCalls(toolCallChunks);
               if (finalizedToolCalls.length === 0) {
                 throw new GeminiEmptyResponseError();
               }
@@ -265,7 +267,7 @@ export class GeminiChatClient extends ChatClient {
 
             await runOutputValidator(content, options);
 
-            const finalizedToolCalls = finalizeGeminiToolCalls(toolCalls);
+            const finalizedToolCalls = finalizeGeminiToolCalls(toolCallChunks);
 
             const statistics: CompletionResponseStatistics =
               collectGeminiUsage(usageInfo);
@@ -282,6 +284,7 @@ export class GeminiChatClient extends ChatClient {
           maxDelayMs: 10_000,
           multiplier: 2,
           shouldRetry: isRetryableGeminiError,
+          signal: options.signal,
         },
       );
 

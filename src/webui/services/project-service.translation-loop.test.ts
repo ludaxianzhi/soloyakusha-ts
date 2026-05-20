@@ -130,25 +130,27 @@ describe("ProjectService translation loop", () => {
       },
       saveProgress: async () => undefined,
       saveTranslationRuntimeProgress: async () => undefined,
-      getGlossary: () => undefined,
-      getDocumentManager: () => ({}),
-      getProjectSnapshot: () => ({ projectName: "demo" }),
-      getWorkspaceFileManifest: () => ({ projectDir: "C:\\demo" }),
-    };
+    getGlossary: () => undefined,
+    getDocumentManager: () => ({}),
+    getProjectSnapshot: () => ({ projectName: "demo" }),
+    getWorkspaceFileManifest: () => ({ projectDir: "C:\\demo" }),
+    getWorkspaceConfig: () => ({ preProcessors: undefined }),
+    getTranslationAbortSignal: () => undefined,
+  };
 
-    serviceAny.startTranslationLoop(project);
+  serviceAny.startTranslationLoop(project);
 
-    await waitFor(() => lifecycleStatus === "completed");
-    expect(seenWorkItems).toHaveLength(1);
-    expect(seenWorkItems[0]).toMatchObject({
-      inputText: "A\nB",
-      batchFragmentIndices: [0, 1],
-    });
-    expect(submittedResults).toHaveLength(1);
-    expect(submittedResults[0]).toMatchObject({
-      outputText: "A done\nB done",
-      batchFragmentIndices: [0, 1],
-    });
+  await waitFor(() => lifecycleStatus === "completed");
+  expect(seenWorkItems).toHaveLength(1);
+  expect(seenWorkItems[0]).toMatchObject({
+    inputText: "A\nB",
+    batchFragmentIndices: [0, 1],
+  });
+  expect(submittedResults).toHaveLength(1);
+  expect(submittedResults[0]).toMatchObject({
+    outputText: "A done\nB done",
+    batchFragmentIndices: [0, 1],
+  });
   });
 });
 
@@ -301,6 +303,8 @@ function createFakeTranslationProject(
     getDocumentManager: () => ({}),
     getProjectSnapshot: () => ({ projectName: "demo" }),
     getWorkspaceFileManifest: () => ({ projectDir: "C:\\demo" }),
+    getWorkspaceConfig: () => ({ preProcessors: undefined }),
+    getTranslationAbortSignal: () => undefined,
   };
 }
 
