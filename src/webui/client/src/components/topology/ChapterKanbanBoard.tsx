@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -153,6 +153,20 @@ export function ChapterKanbanBoard({
 
   const [exportSelectorOpen, setExportSelectorOpen] = useState(false);
   const [exportChapterId, setExportChapterId] = useState<number | undefined>(undefined);
+  const [expandedRoutes, setExpandedRoutes] = useState<Set<string>>(new Set());
+  const toggleRouteExpanded = useCallback((routeId: string) => {
+    setExpandedRoutes((prev) => {
+      const next = new Set(prev);
+      if (next.has(routeId)) next.delete(routeId);
+      else next.add(routeId);
+      return next;
+    });
+  }, []);
+
+  const handleOpenPerChapterExport = useCallback((chapterId: number) => {
+    setExportChapterId(chapterId);
+    setExportSelectorOpen(true);
+  }, []);
 
   // ─── Sensors ──────────────────────────────────
 
@@ -456,15 +470,14 @@ export function ChapterKanbanBoard({
               forkPointIds={forkPointIds}
               forkPointBranchCount={forkPointBranchCount}
               activeId={activeId}
+              isCollapsed={!expandedRoutes.has(route.id)}
+              onToggleExpand={toggleRouteExpanded}
               onCreateBranch={handleCreateBranch}
               onClearChapterTranslations={onClearChapterTranslations}
               onRemoveChapters={onRemoveChapters}
               onEditRoute={handleEditRoute}
               onRemoveRoute={onRemoveRoute}
-              onOpenPerChapterExport={(chapterId) => {
-                setExportChapterId(chapterId);
-                setExportSelectorOpen(true);
-              }}
+              onOpenPerChapterExport={handleOpenPerChapterExport}
               onMoveChapter={moveChapter}
             />
           ))}
@@ -544,6 +557,8 @@ export function ChapterKanbanBoard({
 
 // ─── KanbanColumn ───────────────────────────────────
 
+const VISIBLE_CARD_LIMIT = 100;
+
 interface KanbanColumnProps {
   route: StoryTopologyRouteDescriptor;
   chapterIds: number[];
@@ -551,6 +566,8 @@ interface KanbanColumnProps {
   forkPointIds: Set<number>;
   forkPointBranchCount: Map<number, number>;
   activeId: number | null;
+  isCollapsed: boolean;
+  onToggleExpand: (routeId: string) => void;
   onCreateBranch: (parentRouteId: string, forkAfterChapterId: number) => void;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
@@ -563,13 +580,15 @@ interface KanbanColumnProps {
   onMoveChapter: (routeId: string, chapterId: number, direction: 'up' | 'down' | 'top' | 'bottom') => void;
 }
 
-function KanbanColumn({
+const KanbanColumn = memo(function KanbanColumn({
   route,
   chapterIds,
   chapterMap,
   forkPointIds,
   forkPointBranchCount,
   activeId,
+  isCollapsed,
+  onToggleExpand,
   onCreateBranch,
   onClearChapterTranslations,
   onRemoveChapters,
@@ -582,6 +601,9 @@ function KanbanColumn({
 
   const hasChildRoutes = route.childRouteIds.length > 0;
   const canDelete = !route.isMain && !hasChildRoutes;
+  const shouldCollapse = isCollapsed && chapterIds.length > VISIBLE_CARD_LIMIT;
+  const visibleChapterIds = shouldCollapse ? chapterIds.slice(0, VISIBLE_CARD_LIMIT) : chapterIds;
+  const hiddenCount = chapterIds.length - visibleChapterIds.length;
 
   return (
     <div
@@ -642,17 +664,17 @@ function KanbanColumn({
       {/* Chapter cards */}
       <div ref={setNodeRef} className="kanban-column-body">
         <SortableContext
-          items={chapterIds}
+          items={visibleChapterIds}
           strategy={verticalListSortingStrategy}
         >
-          {chapterIds.length === 0 ? (
+          {visibleChapterIds.length === 0 ? (
             <div className="kanban-column-empty">
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 拖放章节到此路线
               </Typography.Text>
             </div>
           ) : (
-            chapterIds.map((chapterId) => {
+            visibleChapterIds.map((chapterId) => {
               const chapter = chapterMap.get(chapterId);
               const isForkPoint = forkPointIds.has(chapterId);
               const branchCount = forkPointBranchCount.get(chapterId) ?? 0;
@@ -675,10 +697,31 @@ function KanbanColumn({
             })
           )}
         </SortableContext>
+        {hiddenCount > 0 ? (
+          <div className="kanban-column-expand-bar">
+            <Button
+              size="small"
+              type="link"
+              onClick={() => onToggleExpand(route.id)}
+            >
+              展开全部 {hiddenCount} 章节
+            </Button>
+          </div>
+        ) : !isCollapsed && chapterIds.length > VISIBLE_CARD_LIMIT ? (
+          <div className="kanban-column-expand-bar">
+            <Button
+              size="small"
+              type="link"
+              onClick={() => onToggleExpand(route.id)}
+            >
+              收起
+            </Button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
-}
+});
 
 // ─── KanbanCard ─────────────────────────────────────
 
@@ -699,7 +742,7 @@ interface KanbanCardProps {
   onMoveChapter: (routeId: string, chapterId: number, direction: 'up' | 'down' | 'top' | 'bottom') => void;
 }
 
-function KanbanCard({
+const KanbanCard = memo(function KanbanCard({
   chapterId,
   chapter,
   isForkPoint,
@@ -728,7 +771,7 @@ function KanbanCard({
     transform: CSS.Transform.toString(transform),
     transition,
   };
-  const menuItems = [
+  const menuItems = useMemo(() => [
     {
       key: 'edit',
       label: '在线编辑',
@@ -765,7 +808,7 @@ function KanbanCard({
         });
       },
     },
-  ];
+  ], [chapterId, navigate, onOpenPerChapterExport, onClearChapterTranslations, onRemoveChapters]);
 
   return (
     <div
@@ -845,11 +888,11 @@ function KanbanCard({
       </div>
     </div>
   );
-}
+});
 
 // ─── Shared card content (used in both card and overlay) ─
 
-function KanbanCardContent({
+const KanbanCardContent = memo(function KanbanCardContent({
   chapter,
   isForkPoint,
   branchCount,
@@ -890,4 +933,4 @@ function KanbanCardContent({
       </Typography.Text>
     </div>
   );
-}
+});
