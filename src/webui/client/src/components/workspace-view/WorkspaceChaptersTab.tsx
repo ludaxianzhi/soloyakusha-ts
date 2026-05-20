@@ -343,6 +343,7 @@ const ChapterTableSection = memo(function ChapterTableSection({
       size="small"
       scroll={{ x: 1100 }}
       rowSelection={{
+        hideSelectAll: true,
         selectedRowKeys: selectedChapterIds,
         onSelect: (record) => {
           setLastSelectedChapterId(record.id);
@@ -1234,6 +1235,17 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
           <Space wrap size={[8, 8]}>
             <Typography.Text type="secondary">Shift + 点击可区间选中</Typography.Text>
             {searchRefreshPending ? <Tag color="processing">筛选更新中</Tag> : null}
+            <Button
+              size="small"
+              onClick={() =>
+                setSelectedChapterIds(filteredChapters.map((ch) => ch.id))
+              }
+            >
+              全选所有章节
+            </Button>
+            <Button size="small" onClick={() => setSelectedChapterIds([])}>
+              取消全选
+            </Button>
             <Tag color={selectedChapterIds.length > 0 ? 'processing' : undefined}>
               已选 {selectedChapterIds.length} 章节
             </Tag>
