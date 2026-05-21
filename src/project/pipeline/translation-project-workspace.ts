@@ -34,6 +34,7 @@ const FORMAT_FILE_EXTENSIONS: Record<string, string> = {
   galtransl_json: ".json",
   dbl_tp1: ".txt",
   nd_with_meta: ".nd",
+  dbl_tp2: ".txt",
 };
 
 export type WorkspaceBootstrapDocument = {

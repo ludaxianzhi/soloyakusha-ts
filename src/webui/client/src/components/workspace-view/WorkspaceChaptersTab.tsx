@@ -73,7 +73,7 @@ interface WorkspaceChaptersTabProps {
     importTranslation?: boolean;
     importParams?: Record<string, unknown>;
   }) => Promise<ImportArchiveResult>;
-  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[]) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[], fileExtension?: string) => void | Promise<void>;
   onBatchSaveTopology: (routes: { id: string; chapters: number[] }[]) => void | Promise<void>;
 }
 
@@ -563,7 +563,7 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
     importTranslation?: boolean;
     importParams?: Record<string, unknown>;
   }) => Promise<ImportArchiveResult>;
-  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[]) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[], fileExtension?: string) => void | Promise<void>;
   onRefreshChapters: () => void | Promise<void>;
 }) {
   const { message } = AntdApp.useApp();
@@ -878,19 +878,19 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
   };
 
   const handleBatchExportConfirm = useCallback(
-    (config: { format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[] }) => {
+    (config: { format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[]; fileExtension?: string }) => {
       setBatchExportSelectorOpen(false);
-      void onDownloadChapters(selectedChapterIds, config.format, { ...exportParams, ...config.params }, config.processors);
+      void onDownloadChapters(selectedChapterIds, config.format, { ...exportParams, ...config.params }, config.processors, config.fileExtension);
     },
     [onDownloadChapters, selectedChapterIds, exportParams],
   );
 
   const handlePerChapterExportConfirm = useCallback(
-    (config: { format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[] }) => {
+    (config: { format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[]; fileExtension?: string }) => {
       const chapterId = perChapterExportId;
       setPerChapterExportId(undefined);
       if (chapterId == null) return;
-      void onDownloadChapters([chapterId], config.format, { ...exportParams, ...config.params }, config.processors);
+      void onDownloadChapters([chapterId], config.format, { ...exportParams, ...config.params }, config.processors, config.fileExtension);
     },
     [onDownloadChapters, perChapterExportId, exportParams],
   );

@@ -3578,6 +3578,7 @@ export class ProjectService {
     formatName: string,
     params?: Record<string, unknown>,
     processors?: { id: string; params?: Record<string, unknown> }[],
+    fileExtension?: string,
   ): Promise<ProjectExportResult | null> {
     const { state, project } = this.getActiveWorkspaceContext();
     if (!project) {
@@ -3587,7 +3588,7 @@ export class ProjectService {
 
     let result: ProjectExportResult | null = null;
     await this.runAction('导出翻译文件', async () => {
-      const exported = await project.exportProject(formatName, params, processors);
+      const exported = await project.exportProject(formatName, params, processors, fileExtension);
       result = exported;
       this.log(
         'success',
@@ -3602,6 +3603,7 @@ export class ProjectService {
     formatName: string,
     params?: Record<string, unknown>,
     processors?: { id: string; params?: Record<string, unknown> }[],
+    fileExtension?: string,
   ): Promise<ProjectExportResult | null> {
     const { state, project } = this.getActiveWorkspaceContext();
     if (!project) {
@@ -3626,6 +3628,7 @@ export class ProjectService {
           exportRootDir,
           buildChapterExportRelativePath(chapter.filePath, {
             format: formatName,
+            fileExtension,
             preserveDirectories,
             importBatchId: chapter.importBatchId,
           }),

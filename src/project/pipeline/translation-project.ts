@@ -1023,6 +1023,7 @@ export class TranslationProject
     formatName: string,
     params?: Record<string, unknown>,
     processors?: { id: string; params?: Record<string, unknown> }[],
+    fileExtension?: string,
   ): Promise<ProjectExportResult> {
     this.ensureInitialized();
 
@@ -1044,6 +1045,7 @@ export class TranslationProject
         params,
         processors,
         preProcessorSteps,
+        fileExtension,
       );
       routes.push({
         routeId: "main",
@@ -1067,6 +1069,7 @@ export class TranslationProject
           params,
           processors,
           preProcessorSteps,
+          fileExtension,
         );
         routes.push({
           routeId: route.id,
@@ -1096,6 +1099,7 @@ export class TranslationProject
     params?: Record<string, unknown>,
     processors?: { id: string; params?: Record<string, unknown> }[],
     preProcessors?: { id: string; params?: Record<string, unknown> }[],
+    fileExtension?: string,
   ): Promise<TranslationExportResult[]> {
     await mkdir(outputDir, { recursive: true });
 
@@ -1117,6 +1121,7 @@ export class TranslationProject
         outputDir,
         buildChapterExportRelativePath(chapter.filePath, {
           format: handler.formatName,
+          fileExtension,
           preserveDirectories: true,
           importBatchId: chapter.importBatchId,
         }),

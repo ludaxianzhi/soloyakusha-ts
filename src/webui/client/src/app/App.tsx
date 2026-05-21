@@ -1976,9 +1976,9 @@ export function AppShell() {
   );
 
   const handleDownloadExport= useCallback(
-    async (format: string, params?: Record<string, unknown>, processors?: PipelineStep[]) => {
+    async (format: string, params?: Record<string, unknown>, processors?: PipelineStep[], fileExtension?: string) => {
       await runAction(async () => {
-        const blob = await api.downloadExport(format, params, processors, getSelectedWorkspaceId());
+        const blob = await api.downloadExport(format, params, processors, getSelectedWorkspaceId(), fileExtension);
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -2008,7 +2008,7 @@ export function AppShell() {
   );
 
   const handleDownloadChapters = useCallback(
-    async (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: PipelineStep[]) => {
+    async (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: PipelineStep[], fileExtension?: string) => {
       await runAction(async () => {
         const blob = await api.downloadChaptersExport(
           chapterIds,
@@ -2016,14 +2016,16 @@ export function AppShell() {
           params,
           processors,
           getSelectedWorkspaceId(),
+          fileExtension,
         );
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         if (chapterIds.length === 1) {
           const chapter = chapters.find((c) => c.id === chapterIds[0]);
+          const ext = fileExtension || getExportFormatExtension(format);
           const fileName = chapter
-            ? `${chapter.displayName}${getExportFormatExtension(format)}`
-            : `chapter-${chapterIds[0]}${getExportFormatExtension(format)}`;
+            ? `${chapter.displayName}${ext}`
+            : `chapter-${chapterIds[0]}${ext}`;
           link.download = fileName;
         } else {
           link.download = `${snapshot?.projectName ?? 'soloyakusha'}-chapters-${format}.zip`;

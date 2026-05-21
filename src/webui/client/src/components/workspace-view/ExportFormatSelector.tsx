@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Input,
   Modal,
   Space,
   Typography,
@@ -15,6 +16,16 @@ import { FormatParamFields, useFormatParams } from './FormatParamFields';
 import { PostProcessPipelineBuilder } from './PostProcessPipelineBuilder';
 import type { TextPostProcessorDescriptor, PipelineStep } from '../../app/types';
 
+const EXPORT_FORMAT_DEFAULT_EXTENSIONS: Record<string, string> = {
+  plain_text: '.txt',
+  naturedialog: '.nd',
+  dbl_tp1: '.txt',
+  m3t: '.m3t',
+  galtransl_json: '.json',
+  nd_with_meta: '.nd',
+  dbl_tp2: '.txt',
+};
+
 interface ExportFormatSelectorProps {
   open: boolean;
   onCancel: () => void;
@@ -22,6 +33,7 @@ interface ExportFormatSelectorProps {
     format: string;
     params?: Record<string, unknown>;
     processors?: PipelineStep[];
+    fileExtension?: string;
   }) => void;
   storageKey: string;
   chapterCount?: number;
@@ -71,6 +83,7 @@ export function ExportFormatSelector({
 }: ExportFormatSelectorProps) {
   const activeWorkspaceId = useActiveWorkspaceId();
   const [format, setFormat] = useState('plain_text');
+  const [fileExtension, setFileExtension] = useState('.txt');
   const [paramValues, setParamValues] = useState<Record<string, unknown>>({});
   const [postProcessEnabled, setPostProcessEnabled] = useState(false);
   const [postProcessSteps, setPostProcessSteps] = useState<PipelineStep[]>([]);
@@ -79,13 +92,21 @@ export function ExportFormatSelector({
 
   const { paramDefs, buildParams } = useFormatParams(format, 'export');
 
+  const defaultExtension = useMemo(
+    () => EXPORT_FORMAT_DEFAULT_EXTENSIONS[format] ?? '.txt',
+    [format],
+  );
+
+  useEffect(() => {
+    setFileExtension(defaultExtension);
+  }, [defaultExtension]);
+
   useEffect(() => {
     const defaults: Record<string, unknown> = {};
     for (const def of paramDefs) {
       defaults[def.key] = def.defaultValue;
     }
     setParamValues((prev) => {
-      // merge saved over defaults so saved values survive format changes only if same keys
       const merged = { ...defaults };
       for (const key of Object.keys(prev)) {
         if (key in defaults) {
@@ -136,12 +157,13 @@ export function ExportFormatSelector({
     };
     saveState(storageKey, state);
 
+    const ext = fileExtension.trim() || defaultExtension;
     if (postProcessEnabled && postProcessSteps.length > 0) {
-      onConfirm({ format, params, processors: postProcessSteps });
+      onConfirm({ format, params, processors: postProcessSteps, fileExtension: ext });
     } else {
-      onConfirm({ format, params });
+      onConfirm({ format, params, fileExtension: ext });
     }
-  }, [format, paramValues, buildParams, postProcessEnabled, postProcessSteps, storageKey, onConfirm]);
+  }, [format, fileExtension, defaultExtension, paramValues, buildParams, postProcessEnabled, postProcessSteps, storageKey, onConfirm]);
 
   return (
     <Modal
@@ -168,6 +190,16 @@ export function ExportFormatSelector({
             value={format}
             onChange={(value) => setFormat(value)}
             options={EXPORT_FORMATS}
+          />
+        </div>
+
+        <div>
+          <Typography.Text strong>文件后缀</Typography.Text>
+          <Input
+            style={{ width: '100%', marginTop: 4 }}
+            value={fileExtension}
+            onChange={(e) => setFileExtension(e.target.value)}
+            placeholder={defaultExtension}
           />
         </div>
 

@@ -42,7 +42,7 @@ interface WorkspaceConfigTabProps {
   onRefreshWorkspaceConfig: () => void | Promise<void>;
   onRefreshStyleLibraryOptions?: () => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
-  onDownloadExport: (format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[]) => void | Promise<void>;
+  onDownloadExport: (format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[], fileExtension?: string) => void | Promise<void>;
   onResetProject: (
     payload: Record<string, unknown>,
     successText: string,
@@ -77,9 +77,9 @@ export function WorkspaceConfigTab({
   }, []);
 
   const handleExportConfirm = useCallback(
-    (config: { format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[] }) => {
+    (config: { format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[]; fileExtension?: string }) => {
       setExportSelectorOpen(false);
-      void onDownloadExport(config.format, config.params, config.processors);
+      void onDownloadExport(config.format, config.params, config.processors, config.fileExtension);
     },
     [onDownloadExport],
   );
