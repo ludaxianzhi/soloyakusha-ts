@@ -44,6 +44,7 @@ import {
   applyWorkspaceConfigPatch,
   buildChapterExportRelativePath,
   DEFAULT_WORKSPACE_PIPELINE_STRATEGY,
+  generateExportSessionDirName,
   openWorkspaceConfig,
 } from '../../project/pipeline/translation-project-workspace.ts';
 import type { TranslationProcessor } from '../../project/processing/translation-processor.ts';
@@ -3611,7 +3612,8 @@ export class ProjectService {
     let result: ProjectExportResult | null = null;
     await this.runAction('导出章节', async () => {
       const handler = TranslationFileHandlerFactory.getHandler(formatName, params);
-      const exportRootDir = `${project.getWorkspaceFileManifest().projectDir}/export`;
+      const exportSessionDir = generateExportSessionDirName();
+      const exportRootDir = `${project.getWorkspaceFileManifest().projectDir}/export/${exportSessionDir}`;
       await mkdir(exportRootDir, { recursive: true });
 
       const results: TranslationExportResult[] = [];
@@ -3625,6 +3627,7 @@ export class ProjectService {
           buildChapterExportRelativePath(chapter.filePath, {
             format: formatName,
             preserveDirectories,
+            importBatchId: chapter.importBatchId,
           }),
         );
         await mkdir(dirname(outputPath), { recursive: true });
@@ -3705,7 +3708,8 @@ export class ProjectService {
     this.log('info', '正在从压缩包追加章节...');
 
     const workspaceDir = project.getWorkspaceFileManifest().projectDir;
-    const importRootRelativePath = `Data/.archive-import/${Date.now()}`;
+    const importBatchId = `batch-${Date.now()}`;
+    const importRootRelativePath = `Data/.archive-import/${importBatchId}`;
     const importRootAbsolutePath = join(workspaceDir, ...importRootRelativePath.split('/'));
 
     try {
@@ -3756,6 +3760,7 @@ export class ProjectService {
             format: normalizedImportFormat,
             importTranslation: normalizedImportTranslation,
             importParams: input.importParams,
+            importBatchId,
           });
           nextChapterId += 1;
           addedChapters.push({

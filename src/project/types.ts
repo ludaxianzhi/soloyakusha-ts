@@ -114,6 +114,8 @@ export type ChapterEntry = {
 export type Chapter = {
   id: number;
   filePath: string;
+  /** 导入批次标识，用于导出时按批次分组目录 */
+  importBatchId?: string;
 };
 
 export type GlossarySettings = {
@@ -500,6 +502,7 @@ export type WorkspaceConfigPatch = {
 export type WorkspaceChapterDescriptor = {
   id: number;
   filePath: string;
+  importBatchId?: string;
   displayName: string;
   fragmentCount: number;
   sourceLineCount: number;

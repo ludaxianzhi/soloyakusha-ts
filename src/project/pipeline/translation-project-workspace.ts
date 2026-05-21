@@ -139,6 +139,7 @@ export class TranslationProjectWorkspace {
       fileHandler?: TranslationFileHandler;
       importTranslation?: boolean;
       importParams?: Record<string, unknown>;
+      importBatchId?: string;
     },
   ): Promise<TranslationImportResult> {
     if (this.chapters.some((chapter) => chapter.id === chapterId)) {
@@ -160,7 +161,7 @@ export class TranslationProjectWorkspace {
       importTranslation: options?.importTranslation,
     });
 
-    this.chapters.push({ id: chapterId, filePath });
+    this.chapters.push({ id: chapterId, filePath, importBatchId: options?.importBatchId });
     await this.persistChapterOrder();
     await this.onChapterStructureChanged();
 
@@ -267,6 +268,7 @@ export class TranslationProjectWorkspace {
           format: options?.format,
           fileExtension: options?.fileExtension,
           preserveDirectories: true,
+          importBatchId: chapter.importBatchId,
         }),
       );
       await mkdir(dirname(outputPath), { recursive: true });
@@ -382,6 +384,7 @@ export class TranslationProjectWorkspace {
       chapters: this.chapters.map((chapter) => ({
         id: chapter.id,
         filePath: chapter.filePath,
+        importBatchId: chapter.importBatchId,
       })),
     };
     this.setWorkspaceConfigState(nextConfig);
@@ -430,6 +433,7 @@ export class TranslationProjectWorkspace {
     return {
       id: chapterId,
       filePath: chapterConfig.filePath,
+      importBatchId: chapterConfig.importBatchId,
       displayName: getChapterDisplayName(chapterConfig.filePath),
       fragmentCount: chapter.fragments.length,
       sourceLineCount,
@@ -496,7 +500,7 @@ export function buildInitialWorkspaceConfig(
   return {
     schemaVersion: 1,
     projectName: config.projectName,
-    chapters: chapters.map((chapter) => ({ id: chapter.id, filePath: chapter.filePath })),
+    chapters: chapters.map((chapter) => ({ id: chapter.id, filePath: chapter.filePath, importBatchId: chapter.importBatchId })),
     glossary: {
       path: config.glossary?.path ?? DEFAULT_GLOSSARY_FILE_PATH,
       autoFilter: config.glossary?.autoFilter ?? true,
@@ -802,6 +806,13 @@ function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
+/**
+ * 生成导出会话的临时子目录名，避免不同次导出操作互相污染。
+ */
+export function generateExportSessionDirName(): string {
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function getExportFileExtension(
   originalFilePath: string,
   format?: string,
@@ -823,6 +834,7 @@ export function buildChapterExportRelativePath(
     format?: string;
     fileExtension?: string;
     preserveDirectories?: boolean;
+    importBatchId?: string;
   },
 ): string {
   const extension =
@@ -833,5 +845,9 @@ export function buildChapterExportRelativePath(
   }
 
   const chapterDir = dirname(chapterFilePath);
-  return chapterDir === "." ? fileName : join(chapterDir, fileName);
+  const relativePath = chapterDir === "." ? fileName : join(chapterDir, fileName);
+  if (options?.importBatchId) {
+    return join(options.importBatchId, relativePath);
+  }
+  return relativePath;
 }

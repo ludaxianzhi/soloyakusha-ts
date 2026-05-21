@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { TranslationFileHandlerFactory } from "../../file-handlers/factory.ts";
@@ -1938,16 +1938,21 @@ describe("TranslationProject", () => {
     const result = await project.exportProject("m3t");
     expect(result.totalChapters).toBe(2);
 
-    const mainExportPath = join(workspaceDir, "export", "story", "main", "scene.m3t");
-    const sideExportPath = join(workspaceDir, "export", "story", "side", "extra.m3t");
+    const mainExportPath = join(result.routes[0]!.exportDir, "story", "main", "scene.m3t");
+    const sideExportPath = join(result.routes[0]!.exportDir, "story", "side", "extra.m3t");
     expect(await fileExists(mainExportPath)).toBe(true);
     expect(await fileExists(sideExportPath)).toBe(true);
     expect(
-      await fileExists(join(workspaceDir, "export", "story", "main", "scene.json")),
+      await fileExists(join(result.routes[0]!.exportDir, "story", "main", "scene.json")),
     ).toBe(false);
     expect(
-      await fileExists(join(workspaceDir, "export", "story", "side", "extra.txt")),
+      await fileExists(join(result.routes[0]!.exportDir, "story", "side", "extra.txt")),
     ).toBe(false);
+
+    // 验证导出文件在会话子目录中，不在 export/ 根目录
+    const exportRootFiles = await readdir(join(workspaceDir, "export"), { withFileTypes: true });
+    const sessionDirs = [...exportRootFiles].filter((entry) => entry.isDirectory());
+    expect(sessionDirs.length).toBeGreaterThanOrEqual(1);
   });
 
   test("rejects deprecated JSON workspaces and asks users to delete them", async () => {

@@ -107,6 +107,7 @@ import { DefaultTextSplitter } from "../document/translation-document-manager.ts
 import {
   buildChapterExportRelativePath,
   buildInitialWorkspaceConfig,
+  generateExportSessionDirName,
   mergePersistedWorkspaceConfig,
   openWorkspaceConfig,
   resolveChapterPath,
@@ -606,6 +607,7 @@ export class TranslationProject
       fileHandler?: TranslationFileHandler;
       importTranslation?: boolean;
       importParams?: Record<string, unknown>;
+      importBatchId?: string;
     },
   ): Promise<TranslationImportResult> {
     this.ensureInitialized();
@@ -1025,7 +1027,8 @@ export class TranslationProject
     this.ensureInitialized();
 
     const handler = TranslationFileHandlerFactory.getHandler(formatName, params);
-    const exportRootDir = join(this.projectDir, "export");
+    const exportSessionDir = generateExportSessionDirName();
+    const exportRootDir = join(this.projectDir, "export", exportSessionDir);
     const topology = this.storyTopology;
     const hasBranches = topology ? topology.getBranches().length > 0 : false;
 
@@ -1115,6 +1118,7 @@ export class TranslationProject
         buildChapterExportRelativePath(chapter.filePath, {
           format: handler.formatName,
           preserveDirectories: true,
+          importBatchId: chapter.importBatchId,
         }),
       );
       await mkdir(dirname(outputPath), { recursive: true });
