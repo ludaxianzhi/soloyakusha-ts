@@ -6,7 +6,7 @@ import { keepSourceNameInTarget } from "./base.ts";
 import { TranslationFileHandlerFactory } from "./factory.ts";
 import { DblTp1FileHandler } from "./dbl-tp1-file-handler.ts";
 import { DblTp2FileHandler } from "./dbl-tp2-file-handler.ts";
-import { GaltranslJsonFileHandler } from "./galtransl-json-file-handler.ts";
+import { VntJsonFileHandler } from "./vnt-json-file-handler.ts";
 import { NdWithMetaFileHandler } from "./nd-with-meta-file-handler.ts";
 import { NatureDialogFileHandler } from "./nature-dialog-file-handler.ts";
 import { TranslationDocumentManager } from "../project/document/translation-document-manager.ts";
@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 describe("file handlers", () => {
-  test("reads and writes galtransl json format", async () => {
+  test("reads and writes vnt json format", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "soloyakusha-galjson-"));
     cleanupTargets.push(workspaceDir);
 
@@ -40,7 +40,7 @@ describe("file handlers", () => {
       "utf8",
     );
 
-    const handler = new GaltranslJsonFileHandler();
+    const handler = new VntJsonFileHandler();
     const units = await handler.readTranslationUnits(filePath);
     expect(units[0]).toEqual({ source: "旁白", target: [] });
     expect(units[1]).toEqual({ source: "【Alice】你好", target: [] });
@@ -55,8 +55,8 @@ describe("file handlers", () => {
     expect(written[1]).toEqual({ name: "Alice", message: "Hello" });
   });
 
-  test("escapes embedded line breaks when reading galtransl json", async () => {
-    const handler = new GaltranslJsonFileHandler();
+  test("escapes embedded line breaks when reading vnt json", async () => {
+    const handler = new VntJsonFileHandler();
 
     const parsed = handler.parseTranslationDocument(
       JSON.stringify([
@@ -116,7 +116,7 @@ describe("file handlers", () => {
         },
       },
       fileHandlerResolver: TranslationFileHandlerFactory.createExtensionResolver({
-        ".json": "galtransl_json",
+        ".json": "vnt_json",
       }),
     });
 
@@ -128,7 +128,7 @@ describe("file handlers", () => {
     await manager.exportChapter(
       1,
       exportPath,
-      TranslationFileHandlerFactory.getHandler("galtransl_json"),
+      TranslationFileHandlerFactory.getHandler("vnt_json"),
     );
 
     const exported = JSON.parse(await readFile(exportPath, "utf8")) as Array<Record<string, string>>;

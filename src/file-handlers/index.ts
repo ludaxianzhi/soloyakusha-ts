@@ -9,7 +9,7 @@
  * - plain_text: 纯文本，每行一个翻译单元
  * - naturedialog: Nature Dialog 风格，使用 ○● 标记原文译文
  * - m3t: M3T 对话格式，带 NAME 字段
- * - galtransl_json: Galtransl JSON 格式，结构化消息对象
+ * - vnt_json: VNT JSON 格式，结构化消息对象
  *
  * @module file-handlers
  */
@@ -19,7 +19,7 @@ export * from "./dbl-tp1-file-handler.ts";
 export * from "./dbl-tp2-file-handler.ts";
 export * from "./factory.ts";
 export * from "./nd-with-meta-file-handler.ts";
-export * from "./galtransl-json-file-handler.ts";
+export * from "./vnt-json-file-handler.ts";
 export * from "./m3t-file-handler.ts";
 export * from "./nature-dialog-file-handler.ts";
 export * from "./plain-text-file-handler.ts";

@@ -14,7 +14,7 @@ import type { FileHandlerParamDef, TranslationFileHandlerResolver } from "./base
 import { TranslationFileHandler } from "./base.ts";
 import { DblTp1FileHandler } from "./dbl-tp1-file-handler.ts";
 import { DblTp2FileHandler } from "./dbl-tp2-file-handler.ts";
-import { GaltranslJsonFileHandler } from "./galtransl-json-file-handler.ts";
+import { VntJsonFileHandler } from "./vnt-json-file-handler.ts";
 import { M3TFileHandler } from "./m3t-file-handler.ts";
 import { NdWithMetaFileHandler } from "./nd-with-meta-file-handler.ts";
 import { NatureDialogFileHandler } from "./nature-dialog-file-handler.ts";
@@ -37,7 +37,7 @@ export class TranslationFileHandlerFactory {
     ["plain_text", () => new PlainTextFileHandler()],
     ["naturedialog", () => new NatureDialogFileHandler()],
     ["m3t", () => new M3TFileHandler()],
-    ["galtransl_json", () => new GaltranslJsonFileHandler()],
+    ["vnt_json", () => new VntJsonFileHandler()],
     ["dbl_tp1", () => new DblTp1FileHandler()],
     ["dbl_tp2", () => new DblTp2FileHandler()],
     ["nd_with_meta", () => new NdWithMetaFileHandler()],

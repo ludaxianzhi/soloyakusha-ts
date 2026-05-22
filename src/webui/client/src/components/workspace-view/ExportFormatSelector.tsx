@@ -21,7 +21,7 @@ const EXPORT_FORMAT_DEFAULT_EXTENSIONS: Record<string, string> = {
   naturedialog: '.nd',
   dbl_tp1: '.txt',
   m3t: '.m3t',
-  galtransl_json: '.json',
+  vnt_json: '.json',
   nd_with_meta: '.nd',
   dbl_tp2: '.txt',
 };
@@ -44,7 +44,7 @@ const EXPORT_FORMATS: Array<{ label: string; value: string }> = [
   { label: 'Nature Dialog', value: 'naturedialog' },
   { label: 'DBL TP1', value: 'dbl_tp1' },
   { label: 'M3T', value: 'm3t' },
-  { label: 'GalTransl JSON', value: 'galtransl_json' },
+  { label: 'VNT JSON', value: 'vnt_json' },
   { label: 'ND With Meta', value: 'nd_with_meta' },
   { label: 'DBL TP2', value: 'dbl_tp2' },
 ];

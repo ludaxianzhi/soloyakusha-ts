@@ -463,7 +463,7 @@ import {
 
 const resolver = TranslationFileHandlerFactory.createExtensionResolver({
   ".txt": "naturedialog",
-  ".json": "galtransl_json",
+  ".json": "vnt_json",
 });
 
 const project = new TranslationProject(

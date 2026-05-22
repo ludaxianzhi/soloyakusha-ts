@@ -1017,7 +1017,7 @@ export class TranslationProject
    * - 只导出「含已翻译文本块」的章节（至少有一个 fragment 有非空译文）
    * - 未翻译的 fragment 对应译文留空
    *
-   * @param formatName - 文件格式名，如 "naturedialog"、"plain_text"、"galtransl_json" 等
+   * @param formatName - 文件格式名，如 "naturedialog"、"plain_text"、"vnt_json" 等
    */
   async exportProject(
     formatName: string,

@@ -1924,7 +1924,7 @@ describe("TranslationProject", () => {
           },
         },
         fileHandlerResolver: TranslationFileHandlerFactory.createExtensionResolver({
-          ".json": "galtransl_json",
+          ".json": "vnt_json",
         }),
       },
     );
