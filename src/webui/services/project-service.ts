@@ -54,7 +54,7 @@ import { restoreBlankText } from '../../file-handlers/base.ts';
 import { FullTextGlossaryScanner, type FullTextGlossaryScanBatch, type FullTextGlossaryScanLine } from '../../glossary/scanner.ts';
 import { FullTextGlossaryTranscriber } from '../../glossary/transcriber.ts';
 import { GlossaryPersisterFactory } from '../../glossary/persister.ts';
-import { Glossary } from '../../glossary/glossary.ts';
+import { Glossary, buildGlossaryTermKey } from '../../glossary/glossary.ts';
 import type { GlossaryTerm, GlossaryTermCategory } from '../../glossary/glossary.ts';
 import {
   readHistoryEntriesFromLogDir,
@@ -2896,7 +2896,7 @@ export class ProjectService {
         }
 
         for (const entity of extractedEntities) {
-          const existing = task.glossary.getTerm(entity.term);
+          const existing = task.glossary.getTerm(entity.term, entity.from);
           task.glossary.addTerm(this.mergeScannedGlossaryTerm(existing, entity));
         }
 
@@ -2943,10 +2943,12 @@ export class ProjectService {
         occurrenceTopK: task.occurrenceTopK,
         occurrenceTopP: task.occurrenceTopP,
       });
-      const retainedTermSet = new Set(retainedTerms.map((term) => term.term));
+      const retainedKeySet = new Set(
+        retainedTerms.map((term) => buildGlossaryTermKey(term.term, term.from)),
+      );
       for (const term of task.glossary.getAllTerms()) {
-        if (!retainedTermSet.has(term.term)) {
-          task.glossary.removeTerm(term.term);
+        if (!retainedKeySet.has(buildGlossaryTermKey(term.term, term.from))) {
+          task.glossary.removeTerm(term.term, term.from);
         }
       }
 
@@ -3004,12 +3006,13 @@ export class ProjectService {
 
   private mergeScannedGlossaryTerm(
     existing: ReturnType<Glossary['getAllTerms']>[number] | undefined,
-    scanned: { term: string; category?: GlossaryTermCategory },
+    scanned: { term: string; from?: string; category?: GlossaryTermCategory },
   ): GlossaryTerm {
     if (!existing) {
       return {
         term: scanned.term,
         translation: '',
+        from: scanned.from,
         category: scanned.category,
       };
     }
@@ -3017,6 +3020,7 @@ export class ProjectService {
     return {
       term: existing.term,
       translation: existing.translation,
+      from: existing.from ?? scanned.from,
       category: existing.category ?? scanned.category,
       totalOccurrenceCount: existing.totalOccurrenceCount,
       textBlockOccurrenceCount: existing.textBlockOccurrenceCount,

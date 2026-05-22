@@ -1,4 +1,5 @@
 import {
+  buildGlossaryTermKey,
   normalizeTextForGlossaryMatching,
   type GlossaryMatchEntry,
   type Glossary,
@@ -24,11 +25,11 @@ export function matchGlossaryTermsWithCascadeForInjection(
         right.normalizedTerm.length - left.normalizedTerm.length ||
         right.term.term.length - left.term.term.length,
     );
-  const foundByTerm = new Map<string, ResolvedGlossaryTerm>();
+  const foundByKey = new Map<string, ResolvedGlossaryTerm>();
 
   const firstPass = scanTextWithMask(sourceText, sortedTerms);
   for (const entry of firstPass) {
-    foundByTerm.set(entry.term.term, entry.term);
+    foundByKey.set(buildGlossaryTermKey(entry.term.term, entry.term.from), entry.term);
   }
 
   const descriptions = firstPass
@@ -37,19 +38,21 @@ export function matchGlossaryTermsWithCascadeForInjection(
   if (descriptions.length > 0) {
     const secondPass = scanNormalizedTextWithMask(descriptions.join("\n"), sortedTerms);
     for (const entry of secondPass) {
-      if (!foundByTerm.has(entry.term.term)) {
-        foundByTerm.set(entry.term.term, entry.term);
+      const key = buildGlossaryTermKey(entry.term.term, entry.term.from);
+      if (!foundByKey.has(key)) {
+        foundByKey.set(key, entry.term);
       }
     }
   }
 
   for (const entry of collectReverseCascadeMatches(firstPass, sortedTerms)) {
-    if (!foundByTerm.has(entry.term.term)) {
-      foundByTerm.set(entry.term.term, entry.term);
+    const key = buildGlossaryTermKey(entry.term.term, entry.term.from);
+    if (!foundByKey.has(key)) {
+      foundByKey.set(key, entry.term);
     }
   }
 
-  return [...foundByTerm.values()];
+  return [...foundByKey.values()];
 }
 
 function scanTextWithMask(
@@ -105,10 +108,10 @@ function collectReverseCascadeMatches(
     return [];
   }
 
-  const matchedSeeds = new Set(firstPass.map((entry) => entry.term.term));
+  const matchedSeedKeys = new Set(firstPass.map((entry) => buildGlossaryTermKey(entry.term.term, entry.term.from)));
   const reverseMatches: GlossaryMatchEntry[] = [];
   for (const candidate of allTerms) {
-    if (matchedSeeds.has(candidate.term.term) || candidate.normalizedDescription.length === 0) {
+    if (matchedSeedKeys.has(buildGlossaryTermKey(candidate.term.term, candidate.term.from)) || candidate.normalizedDescription.length === 0) {
       continue;
     }
 

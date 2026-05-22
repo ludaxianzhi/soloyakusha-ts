@@ -278,9 +278,10 @@ export function upsertGlobalPatternTerm(
 
   glossary.updateTerm(pattern.text, {
     ...existing,
+    from: existing.from,
     description: existing.description ?? "全局关联模式",
     totalOccurrenceCount: pattern.occurrenceCount,
-  });
+  }, existing.from);
 }
 
 export function collectSourceTextBlocks(

@@ -208,9 +208,11 @@ export class Glossary {
         throw new Error(`术语 ${termText} 的 translation 不能为空`);
       }
 
-      const existing = findTermByTermText(this.terms, termText);
+      const existing = update.from !== undefined
+        ? this.terms.get(buildGlossaryTermKey(termText, update.from))
+        : findTermByTermText(this.terms, termText);
       if (!existing) {
-        throw new Error(`术语不存在，无法更新译文: ${termText}`);
+        throw new Error(`术语不存在，无法更新译文: ${termText}${update.from ? ` (from: ${update.from})` : ""}`);
       }
       if (
         existing.translation.length > 0 &&

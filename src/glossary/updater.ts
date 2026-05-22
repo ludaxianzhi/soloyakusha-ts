@@ -298,6 +298,7 @@ export class GlossaryUpdaterFactory {
 function buildGlossaryUpdateResponseSchema(
   untranslatedTerms: ReadonlyArray<ResolvedGlossaryTerm>,
 ): JsonObject {
+  const termEnum = [...new Set(untranslatedTerms.map((term) => term.term))];
   return {
     type: "object",
     additionalProperties: false,
@@ -310,11 +311,14 @@ function buildGlossaryUpdateResponseSchema(
           properties: {
             term: {
               type: "string",
-              enum: untranslatedTerms.map((term) => term.term),
+              enum: termEnum,
             },
             translation: {
               type: "string",
               minLength: 1,
+            },
+            from: {
+              type: "string",
             },
           },
           required: ["term", "translation"],
@@ -368,7 +372,7 @@ function parseGlossaryUpdateResponse(
   }
 
   const allowedGlossaryTermSet = new Set(allowedGlossaryTerms);
-  const seenGlossaryTerms = new Set<string>();
+  const seenKeys = new Set<string>();
   const results: GlossaryTranslationUpdate[] = [];
 
   for (const [index, entry] of glossaryValues.entries()) {
@@ -379,6 +383,7 @@ function parseGlossaryUpdateResponse(
     const term = typeof entry.term === "string" ? entry.term.trim() : "";
     const translation =
       typeof entry.translation === "string" ? entry.translation.trim() : "";
+    const from = typeof entry.from === "string" ? entry.from.trim() || undefined : undefined;
     if (!term) {
       throw new Error(`glossaryUpdates[${index}].term 必须是非空字符串`);
     }
@@ -386,8 +391,9 @@ function parseGlossaryUpdateResponse(
     if (!allowedGlossaryTermSet.has(term)) {
       continue;
     }
-    if (seenGlossaryTerms.has(term)) {
-      throw new Error(`glossaryUpdates 返回了重复术语: ${term}`);
+    const key = from ? `${term}\x00${from}` : term;
+    if (seenKeys.has(key)) {
+      throw new Error(`glossaryUpdates 返回了重复术语: ${key}`);
     }
     if (!translation) {
       throw new Error(`glossaryUpdates[${index}].translation 必须是非空字符串`);
@@ -397,8 +403,8 @@ function parseGlossaryUpdateResponse(
       continue;
     }
 
-    seenGlossaryTerms.add(term);
-    results.push({ term, translation });
+    seenKeys.add(key);
+    results.push({ term, translation, from });
   }
 
   return results;
@@ -436,7 +442,7 @@ function resolveLiveUntranslatedTerms(
       continue;
     }
 
-    const currentTerm = glossary.getTerm(term.term);
+    const currentTerm = glossary.getTerm(term.term, term.from);
     if (currentTerm?.status === "untranslated") {
       untranslatedTerms.push(term);
       continue;
@@ -461,7 +467,7 @@ function filterStaleGlossaryUpdates(
   const applicableUpdates: GlossaryTranslationUpdate[] = [];
 
   for (const update of updates) {
-    const currentTerm = glossary.getTerm(update.term);
+    const currentTerm = glossary.getTerm(update.term, update.from);
     if (!currentTerm) {
       applicableUpdates.push(update);
       continue;

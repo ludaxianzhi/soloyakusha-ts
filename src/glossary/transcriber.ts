@@ -19,6 +19,7 @@ import { NOOP_LOGGER, type Logger } from "../project/logger.ts";
 import type { FullTextGlossaryScanBatch } from "./scanner.ts";
 import {
   Glossary,
+  buildGlossaryTermKey,
   type ResolvedGlossaryTerm,
 } from "./glossary.ts";
 
@@ -37,11 +38,13 @@ export type TranscribedTerm = {
   term: string;
   translation: string;
   description: string;
+  from?: string;
 };
 
 export type GlossaryTranscribeReferenceTerm = {
   term: string;
   translation: string;
+  from?: string;
   description?: string;
 };
 
@@ -61,6 +64,7 @@ type RawTranscribedTerm = {
   term: string;
   translation: string;
   description: string;
+  from?: string;
 };
 
 export const DEFAULT_GLOSSARY_TRANSCRIBE_MAX_TERMS_PER_REQUEST = 10;
@@ -155,7 +159,7 @@ export class FullTextGlossaryTranscriber {
     let appliedTermCount = 0;
 
     for (const [chunkIndex, termChunk] of termChunks.entries()) {
-      const pendingChunkTerms = termChunk.filter((term) => glossary.getTerm(term.term)?.status === "untranslated");
+      const pendingChunkTerms = termChunk.filter((term) => glossary.getTerm(term.term, term.from)?.status === "untranslated");
       if (pendingChunkTerms.length === 0) {
         continue;
       }
@@ -238,9 +242,9 @@ export class FullTextGlossaryTranscriber {
   ): number {
     let applied = 0;
     for (const transcribed of transcribedTerms) {
-      const existing = glossary.getTerm(transcribed.term);
+      const existing = glossary.getTerm(transcribed.term, transcribed.from);
       if (!existing) {
-        this.logger.warn?.(`术语不存在，无法更新: ${transcribed.term}`);
+        this.logger.warn?.(`术语不存在，无法更新: ${transcribed.term}${transcribed.from ? ` (from: ${transcribed.from})` : ""}`);
         continue;
       }
 
@@ -253,16 +257,17 @@ export class FullTextGlossaryTranscriber {
         glossary.updateTerm(transcribed.term, {
           term: transcribed.term,
           translation: existing.translation,
+          from: existing.from,
           description,
           category: existing.category,
           totalOccurrenceCount: existing.totalOccurrenceCount,
           textBlockOccurrenceCount: existing.textBlockOccurrenceCount,
-        });
+        }, existing.from);
       }
 
       const translation = transcribed.translation?.trim();
       if (translation && existing.translation !== translation) {
-        glossary.applyTranslations([{ term: transcribed.term, translation }]);
+        glossary.applyTranslations([{ term: transcribed.term, translation, from: existing.from }]);
       }
 
       applied += 1;
