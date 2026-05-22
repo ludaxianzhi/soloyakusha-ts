@@ -1637,8 +1637,10 @@ export function AppShell() {
       setEditingTerm(record ?? null);
       dictionaryForm.setFieldsValue({
         originalTerm: record?.term,
+        originalFrom: record?.from,
         term: record?.term,
         translation: record?.translation,
+        from: record?.from,
         description: record?.description,
         category: record?.category,
         status: record?.status,
@@ -1667,18 +1669,25 @@ export function AppShell() {
   );
 
   const handleDeleteDictionary = useCallback(
-    async (terms: string[]) => {
-      if (terms.length === 0) {
+    async (keys: string[]) => {
+      if (keys.length === 0) {
         return;
       }
 
       await runAction(async () => {
-        for (const term of terms) {
-          await api.deleteDictionaryTerm(term, getSelectedWorkspaceId());
+        for (const key of keys) {
+          const separatorIndex = key.indexOf('\x00');
+          if (separatorIndex === -1) {
+            await api.deleteDictionaryTerm(key, undefined, getSelectedWorkspaceId());
+          } else {
+            const term = key.slice(0, separatorIndex);
+            const from = key.slice(separatorIndex + 1) || undefined;
+            await api.deleteDictionaryTerm(term, from, getSelectedWorkspaceId());
+          }
         }
         await Promise.all([refreshDictionary(), refreshProjectStatus()]);
         message.success(
-          terms.length === 1 ? '术语条目已删除' : `已删除 ${terms.length} 个术语条目`,
+          keys.length === 1 ? '术语条目已删除' : `已删除 ${keys.length} 个术语条目`,
         );
       });
     },

@@ -114,9 +114,9 @@ describe("TranslationContextView glossary injection", () => {
     }
 
     expect(glossaryContext.content.split(/\r?\n/).slice(1, 4)).toEqual([
-      "aaa,A,,0,0,",
-      "bbb,B,,0,0,",
-      "ccc,C,,0,0,",
+      "aaa,A,,,0,0,",
+      "bbb,B,,,0,0,",
+      "ccc,C,,,0,0,",
     ]);
   });
 

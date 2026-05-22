@@ -25,6 +25,7 @@ import {
 const SERIALIZED_HEADERS = [
   "term",
   "translation",
+  "from",
   "description",
   "category",
 ] as const;
@@ -153,6 +154,7 @@ export class XmlGlossaryPersister extends GlossaryPersister {
       terms.push({
         term: attributes.term ?? "",
         translation: attributes.translation ?? "",
+        from: normalizeOptionalString(attributes.from),
         category: parseGlossaryCategory(attributes.category),
         totalOccurrenceCount: parseOptionalInteger(attributes.totalOccurrenceCount),
         textBlockOccurrenceCount: parseOptionalInteger(attributes.textBlockOccurrenceCount),
@@ -172,6 +174,7 @@ export class XmlGlossaryPersister extends GlossaryPersister {
         const attributes = [
           `term="${escapeXml(term.term)}"`,
           `translation="${escapeXml(term.translation)}"`,
+          `from="${escapeXml(term.from ?? "")}"`,
           `category="${escapeXml(term.category ?? "")}"`,
           `totalOccurrenceCount="${term.totalOccurrenceCount}"`,
           `textBlockOccurrenceCount="${term.textBlockOccurrenceCount}"`,
@@ -240,6 +243,7 @@ function deserializeGlossaryTerm(
   return {
     term,
     translation,
+    from: normalizeOptionalString(getColumnValue(columns, headerIndex, ["from"])),
     category: parseGlossaryCategory(getColumnValue(columns, headerIndex, ["category"], 3)),
     totalOccurrenceCount: parseOptionalInteger(
       getColumnValue(columns, headerIndex, ["totaloccurrencecount", "occurrencecount"]),
@@ -255,11 +259,13 @@ function deserializeGlossaryTerm(
 }
 
 function serializeGlossaryTerm(term: GlossaryTerm & {
+  from?: string;
   category?: GlossaryTermCategory;
 }): string[] {
   return [
     term.term,
     term.translation,
+    term.from ?? "",
     term.description ?? "",
     term.category ?? "",
   ];

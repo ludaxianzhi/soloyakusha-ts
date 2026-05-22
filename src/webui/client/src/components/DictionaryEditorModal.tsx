@@ -35,11 +35,17 @@ export function DictionaryEditorModal({
         <Form.Item name="originalTerm" hidden>
           <Input />
         </Form.Item>
+        <Form.Item name="originalFrom" hidden>
+          <Input />
+        </Form.Item>
         <Form.Item name="term" label="术语" rules={[{ required: true }]}>
           <Input />
         </Form.Item>
         <Form.Item name="translation" label="译文">
           <Input />
+        </Form.Item>
+        <Form.Item name="from" label="出自（角色）">
+          <Input placeholder="留空表示不限定角色" />
         </Form.Item>
         <Form.Item name="category" label="类别">
           <Select

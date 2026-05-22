@@ -277,7 +277,7 @@ describe("glossary", () => {
     const persister = GlossaryPersisterFactory.getPersister(filePath);
     await persister.saveGlossary(glossary, filePath);
     expect(await readFile(filePath, "utf8")).toBe(
-      "term,translation,description,category\n王都,Royal Capital,主要城市,placeName\n",
+      "term,translation,from,description,category\n王都,Royal Capital,,主要城市,placeName\n",
     );
     const loaded = await persister.loadGlossary(filePath);
 

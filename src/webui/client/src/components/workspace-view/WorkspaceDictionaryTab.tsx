@@ -83,7 +83,7 @@ export function WorkspaceDictionaryTab({
   const [dictionaryPage, setDictionaryPage] = useState(1);
   const [dictionaryPageSize, setDictionaryPageSize] = useState(10);
   const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedTerms, setSelectedTerms] = useState<string[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importFormat, setImportFormat] = useState<'csv' | 'tsv'>('csv');
@@ -189,19 +189,21 @@ export function WorkspaceDictionaryTab({
     await onImportDictionaryFile(file);
   };
 
-  const handleDeleteTerms = async (terms: string[]) => {
-    if (terms.length === 0) {
+  const getRowKey = (record: GlossaryTerm) => record.term + '\x00' + (record.from ?? '');
+
+  const handleDeleteTerms = async (keys: string[]) => {
+    if (keys.length === 0) {
       return;
     }
 
-    await onDeleteDictionary(terms);
-    setSelectedTerms((current) => current.filter((term) => !terms.includes(term)));
+    await onDeleteDictionary(keys);
+    setSelectedKeys((current) => current.filter((key) => !keys.includes(key)));
   };
 
   const toggleSelectionMode = () => {
     setSelectionMode((current) => {
       if (current) {
-        setSelectedTerms([]);
+        setSelectedKeys([]);
       }
       return !current;
     });
@@ -216,8 +218,8 @@ export function WorkspaceDictionaryTab({
   }, [active, onRefreshDictionary, onRefreshProjectStatus]);
 
   useEffect(() => {
-    const availableTerms = new Set(dictionary.map((item) => item.term));
-    setSelectedTerms((current) => current.filter((term) => availableTerms.has(term)));
+    const availableKeys = new Set(dictionary.map(getRowKey));
+    setSelectedKeys((current) => current.filter((key) => availableKeys.has(key)));
   }, [dictionary]);
 
   useEffect(() => {
@@ -252,10 +254,10 @@ export function WorkspaceDictionaryTab({
             {selectionMode ? (
               <Button
                 danger
-                disabled={selectedTerms.length === 0}
-                onClick={() => void handleDeleteTerms(selectedTerms)}
+                disabled={selectedKeys.length === 0}
+                onClick={() => void handleDeleteTerms(selectedKeys)}
               >
-                删除选中（{selectedTerms.length}）
+                删除选中（{selectedKeys.length}）
               </Button>
             ) : null}
             <Button
@@ -327,7 +329,7 @@ export function WorkspaceDictionaryTab({
           />
         ) : null}
         <Table
-          rowKey="term"
+          rowKey={getRowKey}
           dataSource={dictionary}
           pagination={{
             current: dictionaryPage,
@@ -342,9 +344,9 @@ export function WorkspaceDictionaryTab({
           rowSelection={
             selectionMode
               ? {
-                  selectedRowKeys: selectedTerms,
+                  selectedRowKeys: selectedKeys,
                   onChange: (selectedRowKeys) => {
-                    setSelectedTerms(selectedRowKeys.map((key) => String(key)));
+                    setSelectedKeys(selectedRowKeys.map((key) => String(key)));
                   },
                 }
               : undefined
@@ -352,6 +354,12 @@ export function WorkspaceDictionaryTab({
           columns={[
             { title: '术语', dataIndex: 'term', width: 180 },
             { title: '译文', dataIndex: 'translation', width: 180 },
+            {
+              title: '出自',
+              dataIndex: 'from',
+              width: 120,
+              render: (value: string | undefined) => value ?? '-',
+            },
             {
               title: '类别',
               dataIndex: 'category',
@@ -388,7 +396,7 @@ export function WorkspaceDictionaryTab({
                   <Button type="link" onClick={() => onOpenDictionaryEditor(record)}>
                     编辑
                   </Button>
-                  <Button type="link" danger onClick={() => void handleDeleteTerms([record.term])}>
+                  <Button type="link" danger onClick={() => void handleDeleteTerms([getRowKey(record)])}>
                     删除
                   </Button>
                 </Space>
@@ -458,8 +466,8 @@ export function WorkspaceDictionaryTab({
           <Alert
             type="info"
             showIcon
-            message="支持 term / translation / description / category 四列"
-            description="category 和 description 可留空，也允许完全不带 category 列；导入后会按当前项目文本自动重算出现次数统计。"
+            message="支持 term / translation / from / description / category 五列"
+            description="from 为可选列（用于角色说出某人称时的特定翻译），category 和 description 可留空；导入后会按当前项目文本自动重算出现次数统计。"
           />
           <Select<'csv' | 'tsv'>
             value={importFormat}

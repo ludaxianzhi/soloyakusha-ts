@@ -298,10 +298,10 @@ export class TranslationProjectWorkspace {
     let updatedTermCount = 0;
 
     for (const term of importedTerms) {
-      const existing = glossary.getTerm(term.term);
+      const existing = glossary.getTerm(term.term, term.from);
       const nextTerm = mergeImportedGlossaryTerm(existing, term);
       if (existing) {
-        glossary.updateTerm(term.term, nextTerm);
+        glossary.updateTerm(term.term, nextTerm, term.from);
         updatedTermCount += 1;
       } else {
         glossary.addTerm(nextTerm);
@@ -451,6 +451,7 @@ function mergeImportedGlossaryTerm(
   return {
     term: imported.term,
     translation: imported.translation,
+    from: imported.from ?? existing?.from,
     description: imported.description ?? existing?.description,
     category: imported.category ?? existing?.category,
   };

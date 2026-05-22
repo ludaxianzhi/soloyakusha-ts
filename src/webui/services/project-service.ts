@@ -1431,6 +1431,7 @@ export class ProjectService {
   getGlossaryTerms(workspaceId?: string): Array<{
     term: string;
     translation: string;
+    from?: string;
     description?: string;
     category?: string;
     status?: string;
@@ -1443,6 +1444,7 @@ export class ProjectService {
     return glossary.getAllTerms().map((t) => ({
       term: t.term,
       translation: t.translation,
+      from: t.from,
       description: t.description,
       category: t.category,
       status: t.status,
@@ -3091,8 +3093,10 @@ export class ProjectService {
 
   async updateDictionaryTerm(args: {
     originalTerm?: string;
+    originalFrom?: string;
     term: string;
     translation: string;
+    from?: string;
     description?: string;
     category?: string;
   }): Promise<void> {
@@ -3103,12 +3107,13 @@ export class ProjectService {
       if (!glossary) throw new Error('当前项目还没有字典');
 
       const existing = args.originalTerm
-        ? glossary.getTerm(args.originalTerm)
-        : glossary.getTerm(args.term);
+        ? glossary.getTerm(args.originalTerm, args.originalFrom)
+        : glossary.getTerm(args.term, args.from);
 
       const nextTerm = {
         term: args.term,
         translation: args.translation,
+        from: args.from,
         description: args.description,
         category: normalizeGlossaryCategory(args.category),
         totalOccurrenceCount: existing?.totalOccurrenceCount ?? 0,
@@ -3116,7 +3121,7 @@ export class ProjectService {
       };
 
       if (existing) {
-        glossary.updateTerm(args.originalTerm ?? args.term, nextTerm);
+        glossary.updateTerm(args.originalTerm ?? args.term, nextTerm, args.originalFrom);
       } else {
         glossary.addTerm(nextTerm);
       }
@@ -3131,13 +3136,13 @@ export class ProjectService {
     }, state);
   }
 
-  async deleteDictionaryTerm(term: string): Promise<void> {
+  async deleteDictionaryTerm(term: string, from?: string): Promise<void> {
     const { runtime, state, project } = this.getActiveWorkspaceContext();
     await this.runAction('删除字典条目', async () => {
       if (!project) throw new Error('当前没有已初始化的项目');
       const glossary = project.getGlossary();
       if (!glossary) throw new Error('当前项目还没有字典');
-      glossary.removeTerm(term);
+      glossary.removeTerm(term, from);
       await project.saveProgress();
       if ("bumpGlossaryDependencyRevision" in project) {
         await project.bumpGlossaryDependencyRevision();

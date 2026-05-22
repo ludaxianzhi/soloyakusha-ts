@@ -451,6 +451,7 @@ export interface RepetitionPatternConsistencyFixProgress {
 export interface GlossaryTerm {
   term: string;
   translation: string;
+  from?: string;
   description?: string;
   category?: string;
   status?: string;

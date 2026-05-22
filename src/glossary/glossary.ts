@@ -27,6 +27,7 @@ export type GlossaryTermStatus = (typeof GLOSSARY_TERM_STATUSES)[number];
 export type GlossaryTerm = {
   term: string;
   translation: string;
+  from?: string;
   description?: string;
   category?: GlossaryTermCategory;
   totalOccurrenceCount?: number;
@@ -54,6 +55,7 @@ export type GlossaryTermFilterOptions = {
 export type GlossaryTranslationUpdate = {
   term: string;
   translation: string;
+  from?: string;
 };
 
 type GlossaryApplyTranslationsLogger = {
@@ -71,6 +73,35 @@ export type GlossaryMatchEntry = {
 };
 
 const GLOSSARY_MATCH_IGNORED_CHARACTERS = /[\p{P}~\u30FC\uFF70\u223C\u301C\uFF5E]/gu;
+
+export function buildGlossaryTermKey(term: string, from?: string): string {
+  return from ? `${term}\x00${from}` : term;
+}
+
+function findTermByTermText(terms: Map<string, ResolvedGlossaryTerm>, termText: string): ResolvedGlossaryTerm | undefined {
+  const exact = terms.get(termText);
+  if (exact) return exact;
+  const prefix = termText + "\x00";
+  for (const [key, term] of terms) {
+    if (key.startsWith(prefix)) {
+      return term;
+    }
+  }
+  return undefined;
+}
+
+function findAllTermsByText(terms: Map<string, ResolvedGlossaryTerm>, termText: string): ResolvedGlossaryTerm[] {
+  const results: ResolvedGlossaryTerm[] = [];
+  const exact = terms.get(termText);
+  if (exact) results.push(exact);
+  const prefix = termText + "\x00";
+  for (const [key, term] of terms) {
+    if (key.startsWith(prefix)) {
+      results.push(term);
+    }
+  }
+  return results;
+}
 
 /**
  * 术语表模型，负责维护术语集合并按上下文筛选、渲染可用条目。
@@ -98,8 +129,9 @@ export class Glossary {
     return [...this.terms.values()].map(cloneResolvedGlossaryTerm);
   }
 
-  getTerm(termText: string): ResolvedGlossaryTerm | undefined {
-    const term = this.terms.get(termText);
+  getTerm(termText: string, from?: string): ResolvedGlossaryTerm | undefined {
+    const key = buildGlossaryTermKey(termText, from);
+    const term = this.terms.get(key);
     return term ? cloneResolvedGlossaryTerm(term) : undefined;
   }
 
@@ -108,16 +140,19 @@ export class Glossary {
     this.upsertTerm(normalized);
   }
 
-  removeTerm(termText: string): void {
-    this.terms.delete(termText);
-    this.matchEntries.delete(termText);
+  removeTerm(termText: string, from?: string): void {
+    const key = buildGlossaryTermKey(termText, from);
+    this.terms.delete(key);
+    this.matchEntries.delete(key);
   }
 
-  updateTerm(termText: string, newTerm: GlossaryTerm): void {
+  updateTerm(termText: string, newTerm: GlossaryTerm, from?: string): void {
+    const oldKey = buildGlossaryTermKey(termText, from);
     const normalized = normalizeGlossaryTerm(newTerm);
-    if (termText !== normalized.term) {
-      this.terms.delete(termText);
-      this.matchEntries.delete(termText);
+    const newKey = buildGlossaryTermKey(normalized.term, normalized.from);
+    if (oldKey !== newKey) {
+      this.terms.delete(oldKey);
+      this.matchEntries.delete(oldKey);
     }
     this.upsertTerm(normalized);
   }
@@ -165,7 +200,7 @@ export class Glossary {
         throw new Error(`术语 ${termText} 的 translation 不能为空`);
       }
 
-      const existing = this.terms.get(termText);
+      const existing = findTermByTermText(this.terms, termText);
       if (!existing) {
         throw new Error(`术语不存在，无法更新译文: ${termText}`);
       }
@@ -197,12 +232,12 @@ export class Glossary {
     textBlocks: ReadonlyArray<string | GlossaryTextBlock>,
   ): ResolvedGlossaryTerm[] {
     const normalizedBlocks = normalizeTextBlocks(textBlocks);
-    for (const [termText, term] of this.terms.entries()) {
+    for (const [, term] of this.terms.entries()) {
       let totalOccurrenceCount = 0;
       let textBlockOccurrenceCount = 0;
 
       for (const block of normalizedBlocks) {
-        const matches = countOccurrences(block.text, termText);
+        const matches = countOccurrences(block.text, term.term);
         totalOccurrenceCount += matches;
         if (matches > 0) {
           textBlockOccurrenceCount += 1;
@@ -223,7 +258,7 @@ export class Glossary {
     terms: ReadonlyArray<GlossaryTerm | ResolvedGlossaryTerm> = this.getAllTerms(),
   ): string {
     const lines = [
-      "Term,Translation,Category,TotalOccurrences,TextBlockOccurrences,Description",
+      "Term,Translation,From,Category,TotalOccurrences,TextBlockOccurrences,Description",
     ];
     for (const term of terms) {
       const normalized = normalizeGlossaryTerm(term);
@@ -231,6 +266,7 @@ export class Glossary {
         [
           normalized.term,
           normalized.translation,
+          normalized.from ?? "",
           normalized.category ?? "",
           normalized.totalOccurrenceCount.toString(),
           normalized.textBlockOccurrenceCount.toString(),
@@ -248,8 +284,9 @@ export class Glossary {
   }
 
   private upsertTerm(term: ResolvedGlossaryTerm): void {
-    this.terms.set(term.term, term);
-    this.matchEntries.set(term.term, createGlossaryMatchEntry(term));
+    const key = buildGlossaryTermKey(term.term, term.from);
+    this.terms.set(key, term);
+    this.matchEntries.set(key, createGlossaryMatchEntry(term));
   }
 }
 
@@ -262,10 +299,12 @@ export function normalizeGlossaryTerm(term: GlossaryTerm): ResolvedGlossaryTerm 
   const translation = typeof term.translation === "string" ? term.translation : "";
   const status = resolveGlossaryTermStatus(translation);
   const category = resolveGlossaryTermCategory(term.category);
+  const from = typeof term.from === "string" ? term.from.trim() || undefined : undefined;
 
   return {
     term: trimmedTerm,
     translation,
+    from,
     description: normalizeOptionalString(term.description),
     status,
     category,

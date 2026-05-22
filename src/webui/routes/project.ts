@@ -125,14 +125,22 @@ export function createProjectRoutes(
   });
 
   app.put('/dictionary', async (c) => {
-    const body = await c.req.json();
+    const body = await c.req.json<{
+      originalTerm?: string;
+      originalFrom?: string;
+      term: string;
+      translation: string;
+      from?: string;
+      description?: string;
+      category?: string;
+    }>();
     await projectService.updateDictionaryTerm(body);
     return c.json({ ok: true });
   });
 
   app.delete('/dictionary', async (c) => {
-    const body = await c.req.json<{ term: string }>();
-    await projectService.deleteDictionaryTerm(body.term);
+    const body = await c.req.json<{ term: string; from?: string }>();
+    await projectService.deleteDictionaryTerm(body.term, body.from);
     return c.json({ ok: true });
   });
 

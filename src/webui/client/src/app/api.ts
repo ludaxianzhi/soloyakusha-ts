@@ -323,10 +323,10 @@ export const api = {
     request<{ terms: GlossaryTerm[] }>(`/api/project/dictionary${buildWorkspaceQueryString(workspaceId)}`),
   saveDictionaryTerm: (term: Partial<GlossaryTerm> & { term: string }, workspaceId?: string) =>
     request(`/api/project/dictionary${buildWorkspaceQueryString(workspaceId)}`, { method: 'PUT', body: term }),
-  deleteDictionaryTerm: (term: string, workspaceId?: string) =>
+  deleteDictionaryTerm: (term: string, from?: string, workspaceId?: string) =>
     request(`/api/project/dictionary${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'DELETE',
-      body: { term },
+      body: { term, from },
     }),
   scanDictionary: (
     input?: {
