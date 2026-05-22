@@ -4,7 +4,7 @@
  * @module project/prompt-manager
  */
 
-import type { ResolvedGlossaryTerm } from "../../glossary/glossary.ts";
+import { GLOSSARY_DESCRIPTION, type ResolvedGlossaryTerm } from "../../glossary/glossary.ts";
 import type { JsonObject } from "../../llm/types.ts";
 import {
   getDefaultPromptManager,
@@ -177,6 +177,7 @@ export class PromptManager {
       dependencyTranslations: input.dependencyTranslations,
       plotSummaries: input.plotSummaries,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
+      glossaryDescription: GLOSSARY_DESCRIPTION,
       requirements: input.requirements,
       responseSchemaJson: JSON.stringify(responseSchema, null, 2),
     });
@@ -197,6 +198,7 @@ export class PromptManager {
       referencePairs: input.referencePairs,
       plotSummaries: input.plotSummaries,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
+      glossaryDescription: GLOSSARY_DESCRIPTION,
       requirements: input.requirements,
     });
 
@@ -215,6 +217,7 @@ export class PromptManager {
       sourceUnits: input.sourceUnits,
       referenceTranslations: input.referenceTranslations,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
+      glossaryDescription: GLOSSARY_DESCRIPTION,
       analysisText: input.analysisText,
       requirements: input.requirements,
       responseSchemaJson: JSON.stringify(responseSchema, null, 2),
@@ -237,6 +240,7 @@ export class PromptManager {
       currentTranslations: input.currentTranslations,
       referenceTranslations: input.referenceTranslations,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
+      glossaryDescription: GLOSSARY_DESCRIPTION,
       analysisText: input.analysisText,
       requirements: input.requirements,
       styleRequirementsText: resolveStyleRequirementsText(input.styleRequirementsText),
@@ -263,6 +267,7 @@ export class PromptManager {
       referenceTranslations: input.referenceTranslations,
       plotSummaries: input.plotSummaries,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
+      glossaryDescription: GLOSSARY_DESCRIPTION,
       requirements: input.requirements,
       editorRequirementsText: resolveEditorRequirementsText(input.editorRequirementsText),
       includeSourceText: input.includeSourceText,
@@ -287,6 +292,7 @@ export class PromptManager {
       referencePairs: input.referencePairs,
       plotSummaries: input.plotSummaries,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
+      glossaryDescription: GLOSSARY_DESCRIPTION,
       requirements: input.requirements,
       analysisText: input.analysisText,
       responseSchemaJson: JSON.stringify(responseSchema, null, 2),
@@ -311,6 +317,7 @@ export class PromptManager {
       randomReferencePairs: input.randomReferencePairs,
       plotSummaries: input.plotSummaries,
       translatedGlossaryTerms: input.translatedGlossaryTerms,
+      glossaryDescription: GLOSSARY_DESCRIPTION,
       requirements: input.requirements,
       responseSchemaJson: JSON.stringify(responseSchema, null, 2),
     });

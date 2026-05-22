@@ -46,10 +46,13 @@ prompts:
         {% endif %}
         {% if translatedGlossaryTerms.size > 0 %}
         术语表：
+        {{ glossaryDescription }}
+
         {% for term in translatedGlossaryTerms %}
         - term: {{ term.term }}
           translation: {{ term.translation }}
           {% if term.description %}description: {{ term.description }}{% endif %}
+          {% if term.from %}from: {{ term.from }}{% endif %}
         {% endfor %}
 
         {% endif %}
@@ -87,10 +90,13 @@ prompts:
         {% endif %}
         {% if translatedGlossaryTerms.size > 0 %}
         术语表：
+        {{ glossaryDescription }}
+
         {% for term in translatedGlossaryTerms %}
         - term: {{ term.term }}
           translation: {{ term.translation }}
           {% if term.description %}description: {{ term.description }}{% endif %}
+          {% if term.from %}from: {{ term.from }}{% endif %}
         {% endfor %}
 
         {% endif %}
@@ -125,10 +131,13 @@ prompts:
         {% endif %}
         {% if translatedGlossaryTerms.size > 0 %}
         术语表：
+        {{ glossaryDescription }}
+
         {% for term in translatedGlossaryTerms %}
         - term: {{ term.term }}
           translation: {{ term.translation }}
           {% if term.description %}description: {{ term.description }}{% endif %}
+          {% if term.from %}from: {{ term.from }}{% endif %}
         {% endfor %}
 
         {% endif %}
@@ -204,10 +213,13 @@ prompts:
         {% endif %}
         {% if translatedGlossaryTerms.size > 0 %}
         术语表：
+        {{ glossaryDescription }}
+
         {% for term in translatedGlossaryTerms %}
         - term: {{ term.term }}
           translation: {{ term.translation }}
           {% if term.description %}description: {{ term.description }}{% endif %}
+          {% if term.from %}from: {{ term.from }}{% endif %}
         {% endfor %}
 
         {% endif %}
@@ -218,7 +230,7 @@ prompts:
         {% endfor %}
         {% endif %}
 
-         {% if includeSourceText != false %}
+          {% if includeSourceText != false %}
          原文-译文对照（按行编号）：
          {% for unit in sourceUnits %}
          - id: {{ unit.id }}

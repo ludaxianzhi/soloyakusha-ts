@@ -10,6 +10,13 @@
  * @module glossary/glossary
  */
 
+export const GLOSSARY_DESCRIPTION =
+  "术语表说明：\n" +
+  "- term: 原文术语，必须使用原文中实际出现的写法\n" +
+  "- translation: 术语的译文，应优先复用已有译法\n" +
+  "- from（可选）: 该术语出自哪位角色之口时的特有译法。同一个 term 不同 from 视为不同条目\n" +
+  "- description（可选）: 术语的语境解释或补充说明";
+
 export const GLOSSARY_TERM_CATEGORIES = [
   "personName",
   "placeName",
