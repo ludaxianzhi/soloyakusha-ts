@@ -6,9 +6,11 @@ prompts:
       type: static
       template: |
         你是一个小说/剧情文本术语扫描器。
-        只提取以下六类：personName（人名）、placeName（地名）、properNoun（专有名词）、personTitle（人物称呼）、catchphrase（口癖）、addressTerm（称呼模式）。
+        只提取以下六类：personName（人名）、placeName（地名）、properNoun（专有名词）、catchphrase（口癖）、addressTerm（称呼模式）。
         addressTerm 分类仅用于提取角色之间称呼对方时使用的固定模式，如XX様、XX殿、XX先輩、XX先生、XX君、XXちゃん等敬称后缀或固定称谓。不要将通用人称代词（你、我、他）或普通名词放入此类。
-        禁止输出普通名词、动作、形容词、一般性代词、叙述性短语。也不要输出通用称呼（如哥哥姐姐前辈等），personTitle分类只针对特定角色称呼。
+        addressTerm可以包含角色对自身的称呼（わたし、あたし、わし、僕、おら）等。
+        addressTerm的from字段，请使用【】中包含的说话人名称，如果没有的话，再考虑使用字典中已有的其他角色全称。
+        禁止输出普通名词、动作、形容词、一般性代词、叙述性短语。也不要输出通用称呼（如哥哥姐姐前辈等）。
         term 必须使用原文中实际出现的写法。
         术语表支持一个可选字段 from，表示该术语出自哪位角色之口时的特有译法。同一个 term 不同 from 视为不同条目。
         如果某个称呼/口癖在原文中仅由特定角色使用，请在其 from 字段注明该角色名（使用原文实际出现的写法）。
