@@ -443,8 +443,8 @@ function RequestHistoryPanel({ active }: { active: boolean }) {
             renderItem={(entry) => {
               const ctx = readHistoryContext(entry);
               const tps =
-                entry.statistics?.totalTokens != null && entry.durationSeconds != null && entry.durationSeconds > 0
-                  ? entry.statistics.totalTokens / entry.durationSeconds
+                entry.statistics?.completionTokens != null && entry.durationSeconds != null && entry.durationSeconds > 0
+                  ? entry.statistics.completionTokens / entry.durationSeconds
                   : undefined;
               return (
                 <List.Item
