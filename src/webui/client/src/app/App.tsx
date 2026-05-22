@@ -584,13 +584,17 @@ export function AppShell() {
   );
 
   const refreshBootData = useCallback(async () => {
-    const [workspaceRes, openedWorkspaceRes, translatorsRes, translatorWorkflowsRes, llmRes] =
+    const [workspaceRes, openedWorkspaceRes, translatorsRes, translatorWorkflowsRes, llmRes, proofreadersRes, embeddingRes, proofreadWorkflowsRes, styleLibraryRes] =
       await Promise.all([
         api.listWorkspaces(),
         api.listOpenedWorkspaces(),
         api.getTranslators().catch(() => ({ translators: {} })),
         api.getTranslatorWorkflows().catch(() => ({ workflows: [] })),
         api.getLlmProfiles().catch(() => ({ profiles: {}, defaultName: undefined })),
+        api.getProofreaders().catch(() => ({ proofreaders: {} })),
+        api.getEmbeddingConfig().catch(() => ({})),
+        api.getProofreadWorkflows().catch(() => ({ workflows: [] })),
+        api.getStyleLibraries().catch(() => ({ libraries: [] })),
       ]);
 
     const workspaceStatuses = Object.fromEntries(
@@ -631,6 +635,16 @@ export function AppShell() {
     setTranslatorWorkflows(translatorWorkflowsRes.workflows);
     setLlmProfiles(llmRes.profiles);
     setDefaultLlmName(llmRes.defaultName);
+    setProofreaders(proofreadersRes.proofreaders);
+    setEmbeddingProfiles(embeddingRes ?? {});
+    setProofreadWorkflows(proofreadWorkflowsRes.workflows);
+    setStyleLibraryCatalog(styleLibraryRes);
+    setSelectedProofreaderName((current) => {
+      if (current && proofreadersRes.proofreaders[current]) {
+        return current;
+      }
+      return Object.keys(proofreadersRes.proofreaders)[0];
+    });
   }, [activateWorkspaceLocally]);
 
   const refreshProjectStatus = useCallback(
