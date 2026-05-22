@@ -56,6 +56,7 @@ export function DictionaryEditorModal({
               { label: 'properNoun', value: 'properNoun' },
               { label: 'personTitle', value: 'personTitle' },
               { label: 'catchphrase', value: 'catchphrase' },
+              { label: 'addressTerm', value: 'addressTerm' },
             ]}
           />
         </Form.Item>

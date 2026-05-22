@@ -197,10 +197,12 @@ export class FullTextGlossaryTranscriber {
         term: term.term,
         translation: term.translation,
         description: term.description,
+        from: term.from,
       })) ?? [],
       untranslatedTerms: untranslatedTerms.map((term) => ({
         term: term.term,
         description: term.description,
+        from: term.from,
       })),
     });
 

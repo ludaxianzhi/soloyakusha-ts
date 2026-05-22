@@ -464,7 +464,7 @@ describe("glossary", () => {
     expect(client.requests[0]?.prompt).toContain("L00001: 勇者来了");
     expect(client.requests[1]?.prompt).toContain("L00003: 勇者说勇者必胜");
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("术语扫描器");
-    expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("只返回 term 和 category 两个字段");
+    expect(client.requests[0]?.options?.requestConfig?.systemPrompt).toContain("输出字段包含 term、category，以及可选的 from");
     expect(client.requests[0]?.options?.requestConfig?.systemPrompt).not.toContain("description");
     expect(client.requests[0]?.options?.meta).toMatchObject({
       label: "术语提取-全文扫描",

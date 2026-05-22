@@ -16,6 +16,7 @@ export const GLOSSARY_TERM_CATEGORIES = [
   "properNoun",
   "personTitle",
   "catchphrase",
+  "addressTerm",
 ] as const;
 
 export type GlossaryTermCategory = (typeof GLOSSARY_TERM_CATEGORIES)[number];

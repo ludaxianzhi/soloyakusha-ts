@@ -19,6 +19,7 @@ import { NOOP_LOGGER, type Logger } from "../project/logger.ts";
 import type { TranslationDocumentManager } from "../project/document/translation-document-manager.ts";
 import {
   Glossary,
+  buildGlossaryTermKey,
   type GlossaryTerm,
   type GlossaryTermCategory,
   type GlossaryTermStatus,
@@ -33,6 +34,7 @@ const SCAN_CATEGORY_ORDER: Array<GlossaryTermCategory | "uncategorized"> = [
   "properNoun",
   "personTitle",
   "catchphrase",
+  "addressTerm",
   "uncategorized",
 ];
 
@@ -42,6 +44,7 @@ const SCAN_CATEGORY_LABELS: Record<GlossaryTermCategory | "uncategorized", strin
   properNoun: "专有名词",
   personTitle: "人物称呼",
   catchphrase: "口癖",
+  addressTerm: "称呼模式",
   uncategorized: "未分类",
 };
 
@@ -87,6 +90,7 @@ type RawScannedEntity = {
   term: string;
   category?: GlossaryTermCategory;
   description?: string;
+  from?: string;
 };
 
 export class FullTextGlossaryScanner {
@@ -199,7 +203,7 @@ export class FullTextGlossaryScanner {
 
     for (const result of batchResults.sort((left, right) => left.batchIndex - right.batchIndex)) {
       for (const entity of result.extractedEntities) {
-        const existing = glossary.getTerm(entity.term);
+        const existing = glossary.getTerm(entity.term, entity.from);
         glossary.addTerm(mergeScannedTerm(existing, entity));
       }
     }
@@ -218,11 +222,13 @@ export class FullTextGlossaryScanner {
       )
       .sort(compareFormattedTerms);
     const retainedTerms = applyOccurrenceRankingFilters(filteredTerms, options);
-    const retainedTermSet = new Set(retainedTerms.map((term) => term.term));
+    const retainedKeySet = new Set(
+      retainedTerms.map((term) => buildGlossaryTermKey(term.term, term.from)),
+    );
 
     for (const term of glossary.getAllTerms()) {
-      if (!retainedTermSet.has(term.term)) {
-        glossary.removeTerm(term.term);
+      if (!retainedKeySet.has(buildGlossaryTermKey(term.term, term.from))) {
+        glossary.removeTerm(term.term, term.from);
       }
     }
 
@@ -398,11 +404,13 @@ function parseScanResponse(responseText: string): RawScannedEntity[] {
 
     const category = normalizeCategory(item.category);
     const description = normalizeOptionalString(item.description);
+    const from = normalizeOptionalString(item.from);
     return [
       {
         term,
         category,
         description,
+        from,
       },
     ];
   });
@@ -444,6 +452,7 @@ function mergeScannedTerm(
     return {
       term: scanned.term,
       translation: "",
+      from: scanned.from,
       category: scanned.category,
       description: scanned.description,
     };
@@ -452,6 +461,7 @@ function mergeScannedTerm(
   return {
     term: existing.term,
     translation: existing.translation,
+    from: existing.from ?? scanned.from,
     category: existing.category ?? scanned.category,
     totalOccurrenceCount: existing.totalOccurrenceCount,
     textBlockOccurrenceCount: existing.textBlockOccurrenceCount,
@@ -479,7 +489,8 @@ function normalizeCategory(value: unknown): GlossaryTermCategory | undefined {
     value === "placeName" ||
     value === "properNoun" ||
     value === "personTitle" ||
-    value === "catchphrase"
+    value === "catchphrase" ||
+    value === "addressTerm"
   ) {
     return value;
   }

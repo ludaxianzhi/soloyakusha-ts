@@ -369,7 +369,8 @@ function parseGlossaryCategory(value: string | undefined): GlossaryTermCategory 
       value === "placeName" ||
       value === "properNoun" ||
       value === "personTitle" ||
-      value === "catchphrase"
+      value === "catchphrase" ||
+      value === "addressTerm"
     ? value
     : undefined;
 }

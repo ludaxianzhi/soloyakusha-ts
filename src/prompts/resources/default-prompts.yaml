@@ -6,11 +6,14 @@ prompts:
       type: static
       template: |
         你是一个小说/剧情文本术语扫描器。
-        只提取以下五类：personName（人名）、placeName（地名）、properNoun（专有名词）、personTitle（人物称呼）、catchphrase（口癖）。
+        只提取以下六类：personName（人名）、placeName（地名）、properNoun（专有名词）、personTitle（人物称呼）、catchphrase（口癖）、addressTerm（称呼模式）。
+        addressTerm 分类仅用于提取角色之间称呼对方时使用的固定模式，如XX様、XX殿、XX先輩、XX先生、XX君、XXちゃん等敬称后缀或固定称谓。不要将通用人称代词（你、我、他）或普通名词放入此类。
         禁止输出普通名词、动作、形容词、一般性代词、叙述性短语。也不要输出通用称呼（如哥哥姐姐前辈等），personTitle分类只针对特定角色称呼。
         term 必须使用原文中实际出现的写法。
-        只返回 term 和 category 两个字段，不要输出其他字段。
-        输出必须是严格 JSON，格式为 {"entities":[{"term":"...","category":"personName"}]}。
+        术语表支持一个可选字段 from，表示该术语出自哪位角色之口时的特有译法。同一个 term 不同 from 视为不同条目。
+        如果某个称呼/口癖在原文中仅由特定角色使用，请在其 from 字段注明该角色名（使用原文实际出现的写法）。
+        输出字段包含 term、category，以及可选的 from。
+        输出必须是严格 JSON，格式为 {"entities":[{"term":"...","category":"personName"}]} 或 {"entities":[{"term":"...","category":"addressTerm","from":"角色名"}]}。
         如果没有任何结果，返回 {"entities":[]}。
         不要输出 Markdown、解释、代码块或额外文字。
     user:
@@ -31,6 +34,7 @@ prompts:
         只允许依据用户消息中的原文、译文、候选术语和补充要求作答，不要依赖未提供的背景知识臆测。
         如果某个术语无法从给定译文中明确判断，就不要返回它。
         glossaryUpdates 中只能返回给定候选术语列表中的 term，不能新增其他术语。
+        术语表支持一个可选字段 from，表示该术语出自哪位角色之口时的特有译法。同一个 term 可能因 from 不同而对应不同译文。如果候选术语带有 from，请充分考虑该角色语气，给出符合其说话风格的译文。如果候选术语没有 from，则给出通用译文。
         只返回 JSON，不要输出 Markdown、解释或代码块。
         输出必须严格满足以下 JSON Schema：
         ${responseSchemaJson}
@@ -55,6 +59,7 @@ prompts:
         {% for term in untranslatedTerms %}
         - term: {{ term.term }}
           {% if term.description %}description: {{ term.description }}{% endif %}
+          {% if term.from %}from: {{ term.from }}{% endif %}
         {% endfor %}
 
   glossary.termTranscribe:
@@ -63,9 +68,10 @@ prompts:
       template: |
         你是术语表解释与翻译助手。
         任务：根据原文上下文，为每个候选术语提供简短的语境解释（description）和准确的译文（translation）。
-        如果用户消息里提供了“当前块已确认术语表”，请将其视为当前文本块内已经确定的参考译法，后续候选术语的翻译风格、专有名词译法和关系表述应与其保持一致。
+        如果用户消息里提供了"当前块已确认术语表"，请将其视为当前文本块内已经确定的参考译法，后续候选术语的翻译风格、专有名词译法和关系表述应与其保持一致。
         - description 用中文写，控制在 80 字以内，描述该术语在当前语境中的含义和特征，涉及原文相关设定或其他名词时，则使用原始语言写。
         - translation 给出该术语在当前上下文中最合适的译文
+        术语表支持一个可选字段 from，表示该术语出自哪位角色之口时的特有译法。同一个 term 可能因 from 不同而对应不同译文。如果候选术语带有 from，请充分考虑该角色语气，给出符合其说话风格的译文。如果没有 from，则给出通用译文。
         只输出 JSON，格式为 {"terms":[{"term":"...","translation":"...","description":"..."}]}
         只输出候选术语列表中出现的术语，不要新增术语。
         不要输出 Markdown、解释或代码块。
@@ -78,6 +84,24 @@ prompts:
 
         {% for line in lines %}
         {{ line }}
+        {% endfor %}
+
+        {% if knownTranslatedTerms.size > 0 %}
+        当前块已确认术语表（仅供参考，不要重复输出这些术语）：
+        {% for term in knownTranslatedTerms %}
+        - term: {{ term.term }}
+          translation: {{ term.translation }}
+          {% if term.description %}description: {{ term.description }}{% endif %}
+          {% if term.from %}from: {{ term.from }}{% endif %}
+        {% endfor %}
+
+        {% endif %}
+
+        候选术语列表（需要为其中在当前原文中出现的术语补全解释和翻译）：
+        {% for term in untranslatedTerms %}
+        - term: {{ term.term }}
+          {% if term.description %}description: {{ term.description }}{% endif %}
+          {% if term.from %}from: {{ term.from }}{% endif %}
         {% endfor %}
 
         {% if knownTranslatedTerms.size > 0 %}
