@@ -125,7 +125,7 @@ export function WorkspaceDictionaryTab({
   const [searchText, setSearchText] = useState('');
   const [searchMode, setSearchMode] = useState<'termTranslation' | 'description'>('termTranslation');
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>(undefined);
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>(null);
+  const [sortOrder, setSortOrder] = useState<'default' | 'asc' | 'desc'>('default');
   const [draftDictionary, setDraftDictionary] = useState<Record<string, { translation: string; description: string }>>({});
   const [saving, setSaving] = useState(false);
 
@@ -168,7 +168,7 @@ export function WorkspaceDictionaryTab({
       result = result.filter((r) => r.category === categoryFilter);
     }
 
-    if (sortOrder) {
+    if (sortOrder !== 'default') {
       result.sort((a, b) => {
         const diff =
           (a.textBlockOccurrenceCount ?? 0) - (b.textBlockOccurrenceCount ?? 0);
@@ -552,22 +552,21 @@ export function WorkspaceDictionaryTab({
             style={{ width: 130 }}
             options={CATEGORY_FILTER_OPTIONS}
           />
-          <Tooltip title={sortOrder === 'asc' ? '按出现次数升序' : sortOrder === 'desc' ? '按出现次数降序' : '按出现次数排序'}>
+          <Tooltip title={sortOrder === 'asc' ? '按出现次数升序' : sortOrder === 'desc' ? '按出现次数降序' : '按出现次数排序（默认：不排序）'}>
             <Button
               size="small"
               icon={
-                sortOrder === 'asc' ? <SortAscendingOutlined /> :
                 sortOrder === 'desc' ? <SortDescendingOutlined /> :
                 <SortAscendingOutlined />
               }
               onClick={() =>
                 setSortOrder((prev) =>
-                  prev === null ? 'asc' : prev === 'asc' ? 'desc' : null,
+                  prev === 'default' ? 'asc' : prev === 'asc' ? 'desc' : 'default',
                 )
               }
-              type={sortOrder ? 'primary' : 'default'}
+              type={sortOrder !== 'default' ? 'primary' : 'default'}
             >
-              {sortOrder ? `次数${sortOrder === 'asc' ? '↑' : '↓'}` : '次数'}
+              {sortOrder === 'asc' ? '次数↑' : sortOrder === 'desc' ? '次数↓' : '默认'}
             </Button>
           </Tooltip>
         </div>
@@ -600,7 +599,7 @@ export function WorkspaceDictionaryTab({
             {
               title: '译文',
               dataIndex: 'translation',
-              width: 180,
+              width: 140,
               render: (_: unknown, record: GlossaryTerm) => (
                 <TextArea
                   autoSize={{ minRows: 1, maxRows: 2 }}
@@ -613,19 +612,19 @@ export function WorkspaceDictionaryTab({
             {
               title: '出自',
               dataIndex: 'from',
-              width: 100,
+              width: 80,
               render: (value: string | undefined) => value ?? '-',
             },
             {
               title: '类别',
               dataIndex: 'category',
-              width: 110,
+              width: 100,
               render: (value: string | undefined) => (value ? <Tag>{value}</Tag> : '-'),
             },
             {
               title: '状态',
               dataIndex: 'status',
-              width: 90,
+              width: 80,
               render: (value: string | undefined) =>
                 value ? (
                   <Tag color={value === 'translated' ? 'green' : 'gold'}>{value}</Tag>
@@ -635,14 +634,14 @@ export function WorkspaceDictionaryTab({
             },
             {
               title: '出现次数',
-              width: 100,
+              width: 90,
               render: (_, record: GlossaryTerm) =>
                 `${record.totalOccurrenceCount ?? 0} / ${record.textBlockOccurrenceCount ?? 0}`,
             },
             {
               title: '描述',
               dataIndex: 'description',
-              width: 200,
+              width: 280,
               render: (_: unknown, record: GlossaryTerm) => (
                 <TextArea
                   autoSize={{ minRows: 1, maxRows: 2 }}
@@ -654,7 +653,7 @@ export function WorkspaceDictionaryTab({
             },
             {
               title: '操作',
-              width: 140,
+              width: 130,
               render: (_, record: GlossaryTerm) => (
                 <Space>
                   <Button type="link" onClick={() => onOpenDictionaryEditor(record)}>
