@@ -159,7 +159,10 @@ export class FullTextGlossaryTranscriber {
     let appliedTermCount = 0;
 
     for (const [chunkIndex, termChunk] of termChunks.entries()) {
-      const pendingChunkTerms = termChunk.filter((term) => glossary.getTerm(term.term, term.from)?.status === "untranslated");
+      const pendingChunkTerms = termChunk.filter((term) => {
+          const current = glossary.getTerm(term.term, term.from);
+          return current?.status === "untranslated" && !current.translation;
+        });
       if (pendingChunkTerms.length === 0) {
         continue;
       }
@@ -248,7 +251,7 @@ export class FullTextGlossaryTranscriber {
         continue;
       }
 
-      if (existing.status !== "untranslated") {
+      if (existing.status !== "untranslated" || existing.translation) {
         continue;
       }
 

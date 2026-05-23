@@ -201,8 +201,15 @@ export class FullTextGlossaryScanner {
       }),
     );
 
+    const seedTermKeys = new Set(
+      glossary.getAllTerms().map((t) => buildGlossaryTermKey(t.term, t.from)),
+    );
+
     for (const result of batchResults.sort((left, right) => left.batchIndex - right.batchIndex)) {
       for (const entity of result.extractedEntities) {
+        if (seedTermKeys.has(buildGlossaryTermKey(entity.term, entity.from))) {
+          continue;
+        }
         const existing = glossary.getTerm(entity.term, entity.from);
         glossary.addTerm(mergeScannedTerm(existing, entity));
       }
