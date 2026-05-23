@@ -60,6 +60,7 @@ export function WorkspaceView({
   onResumeTaskActivity,
   onOpenDictionaryEditor,
   onDeleteDictionary,
+  onSaveDictionaryTerms,
   dictionaryScanDefaults,
   dictionaryTranscribeDefaults,
   onImportDictionaryFile,
@@ -180,6 +181,7 @@ export function WorkspaceView({
                 onResumeTaskActivity={onResumeTaskActivity}
                 onOpenDictionaryEditor={onOpenDictionaryEditor}
                 onDeleteDictionary={onDeleteDictionary}
+                onSaveDictionaryTerms={onSaveDictionaryTerms}
                 dictionaryScanDefaults={dictionaryScanDefaults}
                 dictionaryTranscribeDefaults={dictionaryTranscribeDefaults}
                 onImportDictionaryFile={onImportDictionaryFile}

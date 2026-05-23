@@ -1,18 +1,29 @@
-import { useEffect, useRef, useState } from 'react';
-import { BookOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BookOutlined,
+  DownloadOutlined,
+  SaveOutlined,
+  SearchOutlined,
+  SortAscendingOutlined,
+  SortDescendingOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
 import {
   Alert,
   App as AntdApp,
+  Badge,
   Button,
   Card,
   Form,
   Input,
   InputNumber,
   Modal,
+  Radio,
   Select,
   Space,
   Table,
   Tag,
+  Tooltip,
 } from 'antd';
 import type {
   DictionaryImportResult,
@@ -31,6 +42,15 @@ import type {
 
 const { TextArea } = Input;
 
+const CATEGORY_FILTER_OPTIONS = [
+  { label: '人名', value: 'personName' },
+  { label: '地名', value: 'placeName' },
+  { label: '专有名词', value: 'properNoun' },
+  { label: '人物称呼', value: 'personTitle' },
+  { label: '口癖', value: 'catchphrase' },
+  { label: '称呼模式', value: 'addressTerm' },
+];
+
 interface WorkspaceDictionaryTabProps {
   active: boolean;
   dictionary: GlossaryTerm[];
@@ -42,6 +62,9 @@ interface WorkspaceDictionaryTabProps {
   onStartDictionaryTranscribe: (options: DictionaryTranscribeStartOptions) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (terms: string[]) => void | Promise<void>;
+  onSaveDictionaryTerms: (
+    terms: Array<{ term: string; from?: string; translation: string; description?: string }>,
+  ) => void | Promise<void>;
   dictionaryScanDefaults?: DictionaryScanStartOptions;
   dictionaryTranscribeDefaults?: DictionaryTranscribeStartOptions;
   onImportDictionaryFile: (file: File) => void | Promise<void>;
@@ -68,6 +91,7 @@ export function WorkspaceDictionaryTab({
   onStartDictionaryTranscribe,
   onOpenDictionaryEditor,
   onDeleteDictionary,
+  onSaveDictionaryTerms,
   dictionaryScanDefaults,
   dictionaryTranscribeDefaults,
   onImportDictionaryFile,
@@ -97,6 +121,159 @@ export function WorkspaceDictionaryTab({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [scanForm] = Form.useForm<DictionaryScanStartOptions>();
   const [transcribeForm] = Form.useForm<DictionaryTranscribeStartOptions>();
+
+  const [searchText, setSearchText] = useState('');
+  const [searchMode, setSearchMode] = useState<'termTranslation' | 'description'>('termTranslation');
+  const [categoryFilter, setCategoryFilter] = useState<string | undefined>(undefined);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>(null);
+  const [draftDictionary, setDraftDictionary] = useState<Record<string, { translation: string; description: string }>>({});
+  const [saving, setSaving] = useState(false);
+
+  const deferredSearchText = useDeferredValue(searchText);
+
+  const getRowKey = (record: GlossaryTerm) => record.term + '\x00' + (record.from ?? '');
+
+  useEffect(() => {
+    const availableKeys = new Set(dictionary.map(getRowKey));
+    setDraftDictionary((prev) => {
+      const keys = Object.keys(prev);
+      if (keys.every((key) => availableKeys.has(key))) return prev;
+      const next: Record<string, { translation: string; description: string }> = {};
+      for (const key of keys) {
+        if (availableKeys.has(key)) next[key] = prev[key]!;
+      }
+      return next;
+    });
+  }, [dictionary]);
+
+  const filteredAndSortedDictionary = useMemo(() => {
+    let result = [...dictionary];
+
+    if (deferredSearchText.trim()) {
+      const normalizedSearch = deferredSearchText.trim().toLowerCase();
+      if (searchMode === 'description') {
+        result = result.filter((r) =>
+          (r.description ?? '').toLowerCase().includes(normalizedSearch),
+        );
+      } else {
+        result = result.filter(
+          (r) =>
+            r.term.toLowerCase().includes(normalizedSearch) ||
+            (r.translation ?? '').toLowerCase().includes(normalizedSearch),
+        );
+      }
+    }
+
+    if (categoryFilter) {
+      result = result.filter((r) => r.category === categoryFilter);
+    }
+
+    if (sortOrder) {
+      result.sort((a, b) => {
+        const diff =
+          (a.textBlockOccurrenceCount ?? 0) - (b.textBlockOccurrenceCount ?? 0);
+        return sortOrder === 'asc' ? diff : -diff;
+      });
+    }
+
+    return result;
+  }, [dictionary, deferredSearchText, searchMode, categoryFilter, sortOrder]);
+
+  const dirtyTerms = useMemo(() => {
+    const dirty: Array<{
+      term: string;
+      from?: string;
+      translation: string;
+      description?: string;
+    }> = [];
+    for (const record of dictionary) {
+      const key = getRowKey(record);
+      const draft = draftDictionary[key];
+      if (!draft) continue;
+      if (
+        draft.translation !== (record.translation ?? '') ||
+        draft.description !== (record.description ?? '')
+      ) {
+        dirty.push({
+          term: record.term,
+          from: record.from ?? undefined,
+          translation: draft.translation,
+          description: draft.description || undefined,
+        });
+      }
+    }
+    return dirty;
+  }, [dictionary, draftDictionary]);
+
+  const handleSaveAllChanges = useCallback(async () => {
+    if (dirtyTerms.length === 0 || saving) return;
+    setSaving(true);
+    try {
+      await onSaveDictionaryTerms(dirtyTerms);
+      setDraftDictionary({});
+      message.success(`已保存 ${dirtyTerms.length} 个术语变更`);
+    } finally {
+      setSaving(false);
+    }
+  }, [dirtyTerms, saving, onSaveDictionaryTerms, message]);
+
+  useEffect(() => {
+    if (!active) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (dirtyTerms.length > 0 && !saving) {
+          void handleSaveAllChanges();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [active, dirtyTerms.length, saving, handleSaveAllChanges]);
+
+  const readDraftTranslation = useCallback(
+    (record: GlossaryTerm) => {
+      const key = getRowKey(record);
+      return draftDictionary[key]?.translation ?? record.translation ?? '';
+    },
+    [draftDictionary],
+  );
+
+  const readDraftDescription = useCallback(
+    (record: GlossaryTerm) => {
+      const key = getRowKey(record);
+      return draftDictionary[key]?.description ?? record.description ?? '';
+    },
+    [draftDictionary],
+  );
+
+  const updateDraftTranslation = useCallback(
+    (record: GlossaryTerm, value: string) => {
+      const key = getRowKey(record);
+      setDraftDictionary((prev) => ({
+        ...prev,
+        [key]: {
+          translation: value,
+          description: prev[key]?.description ?? record.description ?? '',
+        },
+      }));
+    },
+    [],
+  );
+
+  const updateDraftDescription = useCallback(
+    (record: GlossaryTerm, value: string) => {
+      const key = getRowKey(record);
+      setDraftDictionary((prev) => ({
+        ...prev,
+        [key]: {
+          translation: prev[key]?.translation ?? record.translation ?? '',
+          description: value,
+        },
+      }));
+    },
+    [],
+  );
 
   const openImportModal = () => {
     setImportModalOpen(true);
@@ -189,8 +366,6 @@ export function WorkspaceDictionaryTab({
     await onImportDictionaryFile(file);
   };
 
-  const getRowKey = (record: GlossaryTerm) => record.term + '\x00' + (record.from ?? '');
-
   const handleDeleteTerms = async (keys: string[]) => {
     if (keys.length === 0) {
       return;
@@ -223,9 +398,9 @@ export function WorkspaceDictionaryTab({
   }, [dictionary]);
 
   useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(dictionary.length / dictionaryPageSize));
+    const totalPages = Math.max(1, Math.ceil(filteredAndSortedDictionary.length / dictionaryPageSize));
     setDictionaryPage((current) => Math.min(current, totalPages));
-  }, [dictionary.length, dictionaryPageSize]);
+  }, [filteredAndSortedDictionary.length, dictionaryPageSize]);
 
   usePollingTask({
     enabled: active,
@@ -234,6 +409,8 @@ export function WorkspaceDictionaryTab({
       await onRefreshDictionary();
     },
   });
+
+  const searchPending = searchText !== deferredSearchText;
 
   return (
     <>
@@ -248,6 +425,25 @@ export function WorkspaceDictionaryTab({
           <Space>
             <Button onClick={openScanModal}>重新扫描</Button>
             <Button onClick={openTranscribeModal}>解释翻译</Button>
+            {dirtyTerms.length > 0 ? (
+              <Badge count={dirtyTerms.length} overflowCount={99}>
+                <Button
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  loading={saving}
+                  onClick={() => void handleSaveAllChanges()}
+                >
+                  保存变更
+                </Button>
+              </Badge>
+            ) : (
+              <Button
+                icon={<SaveOutlined />}
+                disabled
+              >
+                保存变更
+              </Button>
+            )}
             <Button onClick={toggleSelectionMode}>
               {selectionMode ? '退出多选' : '多选删除'}
             </Button>
@@ -328,14 +524,62 @@ export function WorkspaceDictionaryTab({
             }
           />
         ) : null}
+        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Input
+            prefix={<SearchOutlined />}
+            placeholder="搜索术语..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            style={{ width: 220 }}
+            allowClear
+            suffix={searchPending ? <span style={{ color: '#999', fontSize: 12 }}>...</span> : undefined}
+          />
+          <Radio.Group
+            size="small"
+            value={searchMode}
+            onChange={(e) => setSearchMode(e.target.value)}
+            optionType="button"
+            buttonStyle="solid"
+          >
+            <Radio.Button value="termTranslation">术语 / 译文</Radio.Button>
+            <Radio.Button value="description">描述</Radio.Button>
+          </Radio.Group>
+          <Select
+            allowClear
+            placeholder="类别筛选"
+            value={categoryFilter}
+            onChange={(value) => setCategoryFilter(value)}
+            style={{ width: 130 }}
+            options={CATEGORY_FILTER_OPTIONS}
+          />
+          <Tooltip title={sortOrder === 'asc' ? '按出现次数升序' : sortOrder === 'desc' ? '按出现次数降序' : '按出现次数排序'}>
+            <Button
+              size="small"
+              icon={
+                sortOrder === 'asc' ? <SortAscendingOutlined /> :
+                sortOrder === 'desc' ? <SortDescendingOutlined /> :
+                <SortAscendingOutlined />
+              }
+              onClick={() =>
+                setSortOrder((prev) =>
+                  prev === null ? 'asc' : prev === 'asc' ? 'desc' : null,
+                )
+              }
+              type={sortOrder ? 'primary' : 'default'}
+            >
+              {sortOrder ? `次数${sortOrder === 'asc' ? '↑' : '↓'}` : '次数'}
+            </Button>
+          </Tooltip>
+        </div>
         <Table
           rowKey={getRowKey}
-          dataSource={dictionary}
+          dataSource={filteredAndSortedDictionary}
           pagination={{
             current: dictionaryPage,
             pageSize: dictionaryPageSize,
             showSizeChanger: true,
             pageSizeOptions: [10, 20, 50, 100],
+            showTotal: (total, range) => `${range[0]}-${range[1]} / ${total}`,
             onChange: (page, pageSize) => {
               setDictionaryPage(page);
               setDictionaryPageSize(pageSize);
@@ -352,24 +596,36 @@ export function WorkspaceDictionaryTab({
               : undefined
           }
           columns={[
-            { title: '术语', dataIndex: 'term', width: 180 },
-            { title: '译文', dataIndex: 'translation', width: 180 },
+            { title: '术语', dataIndex: 'term', width: 140 },
+            {
+              title: '译文',
+              dataIndex: 'translation',
+              width: 180,
+              render: (_: unknown, record: GlossaryTerm) => (
+                <TextArea
+                  autoSize={{ minRows: 1, maxRows: 2 }}
+                  value={readDraftTranslation(record)}
+                  onChange={(e) => updateDraftTranslation(record, e.target.value)}
+                  placeholder="输入译文"
+                />
+              ),
+            },
             {
               title: '出自',
               dataIndex: 'from',
-              width: 120,
+              width: 100,
               render: (value: string | undefined) => value ?? '-',
             },
             {
               title: '类别',
               dataIndex: 'category',
-              width: 120,
+              width: 110,
               render: (value: string | undefined) => (value ? <Tag>{value}</Tag> : '-'),
             },
             {
               title: '状态',
               dataIndex: 'status',
-              width: 120,
+              width: 90,
               render: (value: string | undefined) =>
                 value ? (
                   <Tag color={value === 'translated' ? 'green' : 'gold'}>{value}</Tag>
@@ -379,14 +635,22 @@ export function WorkspaceDictionaryTab({
             },
             {
               title: '出现次数',
-              width: 120,
+              width: 100,
               render: (_, record: GlossaryTerm) =>
                 `${record.totalOccurrenceCount ?? 0} / ${record.textBlockOccurrenceCount ?? 0}`,
             },
             {
               title: '描述',
               dataIndex: 'description',
-              ellipsis: true,
+              width: 200,
+              render: (_: unknown, record: GlossaryTerm) => (
+                <TextArea
+                  autoSize={{ minRows: 1, maxRows: 2 }}
+                  value={readDraftDescription(record)}
+                  onChange={(e) => updateDraftDescription(record, e.target.value)}
+                  placeholder="输入描述"
+                />
+              ),
             },
             {
               title: '操作',
@@ -396,7 +660,11 @@ export function WorkspaceDictionaryTab({
                   <Button type="link" onClick={() => onOpenDictionaryEditor(record)}>
                     编辑
                   </Button>
-                  <Button type="link" danger onClick={() => void handleDeleteTerms([getRowKey(record)])}>
+                  <Button
+                    type="link"
+                    danger
+                    onClick={() => void handleDeleteTerms([getRowKey(record)])}
+                  >
                     删除
                   </Button>
                 </Space>

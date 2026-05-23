@@ -1708,6 +1708,27 @@ export function AppShell() {
     [getSelectedWorkspaceId, message, refreshDictionary, refreshProjectStatus, runAction],
   );
 
+  const handleSaveDictionaryTerms = useCallback(
+    async (
+      terms: Array<{
+        term: string;
+        from?: string;
+        translation: string;
+        description?: string;
+      }>,
+    ) => {
+      if (terms.length === 0) return;
+      await runAction(async () => {
+        for (const term of terms) {
+          await api.saveDictionaryTerm(term, getSelectedWorkspaceId());
+        }
+        await Promise.all([refreshDictionary(), refreshProjectStatus()]);
+        message.success(`已保存 ${terms.length} 个术语变更`);
+      });
+    },
+    [getSelectedWorkspaceId, message, refreshDictionary, refreshProjectStatus, runAction],
+  );
+
   const handleImportDictionaryFromContent = useCallback(
     async (content: string, format: 'csv' | 'tsv') => {
       try {
@@ -2877,6 +2898,7 @@ export function AppShell() {
                       onStartProofread={handleStartProofread}
                       onOpenDictionaryEditor={openDictionaryEditor}
                       onDeleteDictionary={handleDeleteDictionary}
+                      onSaveDictionaryTerms={handleSaveDictionaryTerms}
                       dictionaryScanDefaults={{
                         maxCharsPerBatch: extractorConfig?.maxCharsPerBatch,
                         occurrenceTopK: extractorConfig?.occurrenceTopK,

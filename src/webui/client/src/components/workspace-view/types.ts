@@ -115,6 +115,9 @@ export interface WorkspaceViewProps {
   onResumeTaskActivity: (task: TaskActivityKind) => void | Promise<void>;
   onOpenDictionaryEditor: (record?: GlossaryTerm) => void;
   onDeleteDictionary: (terms: string[]) => void | Promise<void>;
+  onSaveDictionaryTerms: (
+    terms: Array<{ term: string; from?: string; translation: string; description?: string }>,
+  ) => void | Promise<void>;
   dictionaryScanDefaults?: DictionaryScanStartOptions;
   dictionaryTranscribeDefaults?: DictionaryTranscribeStartOptions;
   onImportDictionaryFile: (file: File) => void | Promise<void>;
