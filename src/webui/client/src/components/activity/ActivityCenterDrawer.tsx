@@ -79,6 +79,7 @@ function RuntimeLogsPanel({ active }: { active: boolean }) {
   const [connected, setConnected] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
+  const [expandedMetaIds, setExpandedMetaIds] = useState<Set<number>>(new Set());
 
   const handleAutoScroll = useCallback(() => {
     if (!autoScrollRef.current || !scrollRef.current) return;
@@ -201,20 +202,48 @@ function RuntimeLogsPanel({ active }: { active: boolean }) {
           className="runtime-log-stream"
           onScroll={handleScroll}
         >
-          {logs.map((entry) => (
-            <div key={entry.id} className={`runtime-log-line runtime-log-line--${entry.level}`}>
-              <span className="runtime-log-time">
-                {formatLogTime(entry.timestamp)}
-              </span>
-              <span className={`runtime-log-level runtime-log-level--${entry.level}`}>
-                {entry.level.toUpperCase().padEnd(7)}
-              </span>
-              {entry.workspaceId ? (
-                <span className="runtime-log-workspace">{`[${entry.workspaceId}]`}</span>
-              ) : null}
-              <span className="runtime-log-msg">{entry.message}</span>
-            </div>
-          ))}
+          {logs.map((entry) => {
+            const hasMeta =
+              entry.metadata && Object.keys(entry.metadata).length > 0;
+            const isExpanded = expandedMetaIds.has(entry.id);
+            return (
+              <div key={entry.id}>
+                <div className={`runtime-log-line runtime-log-line--${entry.level}`}>
+                  <span className="runtime-log-time">
+                    {formatLogTime(entry.timestamp)}
+                  </span>
+                  <span className={`runtime-log-level runtime-log-level--${entry.level}`}>
+                    {entry.level.toUpperCase().padEnd(7)}
+                  </span>
+                  {entry.workspaceId ? (
+                    <span className="runtime-log-workspace">{`[${entry.workspaceId}]`}</span>
+                  ) : null}
+                  <span className="runtime-log-msg">{entry.message}</span>
+                  {hasMeta ? (
+                    <button
+                      type="button"
+                      className="runtime-log-meta-toggle"
+                      onClick={() => {
+                        setExpandedMetaIds((prev) => {
+                          const next = new Set(prev);
+                          if (isExpanded) next.delete(entry.id);
+                          else next.add(entry.id);
+                          return next;
+                        });
+                      }}
+                    >
+                      {isExpanded ? '▾' : '▸'} meta
+                    </button>
+                  ) : null}
+                </div>
+                {hasMeta && isExpanded ? (
+                  <pre className="runtime-log-meta-content">
+                    {JSON.stringify(entry.metadata, null, 2)}
+                  </pre>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       )}
     </Card>

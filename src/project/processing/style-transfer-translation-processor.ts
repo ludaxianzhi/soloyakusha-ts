@@ -449,12 +449,13 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
 
       return examples;
     } catch (error) {
-      this.logger.warn?.("风格库检索失败，已跳过风格示例注入", {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error?.("风格库检索失败，已跳过风格示例注入", {
         processorName: this.processorName,
         styleLibraryName: libraryName,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
-      return [];
+      throw new Error(`风格库检索失败: ${errorMessage}`);
     }
   }
 }

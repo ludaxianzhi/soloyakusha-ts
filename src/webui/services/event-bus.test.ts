@@ -64,3 +64,27 @@ test('EventBus addLog works without LogService (no crash)', () => {
   expect(emitted).toBe(true);
   unsub();
 });
+
+test('EventBus addLog passes metadata to LogService and SSE data', () => {
+  const logService = new LogService();
+  const eventBus = new EventBus();
+  eventBus.setLogService(logService);
+
+  const received: Array<{ type: string; data: unknown }> = [];
+  const unsubscribe = eventBus.subscribe((event) => {
+    received.push({ type: event.type, data: event.data });
+  });
+
+  const meta = { key: 'value', count: 42 };
+  eventBus.addLog('error', 'something failed', null, meta);
+  unsubscribe();
+
+  const sseData = received[0]!.data as Record<string, unknown>;
+  expect(sseData.level).toBe('error');
+  expect(sseData.message).toBe('something failed');
+  expect(sseData.metadata).toEqual(meta);
+
+  const allLogs = logService.getLogs();
+  expect(allLogs).toHaveLength(1);
+  expect(allLogs[0]!.metadata).toEqual(meta);
+});

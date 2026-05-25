@@ -47,10 +47,15 @@ export class EventBus {
     }
   }
 
-  addLog(level: LogLevel, message: string, workspaceId: string | null = null): void {
+  addLog(
+    level: LogLevel,
+    message: string,
+    workspaceId: string | null = null,
+    metadata?: Record<string, unknown>,
+  ): void {
     if (this.logService) {
-      this.logService.addLog(level, message, workspaceId);
+      this.logService.addLog(level, message, workspaceId, metadata);
     }
-    this.emit({ type: 'log', workspaceId, data: { level, message, workspaceId } });
+    this.emit({ type: 'log', workspaceId, data: { level, message, workspaceId, metadata } });
   }
 }

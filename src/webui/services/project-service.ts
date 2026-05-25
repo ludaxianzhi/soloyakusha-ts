@@ -5324,15 +5324,16 @@ export class ProjectService {
     level: 'error' | 'warning' | 'info' | 'success',
     message: string,
     workspaceId: string | null = this.getActiveWorkspaceId(),
+    metadata?: Record<string, unknown>,
   ): void {
-    this.eventBus.addLog(level, message, workspaceId);
+    this.eventBus.addLog(level, message, workspaceId, metadata);
   }
 
   private createLogger(): Logger {
     return {
-      info: (msg: string) => this.log('info', msg),
-      warn: (msg: string) => this.log('warning', msg),
-      error: (msg: string) => this.log('error', msg),
+      info: (msg: string, metadata?: Record<string, unknown>) => this.log('info', msg, undefined, metadata),
+      warn: (msg: string, metadata?: Record<string, unknown>) => this.log('warning', msg, undefined, metadata),
+      error: (msg: string, metadata?: Record<string, unknown>) => this.log('error', msg, undefined, metadata),
       debug: () => {},
     };
   }

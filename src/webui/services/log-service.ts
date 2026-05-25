@@ -11,6 +11,7 @@ export interface LogEntry {
   message: string;
   timestamp: string;
   workspaceId: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface LogDigest {
@@ -38,13 +39,19 @@ export class LogService {
     startedAt: new Date().toISOString(),
   };
 
-  addLog(level: LogLevel, message: string, workspaceId: string | null = null): LogEntry {
+  addLog(
+    level: LogLevel,
+    message: string,
+    workspaceId: string | null = null,
+    metadata?: Record<string, unknown>,
+  ): LogEntry {
     const entry: LogEntry = {
       id: ++this.logIdCounter,
       level,
       message,
       timestamp: new Date().toISOString(),
       workspaceId,
+      metadata,
     };
     this.logs.push(entry);
     if (this.logs.length > 500) {
@@ -115,10 +122,14 @@ export class LogService {
       `Started At: ${this.logSession.startedAt}`,
       `Workspace: ${workspaceId ?? 'all'}`,
       '',
-      ...logs.map(
-        (entry) =>
-          `[${entry.timestamp}] [${entry.level.toUpperCase()}]${entry.workspaceId ? ` [${entry.workspaceId}]` : ''} ${entry.message}`,
-      ),
+      ...logs.map((entry) => {
+        const prefix = `[${entry.timestamp}] [${entry.level.toUpperCase()}]${entry.workspaceId ? ` [${entry.workspaceId}]` : ''}`;
+        const metaText =
+          entry.metadata && Object.keys(entry.metadata).length > 0
+            ? ` ${JSON.stringify(entry.metadata)}`
+            : '';
+        return `${prefix} ${entry.message}${metaText}`;
+      }),
     ].join('\n');
     return {
       content,

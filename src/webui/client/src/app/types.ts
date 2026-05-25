@@ -4,6 +4,7 @@ export interface LogEntry {
   message: string;
   timestamp: string;
   workspaceId?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface LogDigest {
