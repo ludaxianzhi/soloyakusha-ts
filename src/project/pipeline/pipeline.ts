@@ -105,6 +105,8 @@ export type TranslationWorkResult = {
   fragmentAuxDataPatch?: FragmentAuxDataPatch;
   /** 批次模式下包含的所有 fragment index（同一 chapter），非批次时为 undefined。 */
   batchFragmentIndices?: number[];
+  /** 各内部步骤按顺序输出的逐行译文数组，用于填充 targetGroups。 */
+  stepTranslations?: string[][];
 };
 
 export type TranslationWorkQueueRuntime = {

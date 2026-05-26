@@ -5081,6 +5081,7 @@ export class ProjectService {
             outputText: result.outputText,
             fragmentAuxDataPatch: result.fragmentAuxDataPatch,
             batchFragmentIndices: item.batchFragmentIndices,
+            stepTranslations: result.stepTranslations,
           });
           scheduleProgressPersist(result);
           void this.usageStatsService

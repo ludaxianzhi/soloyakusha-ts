@@ -304,16 +304,19 @@ export class TranslationDocumentManager {
     stepId: string,
     state: FragmentPipelineStepState,
     translation: TextFragment,
+    stepTranslations?: string[][],
   ): Promise<void> {
     const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
     fragment.pipelineStates[stepId] = state;
     fragment.translation = translation;
+    this.updateFragmentTargetGroupsInMemory(fragment, stepTranslations);
     await this.storage.saveStepStateAndTranslation(
       chapterId,
       fragmentIndex,
       stepId,
       state,
       translation,
+      stepTranslations,
     );
   }
 
@@ -327,10 +330,12 @@ export class TranslationDocumentManager {
     state: FragmentPipelineStepState,
     translation: TextFragment,
     patch: FragmentAuxDataPatch,
+    stepTranslations?: string[][],
   ): Promise<void> {
     const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
     fragment.pipelineStates[stepId] = state;
     fragment.translation = translation;
+    this.updateFragmentTargetGroupsInMemory(fragment, stepTranslations);
     const merged = applyAuxDataPatch(fragment.meta?.auxData, patch);
     if (fragment.meta) {
       fragment.meta.auxData = Object.keys(merged).length > 0 ? merged : undefined;
@@ -344,6 +349,7 @@ export class TranslationDocumentManager {
       state,
       translation,
       merged,
+      stepTranslations,
     );
   }
 
@@ -874,6 +880,19 @@ export class TranslationDocumentManager {
     }
 
     return fragment;
+  }
+
+  private updateFragmentTargetGroupsInMemory(
+    fragment: FragmentEntry,
+    stepTranslations: string[][] | undefined,
+  ): void {
+    if (!stepTranslations || stepTranslations.length === 0) return;
+
+    const lineCount = fragment.source.lines.length;
+    fragment.meta ??= { metadataList: [] };
+    fragment.meta.targetGroups = fragment.source.lines.map((_, lineIndex) =>
+      stepTranslations.map((step) => step[lineIndex] ?? ""),
+    );
   }
 
   private async saveChapter(chapter: ChapterEntry): Promise<void> {

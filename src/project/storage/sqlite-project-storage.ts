@@ -432,11 +432,15 @@ export class SqliteProjectStorage {
     stepId: string,
     state: FragmentPipelineStepState,
     translation: TextFragment,
+    stepTranslations?: string[][],
   ): Promise<void> {
     await this.enqueueWrite(async (db) => {
       this.upsertPipelineStepState(db, chapterId, fragmentIndex, stepId, state);
       this.replaceFragmentTranslations(db, chapterId, fragmentIndex, translation.lines);
       this.recalculateChapterTranslatedLineCount(db, chapterId);
+      if (stepTranslations && stepTranslations.length > 0) {
+        this.replaceFragmentTargetGroups(db, chapterId, fragmentIndex, stepTranslations);
+      }
     });
   }
 
@@ -480,6 +484,7 @@ export class SqliteProjectStorage {
     state: FragmentPipelineStepState,
     translation: TextFragment,
     auxData: FragmentAuxData,
+    stepTranslations?: string[][],
   ): Promise<void> {
     await this.enqueueWrite(async (db) => {
       this.upsertPipelineStepState(db, chapterId, fragmentIndex, stepId, state);
@@ -491,6 +496,9 @@ export class SqliteProjectStorage {
           WHERE chapter_id = ?1
             AND fragment_index = ?2`,
       ).run(chapterId, fragmentIndex, JSON.stringify(auxData));
+      if (stepTranslations && stepTranslations.length > 0) {
+        this.replaceFragmentTargetGroups(db, chapterId, fragmentIndex, stepTranslations);
+      }
     });
   }
 
@@ -839,6 +847,31 @@ export class SqliteProjectStorage {
         existing?.extend ?? "",
         existing?.comment ?? "",
       );
+    }
+  }
+
+  /**
+   * 在事务中用 stepTranslations 整体替换 target_groups_json。
+   * stepTranslations 为 string[][]，外层为步骤、内层为行，按行转置后写入。
+   */
+  private replaceFragmentTargetGroups(
+    db: Database,
+    chapterId: number,
+    fragmentIndex: number,
+    stepTranslations: string[][],
+  ): void {
+    const lineCount = stepTranslations[0]?.length ?? 0;
+    if (lineCount === 0) return;
+
+    for (let lineIndex = 0; lineIndex < lineCount; lineIndex++) {
+      const targetGroup = stepTranslations.map((step) => step[lineIndex] ?? "");
+      db.query(
+        `UPDATE fragment_lines
+            SET target_groups_json = ?4
+          WHERE chapter_id = ?1
+            AND fragment_index = ?2
+            AND line_index = ?3`,
+      ).run(chapterId, fragmentIndex, lineIndex, JSON.stringify(targetGroup));
     }
   }
 

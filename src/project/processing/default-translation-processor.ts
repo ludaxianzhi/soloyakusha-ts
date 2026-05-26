@@ -247,6 +247,7 @@ export class DefaultTranslationProcessor implements TranslationProcessor {
       systemPrompt: renderedPrompt.systemPrompt,
       userPrompt: renderedPrompt.userPrompt,
       window,
+      stepTranslations: [translations.map((t) => t.translation)],
     };
   }
 

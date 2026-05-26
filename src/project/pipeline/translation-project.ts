@@ -1376,6 +1376,7 @@ export class TranslationProject
           completedStepState,
           output,
           result.fragmentAuxDataPatch!,
+          result.stepTranslations,
         );
       } else {
         await this.documentManager.updateStepStateAndTranslation(
@@ -1384,6 +1385,7 @@ export class TranslationProject
           result.stepId,
           completedStepState,
           output,
+          result.stepTranslations,
         );
       }
     } else {
@@ -1472,6 +1474,11 @@ export class TranslationProject
       const sourceLineCount = expectedLineCounts[index]!;
       const fragmentOutputLines = outputLines.slice(lineOffset, lineOffset + sourceLineCount);
       const fragmentOutput = createTextFragment(fragmentOutputLines.join("\n"));
+
+      const fragmentStepTranslations = result.stepTranslations?.map((stepLines) =>
+        stepLines.slice(lineOffset, lineOffset + sourceLineCount),
+      );
+
       lineOffset += sourceLineCount;
 
       const stepState = this.documentManager.getPipelineStepState(
@@ -1508,6 +1515,7 @@ export class TranslationProject
           result.stepId,
           completedStepState,
           fragmentOutput,
+          fragmentStepTranslations,
         );
       } else {
         await this.documentManager.updatePipelineStepState(

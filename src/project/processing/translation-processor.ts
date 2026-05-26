@@ -59,6 +59,8 @@ export type TranslationProcessorResult = {
   window?: SlidingWindowFragment;
   /** 处理器希望写入此文本块辅助数据的增量补丁；undefined 表示不修改辅助数据。 */
   fragmentAuxDataPatch?: FragmentAuxDataPatch;
+  /** 各内部步骤按顺序输出的逐行译文数组（string[][]），用于填充 targetGroups。 */
+  stepTranslations?: string[][];
 };
 
 export type TranslationProcessorClientResolver =

@@ -256,6 +256,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       initialResponseText,
       sourceUnits.map((unit) => unit.id),
     );
+    const initialTranslations = currentTranslations.map((t) => t.translation);
 
     const glossaryUpdatePromise =
       request.glossary && untranslatedGlossaryTerms.length > 0
@@ -323,6 +324,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       currentTranslations,
       styleTransferModifications,
     );
+    const finalTranslations = currentTranslations.map((t) => t.translation);
 
     const glossaryUpdateResult = await glossaryUpdatePromise;
 
@@ -357,6 +359,7 @@ export class StyleTransferTranslationProcessor implements TranslationProcessor {
       userPrompt: styleTransferPrompt.userPrompt,
       window,
       fragmentAuxDataPatch: { "styleTransfer.analysis.v1": analysisText },
+      stepTranslations: [initialTranslations, finalTranslations],
     };
   }
 
