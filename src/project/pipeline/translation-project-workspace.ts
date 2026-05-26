@@ -421,22 +421,21 @@ export class TranslationProjectWorkspace {
       throw new Error(`章节 ${chapterId} 不存在`);
     }
 
-    const sourceLineCount = chapter.fragments.reduce(
-      (sum, fragment) => sum + fragment.source.lines.length,
-      0,
-    );
-    const translatedLineCount = chapter.fragments.reduce(
-      (sum, fragment) =>
-        sum + fragment.translation.lines.filter((line) => line.length > 0).length,
-      0,
-    );
+    const descriptors = this.documentManager.getAllChapterDescriptors();
+    const persisted = descriptors.get(chapterId);
+
+    const sourceLineCount = persisted?.sourceLineCount
+      ?? chapter.fragments.reduce((sum, f) => sum + f.source.lines.length, 0);
+    const translatedLineCount = persisted?.translatedLineCount
+      ?? chapter.fragments.reduce((sum, f) => sum + f.translation.lines.filter((l) => l.length > 0).length, 0);
+    const fragmentCount = persisted?.fragmentCount ?? chapter.fragments.length;
 
     return {
       id: chapterId,
       filePath: chapterConfig.filePath,
       importBatchId: chapterConfig.importBatchId,
       displayName: getChapterDisplayName(chapterConfig.filePath),
-      fragmentCount: chapter.fragments.length,
+      fragmentCount,
       sourceLineCount,
       translatedLineCount,
       hasTranslationData: translatedLineCount > 0,

@@ -20,9 +20,7 @@ type FragmentRow = {
   chapter_id: number;
   fragment_index: number;
   hash: string;
-  source_json: string;
-  metadata_json: string;
-  target_groups_json: string;
+  line_count: number;
   aux_data_json: string;
 };
 
@@ -30,7 +28,12 @@ type FragmentLineRow = {
   chapter_id: number;
   fragment_index: number;
   line_index: number;
+  source: string;
   translation: string;
+  metadata_json: string | null;
+  target_groups_json: string | null;
+  extend: string;
+  comment: string;
 };
 
 type PipelineStepStateRow = {
@@ -38,6 +41,14 @@ type PipelineStepStateRow = {
   fragment_index: number;
   step_id: string;
   state_json: string;
+};
+
+type ChapterRow = {
+  chapter_id: number;
+  file_path: string;
+  fragment_count: number;
+  source_line_count: number;
+  translated_line_count: number;
 };
 
 export type PersistedChapterIndex = {
@@ -104,18 +115,18 @@ export class SqliteProjectStorage {
     try {
       const chapterRow = db
         .query(
-          `SELECT chapter_id, file_path
+          `SELECT chapter_id, file_path, fragment_count, source_line_count, translated_line_count
              FROM chapters
             WHERE chapter_id = ?1`,
         )
-        .get(chapterId) as { chapter_id: number; file_path: string } | null;
+        .get(chapterId) as ChapterRow | null;
       if (!chapterRow) {
         return undefined;
       }
 
       const fragmentRows = db
         .query(
-          `SELECT chapter_id, fragment_index, hash, source_json, metadata_json, target_groups_json, aux_data_json
+          `SELECT chapter_id, fragment_index, hash, line_count, aux_data_json
              FROM fragments
             WHERE chapter_id = ?1
             ORDER BY fragment_index`,
@@ -124,7 +135,7 @@ export class SqliteProjectStorage {
 
       const lineRows = db
         .query(
-          `SELECT chapter_id, fragment_index, line_index, translation
+          `SELECT chapter_id, fragment_index, line_index, source, translation, metadata_json, target_groups_json, extend, comment
              FROM fragment_lines
             WHERE chapter_id = ?1
             ORDER BY fragment_index, line_index`,
@@ -151,29 +162,11 @@ export class SqliteProjectStorage {
     try {
       const rows = db
         .query(
-          `SELECT c.chapter_id,
-                  COALESCE(fc.fragment_count, 0)       AS fragment_count,
-                  COALESCE(fc.source_line_count, 0)     AS source_line_count,
-                  COALESCE(tlc.translated_line_count, 0) AS translated_line_count
-             FROM chapters c
-             LEFT JOIN (SELECT chapter_id,
-                               COUNT(*)                     AS fragment_count,
-                               SUM(json_array_length(source_json)) AS source_line_count
-                          FROM fragments
-                         GROUP BY chapter_id) fc ON fc.chapter_id = c.chapter_id
-             LEFT JOIN (SELECT chapter_id,
-                               COUNT(*) AS translated_line_count
-                          FROM fragment_lines
-                         WHERE translation IS NOT NULL AND translation != ''
-                         GROUP BY chapter_id) tlc ON tlc.chapter_id = c.chapter_id
-            ORDER BY c.chapter_id`,
+          `SELECT chapter_id, fragment_count, source_line_count, translated_line_count
+             FROM chapters
+            ORDER BY chapter_id`,
         )
-        .all() as Array<{
-          chapter_id: number;
-          fragment_count: number;
-          source_line_count: number;
-          translated_line_count: number;
-        }>;
+        .all() as ChapterRow[];
 
       const result = new Map<number, { fragmentCount: number; sourceLineCount: number; translatedLineCount: number }>();
       for (const row of rows) {
@@ -245,6 +238,7 @@ export class SqliteProjectStorage {
   ): Promise<void> {
     await this.enqueueWrite(async (db) => {
       this.replaceFragmentTranslations(db, chapterId, fragmentIndex, translation.lines);
+      this.recalculateChapterTranslatedLineCount(db, chapterId);
     });
   }
 
@@ -262,6 +256,7 @@ export class SqliteProjectStorage {
             AND fragment_index = ?2
             AND line_index = ?3`,
       ).run(chapterId, fragmentIndex, lineIndex, translation);
+      this.recalculateChapterTranslatedLineCount(db, chapterId);
     });
   }
 
@@ -311,6 +306,7 @@ export class SqliteProjectStorage {
     await this.enqueueWrite(async (db) => {
       this.upsertPipelineStepState(db, chapterId, fragmentIndex, stepId, state);
       this.replaceFragmentTranslations(db, chapterId, fragmentIndex, translation.lines);
+      this.recalculateChapterTranslatedLineCount(db, chapterId);
     });
   }
 
@@ -358,12 +354,96 @@ export class SqliteProjectStorage {
     await this.enqueueWrite(async (db) => {
       this.upsertPipelineStepState(db, chapterId, fragmentIndex, stepId, state);
       this.replaceFragmentTranslations(db, chapterId, fragmentIndex, translation.lines);
+      this.recalculateChapterTranslatedLineCount(db, chapterId);
       db.query(
         `UPDATE fragments
             SET aux_data_json = ?3
           WHERE chapter_id = ?1
             AND fragment_index = ?2`,
       ).run(chapterId, fragmentIndex, JSON.stringify(auxData));
+    });
+  }
+
+  async updateChaptersLineCount(
+    chapterId: number,
+    sourceLineCount: number,
+    translatedLineCount: number,
+  ): Promise<void> {
+    await this.enqueueWrite(async (db) => {
+      db.query(
+        `UPDATE chapters
+            SET source_line_count = ?2, translated_line_count = ?3
+          WHERE chapter_id = ?1`,
+      ).run(chapterId, sourceLineCount, translatedLineCount);
+    });
+  }
+
+  getFragmentLine(
+    chapterId: number,
+    fragmentIndex: number,
+    lineIndex: number,
+  ): {
+    source: string;
+    translation: string;
+    metadata_json: string | null;
+    target_groups_json: string | null;
+    extend: string;
+    comment: string;
+  } | undefined {
+    const db = this.openDatabase();
+    try {
+      return db
+        .query(
+          `SELECT source, translation, metadata_json, target_groups_json, extend, comment
+             FROM fragment_lines
+            WHERE chapter_id = ?1
+              AND fragment_index = ?2
+              AND line_index = ?3`,
+        )
+        .get(chapterId, fragmentIndex, lineIndex) as {
+          source: string;
+          translation: string;
+          metadata_json: string | null;
+          target_groups_json: string | null;
+          extend: string;
+          comment: string;
+        } | null ?? undefined;
+    } finally {
+      db.close();
+    }
+  }
+
+  async updateFragmentLineExtend(
+    chapterId: number,
+    fragmentIndex: number,
+    lineIndex: number,
+    extend: string,
+  ): Promise<void> {
+    await this.enqueueWrite(async (db) => {
+      db.query(
+        `UPDATE fragment_lines
+            SET extend = ?4
+          WHERE chapter_id = ?1
+            AND fragment_index = ?2
+            AND line_index = ?3`,
+      ).run(chapterId, fragmentIndex, lineIndex, extend);
+    });
+  }
+
+  async updateFragmentLineComment(
+    chapterId: number,
+    fragmentIndex: number,
+    lineIndex: number,
+    comment: string,
+  ): Promise<void> {
+    await this.enqueueWrite(async (db) => {
+      db.query(
+        `UPDATE fragment_lines
+            SET comment = ?4
+          WHERE chapter_id = ?1
+            AND fragment_index = ?2
+            AND line_index = ?3`,
+      ).run(chapterId, fragmentIndex, lineIndex, comment);
     });
   }
 
@@ -442,16 +522,17 @@ export class SqliteProjectStorage {
 
       CREATE TABLE IF NOT EXISTS chapters (
         chapter_id INTEGER PRIMARY KEY,
-        file_path TEXT NOT NULL
+        file_path TEXT NOT NULL,
+        fragment_count INTEGER NOT NULL DEFAULT 0,
+        source_line_count INTEGER NOT NULL DEFAULT 0,
+        translated_line_count INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS fragments (
         chapter_id INTEGER NOT NULL,
         fragment_index INTEGER NOT NULL,
         hash TEXT NOT NULL,
-        source_json TEXT NOT NULL,
-        metadata_json TEXT NOT NULL,
-        target_groups_json TEXT NOT NULL,
+        line_count INTEGER NOT NULL DEFAULT 0,
         aux_data_json TEXT NOT NULL DEFAULT '{}',
         PRIMARY KEY (chapter_id, fragment_index),
         FOREIGN KEY (chapter_id) REFERENCES chapters(chapter_id) ON DELETE CASCADE
@@ -461,7 +542,12 @@ export class SqliteProjectStorage {
         chapter_id INTEGER NOT NULL,
         fragment_index INTEGER NOT NULL,
         line_index INTEGER NOT NULL,
-        translation TEXT NOT NULL,
+        source TEXT NOT NULL,
+        translation TEXT NOT NULL DEFAULT '',
+        metadata_json TEXT,
+        target_groups_json TEXT,
+        extend TEXT NOT NULL DEFAULT '',
+        comment TEXT NOT NULL DEFAULT '',
         PRIMARY KEY (chapter_id, fragment_index, line_index),
         FOREIGN KEY (chapter_id, fragment_index)
           REFERENCES fragments(chapter_id, fragment_index) ON DELETE CASCADE
@@ -477,19 +563,7 @@ export class SqliteProjectStorage {
           REFERENCES fragments(chapter_id, fragment_index) ON DELETE CASCADE
       );
 
-      -- 迁移：为旧数据库补充 aux_data_json 列（幂等，列已存在时 PRAGMA table_info 不会抛错）
-      -- 无法在 CREATE TABLE 中直接加，需要显式 ALTER TABLE 处理旧 schema
-    `);
-    const hasAuxDataCol = (db.query(
-      `SELECT 1 FROM pragma_table_info('fragments') WHERE name = 'aux_data_json'`,
-    ).get() as { 1: number } | null) !== null;
-    if (!hasAuxDataCol) {
-      db.exec(`ALTER TABLE fragments ADD COLUMN aux_data_json TEXT NOT NULL DEFAULT '{}'`);
-    }
-    db.exec(`
       CREATE INDEX IF NOT EXISTS idx_fragments_hash ON fragments(hash);
-      CREATE INDEX IF NOT EXISTS idx_fragment_lines_lookup
-        ON fragment_lines(chapter_id, fragment_index, line_index);
       CREATE INDEX IF NOT EXISTS idx_pipeline_step_states_step
         ON pipeline_step_states(step_id, chapter_id, fragment_index);
     `);
@@ -497,11 +571,26 @@ export class SqliteProjectStorage {
   }
 
   private replaceChapter(db: Database, chapter: ChapterEntry): void {
+    const fragmentCount = chapter.fragments.length;
+    const sourceLineCount = chapter.fragments.reduce(
+      (sum, f) => sum + f.source.lines.length,
+      0,
+    );
+    const translatedLineCount = chapter.fragments.reduce(
+      (sum, f) =>
+        sum + f.translation.lines.filter((l) => l.length > 0).length,
+      0,
+    );
+
     db.query(
-      `INSERT INTO chapters(chapter_id, file_path)
-       VALUES (?1, ?2)
-       ON CONFLICT(chapter_id) DO UPDATE SET file_path = excluded.file_path`,
-    ).run(chapter.id, chapter.filePath);
+      `INSERT INTO chapters(chapter_id, file_path, fragment_count, source_line_count, translated_line_count)
+       VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(chapter_id) DO UPDATE SET
+         file_path = excluded.file_path,
+         fragment_count = excluded.fragment_count,
+         source_line_count = excluded.source_line_count,
+         translated_line_count = excluded.translated_line_count`,
+    ).run(chapter.id, chapter.filePath, fragmentCount, sourceLineCount, translatedLineCount);
 
     db.query(`DELETE FROM fragments WHERE chapter_id = ?1`).run(chapter.id);
 
@@ -511,27 +600,47 @@ export class SqliteProjectStorage {
             chapter_id,
             fragment_index,
             hash,
-            source_json,
-            metadata_json,
-            target_groups_json,
+            line_count,
             aux_data_json
           )
-          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+          VALUES (?1, ?2, ?3, ?4, ?5)`,
       ).run(
         chapter.id,
         fragmentIndex,
         fragment.hash,
-        JSON.stringify(fragment.source.lines),
-        JSON.stringify(fragment.meta?.metadataList ?? []),
-        JSON.stringify(fragment.meta?.targetGroups ?? []),
+        fragment.source.lines.length,
         JSON.stringify(fragment.meta?.auxData ?? {}),
       );
 
-      for (const [lineIndex, line] of fragment.translation.lines.entries()) {
+      for (const [lineIndex] of fragment.source.lines.entries()) {
         db.query(
-          `INSERT INTO fragment_lines(chapter_id, fragment_index, line_index, translation)
-           VALUES (?1, ?2, ?3, ?4)`,
-        ).run(chapter.id, fragmentIndex, lineIndex, line);
+          `INSERT INTO fragment_lines(
+              chapter_id,
+              fragment_index,
+              line_index,
+              source,
+              translation,
+              metadata_json,
+              target_groups_json,
+              extend,
+              comment
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+        ).run(
+          chapter.id,
+          fragmentIndex,
+          lineIndex,
+          fragment.source.lines[lineIndex] ?? "",
+          fragment.translation.lines[lineIndex] ?? "",
+          fragment.meta?.metadataList[lineIndex] !== undefined
+            ? JSON.stringify(fragment.meta.metadataList[lineIndex])
+            : null,
+          fragment.meta?.targetGroups?.[lineIndex] !== undefined
+            ? JSON.stringify(fragment.meta.targetGroups[lineIndex])
+            : null,
+          "",
+          "",
+        );
       }
 
       for (const [stepId, state] of Object.entries(fragment.pipelineStates)) {
@@ -546,6 +655,23 @@ export class SqliteProjectStorage {
     fragmentIndex: number,
     lines: string[],
   ): void {
+    const existingRows = db
+      .query(
+        `SELECT line_index, source, metadata_json, target_groups_json, extend, comment
+           FROM fragment_lines
+          WHERE chapter_id = ?1
+            AND fragment_index = ?2
+          ORDER BY line_index`,
+      )
+      .all(chapterId, fragmentIndex) as Array<{
+        line_index: number;
+        source: string;
+        metadata_json: string | null;
+        target_groups_json: string | null;
+        extend: string;
+        comment: string;
+      }>;
+
     db.query(
       `DELETE FROM fragment_lines
         WHERE chapter_id = ?1
@@ -553,11 +679,50 @@ export class SqliteProjectStorage {
     ).run(chapterId, fragmentIndex);
 
     for (const [lineIndex, line] of lines.entries()) {
+      const existing = existingRows.find((r) => r.line_index === lineIndex);
       db.query(
-        `INSERT INTO fragment_lines(chapter_id, fragment_index, line_index, translation)
-         VALUES (?1, ?2, ?3, ?4)`,
-      ).run(chapterId, fragmentIndex, lineIndex, line);
+        `INSERT INTO fragment_lines(
+            chapter_id,
+            fragment_index,
+            line_index,
+            source,
+            translation,
+            metadata_json,
+            target_groups_json,
+            extend,
+            comment
+          )
+          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+      ).run(
+        chapterId,
+        fragmentIndex,
+        lineIndex,
+        existing?.source ?? "",
+        line,
+        existing?.metadata_json ?? null,
+        existing?.target_groups_json ?? null,
+        existing?.extend ?? "",
+        existing?.comment ?? "",
+      );
     }
+  }
+
+  private recalculateChapterTranslatedLineCount(db: Database, chapterId: number): void {
+    const row = db
+      .query(
+        `SELECT COUNT(*) AS count
+           FROM fragment_lines
+          WHERE chapter_id = ?1
+            AND translation IS NOT NULL
+            AND translation != ''`,
+      )
+      .get(chapterId) as { count: number };
+
+    db.query(
+      `UPDATE chapters
+          SET translated_line_count = ?2
+        WHERE chapter_id = ?1`,
+    ).run(chapterId, row.count);
   }
 
   private upsertPipelineStepState(
@@ -577,15 +742,15 @@ export class SqliteProjectStorage {
 }
 
 function hydrateChapter(
-  chapterRow: { chapter_id: number; file_path: string },
+  chapterRow: ChapterRow,
   fragmentRows: FragmentRow[],
   lineRows: FragmentLineRow[],
   pipelineRows: PipelineStepStateRow[],
 ): ChapterEntry {
-  const linesByFragment = new Map<number, string[]>();
+  const linesByFragment = new Map<number, FragmentLineRow[]>();
   for (const row of lineRows) {
     const lines = linesByFragment.get(row.fragment_index) ?? [];
-    lines[row.line_index] = row.translation;
+    lines[row.line_index] = row;
     linesByFragment.set(row.fragment_index, lines);
   }
 
@@ -605,18 +770,23 @@ function hydrateChapter(
 
 function hydrateFragment(
   row: FragmentRow,
-  linesByFragment: Map<number, string[]>,
+  linesByFragment: Map<number, FragmentLineRow[]>,
   pipelineByFragment: Map<number, Record<string, FragmentPipelineStepState>>,
 ): FragmentEntry {
-  const sourceLines = JSON.parse(row.source_json) as string[];
-  const metadataList = JSON.parse(row.metadata_json) as TranslationUnitMetadata[];
-  const targetGroups = JSON.parse(row.target_groups_json) as string[][];
-  const auxData = JSON.parse(row.aux_data_json ?? '{}') as FragmentAuxData;
-  const translationLines = linesByFragment.get(row.fragment_index) ?? sourceLines.map(() => "");
+  const lineRows = linesByFragment.get(row.fragment_index) ?? [];
+  const sourceLines = lineRows.map((lr) => lr.source);
+  const translationLines = lineRows.map((lr) => lr.translation);
+  const metadataList = lineRows.map<TranslationUnitMetadata>((lr) =>
+    lr.metadata_json !== null ? (JSON.parse(lr.metadata_json) as TranslationUnitMetadata) : null,
+  );
+  const targetGroups: string[][] = lineRows.map((lr) =>
+    lr.target_groups_json !== null ? (JSON.parse(lr.target_groups_json) as string[]) : [],
+  );
+  const auxData = JSON.parse(row.aux_data_json ?? "{}") as FragmentAuxData;
 
   return {
     source: { lines: sourceLines },
-    translation: { lines: sourceLines.map((_line, index) => translationLines[index] ?? "") },
+    translation: { lines: translationLines },
     pipelineStates: pipelineByFragment.get(row.fragment_index) ?? {},
     meta: {
       metadataList,

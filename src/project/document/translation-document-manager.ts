@@ -9,7 +9,7 @@
  * - 基于已切分片段按需派生滑动窗口视图
  *
  * 数据流向：
- * 原始文件 → TranslationUnit[] → FragmentEntry[] → JSON 持久化
+ * 原始文件 → TranslationUnit[] → FragmentEntry[] → SQLite 持久化
  *
  * @module project/translation-document-manager
  */
@@ -119,14 +119,14 @@ export class DefaultTextSplitter implements TranslationUnitSplitter {
  *
  * 核心职责：
  * - 章节加载：从原始文件读取翻译单元，应用切分策略，生成片段条目
- * - 持久化：将章节状态保存为 JSON 文件，支持断点恢复
+ * - 持久化：将章节状态保存至 SQLite，支持断点恢复
  * - 翻译更新：接收翻译结果，更新片段状态，触发落盘
  * - 导出合并：将所有片段的翻译结果按原顺序合并为完整译文
  *
  * 哈希索引用于快速定位片段，支持跨章节引用（如上下文构建）。
  *
  * 数据目录结构：
- * projectDir/Data/Chapters/{chapterId}.json
+ * projectDir/Data/project.sqlite
  */
 export class TranslationDocumentManager {
   readonly projectDir: string;
@@ -869,40 +869,6 @@ function normalizeFragment(value: TextFragment | string | string[]): TextFragmen
 
 function computeHash(fragment: TextFragment): string {
   return Bun.hash(fragmentToText(fragment)).toString(16);
-}
-
-function normalizePersistedChapter(chapter: ChapterEntry): ChapterEntry {
-  return {
-    id: chapter.id,
-    filePath: chapter.filePath,
-    fragments: chapter.fragments.map((fragment) => {
-      return {
-        source: fragment.source,
-        translation: fragment.translation,
-        pipelineStates: Object.fromEntries(
-          Object.entries(fragment.pipelineStates ?? {}).map(([stepId, state]) => [
-            stepId,
-            normalizePersistedPipelineStepState(state),
-          ]),
-        ),
-        meta: {
-          metadataList: fragment.meta?.metadataList ?? [],
-          targetGroups: (fragment.meta?.targetGroups ?? []).map((group) => [...group]),
-          auxData: fragment.meta?.auxData ? { ...fragment.meta.auxData } : undefined,
-        },
-        hash: fragment.hash,
-      };
-    }),
-  };
-}
-
-function normalizePersistedPipelineStepState(
-  state: FragmentPipelineStepState,
-): FragmentPipelineStepState {
-  return {
-    ...state,
-    attemptCount: typeof state.attemptCount === "number" ? state.attemptCount : 0,
-  };
 }
 
 function normalizePersistedProjectState(
