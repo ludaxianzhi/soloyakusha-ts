@@ -1151,6 +1151,7 @@ function buildTranslationUnit(
     source: sourceLine,
     target: targets,
     metadata: metadataList[lineIndex] ?? null,
+    comment: fragment.meta?.comments?.[lineIndex],
   };
 }
 

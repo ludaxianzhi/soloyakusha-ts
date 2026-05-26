@@ -979,6 +979,7 @@ function hydrateFragment(
     lr.target_groups_json !== null ? (JSON.parse(lr.target_groups_json) as string[]) : [],
   );
   const auxData = JSON.parse(row.aux_data_json ?? "{}") as FragmentAuxData;
+  const comments = lineRows.map((lr) => lr.comment ?? "");
 
   return {
     source: { lines: sourceLines },
@@ -988,6 +989,7 @@ function hydrateFragment(
       metadataList,
       targetGroups,
       auxData: Object.keys(auxData).length > 0 ? auxData : undefined,
+      comments: comments.some((c) => c.length > 0) ? comments : undefined,
     },
     hash: row.hash,
   };

@@ -24,6 +24,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
 import type { FileHandlerParamDef } from "./base.ts";
 import {
+  BLANK_PLACEHOLDER,
   type ParsedTranslationDocument,
   type ParsedTranslationUnitBlock,
   TranslationFileHandler,
@@ -35,6 +36,8 @@ import {
 
 const EXPORT_PARAMS: FileHandlerParamDef[] = [
   { key: "keepSourceName", label: "保持名称", type: "boolean", defaultValue: false, description: "导出时角色名保持与原文一致" },
+  { key: "includeComment", label: "导出评论", type: "boolean", defaultValue: false, description: "将校对评审的评论以 # 开头写入文件" },
+  { key: "exportAllTranslations", label: "导出所有译文", type: "boolean", defaultValue: false, description: "导出 targetGroups 中的历史译文，当前译文使用 ●，其他使用 ○" },
 ];
 
 /**
@@ -55,10 +58,18 @@ export class NatureDialogFileHandler extends TranslationFileHandler {
   override readonly exportParamDefs = EXPORT_PARAMS;
 
   private keepSourceName = false;
+  private includeComment = false;
+  private exportAllTranslations = false;
 
   override applyParams(params: Record<string, unknown>): void {
     if (typeof params.keepSourceName === "boolean") {
       this.keepSourceName = params.keepSourceName;
+    }
+    if (typeof params.includeComment === "boolean") {
+      this.includeComment = params.includeComment;
+    }
+    if (typeof params.exportAllTranslations === "boolean") {
+      this.exportAllTranslations = params.exportAllTranslations;
     }
   }
 
@@ -87,7 +98,11 @@ export class NatureDialogFileHandler extends TranslationFileHandler {
           ),
         }))
       : units;
-    return buildNatureDialogContent(processedUnits);
+    return buildNatureDialogContent(
+      processedUnits,
+      this.includeComment,
+      this.exportAllTranslations,
+    );
   }
 }
 
@@ -147,15 +162,49 @@ function removeNameBlock(text: string): string {
   return text.replace(/^【.+?】/, "").trim();
 }
 
-function buildNatureDialogContent(units: TranslationUnit[]): string {
+function buildNatureDialogContent(
+  units: TranslationUnit[],
+  includeComment: boolean,
+  exportAllTranslations: boolean,
+): string {
   const lines: string[] = [];
 
   for (const unit of units) {
-    lines.push(`○ ${restoreBlankText(unit.source)}`);
-    for (const [index, targetText] of unit.target.entries()) {
-      const prefix = index === unit.target.length - 1 ? "●" : "○";
-      lines.push(`${prefix} ${restoreBlankText(targetText)}`);
+    const sourceText = restoreBlankText(unit.source);
+    const isBlank = unit.source === BLANK_PLACEHOLDER;
+
+    if (isBlank) {
+      lines.push(`○ `);
+      lines.push(`● `);
+      if (includeComment && unit.comment) {
+        lines.push(`# ${unit.comment}`);
+      }
+      lines.push("");
+      continue;
     }
+
+    lines.push(`○ ${sourceText}`);
+
+    const targets = unit.target;
+    if (exportAllTranslations && targets.length > 0) {
+      for (let i = 0; i < targets.length - 1; i++) {
+        const text = restoreBlankText(targets[i]!);
+        if (text) {
+          lines.push(`○ ${text}`);
+        }
+      }
+      const lastText = restoreBlankText(targets[targets.length - 1]!);
+      lines.push(`● ${lastText}`);
+    } else if (targets.length > 0) {
+      lines.push(`● ${restoreBlankText(targets[targets.length - 1]!)}`);
+    } else {
+      lines.push(`● `);
+    }
+
+    if (includeComment && unit.comment) {
+      lines.push(`# ${unit.comment}`);
+    }
+
     lines.push("");
   }
 

@@ -17,6 +17,8 @@ export type TranslationUnit = {
   source: string;
   target: string[];
   metadata?: TranslationUnitMetadata;
+  /** 该行的评论（由校对评审写入），格式为 "LV{level}：{comment}"。 */
+  comment?: string;
 };
 
 export type TextFragment = {
@@ -32,6 +34,8 @@ export type FragmentMeta = {
   targetGroups?: string[][];
   /** 文本块级 JSON 辅助数据，供提供者/消费者跨流程传递任意结构化数据。 */
   auxData?: FragmentAuxData;
+  /** 逐行评论（由校对评审写入），按行号索引。 */
+  comments?: string[];
 };
 
 /**

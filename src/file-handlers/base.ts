@@ -119,6 +119,7 @@ export function normalizeBlankSourceUnit(unit: TranslationUnit): TranslationUnit
     source: BLANK_PLACEHOLDER,
     target: [BLANK_PLACEHOLDER],
     metadata: unit.metadata ?? null,
+    comment: unit.comment,
   };
 }
 
