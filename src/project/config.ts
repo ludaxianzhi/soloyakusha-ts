@@ -57,6 +57,8 @@ export type TranslationProcessorConfig = {
   reviewIterations?: number;
   /** 是否注入待编辑文本的原文；仅 proofread-editor-only 生效，默认 true（保持原行为）。 */
   includeSourceText?: boolean;
+  /** 最低输出评论等级（1-4），仅对 proofread-multi-stage 生效。 */
+  minCommentLevel?: number;
 };
 
 export type TranslationProcessorStepConfig = {
@@ -293,6 +295,9 @@ export class TranslationGlobalConfig {
         ...(config.includeSourceText !== undefined
           ? { includeSourceText: config.includeSourceText }
           : {}),
+        ...(config.minCommentLevel !== undefined
+          ? { minCommentLevel: config.minCommentLevel }
+          : {}),
       },
       promptManager: options.promptManager,
       defaultRequestOptions: config.requestOptions,
@@ -340,6 +345,9 @@ export class TranslationGlobalConfig {
           : {}),
         ...(config.includeSourceText !== undefined
           ? { includeSourceText: config.includeSourceText }
+          : {}),
+        ...(config.minCommentLevel !== undefined
+          ? { minCommentLevel: config.minCommentLevel }
           : {}),
       },
       promptManager: options.promptManager,

@@ -163,6 +163,8 @@ export class GlobalConfigManager {
   async setProofreadProcessorConfig(
     config?: TranslationProcessorConfig,
   ): Promise<TranslationProcessorConfig | undefined> {
+    console.log('[Config] setProofreadProcessorConfig: minCommentLevel =',
+      config?.minCommentLevel, '(type:', typeof config?.minCommentLevel, ')');
     const saved = await this.setProofreader(
       "default",
       config

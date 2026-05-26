@@ -323,6 +323,10 @@ export function normalizeTranslationProcessorConfig(
       `${sourceLabel}.reviewIterations`,
     ),
     includeSourceText: readOptionalBoolean(value.includeSourceText, `${sourceLabel}.includeSourceText`),
+    minCommentLevel: readOptionalNonNegativeInteger(
+      value.minCommentLevel,
+      `${sourceLabel}.minCommentLevel`,
+    ),
   };
 
   const steps = normalizeTranslationProcessorStepConfigs(
@@ -1138,6 +1142,7 @@ export function cloneTranslationProcessorConfig(
     models: config.models ? { ...config.models } : undefined,
     reviewIterations: config.reviewIterations,
     includeSourceText: config.includeSourceText,
+    minCommentLevel: config.minCommentLevel,
   };
 
   const steps = cloneTranslationProcessorStepConfigs(config.steps);
@@ -1873,8 +1878,16 @@ function normalizeIsoDateString(value: unknown, sourceLabel: string): string {
 }
 
 function readOptionalFiniteNumber(value: unknown, sourceLabel: string): number | undefined {
-  if (value === undefined) {
+  if (value === undefined || value === null) {
     return undefined;
+  }
+
+  if (typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value.trim())) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+      throw new Error(`字段必须是有限数字: ${sourceLabel}`);
+    }
+    return num;
   }
 
   if (typeof value !== "number" || !Number.isFinite(value)) {
