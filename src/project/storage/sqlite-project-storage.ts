@@ -157,6 +157,136 @@ export class SqliteProjectStorage {
     }
   }
 
+  loadAllChapterIndexesSync(): Map<number, PersistedChapterIndex> {
+    const db = this.openDatabase();
+    try {
+      const rows = db
+        .query(
+          `SELECT c.chapter_id, c.file_path, f.fragment_index, f.hash
+             FROM chapters c
+             LEFT JOIN fragments f ON f.chapter_id = c.chapter_id
+            ORDER BY c.chapter_id, f.fragment_index`,
+        )
+        .all() as Array<{ chapter_id: number; file_path: string; fragment_index: number | null; hash: string | null }>;
+
+      const result = new Map<number, PersistedChapterIndex>();
+      for (const row of rows) {
+        let entry = result.get(row.chapter_id);
+        if (!entry) {
+          entry = {
+            chapterId: row.chapter_id,
+            filePath: row.file_path,
+            fragmentHashes: [],
+          };
+          result.set(row.chapter_id, entry);
+        }
+        if (row.fragment_index !== null && row.hash !== null) {
+          entry.fragmentHashes[row.fragment_index] = row.hash;
+        }
+      }
+      return result;
+    } finally {
+      db.close();
+    }
+  }
+
+  loadAllChaptersSync(): ChapterEntry[] {
+    const db = this.openDatabase();
+    try {
+      const chapterRows = db
+        .query(
+          `SELECT chapter_id, file_path, fragment_count, source_line_count, translated_line_count
+             FROM chapters
+            ORDER BY chapter_id`,
+        )
+        .all() as ChapterRow[];
+
+      const fragmentRows = db
+        .query(
+          `SELECT chapter_id, fragment_index, hash, line_count, aux_data_json
+             FROM fragments
+            ORDER BY chapter_id, fragment_index`,
+        )
+        .all() as FragmentRow[];
+
+      const lineRows = db
+        .query(
+          `SELECT chapter_id, fragment_index, line_index, source, translation, metadata_json, target_groups_json, extend, comment
+             FROM fragment_lines
+            ORDER BY chapter_id, fragment_index, line_index`,
+        )
+        .all() as FragmentLineRow[];
+
+      const pipelineRows = db
+        .query(
+          `SELECT chapter_id, fragment_index, step_id, state_json
+             FROM pipeline_step_states
+            ORDER BY chapter_id, fragment_index, step_id`,
+        )
+        .all() as PipelineStepStateRow[];
+
+      const chaptersByKey = new Map<number, {
+        chapterRow: ChapterRow;
+        fragments: FragmentRow[];
+        lines: Map<number, FragmentLineRow[]>;
+        pipelines: Map<number, PipelineStepStateRow[]>;
+      }>();
+
+      for (const cr of chapterRows) {
+        chaptersByKey.set(cr.chapter_id, {
+          chapterRow: cr,
+          fragments: [],
+          lines: new Map(),
+          pipelines: new Map(),
+        });
+      }
+
+      for (const fr of fragmentRows) {
+        const bucket = chaptersByKey.get(fr.chapter_id);
+        if (bucket) {
+          bucket.fragments.push(fr);
+        }
+      }
+
+      for (const lr of lineRows) {
+        const bucket = chaptersByKey.get(lr.chapter_id);
+        if (bucket) {
+          const lines = bucket.lines.get(lr.fragment_index) ?? [];
+          lines[lr.line_index] = lr;
+          bucket.lines.set(lr.fragment_index, lines);
+        }
+      }
+
+      for (const pr of pipelineRows) {
+        const bucket = chaptersByKey.get(pr.chapter_id);
+        if (bucket) {
+          const pipes = bucket.pipelines.get(pr.fragment_index) ?? [];
+          pipes.push(pr);
+          bucket.pipelines.set(pr.fragment_index, pipes);
+        }
+      }
+
+      return [...chaptersByKey.values()].map((bucket) => {
+        bucket.fragments.sort((a, b) => a.fragment_index - b.fragment_index);
+        const flatLines: FragmentLineRow[] = [];
+        for (const arr of bucket.lines.values()) {
+          for (const lr of arr) {
+            if (lr) flatLines.push(lr);
+          }
+        }
+        const flatPipelines: PipelineStepStateRow[] = [];
+        for (const arr of bucket.pipelines.values()) {
+          for (const pr of arr) {
+            if (pr) flatPipelines.push(pr);
+          }
+        }
+        return hydrateChapter(bucket.chapterRow, bucket.fragments, flatLines, flatPipelines);
+      });
+    } finally {
+      db.close();
+    }
+  }
+
   loadChapterDescriptorsSync(): Map<number, { fragmentCount: number; sourceLineCount: number; translatedLineCount: number }> {
     const db = this.openDatabase();
     try {
@@ -509,6 +639,7 @@ export class SqliteProjectStorage {
   }
 
   private openDatabase(): Database {
+    const t = performance.now();
     const db = new Database(this.databasePath, { create: true });
     db.exec("PRAGMA journal_mode = WAL;");
     db.exec("PRAGMA busy_timeout = 5000;");
@@ -567,6 +698,10 @@ export class SqliteProjectStorage {
       CREATE INDEX IF NOT EXISTS idx_pipeline_step_states_step
         ON pipeline_step_states(step_id, chapter_id, fragment_index);
     `);
+    const elapsed = performance.now() - t;
+    if (elapsed > 5) {
+      console.log(`[Perf] openDatabase: ${elapsed.toFixed(0)}ms`);
+    }
     return db;
   }
 

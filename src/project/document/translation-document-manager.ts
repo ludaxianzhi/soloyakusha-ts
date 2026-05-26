@@ -177,15 +177,40 @@ export class TranslationDocumentManager {
     await mkdir(this.dataDir, { recursive: true });
     this.chapterOrder = [...chapterFiles.map(({ chapterId }) => chapterId)];
 
-    for (const { chapterId, filePath } of chapterFiles) {
-      const persistedChapterIndex = this.storage.loadChapterIndexSync(chapterId);
-      if (persistedChapterIndex) {
-        this.setChapterIndex(persistedChapterIndex);
+    let cachedCount = 0;
+    let newCount = 0;
+    const loopStart = performance.now();
+
+    const persistedIndexes = this.storage.loadAllChapterIndexesSync();
+    const chapterFileMap = new Map(chapterFiles.map((cf) => [cf.chapterId, cf.filePath]));
+
+    for (const chapterId of this.chapterOrder) {
+      const persistedIndex = persistedIndexes.get(chapterId);
+      if (persistedIndex) {
+        this.setChapterIndex(persistedIndex);
+        cachedCount++;
         continue;
       }
 
+      const filePath = chapterFileMap.get(chapterId);
+      if (!filePath) continue;
+
+      newCount++;
       await this.loadAndInitializeChapter(chapterId, filePath);
     }
+
+    console.log(`[Perf] loadChapters 循环: ${(performance.now() - loopStart).toFixed(0)}ms (已缓存=${cachedCount}, 新建=${newCount}, 总计=${chapterFiles.length})`);
+  }
+
+  async preloadAllChapterBodies(): Promise<void> {
+    const t = performance.now();
+    const allChapters = this.storage.loadAllChaptersSync();
+    for (const chapter of allChapters) {
+      if (!this.chapters.has(chapter.id)) {
+        this.setLoadedChapter(chapter);
+      }
+    }
+    console.log(`[Perf] preloadAllChapterBodies: ${(performance.now() - t).toFixed(0)}ms (${allChapters.length} 章节)`);
   }
 
   async saveChapters(): Promise<void> {
@@ -462,9 +487,23 @@ export class TranslationDocumentManager {
   }
 
   getAllChapters(): ChapterEntry[] {
-    return this.chapterOrder
-      .map((chapterId) => this.ensureChapterLoaded(chapterId))
+    const t = performance.now();
+    let loadedFromDb = 0;
+    let fromCache = 0;
+    const result = this.chapterOrder
+      .map((chapterId) => {
+        const wasCached = this.chapters.has(chapterId);
+        const chapter = this.ensureChapterLoaded(chapterId);
+        if (chapter && !wasCached) loadedFromDb++;
+        else if (chapter) fromCache++;
+        return chapter;
+      })
       .filter((chapter): chapter is ChapterEntry => Boolean(chapter));
+    const elapsed = performance.now() - t;
+    if (elapsed > 10) {
+      console.log(`[Perf] getAllChapters: ${elapsed.toFixed(0)}ms (从DB加载=${loadedFromDb}, 缓存命中=${fromCache})`);
+    }
+    return result;
   }
 
   getChapterFragmentCount(chapterId: number): number {

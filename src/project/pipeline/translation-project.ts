@@ -286,13 +286,20 @@ export class TranslationProject
       throw new Error("必须通过 chapters 提供线性章节列表");
     }
 
+    const initStart = performance.now();
+    console.log(`[Perf] initialize: 开始, ${this.chapters.length} 个章节`);
+
+    const t0 = performance.now();
     await this.documentManager.loadChapters(
       this.chapters.map((chapter) => ({
         chapterId: chapter.id,
         filePath: resolveChapterPath(this.projectDir, chapter.filePath),
       })),
     );
+    await this.documentManager.preloadAllChapterBodies();
+    console.log(`[Perf] loadChapters + preload: ${(performance.now() - t0).toFixed(0)}ms`);
 
+    const t1 = performance.now();
     this.workspaceConfig = buildInitialWorkspaceConfig(this.config, this.chapters);
     const existingWorkspaceConfig = await this.documentManager.loadWorkspaceConfig();
     if (existingWorkspaceConfig) {
@@ -302,11 +309,15 @@ export class TranslationProject
       );
     }
     await this.documentManager.saveWorkspaceConfig(this.workspaceConfig);
+    console.log(`[Perf] workspaceConfig: ${(performance.now() - t1).toFixed(0)}ms`);
 
+    const t2 = performance.now();
     this.projectState =
       (await this.documentManager.loadProjectState()) ?? createDefaultProjectState(this.pipeline);
     this.projectState = normalizeProjectStateForPipeline(this.projectState, this.pipeline);
+    console.log(`[Perf] projectState: ${(performance.now() - t2).toFixed(0)}ms`);
 
+    const t3 = performance.now();
     const glossaryPath = this.workspaceConfig.glossary.path?.trim();
     if (!this.glossary && glossaryPath) {
       const resolvedGlossaryPath = resolveChapterPath(this.projectDir, glossaryPath);
@@ -316,20 +327,31 @@ export class TranslationProject
         );
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          // 术语表文件尚不存在（首次使用默认路径），初始化为空术语表
           this.glossary = new Glossary([]);
         } else {
           throw error;
         }
       }
     }
+    console.log(`[Perf] glossary: ${(performance.now() - t3).toFixed(0)}ms`);
 
+    const t4 = performance.now();
     await this.reloadNarrativeArtifacts();
     await this.loadSavedRepetitionPatternAnalysis();
+    console.log(`[Perf] narrativeArtifacts + savedAnalysis: ${(performance.now() - t4).toFixed(0)}ms`);
+
     this.initialized = true;
+
+    const t5 = performance.now();
     await this.initializePipelineQueues();
+    console.log(`[Perf] initializePipelineQueues: ${(performance.now() - t5).toFixed(0)}ms`);
+
+    const t6 = performance.now();
     await this.lifecycleManager.recoverInterruptedRunIfNeeded();
     await this.lifecycleManager.refreshLifecycleState();
+    console.log(`[Perf] lifecycle: ${(performance.now() - t6).toFixed(0)}ms`);
+
+    console.log(`[Perf] initialize: 完成, 总计 ${(performance.now() - initStart).toFixed(0)}ms`);
   }
 
   getPipeline(): TranslationPipeline {
