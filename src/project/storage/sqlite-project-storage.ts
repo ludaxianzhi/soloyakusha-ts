@@ -365,9 +365,13 @@ export class SqliteProjectStorage {
     chapterId: number,
     fragmentIndex: number,
     translation: TextFragment,
+    targetGroupPerLine?: string[][],
   ): Promise<void> {
     await this.enqueueWrite(async (db) => {
       this.replaceFragmentTranslations(db, chapterId, fragmentIndex, translation.lines);
+      if (targetGroupPerLine) {
+        this.applyTargetGroups(db, chapterId, fragmentIndex, targetGroupPerLine);
+      }
       this.recalculateChapterTranslatedLineCount(db, chapterId);
     });
   }
@@ -851,8 +855,9 @@ export class SqliteProjectStorage {
   }
 
   /**
-   * 在事务中用 stepTranslations 整体替换 target_groups_json。
-   * stepTranslations 为 string[][]，外层为步骤、内层为行，按行转置后写入。
+   * 在事务中用 stepTranslations 中除末位步骤外的所有步骤替换 target_groups_json。
+   * stepTranslations 为 string[][]，末位步骤对应当前译文（存于 translation 列），
+   * 前面的步骤视为历史版本写入 target_groups_json。
    */
   private replaceFragmentTargetGroups(
     db: Database,
@@ -860,11 +865,34 @@ export class SqliteProjectStorage {
     fragmentIndex: number,
     stepTranslations: string[][],
   ): void {
-    const lineCount = stepTranslations[0]?.length ?? 0;
+    const previousSteps = stepTranslations.slice(0, -1);
+    if (previousSteps.length === 0) return;
+
+    const lineCount = previousSteps[0]?.length ?? 0;
     if (lineCount === 0) return;
 
     for (let lineIndex = 0; lineIndex < lineCount; lineIndex++) {
-      const targetGroup = stepTranslations.map((step) => step[lineIndex] ?? "");
+      const targetGroup = previousSteps.map((step) => step[lineIndex] ?? "");
+      db.query(
+        `UPDATE fragment_lines
+            SET target_groups_json = ?4
+          WHERE chapter_id = ?1
+            AND fragment_index = ?2
+            AND line_index = ?3`,
+      ).run(chapterId, fragmentIndex, lineIndex, JSON.stringify(targetGroup));
+    }
+  }
+
+  /** 直接写入行级 target_groups_json（不包含步骤排除逻辑）。 */
+  private applyTargetGroups(
+    db: Database,
+    chapterId: number,
+    fragmentIndex: number,
+    targetGroupPerLine: string[][],
+  ): void {
+    for (let lineIndex = 0; lineIndex < targetGroupPerLine.length; lineIndex++) {
+      const targetGroup = targetGroupPerLine[lineIndex];
+      if (!targetGroup) continue;
       db.query(
         `UPDATE fragment_lines
             SET target_groups_json = ?4

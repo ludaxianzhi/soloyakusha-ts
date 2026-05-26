@@ -274,8 +274,28 @@ export class TranslationDocumentManager {
     translation: TextFragment | string | string[],
   ): Promise<void> {
     const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
+    const oldLines = fragment.translation.lines;
+
+    fragment.meta ??= { metadataList: [] };
+    fragment.meta.targetGroups ??= fragment.source.lines.map(() => []);
+
+    const targetGroupPerLine: string[][] = [];
+    for (let i = 0; i < fragment.source.lines.length; i++) {
+      const oldLine = oldLines[i] ?? "";
+      const existingGroup = fragment.meta.targetGroups[i] ?? [];
+      targetGroupPerLine[i] = oldLine
+        ? [...existingGroup, oldLine]
+        : existingGroup;
+    }
+    fragment.meta.targetGroups = targetGroupPerLine;
+
     fragment.translation = normalizeFragment(translation);
-    await this.storage.updateFragmentTranslation(chapterId, fragmentIndex, fragment.translation);
+    await this.storage.updateFragmentTranslation(
+      chapterId,
+      fragmentIndex,
+      fragment.translation,
+      targetGroupPerLine,
+    );
   }
 
   async updateTranslatedLine(
@@ -888,10 +908,16 @@ export class TranslationDocumentManager {
   ): void {
     if (!stepTranslations || stepTranslations.length === 0) return;
 
-    const lineCount = fragment.source.lines.length;
+    const previousSteps = stepTranslations.slice(0, -1);
+    if (previousSteps.length === 0) {
+      fragment.meta ??= { metadataList: [] };
+      fragment.meta.targetGroups = fragment.source.lines.map(() => []);
+      return;
+    }
+
     fragment.meta ??= { metadataList: [] };
     fragment.meta.targetGroups = fragment.source.lines.map((_, lineIndex) =>
-      stepTranslations.map((step) => step[lineIndex] ?? ""),
+      previousSteps.map((step) => step[lineIndex] ?? ""),
     );
   }
 
@@ -1159,9 +1185,8 @@ function resetFragmentToUntranslated(fragment: FragmentEntry): void {
     ),
   };
   fragment.pipelineStates = {};
-  if (fragment.meta) {
-    fragment.meta.targetGroups = fragment.source.lines.map(() => []);
-  }
+  fragment.meta ??= { metadataList: [] };
+  fragment.meta.targetGroups = fragment.source.lines.map(() => []);
 }
 
 function createCompletedPipelineStates(
