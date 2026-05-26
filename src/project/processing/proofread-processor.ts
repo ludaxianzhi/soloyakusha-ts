@@ -455,6 +455,8 @@ export type ReviewProofreadProcessorOptions = {
   defaultSlidingWindow?: SlidingWindowOptions;
   logger?: Logger;
   processorName?: string;
+  /** 最低输出评论等级（1-4），低于该等级的评论不会写入 comment 字段。默认 1。 */
+  minCommentLevel?: number;
 };
 
 /**
@@ -467,6 +469,7 @@ export class ReviewProofreadProcessor implements ProofreadProcessor {
   private readonly defaultSlidingWindow?: SlidingWindowOptions;
   private readonly processorName?: string;
   private readonly promptManager: PromptManager;
+  private readonly minCommentLevel: number;
 
   constructor(
     private readonly clientResolver: TranslationProcessorClientResolver,
@@ -477,6 +480,7 @@ export class ReviewProofreadProcessor implements ProofreadProcessor {
     this.defaultSlidingWindow = options.defaultSlidingWindow;
     this.logger = options.logger ?? NOOP_LOGGER;
     this.processorName = options.processorName;
+    this.minCommentLevel = options.minCommentLevel ?? 1;
   }
 
   async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
@@ -560,7 +564,7 @@ export class ReviewProofreadProcessor implements ProofreadProcessor {
     const lineComments: string[] = [];
     for (const review of reviews) {
       lineComments.push(
-        review.level > 0 ? `LV${review.level}：${review.comment}` : "",
+        review.level >= this.minCommentLevel ? `LV${review.level}：${review.comment}` : "",
       );
     }
 

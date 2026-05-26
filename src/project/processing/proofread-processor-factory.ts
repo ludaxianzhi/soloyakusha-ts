@@ -50,12 +50,18 @@ export class ProofreadProcessorFactory {
       "proofread-multi-stage",
       {
         builder: (options) => {
+          const minCommentLevel =
+            typeof options.workflowOptions?.minCommentLevel === "number"
+              ? options.workflowOptions.minCommentLevel
+              : undefined;
+
           return new ReviewProofreadProcessor(options.clientResolver, {
             promptManager: options.promptManager,
             defaultRequestOptions: options.defaultRequestOptions,
             defaultSlidingWindow: options.defaultSlidingWindow,
             logger: options.logger,
             processorName: options.processorName,
+            minCommentLevel,
           });
         },
         metadata: {
@@ -67,6 +73,19 @@ export class ProofreadProcessorFactory {
           promptSet: "ja-zhCN",
           fragmentAuxDataContract: PROOFREAD_AUX_DATA_CONTRACT,
           translatorFields: [
+            {
+              key: "minCommentLevel",
+              label: "最低问题等级",
+              description: "仅输出大于等于该等级的评论到 comment 字段；1 级表示所有非 0 级问题都输出（默认），4 级表示只输出较严重的问题。",
+              input: "select",
+              options: [
+                { label: "1 级（全部）", value: "1" },
+                { label: "2 级", value: "2" },
+                { label: "3 级", value: "3" },
+                { label: "4 级（仅较严重）", value: "4" },
+              ],
+              section: "basic",
+            },
             {
               key: "slidingWindow.overlapChars",
               label: "滑窗重叠字符数",
