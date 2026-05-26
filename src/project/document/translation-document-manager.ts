@@ -315,6 +315,15 @@ export class TranslationDocumentManager {
     await this.storage.updateTranslatedLine(chapterId, fragmentIndex, lineIndex, translation);
   }
 
+  async updateFragmentLineComment(
+    chapterId: number,
+    fragmentIndex: number,
+    lineIndex: number,
+    comment: string,
+  ): Promise<void> {
+    await this.storage.updateFragmentLineComment(chapterId, fragmentIndex, lineIndex, comment);
+  }
+
   /**
    * 原子更新步骤状态与译文，确保二者在同一次写入中落盘，避免中途崩溃导致译文丢失。
    */

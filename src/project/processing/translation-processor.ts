@@ -61,6 +61,8 @@ export type TranslationProcessorResult = {
   fragmentAuxDataPatch?: FragmentAuxDataPatch;
   /** 各内部步骤按顺序输出的逐行译文数组（string[][]），用于填充 targetGroups。 */
   stepTranslations?: string[][];
+  /** 逐行评论（仅校对流程使用），按行号索引，写入 fragment_lines.comment 字段。 */
+  lineComments?: string[];
 };
 
 export type TranslationProcessorClientResolver =

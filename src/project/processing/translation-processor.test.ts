@@ -458,19 +458,11 @@ describe("TranslationProcessor", () => {
     expect(client.requests[1]?.prompt).toContain("前情总结");
   });
 
-  test("createProofreadProcessor routes editor and proofreader to their own model chains", async () => {
-    const defaultClient = new FakeChatClient([]);
-    const editorClient = new FakeChatClient([
+  test("createProofreadProcessor creates ReviewProofreadProcessor for proofread-multi-stage", async () => {
+    const client = new FakeChatClient([
       JSON.stringify({
-        modifications: [
-          { id: "1", reason: "润色表达。", translation: "勇者凝望着王都" },
-        ],
-      }),
-    ]);
-    const proofreaderClient = new FakeChatClient([
-      JSON.stringify({
-        modifications: [
-          { id: "1", reason: "终稿微调。", translation: "勇者凝视着王都" },
+        reviews: [
+          { id: "1", level: 2, comment: "措辞略显生硬，建议改为更自然的表达。" },
         ],
       }),
     ]);
@@ -485,44 +477,19 @@ describe("TranslationProcessor", () => {
             endpoint: "https://example.test/v1",
             apiKey: "test-key",
           },
-          "editor-chat": {
-            provider: "openai",
-            modelType: "chat",
-            modelName: "editor-model",
-            endpoint: "https://example.test/v1",
-            apiKey: "test-key",
-          },
-          "proofreader-chat": {
-            provider: "openai",
-            modelType: "chat",
-            modelName: "proofreader-model",
-            endpoint: "https://example.test/v1",
-            apiKey: "test-key",
-          },
         },
       },
       translation: {
         proofreadProcessor: {
           workflow: "proofread-multi-stage",
           modelNames: ["default-chat"],
-          reviewIterations: 1,
-          steps: {
-            editor: {
-              modelNames: ["editor-chat"],
-            },
-            proofreader: {
-              modelNames: ["proofreader-chat"],
-            },
-          },
         },
       },
     });
 
     const processor = config.createProofreadProcessor({
       provider: new FakeLlmClientProvider({
-        "default-chat": defaultClient,
-        "editor-chat": editorClient,
-        "proofreader-chat": proofreaderClient,
+        "default-chat": client,
       }),
       logger: new MemoryLogger(),
     });
@@ -532,10 +499,9 @@ describe("TranslationProcessor", () => {
       currentTranslationText: "勇者看着王都",
     });
 
-    expect(result.outputText).toBe("勇者凝视着王都");
-    expect(defaultClient.requests).toHaveLength(0);
-    expect(editorClient.requests).toHaveLength(1);
-    expect(proofreaderClient.requests).toHaveLength(1);
+    expect(result.outputText).toBe("勇者看着王都");
+    expect(result.lineComments).toEqual(["LV2：措辞略显生硬，建议改为更自然的表达。"]);
+    expect(client.requests).toHaveLength(1);
   });
 
   test("single-step editor proofread uses editor prompt only", async () => {

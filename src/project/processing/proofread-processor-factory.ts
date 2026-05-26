@@ -7,6 +7,7 @@ import {
   MultiStageProofreadProcessor,
   PROOFREAD_STEP_NAMES,
   PROOFREAD_AUX_DATA_CONTRACT,
+  ReviewProofreadProcessor,
   type ProofreadProcessor,
   type ProofreadStepName,
   SingleStepProofreadProcessor,
@@ -49,73 +50,27 @@ export class ProofreadProcessorFactory {
       "proofread-multi-stage",
       {
         builder: (options) => {
-          const stepResolvers: Partial<Record<ProofreadStepName, TranslationProcessorClientResolver>> = {};
-          const additionalResolvers = options.additionalClientResolvers ?? {};
-          for (const step of PROOFREAD_STEP_NAMES) {
-            if (additionalResolvers[step]) {
-              stepResolvers[step] = additionalResolvers[step];
-            }
-          }
-
-          const reviewIterations =
-            typeof options.workflowOptions?.reviewIterations === "number"
-              ? options.workflowOptions.reviewIterations
-              : undefined;
-          const includeReason =
-            typeof options.workflowOptions?.includeReason === "boolean"
-              ? options.workflowOptions.includeReason
-              : undefined;
-          const stepIncludeReason: Partial<Record<ProofreadStepName, boolean>> = {};
-          for (const step of PROOFREAD_STEP_NAMES) {
-            const stepKey = `steps.${step}.includeReason`;
-            if (typeof options.workflowOptions?.[stepKey] === "boolean") {
-              stepIncludeReason[step] = options.workflowOptions[stepKey] as boolean;
-            }
-          }
-
-          return new MultiStageProofreadProcessor(options.clientResolver, stepResolvers, {
+          return new ReviewProofreadProcessor(options.clientResolver, {
             promptManager: options.promptManager,
             defaultRequestOptions: options.defaultRequestOptions,
             defaultSlidingWindow: options.defaultSlidingWindow,
             logger: options.logger,
             processorName: options.processorName,
-            outputRepairer: options.outputRepairer,
-            reviewIterations,
-            stepRequestOptions: options.stepRequestOptions,
-            includeReason,
-            stepIncludeReason: Object.keys(stepIncludeReason).length > 0 ? stepIncludeReason : undefined,
           });
         },
         metadata: {
           workflow: "proofread-multi-stage",
           title: "日译简中校对评审",
-          description: "对已有译文执行编辑、校对和修订，直接输出覆盖后的终稿。",
+          description: "对已有译文逐句按 10 级标准评审，输出质量问题评级和修改建议。",
           sourceLanguage: "ja",
           targetLanguage: "zh-CN",
           promptSet: "ja-zhCN",
           fragmentAuxDataContract: PROOFREAD_AUX_DATA_CONTRACT,
           translatorFields: [
             {
-              key: "reviewIterations",
-              label: "校对轮数",
-              description: "编辑/校对/修订回合数；未填写时使用工作流默认值。",
-              input: "number",
-              min: 1,
-              section: "basic",
-            },
-            ...buildProofreadStepFields(),
-            ...buildStepIncludeReasonFields(),
-            {
-              key: "includeReason",
-              label: "输出修改理由（reason）",
-              description: "是否在 LLM 响应中包含 reason 字段；关闭后可节省 Token。",
-              input: "switch",
-              section: "advanced",
-            },
-            {
               key: "slidingWindow.overlapChars",
               label: "滑窗重叠字符数",
-              description: "长文本分段校对时保留的重叠上下文字符数。",
+              description: "长文本分段评审时保留的重叠上下文字符数。",
               input: "number",
               min: 0,
               section: "advanced",

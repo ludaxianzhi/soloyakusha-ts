@@ -56,6 +56,12 @@ type ProofreadModification = {
   translation: string;
 };
 
+type QualityReview = {
+  id: string;
+  level: number;
+  comment: string;
+};
+
 export type ProofreadProcessorRequest = {
   sourceText: string;
   currentTranslationText: string;
@@ -439,6 +445,166 @@ export class MultiStageProofreadProcessor implements ProofreadProcessor {
       workflow: "proofread-multi-stage",
       stage: step,
       context,
+    };
+  }
+}
+
+export type ReviewProofreadProcessorOptions = {
+  promptManager?: PromptManager;
+  defaultRequestOptions?: ChatRequestOptions;
+  defaultSlidingWindow?: SlidingWindowOptions;
+  logger?: Logger;
+  processorName?: string;
+};
+
+/**
+ * 评审校对器：对每个句子按 LV0-LV9 标准评级，不修改译文。
+ * 输出 lineComments 写入 fragment_lines.comment 字段。
+ */
+export class ReviewProofreadProcessor implements ProofreadProcessor {
+  private readonly logger: Logger;
+  private readonly defaultRequestOptions?: ChatRequestOptions;
+  private readonly defaultSlidingWindow?: SlidingWindowOptions;
+  private readonly processorName?: string;
+  private readonly promptManager: PromptManager;
+
+  constructor(
+    private readonly clientResolver: TranslationProcessorClientResolver,
+    options: ReviewProofreadProcessorOptions = {},
+  ) {
+    this.promptManager = options.promptManager ?? new PromptManager();
+    this.defaultRequestOptions = options.defaultRequestOptions;
+    this.defaultSlidingWindow = options.defaultSlidingWindow;
+    this.logger = options.logger ?? NOOP_LOGGER;
+    this.processorName = options.processorName;
+  }
+
+  async process(request: ProofreadProcessorRequest): Promise<TranslationProcessorResult> {
+    const window = resolveSlidingWindow(request, this.defaultSlidingWindow);
+    const sourceUnits = window
+      ? (() => {
+          const preprocessed = applyPreProcessingToLines(window.source.lines, request.preProcessors);
+          return buildSourceUnitsFromLines(preprocessed);
+        })()
+      : splitTextIntoUnits(request.sourceText);
+    const currentTranslations = window
+      ? buildSourceUnitsFromLines(window.translation.lines)
+      : splitTextIntoUnits(request.currentTranslationText);
+
+    if (sourceUnits.length === 0) {
+      return buildEmptyResult(window);
+    }
+    if (sourceUnits.length !== currentTranslations.length) {
+      throw new Error(
+        `评审输入的原文与译文行数不一致: source=${sourceUnits.length}, translation=${currentTranslations.length}`,
+      );
+    }
+
+    const requirements = [...(request.requirements ?? [])];
+    const referenceTranslations = request.contextView?.getDependencyTranslatedTexts() ?? [];
+    const plotSummaries = request.contextView?.getPlotSummaryTexts() ?? [];
+    const translatedGlossaryTerms =
+      request.contextView?.getTranslatedGlossaryTerms() ??
+      request.glossary?.getTranslatedTermsForText(request.sourceText) ??
+      [];
+
+    this.logger.info?.("开始执行译文质量评审", {
+      processorName: this.processorName,
+      sourceUnitCount: sourceUnits.length,
+      chapterId: request.workItemRef?.chapterId,
+      fragmentIndex: request.workItemRef?.fragmentIndex,
+    });
+
+    const prompt = await this.promptManager.renderQualityReviewPrompt({
+      sourceUnits,
+      currentTranslations,
+      referenceTranslations,
+      plotSummaries,
+      translatedGlossaryTerms,
+      requirements,
+    });
+
+    const client = this.resolveClient();
+    const responseText = await client.singleTurnRequest(
+      prompt.userPrompt,
+      {
+        ...withRequestMeta(
+          withOutputValidator(
+            buildJsonSchemaChatRequestOptions(
+              mergeChatRequestOptions(this.defaultRequestOptions, request.requestOptions),
+              {
+                name: prompt.name,
+                systemPrompt: prompt.systemPrompt,
+                responseSchema: prompt.responseSchema,
+              },
+              client.supportsStructuredOutput,
+            ),
+            (candidateResponseText) => {
+              parseQualityReviewResponse(
+                candidateResponseText,
+                sourceUnits.map((unit) => unit.id),
+              );
+            },
+          ),
+          this.buildRequestMeta(request),
+        ),
+        signal: request.signal,
+      },
+    );
+
+    const reviews = parseQualityReviewResponse(
+      responseText,
+      sourceUnits.map((unit) => unit.id),
+    );
+
+    const lineComments: string[] = [];
+    for (const review of reviews) {
+      lineComments.push(
+        review.level > 0 ? `LV${review.level}：${review.comment}` : "",
+      );
+    }
+
+    this.logger.info?.("译文质量评审完成", {
+      processorName: this.processorName,
+      totalUnits: reviews.length,
+      issuesFound: reviews.filter((r) => r.level > 0).length,
+    });
+
+    const outputText = buildReviewOutputText(window, currentTranslations);
+
+    return {
+      outputText,
+      translations: currentTranslations.map((u) => ({ id: u.id, translation: u.text })),
+      glossaryUpdates: [],
+      responseText,
+      responseSchema: prompt.responseSchema,
+      promptName: prompt.name,
+      systemPrompt: prompt.systemPrompt,
+      userPrompt: prompt.userPrompt,
+      window,
+      lineComments,
+    };
+  }
+
+  private resolveClient(): ChatClient {
+    if ("singleTurnRequest" in this.clientResolver) {
+      return this.clientResolver;
+    }
+    return this.clientResolver.provider.getChatClient(this.clientResolver.modelName);
+  }
+
+  private buildRequestMeta(request: ProofreadProcessorRequest): LlmRequestMetadata {
+    return {
+      label: "校对-质量评审",
+      feature: "校对",
+      operation: "质量评审",
+      component: "ReviewProofreadProcessor",
+      workflow: "proofread-multi-stage",
+      context: {
+        ...(this.processorName ? { processorName: this.processorName } : {}),
+        sourceTextLength: request.sourceText.length,
+        sourceUnitCount: splitTextIntoUnits(request.sourceText).length,
+      },
     };
   }
 }
@@ -1146,6 +1312,71 @@ function buildOutputText(
     .slice(window.focusLineStart, window.focusLineEnd)
     .map((translation) => translation.translation)
     .join("\n");
+}
+
+function buildReviewOutputText(
+  window: SlidingWindowFragment | undefined,
+  translations: ReadonlyArray<PromptTranslationUnit>,
+): string {
+  if (!window) {
+    return translations.map((u) => u.text).join("\n");
+  }
+  return translations
+    .slice(window.focusLineStart, window.focusLineEnd)
+    .map((u) => u.text)
+    .join("\n");
+}
+
+function parseQualityReviewResponse(
+  responseText: string,
+  expectedIds: ReadonlyArray<string>,
+): QualityReview[] {
+  let parsed: unknown;
+  try {
+    parsed = parseJsonResponseText(responseText);
+  } catch (error) {
+    throw new Error(
+      `评审结果不是合法 JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error("评审结果必须是 JSON 对象");
+  }
+
+  const reviewValues = parsed.reviews;
+  if (!Array.isArray(reviewValues)) {
+    throw new Error("评审结果缺少 reviews 数组");
+  }
+
+  const expectedIdSet = new Set(expectedIds);
+  const seenIds = new Set<string>();
+
+  return reviewValues.map<QualityReview>((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`reviews[${index}] 必须是对象`);
+    }
+
+    const id = typeof entry.id === "string" ? entry.id.trim() : "";
+    const level = typeof entry.level === "number" ? Math.round(entry.level) : -1;
+    const comment = typeof entry.comment === "string" ? entry.comment.trim() : "";
+
+    if (!id || !expectedIdSet.has(id)) {
+      throw new Error(`reviews[${index}].id 无效或未请求: ${id}`);
+    }
+    if (seenIds.has(id)) {
+      throw new Error(`reviews[${index}].id 重复: ${id}`);
+    }
+    if (level < 0 || level > 9) {
+      throw new Error(`reviews[${index}].level 必须介于 0-9: ${level}`);
+    }
+    if (level > 0 && !comment) {
+      throw new Error(`reviews[${index}].level 大于 0 时 comment 不能为空`);
+    }
+
+    seenIds.add(id);
+    return { id, level, comment };
+  });
 }
 
 function resolveSlidingWindow(

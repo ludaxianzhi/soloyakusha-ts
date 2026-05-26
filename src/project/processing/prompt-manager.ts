@@ -100,6 +100,14 @@ export type ConsistencyProofreadPromptInput = {
   includeReason?: boolean;
 };
 
+export type QualityReviewPromptInput = {
+  sourceUnits: PromptTranslationUnit[];
+  currentTranslations: PromptTranslationUnit[];
+  referenceTranslations: string[];
+  plotSummaries: string[];
+  translatedGlossaryTerms: ResolvedGlossaryTerm[];
+  requirements: string[];
+};
 
 export type ChapterTranslationAssistantMode = "question" | "modify" | "polish";
 
@@ -150,6 +158,8 @@ const PROOFREAD_PROOFREADER_PROMPT_NAME = "proofread_proofreader";
 const PROOFREAD_PROOFREADER_PROMPT_ID = "project.proofread.proofreader";
 const PROOFREAD_CONSISTENCY_PROMPT_NAME = "proofread_consistency";
 const PROOFREAD_CONSISTENCY_PROMPT_ID = "project.proofread.consistency";
+const PROOFREAD_QUALITY_REVIEW_PROMPT_NAME = "proofread_quality_review";
+const PROOFREAD_QUALITY_REVIEW_PROMPT_ID = "project.proofread.quality-review";
 const CHAPTER_EDITOR_ASSISTANT_PROMPT_NAME = "chapter_editor_assistant";
 const CHAPTER_EDITOR_ASSISTANT_PROMPT_ID = "project.chapterEditorAssistant";
 const DEFAULT_TRANSLATION_PROMPT_SET = "ja-zhCN";
@@ -330,6 +340,29 @@ export class PromptManager {
     };
   }
 
+  async renderQualityReviewPrompt(
+    input: QualityReviewPromptInput,
+  ): Promise<RenderedPrompt> {
+    const responseSchema = buildQualityReviewResponseSchema(input.currentTranslations);
+    const renderedPrompt = await this.renderPrompt(PROOFREAD_QUALITY_REVIEW_PROMPT_ID, {
+      sourceUnits: input.sourceUnits,
+      currentTranslations: input.currentTranslations,
+      referenceTranslations: input.referenceTranslations,
+      plotSummaries: input.plotSummaries,
+      translatedGlossaryTerms: input.translatedGlossaryTerms,
+      glossaryDescription: GLOSSARY_DESCRIPTION,
+      requirements: input.requirements,
+      responseSchemaJson: JSON.stringify(responseSchema, null, 2),
+    });
+
+    return {
+      name: PROOFREAD_QUALITY_REVIEW_PROMPT_NAME,
+      systemPrompt: renderedPrompt.systemPrompt,
+      userPrompt: renderedPrompt.userPrompt,
+      responseSchema,
+    };
+  }
+
   async renderChapterTranslationAssistantPrompt(
     input: ChapterTranslationAssistantPromptInput,
   ): Promise<RenderedTextPrompt> {
@@ -470,5 +503,32 @@ function buildModificationItemSchema(
       },
     },
     required: ["modifications"],
+  };
+}
+
+function buildQualityReviewResponseSchema(
+  sourceUnits: ReadonlyArray<PromptTranslationUnit>,
+): JsonObject {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      reviews: {
+        type: "array",
+        minItems: sourceUnits.length,
+        maxItems: sourceUnits.length,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            id: { type: "string" } as JsonObject,
+            level: { type: "integer", minimum: 0, maximum: 9 } as JsonObject,
+            comment: { type: "string" } as JsonObject,
+          },
+          required: ["id", "level"],
+        },
+      },
+    },
+    required: ["reviews"],
   };
 }

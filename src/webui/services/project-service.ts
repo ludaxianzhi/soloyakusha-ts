@@ -2172,13 +2172,28 @@ export class ProjectService {
                 const sourceLineCount = expectedLineCounts[index]!;
                 const fragmentOutputLines = outputLines.slice(lineOffset, lineOffset + sourceLineCount);
                 const fragmentOutput = fragmentOutputLines.join("\n");
-                lineOffset += sourceLineCount;
 
-                await project.getDocumentManager().updateTranslation(
-                  item.chapterId,
-                  item.fragmentIndex,
-                  fragmentOutput,
-                );
+                if (result.lineComments) {
+                  const fragmentComments = result.lineComments.slice(lineOffset, lineOffset + sourceLineCount);
+                  for (let li = 0; li < fragmentComments.length; li++) {
+                    const comment = fragmentComments[li];
+                    if (comment) {
+                      await project.getDocumentManager().updateFragmentLineComment(
+                        item.chapterId,
+                        item.fragmentIndex,
+                        li,
+                        comment,
+                      );
+                    }
+                  }
+                } else {
+                  await project.getDocumentManager().updateTranslation(
+                    item.chapterId,
+                    item.fragmentIndex,
+                    fragmentOutput,
+                  );
+                }
+                lineOffset += sourceLineCount;
                 this.markProofreadFragmentCompleted(task, item.chapterIndex, item.fragmentIndex);
               }
             } else {
@@ -2231,11 +2246,25 @@ export class ProjectService {
                 return;
               }
 
-              await project.getDocumentManager().updateTranslation(
-                firstItem.chapterId,
-                firstItem.fragmentIndex,
-                result.outputText,
-              );
+              if (result.lineComments) {
+                for (let li = 0; li < result.lineComments.length; li++) {
+                  const comment = result.lineComments[li];
+                  if (comment) {
+                    await project.getDocumentManager().updateFragmentLineComment(
+                      firstItem.chapterId,
+                      firstItem.fragmentIndex,
+                      li,
+                      comment,
+                    );
+                  }
+                }
+              } else {
+                await project.getDocumentManager().updateTranslation(
+                  firstItem.chapterId,
+                  firstItem.fragmentIndex,
+                  result.outputText,
+                );
+              }
               this.markProofreadFragmentCompleted(task, firstItem.chapterIndex, firstItem.fragmentIndex);
             }
 
