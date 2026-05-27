@@ -283,7 +283,7 @@ export function resolveRequestConfig(
   defaultConfig?: LlmRequestConfigInput,
 ): LlmRequestConfig {
   const merged: LlmRequestConfig = {
-    ...DEFAULT_REQUEST_CONFIG,
+    // ...DEFAULT_REQUEST_CONFIG,
     ...(defaultConfig ?? {}),
     ...(override ?? {}),
   };
