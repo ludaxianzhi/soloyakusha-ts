@@ -14,11 +14,11 @@ import {
 } from '@dnd-kit/core';
 import {
   SortableContext,
-  arrayMove,
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   BranchesOutlined,
   CaretDownOutlined,
@@ -29,7 +29,6 @@ import {
   HolderOutlined,
   LockOutlined,
   MoreOutlined,
-  PlusOutlined,
   VerticalAlignBottomOutlined,
   VerticalAlignTopOutlined,
 } from '@ant-design/icons';
@@ -153,16 +152,6 @@ export function ChapterKanbanBoard({
 
   const [exportSelectorOpen, setExportSelectorOpen] = useState(false);
   const [exportChapterId, setExportChapterId] = useState<number | undefined>(undefined);
-  const [expandedRoutes, setExpandedRoutes] = useState<Set<string>>(new Set());
-  const toggleRouteExpanded = useCallback((routeId: string) => {
-    setExpandedRoutes((prev) => {
-      const next = new Set(prev);
-      if (next.has(routeId)) next.delete(routeId);
-      else next.add(routeId);
-      return next;
-    });
-  }, []);
-
   const handleOpenPerChapterExport = useCallback((chapterId: number) => {
     setExportChapterId(chapterId);
     setExportSelectorOpen(true);
@@ -470,8 +459,6 @@ export function ChapterKanbanBoard({
               forkPointIds={forkPointIds}
               forkPointBranchCount={forkPointBranchCount}
               activeId={activeId}
-              isCollapsed={!expandedRoutes.has(route.id)}
-              onToggleExpand={toggleRouteExpanded}
               onCreateBranch={handleCreateBranch}
               onClearChapterTranslations={onClearChapterTranslations}
               onRemoveChapters={onRemoveChapters}
@@ -557,8 +544,6 @@ export function ChapterKanbanBoard({
 
 // ─── KanbanColumn ───────────────────────────────────
 
-const VISIBLE_CARD_LIMIT = 100;
-
 interface KanbanColumnProps {
   route: StoryTopologyRouteDescriptor;
   chapterIds: number[];
@@ -566,8 +551,6 @@ interface KanbanColumnProps {
   forkPointIds: Set<number>;
   forkPointBranchCount: Map<number, number>;
   activeId: number | null;
-  isCollapsed: boolean;
-  onToggleExpand: (routeId: string) => void;
   onCreateBranch: (parentRouteId: string, forkAfterChapterId: number) => void;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
@@ -587,8 +570,6 @@ const KanbanColumn = memo(function KanbanColumn({
   forkPointIds,
   forkPointBranchCount,
   activeId,
-  isCollapsed,
-  onToggleExpand,
   onCreateBranch,
   onClearChapterTranslations,
   onRemoveChapters,
@@ -598,12 +579,25 @@ const KanbanColumn = memo(function KanbanColumn({
   onMoveChapter,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: route.id });
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const virtualizer = useVirtualizer({
+    count: chapterIds.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 100,
+    overscan: 5,
+  });
 
   const hasChildRoutes = route.childRouteIds.length > 0;
   const canDelete = !route.isMain && !hasChildRoutes;
-  const shouldCollapse = isCollapsed && chapterIds.length > VISIBLE_CARD_LIMIT;
-  const visibleChapterIds = shouldCollapse ? chapterIds.slice(0, VISIBLE_CARD_LIMIT) : chapterIds;
-  const hiddenCount = chapterIds.length - visibleChapterIds.length;
+
+  const setRefs = useCallback(
+    (node: HTMLDivElement | null) => {
+      setNodeRef(node);
+      scrollRef.current = node;
+    },
+    [setNodeRef],
+  );
 
   return (
     <div
@@ -662,62 +656,63 @@ const KanbanColumn = memo(function KanbanColumn({
       ) : null}
 
       {/* Chapter cards */}
-      <div ref={setNodeRef} className="kanban-column-body">
-        <SortableContext
-          items={visibleChapterIds}
-          strategy={verticalListSortingStrategy}
-        >
-          {visibleChapterIds.length === 0 ? (
-            <div className="kanban-column-empty">
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                拖放章节到此路线
-              </Typography.Text>
-            </div>
-          ) : (
-            visibleChapterIds.map((chapterId) => {
-              const chapter = chapterMap.get(chapterId);
-              const isForkPoint = forkPointIds.has(chapterId);
-              const branchCount = forkPointBranchCount.get(chapterId) ?? 0;
-              return (
-                  <KanbanCard
+      <div ref={setRefs} className="kanban-column-body" style={{ display: 'block' }}>
+        {chapterIds.length === 0 ? (
+          <div className="kanban-column-empty">
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              拖放章节到此路线
+            </Typography.Text>
+          </div>
+        ) : (
+          <div
+            style={{
+              position: 'relative',
+              height: `${virtualizer.getTotalSize()}px`,
+              width: '100%',
+            }}
+          >
+            <SortableContext
+              items={chapterIds}
+              strategy={verticalListSortingStrategy}
+            >
+              {virtualizer.getVirtualItems().map((virtualItem) => {
+                const chapterId = chapterIds[virtualItem.index]!;
+                const chapter = chapterMap.get(chapterId);
+                const isForkPoint = forkPointIds.has(chapterId);
+                const branchCount = forkPointBranchCount.get(chapterId) ?? 0;
+                return (
+                  <div
                     key={chapterId}
-                    chapterId={chapterId}
-                    chapter={chapter}
-                    isForkPoint={isForkPoint}
-                    branchCount={branchCount}
-                    isDragging={activeId === chapterId}
-                    routeId={route.id}
-                    onCreateBranch={onCreateBranch}
-                    onClearChapterTranslations={onClearChapterTranslations}
-                    onRemoveChapters={onRemoveChapters}
-                    onOpenPerChapterExport={onOpenPerChapterExport}
-                    onMoveChapter={onMoveChapter}
-                  />
-              );
-            })
-          )}
-        </SortableContext>
-        {hiddenCount > 0 ? (
-          <div className="kanban-column-expand-bar">
-            <Button
-              size="small"
-              type="link"
-              onClick={() => onToggleExpand(route.id)}
-            >
-              展开全部 {hiddenCount} 章节
-            </Button>
+                    data-index={virtualItem.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualItem.start}px)`,
+                      paddingBottom: 6,
+                    }}
+                  >
+                    <KanbanCard
+                      chapterId={chapterId}
+                      chapter={chapter}
+                      isForkPoint={isForkPoint}
+                      branchCount={branchCount}
+                      isDragging={activeId === chapterId}
+                      routeId={route.id}
+                      onCreateBranch={onCreateBranch}
+                      onClearChapterTranslations={onClearChapterTranslations}
+                      onRemoveChapters={onRemoveChapters}
+                      onOpenPerChapterExport={onOpenPerChapterExport}
+                      onMoveChapter={onMoveChapter}
+                    />
+                  </div>
+                );
+              })}
+            </SortableContext>
           </div>
-        ) : !isCollapsed && chapterIds.length > VISIBLE_CARD_LIMIT ? (
-          <div className="kanban-column-expand-bar">
-            <Button
-              size="small"
-              type="link"
-              onClick={() => onToggleExpand(route.id)}
-            >
-              收起
-            </Button>
-          </div>
-        ) : null}
+        )}
       </div>
     </div>
   );
