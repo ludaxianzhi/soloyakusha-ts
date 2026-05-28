@@ -355,8 +355,8 @@ function parseTranscribeResponse(
     throw new Error("术语解释翻译结果缺少 terms 数组");
   }
 
-  const allowedTermSet = new Set(allowedTerms.map((t) => t.term));
-  const seenTerms = new Set<string>();
+  const allowedTermKeys = new Set(allowedTerms.map((t) => buildGlossaryTermKey(t.term, t.from)));
+  const seenKeys = new Set<string>();
   const results: RawTranscribedTerm[] = [];
 
   for (const [index, entry] of termsArray.entries()) {
@@ -367,19 +367,22 @@ function parseTranscribeResponse(
     const term = typeof entry.term === "string" ? entry.term.trim() : "";
     const translation = typeof entry.translation === "string" ? entry.translation.trim() : "";
     const description = typeof entry.description === "string" ? entry.description.trim() : "";
+    const from = typeof entry.from === "string" ? entry.from.trim() || undefined : undefined;
 
     if (!term) {
       throw new Error(`terms[${index}].term 不能为空`);
     }
-    if (!allowedTermSet.has(term)) {
+
+    const key = buildGlossaryTermKey(term, from);
+    if (!allowedTermKeys.has(key)) {
       continue;
     }
-    if (seenTerms.has(term)) {
-      throw new Error(`terms 返回了重复术语: ${term}`);
+    if (seenKeys.has(key)) {
+      throw new Error(`terms 返回了重复术语: ${key}`);
     }
 
-    seenTerms.add(term);
-    results.push({ term, translation, description });
+    seenKeys.add(key);
+    results.push({ term, translation, description, from });
   }
 
   return results;
