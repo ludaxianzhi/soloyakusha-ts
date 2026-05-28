@@ -330,6 +330,11 @@ export const api = {
       method: 'DELETE',
       body: { term, from },
     }),
+  deleteDictionaryTerms: (terms: Array<{ term: string; from?: string }>, workspaceId?: string) =>
+    request(`/api/project/dictionary/batch${buildWorkspaceQueryString(workspaceId)}`, {
+      method: 'DELETE',
+      body: { terms },
+    }),
   scanDictionary: (
     input?: {
       maxCharsPerBatch?: number;

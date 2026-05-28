@@ -1691,16 +1691,16 @@ export function AppShell() {
       }
 
       await runAction(async () => {
-        for (const key of keys) {
+        const terms = keys.map((key) => {
           const separatorIndex = key.indexOf('\x00');
           if (separatorIndex === -1) {
-            await api.deleteDictionaryTerm(key, undefined, getSelectedWorkspaceId());
-          } else {
-            const term = key.slice(0, separatorIndex);
-            const from = key.slice(separatorIndex + 1) || undefined;
-            await api.deleteDictionaryTerm(term, from, getSelectedWorkspaceId());
+            return { term: key };
           }
-        }
+          const term = key.slice(0, separatorIndex);
+          const from = key.slice(separatorIndex + 1) || undefined;
+          return { term, from };
+        });
+        await api.deleteDictionaryTerms(terms, getSelectedWorkspaceId());
         await Promise.all([refreshDictionary(), refreshProjectStatus()]);
         message.success(
           keys.length === 1 ? '术语条目已删除' : `已删除 ${keys.length} 个术语条目`,

@@ -3210,6 +3210,28 @@ export class ProjectService {
     }, state);
   }
 
+  /**
+   * 批量删除字典条目，所有术语在内存中移除后仅执行一次 saveProgress 和 bumpGlossaryDependencyRevision。
+   */
+  async deleteDictionaryTerms(terms: Array<{ term: string; from?: string }>): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    await this.runAction('批量删除字典条目', async () => {
+      if (!project) throw new Error('当前没有已初始化的项目');
+      const glossary = project.getGlossary();
+      if (!glossary) throw new Error('当前项目还没有字典');
+      for (const { term, from } of terms) {
+        glossary.removeTerm(term, from);
+      }
+      await project.saveProgress();
+      if ("bumpGlossaryDependencyRevision" in project) {
+        await project.bumpGlossaryDependencyRevision();
+      }
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markDictionaryChanged(state);
+      this.log('success', `字典条目已批量删除：${terms.length} 项`);
+    }, state);
+  }
+
   async importGlossary(filePath: string): Promise<GlossaryImportResult> {
     const { runtime, state, project } = this.getActiveWorkspaceContext();
     if (state.isBusy) {

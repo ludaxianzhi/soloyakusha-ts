@@ -144,6 +144,12 @@ export function createProjectRoutes(
     return c.json({ ok: true });
   });
 
+  app.delete('/dictionary/batch', async (c) => {
+    const body = await c.req.json<{ terms: Array<{ term: string; from?: string }> }>();
+    await projectService.deleteDictionaryTerms(body.terms);
+    return c.json({ ok: true });
+  });
+
   app.post('/dictionary/scan', async (c) => {
     const body = await c.req
       .json<{
