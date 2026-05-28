@@ -120,6 +120,7 @@ export interface WorkspaceViewProps {
   onSaveDictionaryTerms: (
     terms: Array<{ term: string; from?: string; translation: string; description?: string }>,
   ) => void | Promise<void>;
+  onClearDictionaryTranslations: () => void | Promise<void>;
   dictionaryScanDefaults?: DictionaryScanStartOptions;
   dictionaryTranscribeDefaults?: DictionaryTranscribeStartOptions;
   onImportDictionaryFile: (file: File) => void | Promise<void>;

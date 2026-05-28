@@ -65,6 +65,7 @@ interface WorkspaceDictionaryTabProps {
   onSaveDictionaryTerms: (
     terms: Array<{ term: string; from?: string; translation: string; description?: string }>,
   ) => void | Promise<void>;
+  onClearDictionaryTranslations: () => void | Promise<void>;
   dictionaryScanDefaults?: DictionaryScanStartOptions;
   dictionaryTranscribeDefaults?: DictionaryTranscribeStartOptions;
   onImportDictionaryFile: (file: File) => void | Promise<void>;
@@ -92,6 +93,7 @@ export function WorkspaceDictionaryTab({
   onOpenDictionaryEditor,
   onDeleteDictionary,
   onSaveDictionaryTerms,
+  onClearDictionaryTranslations,
   dictionaryScanDefaults,
   dictionaryTranscribeDefaults,
   onImportDictionaryFile,
@@ -425,6 +427,21 @@ export function WorkspaceDictionaryTab({
           <Space>
             <Button onClick={openScanModal}>重新扫描</Button>
             <Button onClick={openTranscribeModal}>解释翻译</Button>
+            <Button
+              danger
+              onClick={() => {
+                Modal.confirm({
+                  title: '清除所有翻译',
+                  content: '将清除所有术语的翻译和描述字段，操作后可重新执行解释翻译。确认继续？',
+                  okText: '确认清除',
+                  okType: 'danger',
+                  cancelText: '取消',
+                  onOk: () => onClearDictionaryTranslations(),
+                });
+              }}
+            >
+              清除翻译
+            </Button>
             {dirtyTerms.length > 0 ? (
               <Badge count={dirtyTerms.length} overflowCount={99}>
                 <Button

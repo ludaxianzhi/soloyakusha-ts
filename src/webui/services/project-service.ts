@@ -3232,6 +3232,26 @@ export class ProjectService {
     }, state);
   }
 
+  /**
+   * 清除所有术语的翻译和描述字段，将状态重置为 untranslated。
+   */
+  async clearDictionaryTranslations(): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    await this.runAction('清除所有术语翻译', async () => {
+      if (!project) throw new Error('当前没有已初始化的项目');
+      const glossary = project.getGlossary();
+      if (!glossary) throw new Error('当前项目还没有字典');
+      const cleared = glossary.clearAllTranslations();
+      await project.saveProgress();
+      if ("bumpGlossaryDependencyRevision" in project) {
+        await project.bumpGlossaryDependencyRevision();
+      }
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markDictionaryChanged(state);
+      this.log('success', `已清除 ${cleared} 个术语的翻译和描述`);
+    }, state);
+  }
+
   async importGlossary(filePath: string): Promise<GlossaryImportResult> {
     const { runtime, state, project } = this.getActiveWorkspaceContext();
     if (state.isBusy) {

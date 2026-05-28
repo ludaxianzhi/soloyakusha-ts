@@ -1731,6 +1731,17 @@ export function AppShell() {
     [getSelectedWorkspaceId, message, refreshDictionary, refreshProjectStatus, runAction],
   );
 
+  const handleClearDictionaryTranslations = useCallback(
+    async () => {
+      await runAction(async () => {
+        await api.clearDictionaryTranslations(getSelectedWorkspaceId());
+        await Promise.all([refreshDictionary(), refreshProjectStatus()]);
+        message.success('已清除所有术语的翻译和描述');
+      });
+    },
+    [getSelectedWorkspaceId, message, refreshDictionary, refreshProjectStatus, runAction],
+  );
+
   const handleImportDictionaryFromContent = useCallback(
     async (content: string, format: 'csv' | 'tsv') => {
       try {
@@ -2938,6 +2949,7 @@ export function AppShell() {
                       onOpenDictionaryEditor={openDictionaryEditor}
                       onDeleteDictionary={handleDeleteDictionary}
                       onSaveDictionaryTerms={handleSaveDictionaryTerms}
+                      onClearDictionaryTranslations={handleClearDictionaryTranslations}
                       dictionaryScanDefaults={{
                         maxCharsPerBatch: extractorConfig?.maxCharsPerBatch,
                         occurrenceTopK: extractorConfig?.occurrenceTopK,

@@ -293,6 +293,27 @@ export class Glossary {
     return this.renderAsCsv(this.filterTerms(text));
   }
 
+  /**
+   * 清除所有术语的翻译和描述字段，将状态重置为 untranslated。
+   */
+  clearAllTranslations(): number {
+    let cleared = 0;
+    for (const [key, term] of this.terms) {
+      if (term.translation || term.description) {
+        const updated: ResolvedGlossaryTerm = {
+          ...term,
+          translation: "",
+          description: undefined,
+          status: "untranslated",
+        };
+        this.terms.set(key, updated);
+        this.matchEntries.set(key, createGlossaryMatchEntry(updated));
+        cleared += 1;
+      }
+    }
+    return cleared;
+  }
+
   private upsertTerm(term: ResolvedGlossaryTerm): void {
     const key = buildGlossaryTermKey(term.term, term.from);
     this.terms.set(key, term);

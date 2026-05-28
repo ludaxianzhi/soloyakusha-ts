@@ -150,6 +150,11 @@ export function createProjectRoutes(
     return c.json({ ok: true });
   });
 
+  app.post('/dictionary/clear-translations', async (c) => {
+    await projectService.clearDictionaryTranslations();
+    return c.json({ ok: true });
+  });
+
   app.post('/dictionary/scan', async (c) => {
     const body = await c.req
       .json<{

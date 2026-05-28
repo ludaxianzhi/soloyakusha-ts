@@ -335,6 +335,10 @@ export const api = {
       method: 'DELETE',
       body: { terms },
     }),
+  clearDictionaryTranslations: (workspaceId?: string) =>
+    request(`/api/project/dictionary/clear-translations${buildWorkspaceQueryString(workspaceId)}`, {
+      method: 'POST',
+    }),
   scanDictionary: (
     input?: {
       maxCharsPerBatch?: number;
