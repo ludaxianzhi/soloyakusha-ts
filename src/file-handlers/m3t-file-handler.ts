@@ -20,6 +20,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
+import type { FileHandlerParamDef } from "./base.ts";
 import {
   type ParsedTranslationDocument,
   type ParsedTranslationUnitBlock,
@@ -29,6 +30,10 @@ import {
   restoreBlankText,
   stripBom,
 } from "./base.ts";
+
+const EXPORT_PARAMS: FileHandlerParamDef[] = [
+  { key: "exportAllTranslations", label: "导出所有译文", type: "boolean", defaultValue: false, description: "导出 targetGroups 中的历史译文，当前译文使用 ●，其他使用 ○" },
+];
 
 /**
  * M3T 格式处理器，负责在名称字段、正文和翻译状态之间做转换。
@@ -45,6 +50,15 @@ import {
 export class M3TFileHandler extends TranslationFileHandler {
   readonly formatName = "m3t";
   readonly supportsComparable = true;
+  override readonly exportParamDefs = EXPORT_PARAMS;
+
+  private exportAllTranslations = false;
+
+  override applyParams(params: Record<string, unknown>): void {
+    if (typeof params.exportAllTranslations === "boolean") {
+      this.exportAllTranslations = params.exportAllTranslations;
+    }
+  }
 
   override parseTranslationDocument(content: string): ParsedTranslationDocument {
     return parseM3TDocument(stripBom(content));
@@ -72,11 +86,11 @@ export class M3TFileHandler extends TranslationFileHandler {
   }
 
   override formatTranslationUnits(units: TranslationUnit[]): string {
-    return formatM3TTranslationUnits(units);
+    return formatM3TTranslationUnits(units, this.exportAllTranslations);
   }
 }
 
-function formatM3TTranslationUnits(units: TranslationUnit[]): string {
+function formatM3TTranslationUnits(units: TranslationUnit[], exportAllTranslations: boolean): string {
   const lines: string[] = [];
 
   for (const unit of units) {
@@ -86,16 +100,38 @@ function formatM3TTranslationUnits(units: TranslationUnit[]): string {
       lines.push("");
       lines.push(`○ ${restoreBlankText(parsed.body)}`);
 
-      for (const [index, targetText] of unit.target.entries()) {
-        const targetParsed = extractBracketNameAndText(targetText);
-        const prefix = index === unit.target.length - 1 ? "●" : "○";
-        lines.push(`${prefix} ${restoreBlankText(targetParsed.body)}`);
+      if (exportAllTranslations && unit.target.length > 1) {
+        for (let i = 0; i < unit.target.length - 1; i++) {
+          const targetParsed = extractBracketNameAndText(unit.target[i]!);
+          const text = restoreBlankText(targetParsed.body);
+          if (text) {
+            lines.push(`○ ${text}`);
+          }
+        }
+        const lastParsed = extractBracketNameAndText(unit.target[unit.target.length - 1]!);
+        lines.push(`● ${restoreBlankText(lastParsed.body)}`);
+      } else if (unit.target.length > 0) {
+        const lastParsed = extractBracketNameAndText(unit.target[unit.target.length - 1]!);
+        lines.push(`● ${restoreBlankText(lastParsed.body)}`);
+      } else {
+        lines.push(`● `);
       }
     } else {
       lines.push(`○ ${restoreBlankText(unit.source)}`);
-      for (const [index, targetText] of unit.target.entries()) {
-        const prefix = index === unit.target.length - 1 ? "●" : "○";
-        lines.push(`${prefix} ${restoreBlankText(targetText)}`);
+
+      if (exportAllTranslations && unit.target.length > 1) {
+        for (let i = 0; i < unit.target.length - 1; i++) {
+          const text = restoreBlankText(unit.target[i]!);
+          if (text) {
+            lines.push(`○ ${text}`);
+          }
+        }
+        const lastText = restoreBlankText(unit.target[unit.target.length - 1]!);
+        lines.push(`● ${lastText}`);
+      } else if (unit.target.length > 0) {
+        lines.push(`● ${restoreBlankText(unit.target[unit.target.length - 1]!)}`);
+      } else {
+        lines.push(`● `);
       }
     }
 
