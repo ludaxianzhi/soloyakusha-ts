@@ -55,6 +55,15 @@ export class M3TFileHandler extends TranslationFileHandler {
     return this.parseTranslationDocument(content).units;
   }
 
+  /**
+   * 仅译文模式：只读取 NAME 行和 ● 行，忽略所有 ○ 原文/候选行。
+   * 专用于从压缩包更新译文的场景。
+   */
+  override async readTranslationUnitsForUpdate(filePath: string): Promise<TranslationUnit[]> {
+    const content = await readFile(filePath, "utf8");
+    return parseM3TDocumentTranslationOnly(stripBom(content));
+  }
+
   override async writeTranslationUnits(
     filePath: string,
     units: TranslationUnit[],
@@ -234,4 +243,39 @@ function parseM3TDocument(content: string): ParsedTranslationDocument {
     blocks,
     rawLineCount: lines.length,
   };
+}
+
+/**
+ * 仅译文模式解析：只读取 NAME 行和 ● 行，跳过所有 ○ 原文/候选行。
+ * 每个 ● 行生成一个 TranslationUnit，source 为空，target 为译文文本。
+ * 若当前 NAME 上下文存在，则为译文添加【角色名】前缀。
+ */
+function parseM3TDocumentTranslationOnly(content: string): TranslationUnit[] {
+  const lines = content.split(/\r?\n/);
+  const units: TranslationUnit[] = [];
+  let currentName: string | undefined;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    if (line.startsWith("○")) {
+      const text = line.slice(1).trim();
+      if (text.startsWith("NAME:")) {
+        currentName = text.slice(5).trim() || undefined;
+      }
+      continue;
+    }
+
+    if (line.startsWith("●")) {
+      const text = line.slice(1).trim();
+      const target = currentName ? `【${currentName}】${text}` : text;
+      units.push({ source: "", target: [target] });
+      currentName = undefined;
+    }
+  }
+
+  return units;
 }

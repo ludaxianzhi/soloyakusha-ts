@@ -82,6 +82,15 @@ export class NatureDialogFileHandler extends TranslationFileHandler {
     return this.parseTranslationDocument(content).units;
   }
 
+  /**
+   * 仅译文模式：只解析 ● 行，跳过所有 ○ 原文/候选行。
+   * 专用于从压缩包更新译文的场景。
+   */
+  override async readTranslationUnitsForUpdate(filePath: string): Promise<TranslationUnit[]> {
+    const content = await readFile(filePath, "utf8");
+    return parseNatureDialogDocumentTranslationOnly(stripBom(content));
+  }
+
   override async writeTranslationUnits(
     filePath: string,
     units: TranslationUnit[],
@@ -290,4 +299,23 @@ function parseNatureDialogDocument(content: string): ParsedTranslationDocument {
     blocks,
     rawLineCount: lines.length,
   };
+}
+
+/**
+ * 仅译文模式解析：只解析 ● 行，跳过所有 ○ 原文/候选行。
+ * 每个 ● 行生成一个 TranslationUnit，source 为空，target 为译文文本。
+ */
+function parseNatureDialogDocumentTranslationOnly(content: string): TranslationUnit[] {
+  const lines = content.split(/\r?\n/);
+  const units: TranslationUnit[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line.startsWith("●")) {
+      const text = line.slice(1).trim();
+      units.push({ source: "", target: [text] });
+    }
+  }
+
+  return units;
 }

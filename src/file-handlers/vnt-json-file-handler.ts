@@ -89,6 +89,23 @@ export class VntJsonFileHandler extends TranslationFileHandler {
     return this.parseTranslationDocument(content).units;
   }
 
+  /**
+   * 译文更新模式：将 message 字段视为译文文本，name 字段作为可选角色名前缀。
+   * 专用于从压缩包更新译文的场景。
+   */
+  override async readTranslationUnitsForUpdate(filePath: string): Promise<TranslationUnit[]> {
+    const content = await readFile(filePath, "utf8");
+    const data = JSON.parse(content) as Array<Record<string, unknown>>;
+    return data.map<TranslationUnit>((item) => {
+      const message = typeof item.message === "string" ? item.message.replace(/\r?\n/g, "\\n") : "";
+      const name = typeof item.name === "string" ? item.name : undefined;
+      return {
+        source: "",
+        target: [name ? `【${name}】${message}` : message],
+      };
+    });
+  }
+
   override async writeTranslationUnits(
     filePath: string,
     units: TranslationUnit[],

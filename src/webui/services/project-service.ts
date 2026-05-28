@@ -4125,7 +4125,7 @@ export class ProjectService {
     if (importParams) {
       handler.applyParams(importParams);
     }
-    return handler.readTranslationUnits(absolutePath);
+    return handler.readTranslationUnitsForUpdate(absolutePath);
   }
 
   async applyTranslationUpdateFromArchive(input: {

@@ -85,6 +85,15 @@ export abstract class TranslationFileHandler {
     filePath: string,
     units: TranslationUnit[],
   ): Promise<void>;
+
+  /**
+   * 以"仅译文"模式读取翻译单元，专用于从压缩包更新译文的场景。
+   * 默认行为与 readTranslationUnits 相同；格式处理器可覆盖此方法
+   * 仅提取译文行（如 m3t 的 ● 行、nd 的 ● 行），跳过原文行。
+   */
+  async readTranslationUnitsForUpdate(filePath: string): Promise<TranslationUnit[]> {
+    return this.readTranslationUnits(filePath);
+  }
 }
 
 export type TranslationFileHandlerResolver = (
