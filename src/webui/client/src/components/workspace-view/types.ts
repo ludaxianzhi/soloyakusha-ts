@@ -14,6 +14,8 @@ import type {
   TranslationProcessorWorkflowMetadata,
   TranslationProjectSnapshot,
   UpdateStoryRoutePayload,
+  UpdateTranslationArchiveApplyResult,
+  UpdateTranslationArchivePreviewResult,
   WorkspaceChapterDescriptor,
 } from '../../app/types.ts';
 
@@ -153,6 +155,17 @@ export interface WorkspaceViewProps {
     importPattern?: string;
     importTranslation?: boolean;
   }) => Promise<ImportArchiveResult>;
+  onPreviewTranslationUpdate: (payload: {
+    file: File;
+    importFormat?: string;
+    importPattern?: string;
+    importParams?: Record<string, unknown>;
+  }) => Promise<UpdateTranslationArchivePreviewResult>;
+  onApplyTranslationUpdate: (
+    sessionId: string,
+    chapterIds: number[],
+    skipChapterIds?: number[],
+  ) => Promise<UpdateTranslationArchiveApplyResult>;
   onDownloadExport: (format: string, params?: Record<string, unknown>) => void | Promise<void>;
   onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>) => void | Promise<void>;
   onBatchSaveTopology: (routes: { id: string; chapters: number[] }[]) => void | Promise<void>;

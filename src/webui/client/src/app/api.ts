@@ -15,6 +15,8 @@ import type {
   LlmRequestHistoryDetail,
   LlmRequestHistoryDigest,
   ImportArchiveResult,
+  UpdateTranslationArchivePreviewResult,
+  UpdateTranslationArchiveApplyResult,
   LlmRequestHistoryPage,
   GlossaryUpdaterConfig,
   LlmProfileConfig,
@@ -459,6 +461,16 @@ export const api = {
     request<ImportArchiveResult>(`/api/project/chapters/import-archive${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
       body: formData,
+    }),
+  previewTranslationUpdate: (formData: FormData, workspaceId?: string) =>
+    request<UpdateTranslationArchivePreviewResult>(`/api/project/chapters/update-translations/preview${buildWorkspaceQueryString(workspaceId)}`, {
+      method: 'POST',
+      body: formData,
+    }),
+  applyTranslationUpdate: (payload: { sessionId: string; chapterIds: number[]; skipChapterIds?: number[] }, workspaceId?: string) =>
+    request<UpdateTranslationArchiveApplyResult>(`/api/project/chapters/update-translations/apply${buildWorkspaceQueryString(workspaceId)}`, {
+      method: 'POST',
+      body: payload,
     }),
   reorderChapters: (chapterIds: number[], workspaceId?: string) =>
     request(`/api/project/chapters/reorder${buildWorkspaceQueryString(workspaceId)}`, {

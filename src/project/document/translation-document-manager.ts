@@ -732,6 +732,61 @@ export class TranslationDocumentManager {
     }
   }
 
+  /**
+   * 从已解析的翻译单元批量更新章节译文，同时清空所有 targetGroups 候选。
+   * 按片段顺序将 parsedUnits 逐行映射到章节片段，更新 translation 并清空 targetGroups。
+   * 如果 parsedUnits 的总行数与章节 sourceLineCount 不一致则跳过该章节。
+   *
+   * @returns 实际更新的章节数
+   */
+  async updateChapterTranslationFromUnits(
+    chapterIds: number[],
+    parsedUnitsByChapter: Map<number, TranslationUnit[]>,
+  ): Promise<number> {
+    let updatedCount = 0;
+    for (const chapterId of chapterIds) {
+      const parsedUnits = parsedUnitsByChapter.get(chapterId);
+      if (!parsedUnits) {
+        continue;
+      }
+      const chapter = this.getChapterById(chapterId);
+      if (!chapter) {
+        continue;
+      }
+
+      const totalSourceLines = chapter.fragments.reduce(
+        (sum, fragment) => sum + fragment.source.lines.length,
+        0,
+      );
+      if (totalSourceLines !== parsedUnits.length) {
+        continue;
+      }
+
+      let unitIndex = 0;
+      for (const fragment of chapter.fragments) {
+        fragment.meta ??= { metadataList: [] };
+        const newTranslationLines: string[] = [];
+        const newTargetGroups: string[][] = [];
+        for (let lineIndex = 0; lineIndex < fragment.source.lines.length; lineIndex++) {
+          const unit = parsedUnits[unitIndex];
+          if (unit) {
+            newTranslationLines.push(unit.target.at(-1) ?? "");
+          } else {
+            newTranslationLines.push("");
+          }
+          newTargetGroups.push([]);
+          unitIndex += 1;
+        }
+        fragment.translation = { lines: newTranslationLines };
+        fragment.meta.targetGroups = newTargetGroups;
+        fragment.pipelineStates = {};
+      }
+      await this.saveChapter(chapter);
+      updatedCount += 1;
+    }
+    return updatedCount;
+  }
+
   async reconcileImportedChapterTranslations(
     chapterIds: number[],
     options: {

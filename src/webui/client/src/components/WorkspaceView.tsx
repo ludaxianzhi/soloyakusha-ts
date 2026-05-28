@@ -73,6 +73,8 @@ export function WorkspaceView({
   onUpdateStoryRoute,
   onRemoveStoryRoute,
   onImportChapterArchive,
+  onPreviewTranslationUpdate,
+  onApplyTranslationUpdate,
   onDownloadExport,
   onDownloadChapters,
   onBatchSaveTopology,
@@ -212,6 +214,8 @@ export function WorkspaceView({
                 onUpdateStoryRoute={onUpdateStoryRoute}
                 onRemoveStoryRoute={onRemoveStoryRoute}
                 onImportChapterArchive={onImportChapterArchive}
+                onPreviewTranslationUpdate={onPreviewTranslationUpdate}
+                onApplyTranslationUpdate={onApplyTranslationUpdate}
                 onDownloadChapters={onDownloadChapters}
                 onBatchSaveTopology={onBatchSaveTopology}
               />

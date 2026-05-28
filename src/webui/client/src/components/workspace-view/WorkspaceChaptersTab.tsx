@@ -27,6 +27,8 @@ import type {
   ProofreaderEntry,
   StoryTopologyDescriptor,
   UpdateStoryRoutePayload,
+  UpdateTranslationArchiveApplyResult,
+  UpdateTranslationArchivePreviewResult,
   WorkspaceChapterDescriptor,
 } from '../../app/types.ts';
 import {
@@ -40,6 +42,7 @@ import { ChapterKanbanBoard } from '../topology/ChapterKanbanBoard.tsx';
 import { ChapterFindReplaceModal } from './ChapterFindReplaceModal.tsx';
 import { PostProcessModal } from './PostProcessModal.tsx';
 import { ExportFormatSelector } from './ExportFormatSelector.tsx';
+import { UpdateTranslationModal } from './UpdateTranslationModal.tsx';
 import { formatChapterLabel } from './utils.ts';
 
 interface WorkspaceChaptersTabProps {
@@ -73,6 +76,17 @@ interface WorkspaceChaptersTabProps {
     importTranslation?: boolean;
     importParams?: Record<string, unknown>;
   }) => Promise<ImportArchiveResult>;
+  onPreviewTranslationUpdate: (payload: {
+    file: File;
+    importFormat?: string;
+    importPattern?: string;
+    importParams?: Record<string, unknown>;
+  }) => Promise<UpdateTranslationArchivePreviewResult>;
+  onApplyTranslationUpdate: (
+    sessionId: string,
+    chapterIds: number[],
+    skipChapterIds?: number[],
+  ) => Promise<UpdateTranslationArchiveApplyResult>;
   onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[], fileExtension?: string) => void | Promise<void>;
   onBatchSaveTopology: (routes: { id: string; chapters: number[] }[]) => void | Promise<void>;
 }
@@ -116,6 +130,8 @@ export function WorkspaceChaptersTab({
   onUpdateStoryRoute,
   onRemoveStoryRoute,
   onImportChapterArchive,
+  onPreviewTranslationUpdate,
+  onApplyTranslationUpdate,
   onDownloadChapters,
   onBatchSaveTopology,
 }: WorkspaceChaptersTabProps) {
@@ -195,6 +211,8 @@ export function WorkspaceChaptersTab({
           onRemoveChapters={onRemoveChapters}
           onCreateStoryBranch={onCreateStoryBranch}
           onImportChapterArchive={onImportChapterArchive}
+          onPreviewTranslationUpdate={onPreviewTranslationUpdate}
+          onApplyTranslationUpdate={onApplyTranslationUpdate}
           onDownloadChapters={onDownloadChapters}
           onRefreshChapters={onRefreshChapters}
         />
@@ -537,6 +555,8 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
   onRemoveChapters,
   onCreateStoryBranch,
   onImportChapterArchive,
+  onPreviewTranslationUpdate,
+  onApplyTranslationUpdate,
   onDownloadChapters,
   onRefreshChapters,
 }: {
@@ -563,6 +583,17 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
     importTranslation?: boolean;
     importParams?: Record<string, unknown>;
   }) => Promise<ImportArchiveResult>;
+  onPreviewTranslationUpdate: (payload: {
+    file: File;
+    importFormat?: string;
+    importPattern?: string;
+    importParams?: Record<string, unknown>;
+  }) => Promise<UpdateTranslationArchivePreviewResult>;
+  onApplyTranslationUpdate: (
+    sessionId: string,
+    chapterIds: number[],
+    skipChapterIds?: number[],
+  ) => Promise<UpdateTranslationArchiveApplyResult>;
   onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[], fileExtension?: string) => void | Promise<void>;
   onRefreshChapters: () => void | Promise<void>;
 }) {
@@ -590,6 +621,7 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
   const { paramDefs: archiveParamDefs } = useFormatParams(archiveImportFormat ?? '', 'import');
   const [postProcessModalOpen, setPostProcessModalOpen] = useState(false);
   const [findReplaceModalOpen, setFindReplaceModalOpen] = useState(false);
+  const [updateTranslationModalOpen, setUpdateTranslationModalOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchMode, setSearchMode] = useState<'keyword' | 'regex'>('keyword');
   const [toolbarActionWidth, setToolbarActionWidth] = useState<number>();
@@ -972,6 +1004,16 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
         onMenuClick: handleOpenFindReplaceModal,
       },
       {
+        key: 'update-translation',
+        label: '更新译文',
+        render: () => (
+          <Button size="small" onClick={() => setUpdateTranslationModalOpen(true)}>
+            更新译文
+          </Button>
+        ),
+        onMenuClick: () => setUpdateTranslationModalOpen(true),
+      },
+      {
         key: 'proofread',
         label: '创建校对任务',
         render: () => (
@@ -1109,6 +1151,7 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
       handleBatchDownload,
       handleBatchPostProcess,
       handleBatchRemoveChapters,
+      handleOpenFindReplaceModal,
       handleOpenProofreadModal,
       handleOpenAttachBranchModal,
       openImportArchiveModal,
@@ -1467,6 +1510,17 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
         onSuccess={async () => {
           setFindReplaceModalOpen(false);
           await onRefreshChapters();
+        }}
+      />
+
+      <UpdateTranslationModal
+        open={updateTranslationModalOpen}
+        chapterCount={chapters.length}
+        onCancel={() => setUpdateTranslationModalOpen(false)}
+        onPreview={onPreviewTranslationUpdate}
+        onApply={onApplyTranslationUpdate}
+        onSuccess={() => {
+          setUpdateTranslationModalOpen(false);
         }}
       />
 

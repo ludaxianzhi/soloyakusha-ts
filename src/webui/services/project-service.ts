@@ -97,6 +97,7 @@ import type {
   WorkspaceConfigPatch,
   WorkspacePipelineStrategy,
   FragmentAuxData,
+  TranslationUnit,
 } from '../../project/types.ts';
 import { 
   TextPostProcessorRegistry, 
@@ -217,6 +218,29 @@ export interface ImportArchiveChaptersResult {
   failedCount: number;
   addedChapters: ImportedArchiveChapter[];
   failedFiles: ImportedArchiveFailedFile[];
+}
+
+export interface UpdateTranslationMatchedFile {
+  archivePath: string;
+  chapterId: number;
+  chapterFilePath: string;
+  archiveSourceLineCount: number;
+  chapterSourceLineCount: number;
+  lineCountMatch: boolean;
+}
+
+export interface UpdateTranslationArchivePreviewResult {
+  ok: boolean;
+  sessionId: string;
+  matchedFiles: UpdateTranslationMatchedFile[];
+  unmatchedArchiveFiles: string[];
+}
+
+export interface UpdateTranslationArchiveApplyResult {
+  ok: boolean;
+  updatedCount: number;
+  skippedCount: number;
+  failedFiles: { chapterId: number; filePath: string; error: string }[];
 }
 
 export class ProjectServiceUserInputError extends Error {}
@@ -3854,6 +3878,400 @@ export class ProjectService {
       throw error;
     } finally {
       await rm(importRootAbsolutePath, { recursive: true, force: true }).catch(() => undefined);
+      state.isBusy = false;
+    }
+  }
+
+  private pendingTranslationUpdates = new Map<string, {
+    parsedUnitsByPath: Map<string, TranslationUnit[]>;
+    workspaceDir: string;
+    tempDir: string;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+
+  async previewTranslationUpdateFromArchive(input: {
+    archiveBuffer: ArrayBuffer;
+    archiveFileName: string;
+    importFormat?: string;
+    importPattern?: string;
+    importParams?: Record<string, unknown>;
+  }): Promise<UpdateTranslationArchivePreviewResult> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    state.isBusy = true;
+    this.log('info', '正在解析压缩包以预览译文更新...');
+
+    const workspaceDir = project.getWorkspaceFileManifest().projectDir;
+    const sessionId = `upd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempDirRelative = `Data/.translation-update/${sessionId}`;
+    const tempDirAbsolute = join(workspaceDir, ...tempDirRelative.split('/'));
+
+    try {
+      await mkdir(tempDirAbsolute, { recursive: true });
+      const extractedFiles = await extractArchiveToDirectory(
+        tempDirAbsolute,
+        input.archiveBuffer,
+        {
+          archiveFileName: input.archiveFileName,
+          stripSingleRoot: true,
+        },
+      );
+
+      const matchedTextFiles = await resolveImportedArchiveTextFiles(
+        tempDirAbsolute,
+        extractedFiles,
+        input.importPattern,
+      );
+
+      const normalizedFormat = normalizeOptionalString(input.importFormat);
+      const descriptors = project.getChapterDescriptors();
+
+      const archiveByBasename = new Map<string, { relativePath: string; absolutePath: string }[]>();
+      const archiveByRelativePath = new Map<string, { relativePath: string; absolutePath: string }>();
+      for (const relativePath of matchedTextFiles) {
+        const absolutePath = join(tempDirAbsolute, ...relativePath.split('/'));
+        const nameWithoutExt = basename(relativePath, extname(relativePath));
+        archiveByRelativePath.set(relativePath, { relativePath, absolutePath });
+        const existing = archiveByBasename.get(nameWithoutExt);
+        if (existing) {
+          existing.push({ relativePath, absolutePath });
+        } else {
+          archiveByBasename.set(nameWithoutExt, [{ relativePath, absolutePath }]);
+        }
+      }
+
+      const chapterByBasename = new Map<string, { id: number; filePath: string }[]>();
+      for (const desc of descriptors) {
+        const nameWithoutExt = basename(desc.filePath, extname(desc.filePath));
+        const existing = chapterByBasename.get(nameWithoutExt);
+        if (existing) {
+          existing.push({ id: desc.id, filePath: desc.filePath });
+        } else {
+          chapterByBasename.set(nameWithoutExt, [{ id: desc.id, filePath: desc.filePath }]);
+        }
+      }
+
+      const parsedUnitsByPath = new Map<string, TranslationUnit[]>();
+      const matchedFiles: UpdateTranslationMatchedFile[] = [];
+      const unmatchedArchiveFiles: string[] = [];
+      const matchedArchivePaths = new Set<string>();
+
+      for (const [nameWithoutExt, archiveEntries] of archiveByBasename) {
+        const chapterEntries = chapterByBasename.get(nameWithoutExt);
+        if (!chapterEntries || chapterEntries.length === 0) {
+          for (const entry of archiveEntries) {
+            unmatchedArchiveFiles.push(entry.relativePath);
+          }
+          continue;
+        }
+
+        if (archiveEntries.length === 1 && chapterEntries.length === 1) {
+          const archiveEntry = archiveEntries[0]!;
+          const chapterEntry = chapterEntries[0]!;
+          const units = await this.parseArchiveFileUnits(
+            archiveEntry.absolutePath,
+            archiveEntry.relativePath,
+            normalizedFormat,
+            input.importParams,
+          );
+          parsedUnitsByPath.set(archiveEntry.relativePath, units);
+          matchedArchivePaths.add(archiveEntry.relativePath);
+
+          const chapterDesc = descriptors.find((d) => d.id === chapterEntry.id);
+          matchedFiles.push({
+            archivePath: archiveEntry.relativePath,
+            chapterId: chapterEntry.id,
+            chapterFilePath: chapterEntry.filePath,
+            archiveSourceLineCount: units.length,
+            chapterSourceLineCount: chapterDesc?.sourceLineCount ?? 0,
+            lineCountMatch: units.length === (chapterDesc?.sourceLineCount ?? -1),
+          });
+        } else {
+          for (const archiveEntry of archiveEntries) {
+            const normalizedArchivePath = archiveEntry.relativePath.replace(/\\/g, '/');
+            const archivePathNoExt = normalizedArchivePath.replace(/\.[^.]+$/, '');
+            let bestMatch: { id: number; filePath: string } | undefined;
+            let bestScore = -1;
+
+            for (const chapterEntry of chapterEntries) {
+              const normalizedChapterPath = chapterEntry.filePath.replace(/\\/g, '/');
+              const chapterPathNoExt = normalizedChapterPath.replace(/\.[^.]+$/, '');
+
+              if (chapterPathNoExt === archivePathNoExt) {
+                bestMatch = chapterEntry;
+                bestScore = Infinity;
+                break;
+              }
+
+              const archiveParts = archivePathNoExt.split('/');
+              const chapterParts = chapterPathNoExt.split('/');
+              let suffixLen = 0;
+              while (
+                suffixLen < archiveParts.length &&
+                suffixLen < chapterParts.length &&
+                archiveParts[archiveParts.length - 1 - suffixLen] === chapterParts[chapterParts.length - 1 - suffixLen]
+              ) {
+                suffixLen += 1;
+              }
+              if (suffixLen > bestScore) {
+                bestScore = suffixLen;
+                bestMatch = chapterEntry;
+              }
+            }
+
+            if (bestMatch) {
+              const units = await this.parseArchiveFileUnits(
+                archiveEntry.absolutePath,
+                archiveEntry.relativePath,
+                normalizedFormat,
+                input.importParams,
+              );
+              parsedUnitsByPath.set(archiveEntry.relativePath, units);
+              matchedArchivePaths.add(archiveEntry.relativePath);
+
+              const chapterDesc = descriptors.find((d) => d.id === bestMatch!.id);
+              matchedFiles.push({
+                archivePath: archiveEntry.relativePath,
+                chapterId: bestMatch!.id,
+                chapterFilePath: bestMatch!.filePath,
+                archiveSourceLineCount: units.length,
+                chapterSourceLineCount: chapterDesc?.sourceLineCount ?? 0,
+                lineCountMatch: units.length === (chapterDesc?.sourceLineCount ?? -1),
+              });
+            } else {
+              unmatchedArchiveFiles.push(archiveEntry.relativePath);
+            }
+          }
+        }
+      }
+
+      for (const relativePath of matchedTextFiles) {
+        if (!matchedArchivePaths.has(relativePath)) {
+          unmatchedArchiveFiles.push(relativePath);
+        }
+      }
+
+      const existingSession = this.pendingTranslationUpdates.get(sessionId);
+      if (existingSession) {
+        clearTimeout(existingSession.timer);
+        await rm(existingSession.tempDir, { recursive: true, force: true }).catch(() => undefined);
+      }
+
+      const timer = setTimeout(() => {
+        const session = this.pendingTranslationUpdates.get(sessionId);
+        if (session) {
+          this.pendingTranslationUpdates.delete(sessionId);
+          rm(session.tempDir, { recursive: true, force: true }).catch(() => undefined);
+        }
+      }, 10 * 60 * 1000);
+
+      this.pendingTranslationUpdates.set(sessionId, {
+        parsedUnitsByPath,
+        workspaceDir,
+        tempDir: tempDirAbsolute,
+        timer,
+      });
+
+      this.log('success', `译文更新预览完成：${matchedFiles.length} 个匹配，${unmatchedArchiveFiles.length} 个未匹配`);
+
+      return {
+        ok: true,
+        sessionId,
+        matchedFiles,
+        unmatchedArchiveFiles,
+      };
+    } catch (error) {
+      this.log('error', `译文更新预览失败：${toMsg(error)}`);
+      await rm(tempDirAbsolute, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
+    } finally {
+      state.isBusy = false;
+    }
+  }
+
+  private async parseArchiveFileUnits(
+    absolutePath: string,
+    relativePath: string,
+    importFormat?: string,
+    importParams?: Record<string, unknown>,
+  ): Promise<TranslationUnit[]> {
+    let handler = importFormat
+      ? TranslationFileHandlerFactory.getHandler(importFormat, importParams)
+      : undefined;
+    if (!handler) {
+      handler = TranslationFileHandlerFactory.createExtensionResolver(
+        Object.fromEntries(
+          Object.entries({
+            plain_text: '.txt',
+            naturedialog: '.nd',
+            m3t: '.m3t',
+            vnt_json: '.json',
+            nd_with_meta: '.nd',
+          }).map(([fmt, ext]) => [ext, fmt]),
+        ),
+      )(relativePath);
+    }
+    if (!handler) {
+      throw new ProjectServiceUserInputError(
+        `无法识别文件格式: ${relativePath}，请手动指定导入格式`,
+      );
+    }
+    if (importParams) {
+      handler.applyParams(importParams);
+    }
+    return handler.readTranslationUnits(absolutePath);
+  }
+
+  async applyTranslationUpdateFromArchive(input: {
+    sessionId: string;
+    chapterIds: number[];
+    skipChapterIds?: number[];
+  }): Promise<UpdateTranslationArchiveApplyResult> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    if (state.isBusy) {
+      throw new ProjectServiceUserInputError('正在执行其他操作，请稍候');
+    }
+    if (!project) {
+      throw new ProjectServiceUserInputError('当前没有已初始化的项目');
+    }
+
+    const session = this.pendingTranslationUpdates.get(input.sessionId);
+    if (!session) {
+      throw new ProjectServiceUserInputError('预览会话已过期，请重新上传压缩包');
+    }
+
+    state.isBusy = true;
+    this.log('info', '正在更新章节译文...');
+
+    const skipSet = new Set(input.skipChapterIds ?? []);
+    const chapterIdsToUpdate = input.chapterIds.filter((id) => !skipSet.has(id));
+
+    try {
+      const parsedUnitsByChapter = new Map<number, TranslationUnit[]>();
+      const descriptors = project.getChapterDescriptors();
+
+      for (const chapterId of chapterIdsToUpdate) {
+        const desc = descriptors.find((d) => d.id === chapterId);
+        if (!desc) continue;
+
+        let found = false;
+        for (const [archivePath, units] of session.parsedUnitsByPath) {
+          const nameWithoutExt = basename(archivePath, extname(archivePath));
+          const chapterNameWithoutExt = basename(desc.filePath, extname(desc.filePath));
+          if (nameWithoutExt === chapterNameWithoutExt) {
+            parsedUnitsByChapter.set(chapterId, units);
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          const normalizedArchivePaths = [...session.parsedUnitsByPath.keys()];
+          for (const archivePath of normalizedArchivePaths) {
+            const normalizedArchivePath = archivePath.replace(/\\/g, '/');
+            const archivePathNoExt = normalizedArchivePath.replace(/\.[^.]+$/, '');
+            const normalizedChapterPath = desc.filePath.replace(/\\/g, '/');
+            const chapterPathNoExt = normalizedChapterPath.replace(/\.[^.]+$/, '');
+
+            if (chapterPathNoExt === archivePathNoExt) {
+              parsedUnitsByChapter.set(chapterId, session.parsedUnitsByPath.get(archivePath)!);
+              found = true;
+              break;
+            }
+
+            const archiveParts = archivePathNoExt.split('/');
+            const chapterParts = chapterPathNoExt.split('/');
+            let suffixLen = 0;
+            while (
+              suffixLen < archiveParts.length &&
+              suffixLen < chapterParts.length &&
+              archiveParts[archiveParts.length - 1 - suffixLen] === chapterParts[chapterParts.length - 1 - suffixLen]
+            ) {
+              suffixLen += 1;
+            }
+            if (suffixLen > 0 && suffixLen === Math.min(archiveParts.length, chapterParts.length)) {
+              parsedUnitsByChapter.set(chapterId, session.parsedUnitsByPath.get(archivePath)!);
+              found = true;
+              break;
+            }
+          }
+        }
+      }
+
+      const documentManager = project.getDocumentManager();
+      const failedFiles: { chapterId: number; filePath: string; error: string }[] = [];
+      let updatedCount = 0;
+
+      for (const chapterId of chapterIdsToUpdate) {
+        const units = parsedUnitsByChapter.get(chapterId);
+        if (!units) {
+          const desc = descriptors.find((d) => d.id === chapterId);
+          failedFiles.push({
+            chapterId,
+            filePath: desc?.filePath ?? String(chapterId),
+            error: '未找到对应的压缩包内文件',
+          });
+          continue;
+        }
+        try {
+          const count = await documentManager.updateChapterTranslationFromUnits(
+            [chapterId],
+            new Map([[chapterId, units]]),
+          );
+          if (count > 0) {
+            updatedCount += 1;
+          } else {
+            const desc = descriptors.find((d) => d.id === chapterId);
+            failedFiles.push({
+              chapterId,
+              filePath: desc?.filePath ?? String(chapterId),
+              error: '文本行数不匹配，已跳过',
+            });
+          }
+        } catch (error) {
+          const desc = descriptors.find((d) => d.id === chapterId);
+          failedFiles.push({
+            chapterId,
+            filePath: desc?.filePath ?? String(chapterId),
+            error: toMsg(error),
+          });
+        }
+      }
+
+      const skippedCount = (input.skipChapterIds?.length ?? 0);
+
+      clearTimeout(session.timer);
+      this.pendingTranslationUpdates.delete(input.sessionId);
+      await rm(session.tempDir, { recursive: true, force: true }).catch(() => undefined);
+
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.markRepeatedPatternsChanged(state);
+
+      if (failedFiles.length > 0) {
+        this.log(
+          'warning',
+          `译文更新完成：成功 ${updatedCount} 个章节，跳过 ${skippedCount} 个，失败 ${failedFiles.length} 个`,
+        );
+      } else {
+        this.log('success', `译文更新完成：成功更新 ${updatedCount} 个章节`);
+      }
+
+      return {
+        ok: failedFiles.length === 0,
+        updatedCount,
+        skippedCount,
+        failedFiles,
+      };
+    } catch (error) {
+      this.log('error', `译文更新失败：${toMsg(error)}`);
+      throw error;
+    } finally {
       state.isBusy = false;
     }
   }

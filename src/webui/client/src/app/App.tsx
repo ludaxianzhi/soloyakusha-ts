@@ -69,6 +69,8 @@ import type {
   TranslationProjectSnapshot,
   TranslatorEntry,
   UpdateStoryRoutePayload,
+  UpdateTranslationArchivePreviewResult,
+  UpdateTranslationArchiveApplyResult,
   VectorStoreConfig,
   VectorStoreConnectionStatus,
   WorkspaceChapterDescriptor,
@@ -1945,6 +1947,43 @@ export function AppShell() {
     [getSelectedWorkspaceId, refreshChapters, refreshProjectStatus, refreshTopology],
   );
 
+  const handlePreviewTranslationUpdate = useCallback(
+    async (payload: {
+      file: File;
+      importFormat?: string;
+      importPattern?: string;
+      importParams?: Record<string, unknown>;
+    }) => {
+      const formData = new FormData();
+      formData.set('file', payload.file);
+      if (payload.importFormat) {
+        formData.set('importFormat', payload.importFormat);
+      }
+      if (payload.importPattern) {
+        formData.set('importPattern', payload.importPattern);
+      }
+      if (payload.importParams && Object.keys(payload.importParams).length > 0) {
+        formData.set('importParams', JSON.stringify(payload.importParams));
+      }
+      return api.previewTranslationUpdate(formData, getSelectedWorkspaceId());
+    },
+    [getSelectedWorkspaceId],
+  );
+
+  const handleApplyTranslationUpdate = useCallback(
+    async (sessionId: string, chapterIds: number[], skipChapterIds?: number[]) => {
+      const result = await api.applyTranslationUpdate(
+        { sessionId, chapterIds, skipChapterIds },
+        getSelectedWorkspaceId(),
+      );
+      if (result.updatedCount > 0) {
+        await Promise.all([refreshChapters(), refreshProjectStatus()]);
+      }
+      return result;
+    },
+    [getSelectedWorkspaceId, refreshChapters, refreshProjectStatus],
+  );
+
   const handleCreateStoryBranch = useCallback(
     async (payload: CreateStoryBranchPayload) => {
       try {
@@ -2920,6 +2959,8 @@ export function AppShell() {
                       onMoveChapterToRoute={handleMoveChapterToRoute}
                       onRemoveStoryRoute={handleRemoveStoryRoute}
                       onImportChapterArchive={handleImportChapterArchive}
+                      onPreviewTranslationUpdate={handlePreviewTranslationUpdate}
+                      onApplyTranslationUpdate={handleApplyTranslationUpdate}
                       onDownloadExport={handleDownloadExport}
                       onDownloadChapters={handleDownloadChapters}
                       onBatchSaveTopology={handleBatchSaveTopology}

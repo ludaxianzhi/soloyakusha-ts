@@ -508,6 +508,29 @@ export interface ImportArchiveResult {
   failedFiles: ImportArchiveFailedFile[];
 }
 
+export interface UpdateTranslationMatchedFile {
+  archivePath: string;
+  chapterId: number;
+  chapterFilePath: string;
+  archiveSourceLineCount: number;
+  chapterSourceLineCount: number;
+  lineCountMatch: boolean;
+}
+
+export interface UpdateTranslationArchivePreviewResult {
+  ok: boolean;
+  sessionId: string;
+  matchedFiles: UpdateTranslationMatchedFile[];
+  unmatchedArchiveFiles: string[];
+}
+
+export interface UpdateTranslationArchiveApplyResult {
+  ok: boolean;
+  updatedCount: number;
+  skippedCount: number;
+  failedFiles: { chapterId: number; filePath: string; error: string }[];
+}
+
 export interface StoryTopologyRouteDescriptor {
   id: string;
   name: string;

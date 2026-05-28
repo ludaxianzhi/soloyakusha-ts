@@ -821,6 +821,55 @@ export function createProjectRoutes(
     }
   });
 
+  app.post('/chapters/update-translations/preview', async (c) => {
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File | null;
+    if (!file) {
+      return c.json({ error: '请上传 ZIP / 7Z 压缩包' }, 400);
+    }
+
+    const importFormat = normalizeOptionalString(formData.get('importFormat'));
+    const importPattern = normalizeOptionalString(formData.get('importPattern'));
+    const importParams = parseOptionalJson(formData.get('importParams'));
+
+    try {
+      const result = await projectService.previewTranslationUpdateFromArchive({
+        archiveBuffer: await file.arrayBuffer(),
+        archiveFileName: file.name,
+        importFormat,
+        importPattern,
+        importParams,
+      });
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: String(error) }, 500);
+    }
+  });
+
+  app.post('/chapters/update-translations/apply', async (c) => {
+    const body = await c.req.json<{
+      sessionId: string;
+      chapterIds: number[];
+      skipChapterIds?: number[];
+    }>();
+    try {
+      const result = await projectService.applyTranslationUpdateFromArchive({
+        sessionId: body.sessionId,
+        chapterIds: body.chapterIds,
+        skipChapterIds: body.skipChapterIds,
+      });
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof ProjectServiceUserInputError) {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: String(error) }, 500);
+    }
+  });
+
   app.delete('/chapters/:id', async (c) => {
     const id = Number(c.req.param('id'));
     await projectService.removeChapter(id);
