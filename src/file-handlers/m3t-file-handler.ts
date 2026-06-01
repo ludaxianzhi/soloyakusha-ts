@@ -183,6 +183,7 @@ function parseM3TDocument(content: string): ParsedTranslationDocument {
       const targets: string[] = [];
       const targetLineNumbers: number[] = [];
       let endLineNumber = sourceLineNumber;
+      let hasFinalMarker = false;
 
       while (index < lines.length) {
         const targetLine = lines[index]!.trim();
@@ -190,31 +191,34 @@ function parseM3TDocument(content: string): ParsedTranslationDocument {
           break;
         }
         if (targetLine.startsWith("○") || targetLine.startsWith("●")) {
+          if (targetLine.startsWith("●")) {
+            if (hasFinalMarker) {
+              throw new Error(
+                `第 ${index + 1} 行：每个翻译块只能有一个 ●（实心圆）标记`,
+              );
+            }
+            hasFinalMarker = true;
+          }
           targets.push(`【${name}】${targetLine.slice(1).trim()}`);
           targetLineNumbers.push(index + 1);
           endLineNumber = index + 1;
           index += 1;
-          if (targetLine.startsWith("●")) {
-            const unit: TranslationUnit = {
-              source,
-              target: targets,
-            };
-            units.push(unit);
-            blocks.push({
-              unit,
-              startLineNumber,
-              endLineNumber,
-              sourceLineNumber,
-              targetLineNumbers,
-              metadata: {
-                nameLineNumber,
-              },
-            });
-            break;
-          }
           continue;
         }
         break;
+      }
+
+      if (targets.length > 0) {
+        const unit: TranslationUnit = { source, target: targets };
+        units.push(unit);
+        blocks.push({
+          unit,
+          startLineNumber,
+          endLineNumber,
+          sourceLineNumber,
+          targetLineNumbers,
+          metadata: { nameLineNumber },
+        });
       }
       continue;
     }
@@ -224,7 +228,7 @@ function parseM3TDocument(content: string): ParsedTranslationDocument {
     const targets: string[] = [];
     const targetLineNumbers: number[] = [];
     let endLineNumber = sourceLineNumber;
-    let hasEmittedUnit = false;
+    let hasFinalMarker = false;
     index += 1;
 
     while (index < lines.length) {
@@ -233,45 +237,34 @@ function parseM3TDocument(content: string): ParsedTranslationDocument {
         break;
       }
       if (targetLine.startsWith("○") || targetLine.startsWith("●")) {
+        if (targetLine.startsWith("●")) {
+          if (hasFinalMarker) {
+            throw new Error(
+              `第 ${index + 1} 行：每个翻译块只能有一个 ●（实心圆）标记`,
+            );
+          }
+          hasFinalMarker = true;
+        }
         targets.push(targetLine.slice(1).trim());
         targetLineNumbers.push(index + 1);
         endLineNumber = index + 1;
         index += 1;
-        if (targetLine.startsWith("●")) {
-            const unit = normalizeBlankSourceUnit({
-            source,
-            target: targets,
-            });
-          units.push(unit);
-          blocks.push({
-            unit,
-            startLineNumber,
-            endLineNumber,
-            sourceLineNumber,
-            targetLineNumbers,
-          });
-            hasEmittedUnit = true;
-          break;
-        }
         continue;
       }
       break;
     }
 
-      if (!hasEmittedUnit && source.trim().length === 0) {
-        const unit = normalizeBlankSourceUnit({
-          source,
-          target: targets,
-        });
-        units.push(unit);
-        blocks.push({
-          unit,
-          startLineNumber,
-          endLineNumber,
-          sourceLineNumber,
-          targetLineNumbers,
-        });
-      }
+    if (targets.length > 0 || source.trim().length === 0) {
+      const unit = normalizeBlankSourceUnit({ source, target: targets });
+      units.push(unit);
+      blocks.push({
+        unit,
+        startLineNumber,
+        endLineNumber,
+        sourceLineNumber,
+        targetLineNumbers,
+      });
+    }
   }
 
   return {

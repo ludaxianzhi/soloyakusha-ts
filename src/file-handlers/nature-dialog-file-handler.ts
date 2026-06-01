@@ -230,6 +230,7 @@ function parseNatureDialogDocument(content: string): ParsedTranslationDocument {
   let currentStartLineNumber: number | undefined;
   let currentSourceLineNumber: number | undefined;
   let currentTargetLineNumbers: number[] = [];
+  let currentFinalMarkerSeen = false;
 
   const flushCurrentUnit = (endLineNumber: number) => {
     if (
@@ -241,6 +242,7 @@ function parseNatureDialogDocument(content: string): ParsedTranslationDocument {
       currentStartLineNumber = undefined;
       currentSourceLineNumber = undefined;
       currentTargetLineNumbers = [];
+      currentFinalMarkerSeen = false;
       return;
     }
 
@@ -261,6 +263,7 @@ function parseNatureDialogDocument(content: string): ParsedTranslationDocument {
     currentStartLineNumber = undefined;
     currentSourceLineNumber = undefined;
     currentTargetLineNumbers = [];
+    currentFinalMarkerSeen = false;
   };
 
   lines.forEach((rawLine, index) => {
@@ -285,10 +288,20 @@ function parseNatureDialogDocument(content: string): ParsedTranslationDocument {
     }
 
     if (line.startsWith("●")) {
+      if (currentSource === undefined) {
+        throw new Error(
+          `第 ${lineNumber} 行：●（实心圆）不能作为翻译块的第一行`,
+        );
+      }
+      if (currentFinalMarkerSeen) {
+        throw new Error(
+          `第 ${lineNumber} 行：每个翻译块只能有一个 ●（实心圆）标记`,
+        );
+      }
       const text = line.slice(1).trim();
       currentTargets.push(text);
       currentTargetLineNumbers.push(lineNumber);
-      flushCurrentUnit(lineNumber);
+      currentFinalMarkerSeen = true;
     }
   });
 
