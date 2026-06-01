@@ -753,10 +753,9 @@ describe("TranslationProcessor", () => {
         translations: [{ id: "1", translation: "初稿译文" }],
       }),
       JSON.stringify({
-        modifications: [
+        translations: [
           {
             id: "1",
-            styleAnalysis: "将句式调整得更口语化。",
             translation: "风格迁移终稿",
           },
         ],
@@ -775,7 +774,6 @@ describe("TranslationProcessor", () => {
     expect(client.requests[2]?.options?.requestConfig?.systemPrompt).toContain(
       "整体口语化，避免半文言句式。",
     );
-    expect(client.requests[2]?.prompt).toContain("styleAnalysis");
     expect(client.requests.map((entry) => entry.options?.meta?.label)).toEqual([
       "翻译-分析",
       "翻译-初步翻译",
@@ -793,15 +791,13 @@ describe("TranslationProcessor", () => {
         ],
       }),
       JSON.stringify({
-        modifications: [
+        translations: [
           {
             id: "1",
-            styleAnalysis: "第一行适合更轻盈的语气。",
             translation: "第一行终稿",
           },
           {
             id: "2",
-            styleAnalysis: "第二行改成更自然的叙述。",
             translation: "第二行终稿",
           },
         ],
@@ -953,13 +949,9 @@ describe("TranslationProcessor", () => {
         translations: createSequentialTranslations(7),
       }),
       JSON.stringify({
-        modifications: createSequentialTranslations(7, {
+        translations: createSequentialTranslations(7, {
           4: "T4\nEXTRA",
-        }).map((entry) => ({
-          id: entry.id,
-          styleAnalysis: `调整 ${entry.id} 的表达。`,
-          translation: entry.translation,
-        })),
+        }),
       }),
     ]);
     const outputRepairer = new FakeOutputRepairer([
@@ -991,7 +983,7 @@ describe("TranslationProcessor", () => {
     ]);
   });
 
-  test("style-transfer processor merges modification list onto translator output", async () => {
+  test("style-transfer processor uses full translations from style transfer step", async () => {
     const client = new FakeChatClient([
       "分析结果",
       JSON.stringify({
@@ -1001,12 +993,9 @@ describe("TranslationProcessor", () => {
         ],
       }),
       JSON.stringify({
-        modifications: [
-          {
-            id: "2",
-            styleAnalysis: "第二行需要更自然的叙述节奏。",
-            translation: "第二行终稿",
-          },
+        translations: [
+          { id: "1", translation: "第一行终稿" },
+          { id: "2", translation: "第二行终稿" },
         ],
       }),
     ]);
@@ -1016,9 +1005,9 @@ describe("TranslationProcessor", () => {
       sourceText: "第一行\n第二行",
     });
 
-    expect(result.outputText).toBe("第一行初稿\n第二行终稿");
+    expect(result.outputText).toBe("第一行终稿\n第二行终稿");
     expect(result.translations).toEqual([
-      { id: "1", translation: "第一行初稿" },
+      { id: "1", translation: "第一行终稿" },
       { id: "2", translation: "第二行终稿" },
     ]);
   });
@@ -1030,11 +1019,7 @@ describe("TranslationProcessor", () => {
         translations: createSequentialTranslations(7),
       }),
       JSON.stringify({
-        modifications: createSequentialTranslations(7).map((entry) => ({
-          id: entry.id,
-          styleAnalysis: `调整 ${entry.id} 的表达。`,
-          translation: entry.translation,
-        })),
+        translations: createSequentialTranslations(7),
       }),
     ]);
     const processor = new StyleTransferTranslationProcessor(client, {}, {

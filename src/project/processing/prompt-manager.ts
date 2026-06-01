@@ -437,9 +437,9 @@ function buildStyleTransferResponseSchema(
     type: "object",
     additionalProperties: false,
     properties: {
-      modifications: {
+      translations: {
         type: "array",
-        minItems: 0,
+        minItems: sourceUnits.length,
         maxItems: sourceUnits.length,
         items: {
           type: "object",
@@ -448,20 +448,16 @@ function buildStyleTransferResponseSchema(
             id: {
               type: "string",
             },
-            styleAnalysis: {
-              type: "string",
-              minLength: 1,
-            },
             translation: {
               type: "string",
               minLength: 1,
             },
           },
-          required: ["id", "styleAnalysis", "translation"],
+          required: ["id", "translation"],
         },
       },
     },
-    required: ["modifications"],
+    required: ["translations"],
   };
 }
 
