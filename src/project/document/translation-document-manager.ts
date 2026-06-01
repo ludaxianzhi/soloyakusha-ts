@@ -771,10 +771,11 @@ export class TranslationDocumentManager {
           const unit = parsedUnits[unitIndex];
           if (unit) {
             newTranslationLines.push(unit.target.at(-1) ?? "");
+            newTargetGroups.push([...unit.target.slice(0, -1)]);
           } else {
             newTranslationLines.push("");
+            newTargetGroups.push([]);
           }
-          newTargetGroups.push([]);
           unitIndex += 1;
         }
         fragment.translation = { lines: newTranslationLines };
@@ -827,11 +828,7 @@ export class TranslationDocumentManager {
         if (fragment.meta) {
           fragment.meta.targetGroups = normalizedLines.map((line, lineIndex) => {
             const nextGroup = [...(fragment.meta?.targetGroups?.[lineIndex] ?? [])];
-            if (nextGroup.length === 0) {
-              nextGroup.push(line);
-            } else {
-              nextGroup[nextGroup.length - 1] = line;
-            }
+            nextGroup.push(line);
             return nextGroup;
           });
         }
@@ -974,8 +971,6 @@ export class TranslationDocumentManager {
 
     const previousSteps = stepTranslations.slice(0, -1);
     if (previousSteps.length === 0) {
-      fragment.meta ??= { metadataList: [] };
-      fragment.meta.targetGroups = fragment.source.lines.map(() => []);
       return;
     }
 
@@ -1195,11 +1190,7 @@ function buildTranslationUnit(
   const targets = originalTargets;
 
   if (finalTranslation && finalTranslation.length > 0) {
-    if (targets.length === 0) {
-      targets.push(finalTranslation);
-    } else {
-      targets[targets.length - 1] = finalTranslation;
-    }
+    targets.push(finalTranslation);
   }
 
   return {
@@ -1237,7 +1228,7 @@ function createFragmentEntry(fragmentUnits: TranslationUnit[]): FragmentEntry {
     pipelineStates: {},
     meta: {
       metadataList: normalizedUnits.map((unit) => unit.metadata ?? null),
-      targetGroups: normalizedUnits.map((unit) => [...unit.target]),
+      targetGroups: normalizedUnits.map((unit) => [...unit.target.slice(0, -1)]),
     },
     hash: computeHash(source),
   };
