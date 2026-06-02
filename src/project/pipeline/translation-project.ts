@@ -121,6 +121,7 @@ import type {
   TranslationOrderingStrategy,
 } from "./translation-ordering-strategy.ts";
 import { TextPreProcessorRegistry } from "../../utils/text-pre-processor.ts";
+import { StyleLibraryService } from "../../style-library/index.ts";
 
 export class TranslationProject
   implements TranslationPipelineRuntime, TranslationWorkQueueRuntime
@@ -1199,6 +1200,7 @@ export class TranslationProject
 
   async startTranslation(): Promise<TranslationProjectLifecycleSnapshot> {
     this.ensureInitialized();
+    await this.verifyStyleLibrary();
     for (const step of this.pipeline.steps) {
       await this.orderingStrategy.initializeForRun(step.id);
     }
@@ -2718,6 +2720,39 @@ export class TranslationProject
 
     if (runId !== this.getCurrentRunIdOrThrow()) {
       throw new Error("翻译结果所属的运行批次已失效，不能写回当前项目");
+    }
+  }
+
+  private async verifyStyleLibrary(): Promise<void> {
+    if (this.config.styleGuidanceMode !== "examples") {
+      return;
+    }
+
+    const styleLibraryName = this.config.styleLibraryName?.trim();
+    if (!styleLibraryName) {
+      return;
+    }
+
+    const service = new StyleLibraryService();
+    const orderedFragments = this.getOrderedFragments();
+    const firstFragment = orderedFragments.at(0);
+    const probeText = firstFragment
+      ? this.documentManager.getSourceText(firstFragment.chapterId, firstFragment.fragmentIndex).slice(0, 500)
+      : "验证文本";
+
+    try {
+      await service.queryLibrary(styleLibraryName, probeText);
+      console.log(
+        `[StyleLibrary] 风格库“${styleLibraryName}”检索验证通过 (probe=${probeText.length}字符)`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[StyleLibrary] 风格库“${styleLibraryName}”检索验证失败: ${message}`,
+      );
+      throw new Error(
+        `风格库“${styleLibraryName}”无法正常检索，请检查该风格库的配置是否有效。\n原因：${message}`,
+      );
     }
   }
 
