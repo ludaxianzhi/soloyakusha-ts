@@ -26,11 +26,19 @@ const EXPORT_FORMAT_DEFAULT_EXTENSIONS: Record<string, string> = {
   dbl_tp2: '.txt',
 };
 
+const EXPORT_ENCODINGS: Array<{ label: string; value: string }> = [
+  { label: 'UTF-8', value: 'utf-8' },
+  { label: 'UTF-16 LE', value: 'utf-16le' },
+  { label: 'GBK', value: 'gbk' },
+  { label: 'GB18030', value: 'gb18030' },
+];
+
 interface ExportFormatSelectorProps {
   open: boolean;
   onCancel: () => void;
   onConfirm: (config: {
     format: string;
+    encoding?: string;
     params?: Record<string, unknown>;
     processors?: PipelineStep[];
     fileExtension?: string;
@@ -51,6 +59,7 @@ const EXPORT_FORMATS: Array<{ label: string; value: string }> = [
 
 interface SavedExportState {
   format: string;
+  encoding: string;
   params: Record<string, unknown>;
   postProcessEnabled: boolean;
   postProcessSteps: PipelineStep[];
@@ -83,6 +92,7 @@ export function ExportFormatSelector({
 }: ExportFormatSelectorProps) {
   const activeWorkspaceId = useActiveWorkspaceId();
   const [format, setFormat] = useState('plain_text');
+  const [encoding, setEncoding] = useState('utf-8');
   const [fileExtension, setFileExtension] = useState('.txt');
   const [paramValues, setParamValues] = useState<Record<string, unknown>>({});
   const [postProcessEnabled, setPostProcessEnabled] = useState(false);
@@ -122,11 +132,13 @@ export function ExportFormatSelector({
     const saved = loadSavedState(storageKey);
     if (saved) {
       setFormat(saved.format);
+      setEncoding(saved.encoding ?? 'utf-8');
       setParamValues(saved.params ?? {});
       setPostProcessEnabled(saved.postProcessEnabled ?? false);
       setPostProcessSteps(saved.postProcessSteps ?? []);
     } else {
       setFormat('plain_text');
+      setEncoding('utf-8');
       setParamValues({});
       setPostProcessEnabled(false);
       setPostProcessSteps([]);
@@ -151,6 +163,7 @@ export function ExportFormatSelector({
     const params = buildParams(paramValues);
     const state: SavedExportState = {
       format,
+      encoding,
       params,
       postProcessEnabled,
       postProcessSteps,
@@ -159,11 +172,11 @@ export function ExportFormatSelector({
 
     const ext = fileExtension.trim() || defaultExtension;
     if (postProcessEnabled && postProcessSteps.length > 0) {
-      onConfirm({ format, params, processors: postProcessSteps, fileExtension: ext });
+      onConfirm({ format, encoding, params, processors: postProcessSteps, fileExtension: ext });
     } else {
-      onConfirm({ format, params, fileExtension: ext });
+      onConfirm({ format, encoding, params, fileExtension: ext });
     }
-  }, [format, fileExtension, defaultExtension, paramValues, buildParams, postProcessEnabled, postProcessSteps, storageKey, onConfirm]);
+  }, [format, encoding, fileExtension, defaultExtension, paramValues, buildParams, postProcessEnabled, postProcessSteps, storageKey, onConfirm]);
 
   return (
     <Modal
@@ -200,6 +213,16 @@ export function ExportFormatSelector({
             value={fileExtension}
             onChange={(e) => setFileExtension(e.target.value)}
             placeholder={defaultExtension}
+          />
+        </div>
+
+        <div>
+          <Typography.Text strong>文件编码</Typography.Text>
+          <Select
+            style={{ width: '100%', marginTop: 4 }}
+            value={encoding}
+            onChange={(value) => setEncoding(value)}
+            options={EXPORT_ENCODINGS}
           />
         </div>
 

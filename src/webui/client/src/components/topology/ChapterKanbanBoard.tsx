@@ -56,7 +56,7 @@ interface ChapterKanbanBoardProps {
   ) => void | Promise<void>;
   onRemoveRoute: (routeId: string) => void | Promise<void>;
   onUpdateRoute: (routeId: string, payload: UpdateStoryRoutePayload) => void | Promise<void>;
-  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[], fileExtension?: string) => void | Promise<void>;
+  onDownloadChapters: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: { id: string; params?: Record<string, unknown> }[], fileExtension?: string, encoding?: string) => void | Promise<void>;
   onBatchSaveTopology: (routes: { id: string; chapters: number[] }[]) => void | Promise<void>;
 }
 
@@ -353,12 +353,12 @@ export function ChapterKanbanBoard({
   }, []);
 
   const handleExportConfirm = useCallback(
-    (config: { format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[]; fileExtension?: string }) => {
+    (config: { format: string; encoding?: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[]; fileExtension?: string }) => {
       const chapterId = exportChapterId;
       setExportSelectorOpen(false);
       setExportChapterId(undefined);
       if (chapterId == null) return;
-      void onDownloadChapters([chapterId], config.format, { ...exportParams, ...config.params }, config.processors, config.fileExtension);
+      void onDownloadChapters([chapterId], config.format, { ...exportParams, ...config.params }, config.processors, config.fileExtension, config.encoding);
     },
     [onDownloadChapters, exportChapterId, exportParams],
   );

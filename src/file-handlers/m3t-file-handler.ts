@@ -18,7 +18,7 @@
  * @module file-handlers/m3t-file-handler
  */
 
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
 import type { FileHandlerParamDef } from "./base.ts";
 import {
@@ -65,7 +65,7 @@ export class M3TFileHandler extends TranslationFileHandler {
   }
 
   override async readTranslationUnits(filePath: string): Promise<TranslationUnit[]> {
-    const content = await readFile(filePath, "utf8");
+    const { content } = await this.readFileContent(filePath);
     return this.parseTranslationDocument(content).units;
   }
 
@@ -74,7 +74,7 @@ export class M3TFileHandler extends TranslationFileHandler {
    * 专用于从压缩包更新译文的场景。
    */
   override async readTranslationUnitsForUpdate(filePath: string): Promise<TranslationUnit[]> {
-    const content = await readFile(filePath, "utf8");
+    const { content } = await this.readFileContent(filePath);
     return parseM3TDocumentTranslationOnly(stripBom(content));
   }
 

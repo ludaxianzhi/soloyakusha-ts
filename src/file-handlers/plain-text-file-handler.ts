@@ -14,7 +14,7 @@
  * @module file-handlers/plain-text-file-handler
  */
 
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
 import {
   type ParsedTranslationDocument,
@@ -75,7 +75,7 @@ export class PlainTextFileHandler extends TranslationFileHandler {
   }
 
   override async readTranslationUnits(filePath: string): Promise<TranslationUnit[]> {
-    const content = await readFile(filePath, "utf8");
+    const { content } = await this.readFileContent(filePath);
     return this.parseTranslationDocument(content).units;
   }
 

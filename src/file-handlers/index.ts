@@ -15,6 +15,7 @@
  */
 
 export * from "./base.ts";
+export * from "./encoding-utils.ts";
 export * from "./dbl-tp1-file-handler.ts";
 export * from "./dbl-tp2-file-handler.ts";
 export * from "./factory.ts";

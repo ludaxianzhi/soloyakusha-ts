@@ -16,7 +16,7 @@
  * @module file-handlers/vnt-json-file-handler
  */
 
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import type { TranslationUnit } from "../project/types.ts";
 import {
   type ParsedTranslationDocument,
@@ -85,7 +85,7 @@ export class VntJsonFileHandler extends TranslationFileHandler {
   }
 
   override async readTranslationUnits(filePath: string): Promise<TranslationUnit[]> {
-    const content = await readFile(filePath, "utf8");
+    const { content } = await this.readFileContent(filePath);
     return this.parseTranslationDocument(content).units;
   }
 
@@ -94,7 +94,7 @@ export class VntJsonFileHandler extends TranslationFileHandler {
    * 专用于从压缩包更新译文的场景。
    */
   override async readTranslationUnitsForUpdate(filePath: string): Promise<TranslationUnit[]> {
-    const content = await readFile(filePath, "utf8");
+    const { content } = await this.readFileContent(filePath);
     const data = JSON.parse(content) as Array<Record<string, unknown>>;
     return data.map<TranslationUnit>((item) => {
       const message = typeof item.message === "string" ? item.message.replace(/\r?\n/g, "\\n") : "";

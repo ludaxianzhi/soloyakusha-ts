@@ -11,6 +11,8 @@
  */
 
 import type { TranslationUnit } from "../project/types.ts";
+import type { ReadTextFileResult } from "./encoding-utils.ts";
+import { readTextFile } from "./encoding-utils.ts";
 
 export const BLANK_PLACEHOLDER = "<blank/>";
 
@@ -85,6 +87,14 @@ export abstract class TranslationFileHandler {
     filePath: string,
     units: TranslationUnit[],
   ): Promise<void>;
+
+  /**
+   * 自动检测编码读取文件内容，返回解码后的 UTF-8 字符串。
+   * 子类的 readTranslationUnits 应优先使用此方法而非直接 readFile。
+   */
+  protected async readFileContent(filePath: string): Promise<ReadTextFileResult> {
+    return readTextFile(filePath);
+  }
 
   /**
    * 以"仅译文"模式读取翻译单元，专用于从压缩包更新译文的场景。

@@ -14,6 +14,8 @@ import {
 } from '../services/project-service.ts';
 import type { RequestHistoryService } from '../services/request-history-service.ts';
 import { TranslationFileHandlerFactory } from '../../file-handlers/factory.ts';
+import { writeEncodedFile } from '../../file-handlers/encoding-utils.ts';
+import type { ProjectExportResult } from '../../project/types.ts';
 
 export function createProjectRoutes(
   projectService: ProjectService,
@@ -446,10 +448,15 @@ export function createProjectRoutes(
   });
 
   app.post('/export', async (c) => {
-    const body = await c.req.json<{ format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[]; fileExtension?: string }>();
+    const body = await c.req.json<{ format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[]; fileExtension?: string; encoding?: string }>();
+    const encoding = body.encoding && body.encoding !== 'utf-8' ? body.encoding : undefined;
     const result = await projectService.exportProject(body.format, body.params, body.processors, body.fileExtension);
     if (!result) {
       return c.json({ error: '当前没有可导出的项目' }, 400);
+    }
+
+    if (encoding) {
+      await convertExportResultEncoding(result, encoding);
     }
 
     const archive = await buildExportArchive(result.exportDir);
@@ -761,7 +768,7 @@ export function createProjectRoutes(
   });
 
   app.post('/chapters/export', async (c) => {
-    const body = await c.req.json<{ chapterIds: number[]; format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[]; fileExtension?: string }>();
+    const body = await c.req.json<{ chapterIds: number[]; format: string; params?: Record<string, unknown>; processors?: { id: string; params?: Record<string, unknown> }[]; fileExtension?: string; encoding?: string }>();
     if (!Array.isArray(body.chapterIds) || body.chapterIds.length === 0) {
       return c.json({ error: '请提供至少一个章节 ID' }, 400);
     }
@@ -769,10 +776,15 @@ export function createProjectRoutes(
     if (!format) {
       return c.json({ error: '请提供导出格式' }, 400);
     }
+    const encoding = body.encoding && body.encoding !== 'utf-8' ? body.encoding : undefined;
 
     const result = await projectService.exportChapters(body.chapterIds, format, body.params, body.processors, body.fileExtension);
     if (!result) {
       return c.json({ error: '导出失败' }, 400);
+    }
+
+    if (encoding) {
+      await convertExportResultEncoding(result, encoding);
     }
 
     const snapshot = projectService.getSnapshot();
@@ -1140,6 +1152,18 @@ async function addDirectoryToZip(
 
     const relativePath = relative(baseDir, absolutePath).replace(/\\/g, '/');
     zip.file(relativePath || basename(absolutePath), await Bun.file(absolutePath).arrayBuffer());
+  }
+}
+
+async function convertExportResultEncoding(
+  result: ProjectExportResult,
+  encoding: string,
+): Promise<void> {
+  for (const route of result.routes) {
+    for (const chapter of route.chapters) {
+      const content = await Bun.file(chapter.outputPath).text();
+      await writeEncodedFile(chapter.outputPath, content, encoding);
+    }
   }
 }
 

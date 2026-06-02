@@ -606,16 +606,16 @@ getFormatParams: (formatName: string, mode?: 'import' | 'export', workspaceId?: 
       `/api/project/format-params/${formatName}?mode=${mode ?? 'export'}${buildWorkspaceQueryString(workspaceId)}`,
     ),
 
-downloadExport: (format: string, params?: Record<string, unknown>, processors?: PipelineStep[], workspaceId?: string, fileExtension?: string) =>
+downloadExport: (format: string, params?: Record<string, unknown>, processors?: PipelineStep[], workspaceId?: string, fileExtension?: string, encoding?: string) =>
     requestBlob(`/api/project/export${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
-      body: { format, params, processors, fileExtension },
+      body: { format, params, processors, fileExtension, encoding },
     }),
 
-downloadChaptersExport: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: PipelineStep[], workspaceId?: string, fileExtension?: string) =>
+downloadChaptersExport: (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: PipelineStep[], workspaceId?: string, fileExtension?: string, encoding?: string) =>
     requestBlob(`/api/project/chapters/export${buildWorkspaceQueryString(workspaceId)}`, {
       method: 'POST',
-      body: { chapterIds, format, params, processors, fileExtension },
+      body: { chapterIds, format, params, processors, fileExtension, encoding },
     }),
 
   downloadWorkspaceArchive: (dir: string) =>

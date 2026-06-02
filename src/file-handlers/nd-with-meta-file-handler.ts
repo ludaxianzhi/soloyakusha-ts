@@ -30,7 +30,7 @@ import type {
 } from "./base.ts";
 import { TranslationFileHandler, stripBom } from "./base.ts";
 import type { TranslationUnit } from "../project/types.ts";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 
 const IMPORT_PARAMS: FileHandlerParamDef[] = [
   {
@@ -188,7 +188,7 @@ export class NdWithMetaFileHandler extends TranslationFileHandler {
   }
 
   async readTranslationUnits(filePath: string): Promise<TranslationUnit[]> {
-    const content = await readFile(filePath, "utf-8");
+    const { content } = await this.readFileContent(filePath);
     return this.parseTranslationDocument(content).units;
   }
 

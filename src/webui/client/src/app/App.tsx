@@ -2070,9 +2070,9 @@ export function AppShell() {
   );
 
   const handleDownloadExport= useCallback(
-    async (format: string, params?: Record<string, unknown>, processors?: PipelineStep[], fileExtension?: string) => {
+    async (format: string, params?: Record<string, unknown>, processors?: PipelineStep[], fileExtension?: string, encoding?: string) => {
       await runAction(async () => {
-        const blob = await api.downloadExport(format, params, processors, getSelectedWorkspaceId(), fileExtension);
+        const blob = await api.downloadExport(format, params, processors, getSelectedWorkspaceId(), fileExtension, encoding);
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -2102,7 +2102,7 @@ export function AppShell() {
   );
 
   const handleDownloadChapters = useCallback(
-    async (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: PipelineStep[], fileExtension?: string) => {
+    async (chapterIds: number[], format: string, params?: Record<string, unknown>, processors?: PipelineStep[], fileExtension?: string, encoding?: string) => {
       await runAction(async () => {
         const blob = await api.downloadChaptersExport(
           chapterIds,
@@ -2111,6 +2111,7 @@ export function AppShell() {
           processors,
           getSelectedWorkspaceId(),
           fileExtension,
+          encoding,
         );
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');

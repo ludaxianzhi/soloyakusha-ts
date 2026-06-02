@@ -89,16 +89,35 @@ export function createWorkspaceRoutes(
       ).sort();
 
       if (chapterFiles.length === 0) {
+        const currentPattern = manifest?.importPattern ?? importPattern;
+        let hasPatternMatch = false;
+        if (currentPattern) {
+          const normalizedP = normalizeImportPattern(currentPattern);
+          if (normalizedP) {
+            const visibleFiles = extractedFiles.filter((filePath) =>
+              isVisibleWorkspaceFile(filePath),
+            );
+            const globPatterns = buildImportGlobPatterns(normalizedP);
+            hasPatternMatch = visibleFiles.some((filePath) =>
+              globPatterns.some((pattern) =>
+                new Bun.Glob(pattern).match(filePath.replace(/\\/g, '/')),
+              ),
+            );
+          }
+        }
+
         await cleanupWorkspaceDirectory(workspaceDir);
         workspaceDir = undefined;
         return c.json(
           {
             error:
-              manifest?.importPattern ?? importPattern
-                ? '压缩包中没有文件匹配导入 Pattern'
+              currentPattern
+                ? hasPatternMatch
+                  ? '匹配到的文件不是可识别的文本格式（可能为二进制编码，请检查文件编码或尝试留空导入 Pattern）'
+                  : '压缩包中没有文件匹配导入 Pattern'
                 : '压缩包中未发现可识别的翻译源文件',
             extractedFiles,
-            importPattern: manifest?.importPattern ?? importPattern,
+            importPattern: currentPattern,
           },
           400,
         );
@@ -442,6 +461,32 @@ async function isLikelyTextFile(filePath: string): Promise<boolean> {
   const sample = new Uint8Array(await Bun.file(filePath).slice(0, 4096).arrayBuffer());
   if (sample.length === 0) {
     return true;
+  }
+
+  // 检测 UTF-16 BOM
+  if (sample.length >= 2) {
+    if ((sample[0] === 0xFF && sample[1] === 0xFE) || (sample[0] === 0xFE && sample[1] === 0xFF)) {
+      return true;
+    }
+  }
+
+  // 检测无 BOM 的 UTF-16：空字节集中在同一奇偶位置
+  if (sample.length >= 4) {
+    let evenNullCount = 0;
+    let oddNullCount = 0;
+    for (let i = 0; i < sample.length; i++) {
+      if (sample[i] === 0x00) {
+        if (i % 2 === 0) evenNullCount++;
+        else oddNullCount++;
+      }
+    }
+    const totalNull = evenNullCount + oddNullCount;
+    if (totalNull > 0 && totalNull / sample.length > 0.25) {
+      const evenRatio = evenNullCount / totalNull;
+      if (evenRatio > 0.8 || evenRatio < 0.2) {
+        return true;
+      }
+    }
   }
 
   let controlCharCount = 0;

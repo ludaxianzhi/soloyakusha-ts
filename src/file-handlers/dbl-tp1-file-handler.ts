@@ -23,7 +23,7 @@ import type {
 import { TranslationFileHandler } from "./base.ts";
 import type { TranslationUnit } from "../project/types.ts";
 import { extractBracketNameAndText, stripBom } from "./base.ts";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 
 const IMPORT_PARAMS: FileHandlerParamDef[] = [
   { key: "sourceChar", label: "原文标记字符", type: "string", defaultValue: "☆", description: "原文行起始字符，如 ☆" },
@@ -172,7 +172,7 @@ export class DblTp1FileHandler extends TranslationFileHandler {
   }
 
   async readTranslationUnits(filePath: string): Promise<TranslationUnit[]> {
-    const content = await readFile(filePath, "utf-8");
+    const { content } = await this.readFileContent(filePath);
     return this.parseTranslationDocument(content).units;
   }
 

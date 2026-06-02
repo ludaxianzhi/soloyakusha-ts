@@ -10,6 +10,7 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/iconv-lite": "^0.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
@@ -37,6 +38,7 @@
     "antd": "^6.3.5",
     "bottleneck": "^2.19.5",
     "hono": "^4.12.10",
+    "iconv-lite": "^0.7.2",
     "jszip": "^3.10.1",
     "liquidjs": "^10.25.1",
     "monaco-editor": "^0.55.1",

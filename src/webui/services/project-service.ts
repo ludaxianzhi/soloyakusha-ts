@@ -5960,6 +5960,30 @@ async function isLikelyTextFile(filePath: string): Promise<boolean> {
     return true;
   }
 
+  if (sample.length >= 2) {
+    if ((sample[0] === 0xFF && sample[1] === 0xFE) || (sample[0] === 0xFE && sample[1] === 0xFF)) {
+      return true;
+    }
+  }
+
+  if (sample.length >= 4) {
+    let evenNullCount = 0;
+    let oddNullCount = 0;
+    for (let i = 0; i < sample.length; i++) {
+      if (sample[i] === 0x00) {
+        if (i % 2 === 0) evenNullCount++;
+        else oddNullCount++;
+      }
+    }
+    const totalNull = evenNullCount + oddNullCount;
+    if (totalNull > 0 && totalNull / sample.length > 0.25) {
+      const evenRatio = evenNullCount / totalNull;
+      if (evenRatio > 0.8 || evenRatio < 0.2) {
+        return true;
+      }
+    }
+  }
+
   let controlCharCount = 0;
   for (const byte of sample) {
     if (byte === 0) {
