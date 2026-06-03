@@ -379,7 +379,8 @@ prompts:
 
         请按以下要求输出：
         - 对每一行原文-译文对进行评级。
-        - 只输出level大于0的id、评级和comment。
+        - level 为 0 表示完美，不需要 comment。
+        - 即使是lv0的句子，也需要在结果数组中输出包含id和该行评级的JSON对象。
         - level 为 1-9 表示存在对应等级的问题，必须提供 comment 说明具体问题和修改建议。
         - 输出必须是严格 JSON，并符合给定 schema。
         - 不要输出 Markdown、解释或代码块。
