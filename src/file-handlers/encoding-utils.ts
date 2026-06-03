@@ -256,6 +256,16 @@ export async function writeEncodedFile(
   }
 
   const encoded = iconv.encode(content, encoding);
+
+  if (encoding === 'utf-16le') {
+    const bom = new Uint8Array([0xFF, 0xFE]);
+    const withBom = new Uint8Array(bom.length + encoded.length);
+    withBom.set(bom);
+    withBom.set(encoded, bom.length);
+    await writeFile(filePath, withBom);
+    return;
+  }
+
   await writeFile(filePath, encoded);
 }
 
