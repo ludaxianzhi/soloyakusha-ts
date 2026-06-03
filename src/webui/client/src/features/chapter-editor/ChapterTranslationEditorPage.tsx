@@ -227,6 +227,7 @@ export function ChapterTranslationEditorPage({
       setAssistantDraft('');
       setAssistantAnchor(null);
       assistantSelectionSignatureRef.current = '';
+      initialPreProcessAppliedRef.current = false;
       navigate(`/workspace/editor/${selectedChapterId}`, { replace: true });
     } catch (error) {
       setDraft(null);

@@ -186,16 +186,6 @@ export function validateChapterTranslationEditorContent(input: {
   const parsed = handler.parseTranslationDocument(input.content);
   const diagnostics: ChapterTranslationEditorDiagnostic[] = [];
   const lineOffsets = buildLineOffsets(input.content);
-  const nonCommentLineCount = countNonCommentLines(input.content);
-
-  if (nonCommentLineCount !== input.baseline.rawLineCount) {
-    diagnostics.push({
-      ...createDocumentRange(lineOffsets, 1, Math.max(parsed.rawLineCount, 1)),
-      severity: "warning",
-      code: "line-count-changed",
-      message: `文本总行数发生变化：基线 ${input.baseline.rawLineCount} 行，当前 ${nonCommentLineCount} 行`,
-    });
-  }
 
   if (parsed.units.length !== input.units.length) {
     diagnostics.push({
@@ -240,9 +230,9 @@ export function validateChapterTranslationEditorContent(input: {
     content: input.content,
     normalizedContent,
     parsedUnitCount: parsed.units.length,
-    rawLineCount: nonCommentLineCount,
-    hasLineCountChange: nonCommentLineCount !== input.baseline.rawLineCount,
-    lineCountDelta: nonCommentLineCount - input.baseline.rawLineCount,
+    rawLineCount: parsed.rawLineCount,
+    hasLineCountChange: false,
+    lineCountDelta: 0,
     diagnostics,
     updates,
     canApply: diagnostics.every((diagnostic) => diagnostic.severity !== "error"),

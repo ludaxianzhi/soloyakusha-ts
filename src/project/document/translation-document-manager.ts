@@ -321,6 +321,16 @@ export class TranslationDocumentManager {
     lineIndex: number,
     comment: string,
   ): Promise<void> {
+    const fragment = this.getRequiredFragment(chapterId, fragmentIndex);
+    if (lineIndex < 0 || lineIndex >= fragment.source.lines.length) {
+      throw new Error(
+        `文本行不存在: chapter=${chapterId}, fragment=${fragmentIndex}, line=${lineIndex}`,
+      );
+    }
+
+    fragment.meta ??= { metadataList: [] };
+    fragment.meta.comments ??= fragment.source.lines.map(() => "");
+    fragment.meta.comments[lineIndex] = comment;
     await this.storage.updateFragmentLineComment(chapterId, fragmentIndex, lineIndex, comment);
   }
 
