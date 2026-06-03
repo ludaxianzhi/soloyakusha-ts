@@ -692,6 +692,11 @@ body {
   border-color: rgba(108, 140, 255, 0.35);
 }
 
+/* 评论文本行 — 粉色字体，仅显示不保存 */
+.chapter-editor-comment-line {
+  color: #f759ab !important;
+}
+
 .chapter-editor-assistant-message-assistant {
   border-color: rgba(82, 196, 26, 0.28);
 }

@@ -654,6 +654,7 @@ export interface ChapterTranslationEditorDocument {
     sourceText: string;
     translatedText: string;
     targetCandidates: string[];
+    comment?: string;
   }>;
   diagnostics: ChapterTranslationEditorDiagnostic[];
   glossaryMatches: ChapterTranslationEditorGlossaryMatch[];

@@ -328,6 +328,11 @@ export function ChapterTranslationEditorPage({
     [content, dictionary, draft?.repetitionMatches, format],
   );
 
+  const commentLineDecorations = useMemo(
+    () => buildCommentLineDecorations(content),
+    [content],
+  );
+
   const editorExtensions = useMemo(() => {
     const decorations = Decoration.set(
       [
@@ -345,6 +350,7 @@ export function ChapterTranslationEditorPage({
             side: 1,
           }).range(hint.position),
         ),
+        ...commentLineDecorations,
       ],
       true,
     );
@@ -393,7 +399,7 @@ export function ChapterTranslationEditorPage({
         })),
       ),
     ];
-  }, [diagnostics, glossaryRender, isDarkMode]);
+  }, [commentLineDecorations, diagnostics, glossaryRender, isDarkMode]);
 
   const chapterOptions = useMemo(
     () =>
@@ -1132,6 +1138,26 @@ function buildGlossaryRenderState(
   };
 }
 
+/**
+ * 构建评论行（以 # 开头的行）的 CodeMirror line decoration。
+ * 评论行以粉色字体显示，表示这些行仅用于显示，不会被保存。
+ */
+function buildCommentLineDecorations(content: string) {
+  const deco = Decoration.line({ class: 'chapter-editor-comment-line' });
+  const decorations: ReturnType<typeof deco.range>[] = [];
+  let offset = 0;
+  const lines = content.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const trimmed = line.trim();
+    if (trimmed.startsWith('#')) {
+      decorations.push(deco.range(offset));
+    }
+    offset += line.length + (content[offset + line.length] === '\r' ? 2 : 1);
+  }
+  return decorations;
+}
+
 function findAllOccurrences(content: string, query: string): Array<{ from: number; to: number }> {
   const matches: Array<{ from: number; to: number }> = [];
   let startIndex = 0;
@@ -1150,7 +1176,7 @@ function classifyEditorLines(
   content: string,
   format: EditableTranslationFormat,
 ): Array<{
-  kind: 'source' | 'target' | 'name' | 'blank' | 'other';
+  kind: 'source' | 'target' | 'name' | 'blank' | 'comment' | 'other';
   from: number;
   to: number;
   bodyFrom: number;
@@ -1158,7 +1184,7 @@ function classifyEditorLines(
 }> {
   const rawLines = content.split(/\r?\n/);
   const lines: Array<{
-    kind: 'source' | 'target' | 'name' | 'blank' | 'other';
+    kind: 'source' | 'target' | 'name' | 'blank' | 'comment' | 'other';
     from: number;
     to: number;
     bodyFrom: number;
@@ -1255,6 +1281,20 @@ function classifyEditorLines(
         expectSource = true;
         continue;
       }
+    }
+
+    if (trimmed.startsWith('#')) {
+      const bodyStart = rawLine.indexOf('#') + 1;
+      const bodyFrom = lineFrom + bodyStart;
+      lines.push({
+        kind: 'comment',
+        from: lineFrom,
+        to: lineTo,
+        bodyFrom,
+        body: rawLine.slice(bodyStart).trim(),
+      });
+      // comment 行不影响 expectSource 状态（不打断源文/译文交替）
+      continue;
     }
 
     lines.push({

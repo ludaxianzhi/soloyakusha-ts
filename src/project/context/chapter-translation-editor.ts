@@ -21,6 +21,7 @@ export interface ChapterTranslationEditorUnit {
   sourceText: string;
   translatedText: string;
   targetCandidates: string[];
+  comment?: string;
 }
 
 export interface ChapterTranslationEditorBaseline {
@@ -118,6 +119,7 @@ export function buildChapterTranslationEditorUnits(
         sourceText,
         translatedText,
         targetCandidates,
+        comment: fragment.meta?.comments?.[lineIndex],
       };
     }),
   );
@@ -132,12 +134,31 @@ export function createChapterTranslationEditorDocument(input: {
   preProcessors?: Array<{ id: string; params?: Record<string, unknown> }>;
 }): ChapterTranslationEditorDocument {
   const handler = getEditableTranslationHandler(input.format);
-  const content = handler.formatTranslationUnits(
+  let content = handler.formatTranslationUnits(
     input.units.map((unit) => ({
       source: unit.sourceText,
       target: normalizeEditorTargets(unit.targetCandidates, unit.translatedText),
     })),
   );
+
+  // 在内容中追加 # comment 行
+  if (input.units.some((unit) => unit.comment)) {
+    const contentLines = content.split("\n");
+    const resultLines: string[] = [];
+    let unitIdx = 0;
+    for (const line of contentLines) {
+      resultLines.push(line);
+      if (line.trimStart().startsWith("●")) {
+        const comment = input.units[unitIdx]?.comment;
+        unitIdx += 1;
+        if (comment) {
+          resultLines.push(`# ${comment}`);
+        }
+      }
+    }
+    content = resultLines.join("\n");
+  }
+
   const parsed = handler.parseTranslationDocument(content);
 
   return {
@@ -145,7 +166,7 @@ export function createChapterTranslationEditorDocument(input: {
       chapterId: input.chapterId,
       format: input.format,
       unitCount: input.units.length,
-      rawLineCount: parsed.rawLineCount,
+      rawLineCount: countNonCommentLines(content),
     },
     content,
     units: input.units.map(cloneEditorUnit),
@@ -165,13 +186,14 @@ export function validateChapterTranslationEditorContent(input: {
   const parsed = handler.parseTranslationDocument(input.content);
   const diagnostics: ChapterTranslationEditorDiagnostic[] = [];
   const lineOffsets = buildLineOffsets(input.content);
+  const nonCommentLineCount = countNonCommentLines(input.content);
 
-  if (parsed.rawLineCount !== input.baseline.rawLineCount) {
+  if (nonCommentLineCount !== input.baseline.rawLineCount) {
     diagnostics.push({
       ...createDocumentRange(lineOffsets, 1, Math.max(parsed.rawLineCount, 1)),
       severity: "warning",
       code: "line-count-changed",
-      message: `文本总行数发生变化：基线 ${input.baseline.rawLineCount} 行，当前 ${parsed.rawLineCount} 行`,
+      message: `文本总行数发生变化：基线 ${input.baseline.rawLineCount} 行，当前 ${nonCommentLineCount} 行`,
     });
   }
 
@@ -218,9 +240,9 @@ export function validateChapterTranslationEditorContent(input: {
     content: input.content,
     normalizedContent,
     parsedUnitCount: parsed.units.length,
-    rawLineCount: parsed.rawLineCount,
-    hasLineCountChange: parsed.rawLineCount !== input.baseline.rawLineCount,
-    lineCountDelta: parsed.rawLineCount - input.baseline.rawLineCount,
+    rawLineCount: nonCommentLineCount,
+    hasLineCountChange: nonCommentLineCount !== input.baseline.rawLineCount,
+    lineCountDelta: nonCommentLineCount - input.baseline.rawLineCount,
     diagnostics,
     updates,
     canApply: diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
@@ -344,4 +366,12 @@ function createDocumentRange(
     startLineNumber: normalizedStartLineNumber,
     endLineNumber: normalizedEndLineNumber,
   };
+}
+
+/**
+ * 统计内容中非注释行的数量（即不以 # 开头的行）。
+ * 注释行以 # 开头，不计入结构行数，编辑和保存都不会对注释行做变更检测。
+ */
+function countNonCommentLines(content: string): number {
+  return content.split(/\r?\n/).filter((line) => !line.trimStart().startsWith("#")).length;
 }
