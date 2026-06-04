@@ -1052,6 +1052,12 @@ export function createProjectRoutes(
     return c.json({ ok: true });
   });
 
+  app.post('/chapters/clear-comments', async (c) => {
+    const body = await c.req.json<{ chapterIds: number[] }>();
+    await projectService.clearChapterComments(body.chapterIds);
+    return c.json({ ok: true });
+  });
+
   // ─── 工作区配置 ─────────────────────────────────
 
   app.get('/config', (c) => {

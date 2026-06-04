@@ -54,6 +54,7 @@ interface WorkspaceChaptersTabProps {
   defaultProofreaderName?: string;
   onRefreshChapters: () => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onClearChapterComments: (chapterIds: number[]) => void | Promise<void>;
   onStartProofread: (input: {
     chapterIds: number[];
     mode?: 'linear' | 'simultaneous';
@@ -124,6 +125,7 @@ export function WorkspaceChaptersTab({
   defaultProofreaderName,
   onRefreshChapters,
   onClearChapterTranslations,
+  onClearChapterComments,
   onStartProofread,
   onRemoveChapters,
   onCreateStoryBranch,
@@ -193,6 +195,7 @@ export function WorkspaceChaptersTab({
           chapters={chapters}
           onCreateBranch={onCreateStoryBranch}
           onClearChapterTranslations={onClearChapterTranslations}
+          onClearChapterComments={onClearChapterComments}
           onRemoveChapters={onRemoveChapters}
           onRemoveRoute={onRemoveStoryRoute}
           onUpdateRoute={onUpdateStoryRoute}
@@ -207,6 +210,7 @@ export function WorkspaceChaptersTab({
           proofreaders={proofreaders}
           defaultProofreaderName={defaultProofreaderName}
           onClearChapterTranslations={onClearChapterTranslations}
+          onClearChapterComments={onClearChapterComments}
           onStartProofread={onStartProofread}
           onRemoveChapters={onRemoveChapters}
           onCreateStoryBranch={onCreateStoryBranch}
@@ -329,6 +333,7 @@ const ChapterTableSection = memo(function ChapterTableSection({
   setPreviewChapterId,
   setPreviewOpen,
   onClearChapterTranslations,
+  onClearChapterComments,
   onRemoveChapters,
   onOpenPerChapterExport,
 }: {
@@ -340,6 +345,7 @@ const ChapterTableSection = memo(function ChapterTableSection({
   setPreviewChapterId: React.Dispatch<React.SetStateAction<number | undefined>>;
   setPreviewOpen: React.Dispatch<React.SetStateAction<boolean>>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onClearChapterComments: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
@@ -518,6 +524,19 @@ const ChapterTableSection = memo(function ChapterTableSection({
                       },
                     },
                     {
+                      key: 'clear-comments',
+                      label: '清除评审结果',
+                      onClick: () => {
+                        Modal.confirm({
+                          title: '确认清除该章节的评审结果？',
+                          content: '此操作将清空该章节所有文本行的评审结果（comment 字段），译文不受影响。',
+                          okText: '清除',
+                          cancelText: '取消',
+                          onOk: () => onClearChapterComments([record.id]),
+                        });
+                      },
+                    },
+                    {
                       key: 'remove',
                       label: <span style={{ color: '#ff7875' }}>移除</span>,
                       onClick: () => {
@@ -551,6 +570,7 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
   proofreaders,
   defaultProofreaderName,
   onClearChapterTranslations,
+  onClearChapterComments,
   onStartProofread,
   onRemoveChapters,
   onCreateStoryBranch,
@@ -566,6 +586,7 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
   proofreaders: Record<string, ProofreaderEntry>;
   defaultProofreaderName?: string;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onClearChapterComments: (chapterIds: number[]) => void | Promise<void>;
   onStartProofread: (input: {
     chapterIds: number[];
     mode?: 'linear' | 'simultaneous';
@@ -843,6 +864,14 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
     setSelectedChapterIds([]);
   };
 
+  const handleBatchClearComments = async () => {
+    if (selectedChapterIds.length === 0) {
+      return;
+    }
+    await onClearChapterComments(selectedChapterIds);
+    setSelectedChapterIds([]);
+  };
+
   const handleBatchRemoveChapters = async () => {
     if (selectedChapterIds.length === 0) {
       return;
@@ -1085,6 +1114,39 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
         },
       },
       {
+        key: 'clear-comments',
+        label: '清除选中评审结果',
+        render: () => (
+          <Button
+            size="small"
+            disabled={selectedChapterIds.length === 0}
+            onClick={() => {
+              Modal.confirm({
+                title: `确认清除选中的 ${selectedChapterIds.length} 个章节评审结果？`,
+                content: '此操作将清空评审结果（comment 字段），译文不受影响。',
+                okText: '清除',
+                cancelText: '取消',
+                onOk: () => void handleBatchClearComments(),
+              });
+            }}
+          >
+            清除选中评审结果
+          </Button>
+        ),
+        onMenuClick: () => {
+          if (selectedChapterIds.length === 0) {
+            return;
+          }
+          Modal.confirm({
+            title: `确认清除选中的 ${selectedChapterIds.length} 个章节评审结果？`,
+            content: '此操作将清空评审结果（comment 字段），译文不受影响。',
+            okText: '清除',
+            cancelText: '取消',
+            onOk: () => void handleBatchClearComments(),
+          });
+        },
+      },
+      {
         key: 'delete',
         label: '删除选中章节',
         render: () => (
@@ -1148,6 +1210,7 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
     ],
     [
       handleBatchClearTranslations,
+      handleBatchClearComments,
       handleBatchDownload,
       handleBatchPostProcess,
       handleBatchRemoveChapters,
@@ -1333,6 +1396,7 @@ const ChapterInfoTable = memo(function ChapterInfoTable({
           setPreviewChapterId={setPreviewChapterId}
           setPreviewOpen={setPreviewOpen}
           onClearChapterTranslations={onClearChapterTranslations}
+          onClearChapterComments={onClearChapterComments}
           onRemoveChapters={onRemoveChapters}
           onOpenPerChapterExport={(chapterId) => setPerChapterExportId(chapterId)}
         />

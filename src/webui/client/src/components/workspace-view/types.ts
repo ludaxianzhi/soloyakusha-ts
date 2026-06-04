@@ -131,6 +131,7 @@ export interface WorkspaceViewProps {
   onDownloadDictionaryExport: (format: DictionaryFileFormat) => void | Promise<void>;
   onWorkspaceConfigSave: (values: Record<string, unknown>) => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onClearChapterComments: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },

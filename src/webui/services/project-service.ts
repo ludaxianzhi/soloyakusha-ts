@@ -4653,6 +4653,17 @@ export class ProjectService {
     }, state);
   }
 
+  async clearChapterComments(chapterIds: number[]): Promise<void> {
+    const { runtime, state, project } = this.getActiveWorkspaceContext();
+    await this.runAction('清除评审结果', async () => {
+      if (!project) throw new Error('当前没有已初始化的项目');
+      await project.clearChapterComments(chapterIds);
+      this.refreshSnapshot(runtime ?? undefined);
+      this.markChaptersChanged(state);
+      this.log('success', `已清除 ${chapterIds.length} 个章节的评审结果`);
+    }, state);
+  }
+
   // ─── Workspace Close / Remove ───────────────────────
 
   closeWorkspace(workspaceId?: string): void {

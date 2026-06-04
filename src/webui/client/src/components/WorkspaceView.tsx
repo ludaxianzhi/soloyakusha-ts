@@ -69,6 +69,7 @@ export function WorkspaceView({
   onDownloadDictionaryExport,
   onWorkspaceConfigSave,
   onClearChapterTranslations,
+  onClearChapterComments,
   onRemoveChapters,
   onCreateStoryBranch,
   onUpdateStoryRoute,
@@ -210,6 +211,7 @@ export function WorkspaceView({
                 defaultProofreaderName={defaultProofreaderName}
                 onRefreshChapters={onRefreshChapters}
                 onClearChapterTranslations={onClearChapterTranslations}
+                onClearChapterComments={onClearChapterComments}
                 onStartProofread={onStartProofread}
                 onRemoveChapters={onRemoveChapters}
                 onCreateStoryBranch={onCreateStoryBranch}

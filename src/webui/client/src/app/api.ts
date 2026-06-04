@@ -505,6 +505,11 @@ export const api = {
       method: 'POST',
       body: { chapterIds },
     }),
+  clearChapterComments: (chapterIds: number[], workspaceId?: string) =>
+    request(`/api/project/chapters/clear-comments${buildWorkspaceQueryString(workspaceId)}`, {
+      method: 'POST',
+      body: { chapterIds },
+    }),
   previewChapterFindReplace: (payload: ChapterFindReplaceRequest, workspaceId?: string) =>
     request<ChapterFindReplacePreviewResult>(
       `/api/project/chapters/find-replace/preview${buildWorkspaceQueryString(workspaceId)}`,

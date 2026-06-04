@@ -1898,6 +1898,17 @@ export function AppShell() {
     [getSelectedWorkspaceId, message, refreshChapters, refreshProjectStatus, runAction],
   );
 
+  const handleClearChapterComments = useCallback(
+    async (chapterIds: number[]) => {
+      await runAction(async () => {
+        await api.clearChapterComments(chapterIds, getSelectedWorkspaceId());
+        await Promise.all([refreshChapters(), refreshProjectStatus()]);
+        message.success('评审结果已清除');
+      });
+    },
+    [getSelectedWorkspaceId, message, refreshChapters, refreshProjectStatus, runAction],
+  );
+
   const handleRemoveChapters = useCallback(
     async (
       chapterIds: number[],
@@ -2965,6 +2976,7 @@ export function AppShell() {
                       onDownloadDictionaryExport={handleDownloadDictionaryExport}
                       onWorkspaceConfigSave={handleWorkspaceConfigSave}
                       onClearChapterTranslations={handleClearChapterTranslations}
+                      onClearChapterComments={handleClearChapterComments}
                       onRemoveChapters={handleRemoveChapters}
                       onCreateStoryBranch={handleCreateStoryBranch}
                       onUpdateStoryRoute={handleUpdateStoryRoute}

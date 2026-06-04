@@ -50,6 +50,7 @@ interface ChapterKanbanBoardProps {
   chapters: WorkspaceChapterDescriptor[];
   onCreateBranch: (payload: CreateStoryBranchPayload) => void | Promise<void>;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onClearChapterComments: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
@@ -69,6 +70,7 @@ export function ChapterKanbanBoard({
   chapters,
   onCreateBranch,
   onClearChapterTranslations,
+  onClearChapterComments,
   onRemoveChapters,
   onRemoveRoute,
   onUpdateRoute,
@@ -461,6 +463,7 @@ export function ChapterKanbanBoard({
               activeId={activeId}
               onCreateBranch={handleCreateBranch}
               onClearChapterTranslations={onClearChapterTranslations}
+              onClearChapterComments={onClearChapterComments}
               onRemoveChapters={onRemoveChapters}
               onEditRoute={handleEditRoute}
               onRemoveRoute={onRemoveRoute}
@@ -553,6 +556,7 @@ interface KanbanColumnProps {
   activeId: number | null;
   onCreateBranch: (parentRouteId: string, forkAfterChapterId: number) => void;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onClearChapterComments: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
@@ -572,6 +576,7 @@ const KanbanColumn = memo(function KanbanColumn({
   activeId,
   onCreateBranch,
   onClearChapterTranslations,
+  onClearChapterComments,
   onRemoveChapters,
   onEditRoute,
   onRemoveRoute,
@@ -703,6 +708,7 @@ const KanbanColumn = memo(function KanbanColumn({
                       routeId={route.id}
                       onCreateBranch={onCreateBranch}
                       onClearChapterTranslations={onClearChapterTranslations}
+                      onClearChapterComments={onClearChapterComments}
                       onRemoveChapters={onRemoveChapters}
                       onOpenPerChapterExport={onOpenPerChapterExport}
                       onMoveChapter={onMoveChapter}
@@ -729,6 +735,7 @@ interface KanbanCardProps {
   routeId: string;
   onCreateBranch: (parentRouteId: string, forkAfterChapterId: number) => void;
   onClearChapterTranslations: (chapterIds: number[]) => void | Promise<void>;
+  onClearChapterComments: (chapterIds: number[]) => void | Promise<void>;
   onRemoveChapters: (
     chapterIds: number[],
     options?: { cascadeBranches?: boolean },
@@ -746,6 +753,7 @@ const KanbanCard = memo(function KanbanCard({
   routeId,
   onCreateBranch,
   onClearChapterTranslations,
+  onClearChapterComments,
   onRemoveChapters,
   onOpenPerChapterExport,
   onMoveChapter,
@@ -791,6 +799,19 @@ const KanbanCard = memo(function KanbanCard({
       },
     },
     {
+      key: 'clear-comments',
+      label: '清除评审结果',
+      onClick: () => {
+        Modal.confirm({
+          title: '确认清除该章节的评审结果？',
+          content: '此操作将清空该章节所有文本行的评审结果（comment 字段），译文不受影响。',
+          okText: '清除',
+          cancelText: '取消',
+          onOk: () => onClearChapterComments([chapterId]),
+        });
+      },
+    },
+    {
       key: 'remove',
       label: <span style={{ color: '#ff7875' }}>移除</span>,
       onClick: () => {
@@ -803,7 +824,7 @@ const KanbanCard = memo(function KanbanCard({
         });
       },
     },
-  ], [chapterId, navigate, onOpenPerChapterExport, onClearChapterTranslations, onRemoveChapters]);
+  ], [chapterId, navigate, onOpenPerChapterExport, onClearChapterTranslations, onClearChapterComments, onRemoveChapters]);
 
   return (
     <div

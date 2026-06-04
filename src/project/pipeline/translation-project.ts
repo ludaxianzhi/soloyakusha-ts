@@ -1711,6 +1711,15 @@ export class TranslationProject
   }
 
   /**
+   * 清除指定章节所有文本行的评审结果（comment 字段）。
+   */
+  async clearChapterComments(chapterIds: number[]): Promise<void> {
+    this.ensureInitialized();
+    const normalizedChapterIds = [...new Set(chapterIds)];
+    await this.documentManager.clearChapterComments(normalizedChapterIds);
+  }
+
+  /**
    * 清空整个术语表（删除所有条目）并保存到磁盘。
    */
   async clearGlossary(): Promise<void> {
