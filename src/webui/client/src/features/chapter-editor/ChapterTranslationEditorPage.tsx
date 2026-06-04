@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import { forEachDiagnostic, lintGutter, linter, setDiagnosticsEffect } from '@codemirror/lint';
-import { Decoration, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
+import { lintGutter, linter } from '@codemirror/lint';
+import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { RobotOutlined } from '@ant-design/icons';
 import {
   Alert,
@@ -215,6 +215,14 @@ export function ChapterTranslationEditorPage({
         format,
         resolvedWorkspaceId,
       );
+      // 保存外层滚动容器的滚动位置
+      const prevScrollContainer = document.querySelector('.cm-editor-scroll-container');
+      if (prevScrollContainer) {
+        pendingEditorScrollRef.current = {
+          top: prevScrollContainer.scrollTop,
+          left: prevScrollContainer.scrollLeft,
+        };
+      }
       setDraft(nextDraft);
       setContent(nextDraft.content);
       setDiagnostics(nextDraft.diagnostics);
@@ -409,9 +417,56 @@ export function ChapterTranslationEditorPage({
       EditorView.decorations.of(decorations),
       lintGutter(),
       linter(() => mergedLintDiagnostics),
-      scrollbarDiagnosticMarkers,
     ];
   }, [commentLineDecorations, mergedLintDiagnostics, glossaryRender, isDarkMode]);
+
+  // 在 shell 上渲染 scrollbar 诊断标记
+  useEffect(() => {
+    const shell = editorShellRef.current;
+    // 清理旧 markers
+    const existing = document.querySelector('.cm-scrollbar-diagnostic-markers');
+    existing?.remove();
+
+    if (!shell || !mergedLintDiagnostics.length) return;
+
+    const scrollContainer = shell.querySelector('.cm-editor-scroll-container');
+    if (!scrollContainer) return;
+
+    const { clientHeight, scrollHeight } = scrollContainer;
+    if (clientHeight <= 0 || scrollHeight <= clientHeight) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'cm-scrollbar-diagnostic-markers';
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.style.height = clientHeight + 'px';
+    shell.appendChild(overlay);
+
+    const markerPositions: Array<{ ratio: number; color: string }> = [];
+    for (const d of mergedLintDiagnostics) {
+      const ratio = content.length > 0 ? d.from / content.length : 0;
+      markerPositions.push({
+        ratio: Math.min(1, Math.max(0, ratio)),
+        color: d.severity === 'error' ? '#ff4d4f' : '#faad14',
+      });
+    }
+
+    const minGapPx = 3;
+    markerPositions.sort((a, b) => a.ratio - b.ratio);
+
+    let lastPx = -Infinity;
+    for (const m of markerPositions) {
+      const idealPx = m.ratio * clientHeight;
+      const top = idealPx - lastPx < minGapPx ? lastPx + minGapPx : idealPx;
+      if (top >= clientHeight) break;
+      lastPx = top;
+
+      const el = document.createElement('div');
+      el.className = 'cm-scrollbar-diagnostic-marker';
+      el.style.top = top + 'px';
+      el.style.backgroundColor = m.color;
+      overlay.appendChild(el);
+    }
+  }, [mergedLintDiagnostics, content]);
 
   const chapterOptions = useMemo(
     () =>
@@ -650,6 +705,11 @@ export function ChapterTranslationEditorPage({
     if (!selectedChapterId || !draft) {
       return;
     }
+    // 保存当前滚动位置，等 extensions 重新配置完成后恢复
+    const savedScroll: { top: number; left: number } | null = (() => {
+      const c = document.querySelector('.cm-editor-scroll-container');
+      return c ? { top: c.scrollTop, left: c.scrollLeft } : null;
+    })();
     setApplying(true);
     try {
       const { canCompute, deltas } = computeTranslationDeltas({
@@ -684,6 +744,19 @@ export function ChapterTranslationEditorPage({
       setDirty(false);
       setDiagnostics([]);
       message.success(`已回写 ${result.appliedUpdateCount} 行译文`);
+      // 恢复滚动位置：setDiagnostics 会触发 extensions 重新配置（useEffect 异步执行），
+      // 需要等两帧确保所有副作用和 CodeMirror 重新配置完成
+      if (savedScroll) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const c = document.querySelector('.cm-editor-scroll-container');
+            if (c) {
+              c.scrollTop = savedScroll.top;
+              c.scrollLeft = savedScroll.left;
+            }
+          });
+        });
+      }
     } catch (error) {
       message.error(toErrorMessage(error));
     } finally {
@@ -759,13 +832,13 @@ export function ChapterTranslationEditorPage({
     if (!scrollPosition) {
       return;
     }
-    const view = editorViewRef.current;
-    if (!view) {
+    const scrollContainer = document.querySelector('.cm-editor-scroll-container') as HTMLElement | null;
+    if (!scrollContainer) {
       return;
     }
 
-    view.scrollDOM.scrollTop = scrollPosition.top;
-    view.scrollDOM.scrollLeft = scrollPosition.left;
+    scrollContainer.scrollTop = scrollPosition.top;
+    scrollContainer.scrollLeft = scrollPosition.left;
     pendingEditorScrollRef.current = null;
   }, [content]);
 
@@ -1347,89 +1420,7 @@ function classifyEditorLines(
   return lines;
 }
 
-const scrollbarDiagnosticMarkers = ViewPlugin.fromClass(
-  class {
-    overlay: HTMLDivElement;
-    markers: HTMLDivElement[] = [];
-    shell: HTMLElement | null = null;
-    scrollContainer: HTMLElement | null = null;
 
-    constructor(view: EditorView) {
-      this.overlay = document.createElement('div');
-      this.overlay.className = 'cm-scrollbar-diagnostic-markers';
-      this.overlay.setAttribute('aria-hidden', 'true');
-      this.scrollContainer = view.dom.closest('.cm-editor-scroll-container');
-      this.shell = this.scrollContainer?.parentElement ?? null;
-      if (this.shell) {
-        this.shell.appendChild(this.overlay);
-      }
-      this.render(view);
-    }
-
-    update(update: ViewUpdate) {
-      if (update.geometryChanged || update.viewportChanged) {
-        this.render(update.view);
-        return;
-      }
-      for (const tr of update.transactions) {
-        if (tr.effects.some((e) => e.is(setDiagnosticsEffect)) || tr.docChanged) {
-          this.render(update.view);
-          return;
-        }
-      }
-    }
-
-    render(view: EditorView) {
-      const container = this.scrollContainer;
-      if (!container) return;
-      const { scrollHeight, clientHeight } = container;
-      if (clientHeight <= 0 || scrollHeight <= clientHeight) {
-        this.clearMarkers();
-        return;
-      }
-
-      const markers: Array<{ ratio: number; color: string }> = [];
-      forEachDiagnostic(view.state, (d) => {
-        const line = view.state.doc.lineAt(d.from);
-        const ratio = line.from / (scrollHeight - clientHeight);
-        markers.push({
-          ratio: Math.min(1, Math.max(0, ratio)),
-          color: d.severity === 'error' ? '#ff4d4f' : '#faad14',
-        });
-      });
-
-      const minGapPx = 3;
-      markers.sort((a, b) => a.ratio - b.ratio);
-
-      this.clearMarkers();
-      this.overlay.style.height = clientHeight + 'px';
-
-      let lastPx = -Infinity;
-      for (const m of markers) {
-        const idealPx = m.ratio * clientHeight;
-        const top = idealPx - lastPx < minGapPx ? lastPx + minGapPx : idealPx;
-        if (top >= clientHeight) break;
-        lastPx = top;
-
-        const el = document.createElement('div');
-        el.className = 'cm-scrollbar-diagnostic-marker';
-        el.style.top = top + 'px';
-        el.style.backgroundColor = m.color;
-        this.overlay.appendChild(el);
-        this.markers.push(el);
-      }
-    }
-
-    clearMarkers() {
-      for (const el of this.markers) el.remove();
-      this.markers = [];
-    }
-
-    destroy() {
-      this.overlay.remove();
-    }
-  },
-);
 
 class InlineGlossaryHintWidget extends WidgetType {
   constructor(private readonly text: string) {
