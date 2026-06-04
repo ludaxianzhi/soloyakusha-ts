@@ -97,9 +97,13 @@ body {
 .app-shell {
   height: 100vh;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .app-shell > .ant-layout {
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -273,6 +277,31 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  height: 100%;
+}
+
+/* 编辑器页面 Card — 占满高度，body 内滚动 */
+.chapter-editor-page-card {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.chapter-editor-page-card > .ant-card-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.chapter-editor-page-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 10px;
 }
 
 .workspace-tabs-wrapper {
@@ -608,25 +637,47 @@ body {
   -webkit-text-fill-color: var(--text-muted);
 }
 
-.chapter-editor-toolbar {
-  width: 100%;
-  justify-content: space-between;
-}
-
 .chapter-editor-shell {
   position: relative;
+  flex: 1;
+  min-height: 0;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   overflow: hidden;
   background: var(--editor-bg);
 }
 
-.chapter-editor-shell .cm-editor {
-  min-height: 62vh;
+.cm-editor-scroll-container {
+  height: 100%;
+  overflow: auto;
+  position: relative;
 }
 
-.chapter-editor-shell .cm-scroller {
+.cm-editor-scroll-container .cm-editor {
+  min-height: 100%;
+}
+
+.cm-editor-scroll-container .cm-scroller {
   font-family: var(--font-family);
+  overflow: visible !important;
+  min-height: 0;
+}
+
+.cm-scrollbar-diagnostic-markers {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 14px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.cm-scrollbar-diagnostic-marker {
+  position: absolute;
+  width: 100%;
+  height: 2px;
+  left: 0;
+  opacity: 0.85;
 }
 
 .chapter-editor-match-source {

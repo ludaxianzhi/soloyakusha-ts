@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import { lintGutter, linter } from '@codemirror/lint';
-import { Decoration, EditorView, WidgetType } from '@codemirror/view';
+import { forEachDiagnostic, lintGutter, linter, setDiagnosticsEffect } from '@codemirror/lint';
+import { Decoration, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
 import { RobotOutlined } from '@ant-design/icons';
 import {
   Alert,
@@ -382,7 +382,6 @@ export function ChapterTranslationEditorPage({
             fontSize: '14px',
             backgroundColor: 'var(--editor-bg)',
             color: 'var(--editor-text)',
-            minHeight: '62vh',
           },
           '.cm-content': {
             fontFamily: 'var(--font-family)',
@@ -410,6 +409,7 @@ export function ChapterTranslationEditorPage({
       EditorView.decorations.of(decorations),
       lintGutter(),
       linter(() => mergedLintDiagnostics),
+      scrollbarDiagnosticMarkers,
     ];
   }, [commentLineDecorations, mergedLintDiagnostics, glossaryRender, isDarkMode]);
 
@@ -791,8 +791,30 @@ export function ChapterTranslationEditorPage({
     <div className="section-stack">
       <Card
         title="章节翻译文本编辑器"
+        className="chapter-editor-page-card"
         extra={
-          <Space>
+          <Space wrap size={[4, 4]}>
+            <Select
+              placeholder="选择章节"
+              style={{ minWidth: 200 }}
+              value={selectedChapterId}
+              options={chapterOptions}
+              onChange={(value) => setSelectedChapterId(value)}
+            />
+            <Select
+              style={{ width: 180 }}
+              value={format}
+              options={EDITOR_FORMAT_OPTIONS}
+              onChange={(value) => setFormat(value)}
+            />
+            <Select
+              style={{ minWidth: 180 }}
+              placeholder="选择 AI 模型"
+              value={selectedLlmProfileName}
+              options={llmProfileOptions}
+              onChange={(value) => setSelectedLlmProfileName(value)}
+              disabled={llmProfileOptions.length === 0}
+            />
             <Button onClick={() => navigate('/workspace/current?tab=chapters')}>
               返回章节管理
             </Button>
@@ -808,89 +830,56 @@ export function ChapterTranslationEditorPage({
           </Space>
         }
       >
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <Alert
-            type="info"
-            showIcon
-            message="这是独立编辑模块"
-            description="当前版本不会接管工作区主界面流程；它把章节内部数据实时投影成 Nature Dialog 或 M3T 文本，允许你直接编辑译文后再做结构化回写。"
-          />
-          <Typography.Text type="secondary">提示：在本页面按 Ctrl+S / Cmd+S 会直接触发提交，只保存译文变更，不校验源文。</Typography.Text>
+        {errorMessage ? <Alert type="error" showIcon message="加载编辑器失败" description={errorMessage} /> : null}
 
-          <Space wrap className="chapter-editor-toolbar">
-            <Select
-              placeholder="选择章节"
-              style={{ minWidth: 320 }}
-              value={selectedChapterId}
-              options={chapterOptions}
-              onChange={(value) => setSelectedChapterId(value)}
-            />
-            <Select
-              style={{ width: 220 }}
-              value={format}
-              options={EDITOR_FORMAT_OPTIONS}
-              onChange={(value) => setFormat(value)}
-            />
-            <Select
-              style={{ minWidth: 220 }}
-              placeholder="选择 AI 模型"
-              value={selectedLlmProfileName}
-              options={llmProfileOptions}
-              onChange={(value) => setSelectedLlmProfileName(value)}
-              disabled={llmProfileOptions.length === 0}
-            />
-            <Tag color={dirty ? 'gold' : 'green'}>{dirty ? '未提交修改' : '与草稿一致'}</Tag>
-            <Tag>{`术语命中 ${glossaryRender.highlights.length}`}</Tag>
-            <Tag color={assistantSelection ? 'blue' : 'default'}>
-              {assistantSelection ? `AI 选区 ${assistantSelection.units.length}` : 'AI 选区为空'}
-            </Tag>
-            <Tag color={errorCount > 0 ? 'red' : 'default'}>{`错误 ${errorCount}`}</Tag>
-            <Tag color={warningCount > 0 ? 'gold' : 'default'}>{`警告 ${warningCount}`}</Tag>
-            <Tag>{`变更行 ${changedLineCount}`}</Tag>
-            <span>
-              <Switch
-                size="small"
-                checked={preProcessorEnabled}
-                disabled={preProcessorToggling || !draft}
-                onChange={(checked) => void handleTogglePreProcessor(checked)}
-              />
-              <Typography.Text style={{ marginLeft: 6 }}>预处理</Typography.Text>
-            </span>
-          </Space>
+        {loading ? (
+          <div className="translation-preview-loading">
+            <Spin />
+          </div>
+        ) : !selectedChapterId ? (
+          <Empty description="当前工作区没有可编辑章节" />
+        ) : draft ? (
+          <div className="chapter-editor-page-body">
+            <Space wrap size={[8, 8]}>
+              <Tag>{`基线单元 ${draft.baseline.unitCount}`}</Tag>
+              <Tag>{`基线行数 ${draft.baseline.rawLineCount}`}</Tag>
+              <Tag>{`当前格式 ${draft.baseline.format}`}</Tag>
+              <Tag color={dirty ? 'gold' : 'green'}>{dirty ? '未提交修改' : '与草稿一致'}</Tag>
+              <Tag>{`术语命中 ${glossaryRender.highlights.length}`}</Tag>
+              <Tag color={assistantSelection ? 'blue' : 'default'}>
+                {assistantSelection ? `AI 选区 ${assistantSelection.units.length}` : 'AI 选区为空'}
+              </Tag>
+              <Tag color={errorCount > 0 ? 'red' : 'default'}>{`错误 ${errorCount}`}</Tag>
+              <Tag color={warningCount > 0 ? 'gold' : 'default'}>{`警告 ${warningCount}`}</Tag>
+              <Tag>{`变更行 ${changedLineCount}`}</Tag>
+              <span>
+                <Switch
+                  size="small"
+                  checked={preProcessorEnabled}
+                  disabled={preProcessorToggling || !draft}
+                  onChange={(checked) => void handleTogglePreProcessor(checked)}
+                />
+                <Typography.Text style={{ marginLeft: 6 }}>预处理</Typography.Text>
+              </span>
+            </Space>
 
-          {errorMessage ? <Alert type="error" showIcon message="加载编辑器失败" description={errorMessage} /> : null}
-
-          {loading ? (
-            <div className="translation-preview-loading">
-              <Spin />
-            </div>
-          ) : !selectedChapterId ? (
-            <Empty description="当前工作区没有可编辑章节" />
-          ) : draft ? (
-            <>
-              <Space wrap size={[8, 8]}>
-                <Tag>{`基线单元 ${draft.baseline.unitCount}`}</Tag>
-                <Tag>{`基线行数 ${draft.baseline.rawLineCount}`}</Tag>
-                <Tag>{`当前格式 ${draft.baseline.format}`}</Tag>
-              </Space>
-
-              <div className="chapter-editor-shell" ref={editorShellRef}>
-                {assistantAnchor && assistantSelection ? (
-                  <Tooltip title="AI 辅助">
-                    <Button
-                      className="chapter-editor-assistant-trigger"
-                      type="primary"
-                      shape="circle"
-                      icon={<RobotOutlined />}
-                      size="small"
-                      style={{ top: assistantAnchor.top, left: assistantAnchor.left }}
-                      onClick={() => handleOpenAssistant()}
-                    />
-                  </Tooltip>
-                ) : null}
+            <div className="chapter-editor-shell" ref={editorShellRef}>
+              {assistantAnchor && assistantSelection ? (
+                <Tooltip title="AI 辅助">
+                  <Button
+                    className="chapter-editor-assistant-trigger"
+                    type="primary"
+                    shape="circle"
+                    icon={<RobotOutlined />}
+                    size="small"
+                    style={{ top: assistantAnchor.top, left: assistantAnchor.left }}
+                    onClick={() => handleOpenAssistant()}
+                  />
+                </Tooltip>
+              ) : null}
+              <div className="cm-editor-scroll-container">
                 <CodeMirror
                   value={content}
-                  height="100%"
                   basicSetup={{
                     foldGutter: false,
                     highlightActiveLineGutter: true,
@@ -922,47 +911,18 @@ export function ChapterTranslationEditorPage({
                   }}
                 />
               </div>
+            </div>
+          </div>
+        ) : null}
 
-              <Card size="small" title="校验结果">
-                {diagnostics.length === 0 ? (
-                  <Typography.Text type="secondary">
-                    {validating ? '正在后台校验…' : '当前没有诊断信息'}
-                  </Typography.Text>
-                ) : (
-                  <div className="chapter-editor-diagnostic-list">
-                    {diagnostics.map((diagnostic, index) => (
-                      <div
-                        key={`${diagnostic.code}-${diagnostic.from}-${index}`}
-                        className={`chapter-editor-diagnostic-item chapter-editor-diagnostic-item-${diagnostic.severity}`}
-                      >
-                        <Space size={8} wrap>
-                          <Tag color={diagnostic.severity === 'error' ? 'red' : 'gold'}>
-                            {diagnostic.severity === 'error' ? '错误' : '警告'}
-                          </Tag>
-                          <Typography.Text code>{diagnostic.code}</Typography.Text>
-                          <Typography.Text type="secondary">
-                            {`L${diagnostic.startLineNumber}-${diagnostic.endLineNumber}`}
-                          </Typography.Text>
-                        </Space>
-                        <Typography.Paragraph style={{ marginBottom: 0, marginTop: 6 }}>
-                          {diagnostic.message}
-                        </Typography.Paragraph>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Card>
-            </>
-          ) : null}
-
-          <Modal
-            open={assistantModalOpen}
-            title="AI 辅助"
-            width={920}
-            onCancel={() => setAssistantModalOpen(false)}
-            footer={null}
-            destroyOnClose
-          >
+        <Modal
+          open={assistantModalOpen}
+          title="AI 辅助"
+          width={920}
+          onCancel={() => setAssistantModalOpen(false)}
+          footer={null}
+          destroyOnClose
+        >
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               <Space wrap>
                 <Select
@@ -1049,7 +1009,6 @@ export function ChapterTranslationEditorPage({
               </Space>
             </Space>
           </Modal>
-        </Space>
       </Card>
     </div>
   );
@@ -1387,6 +1346,90 @@ function classifyEditorLines(
 
   return lines;
 }
+
+const scrollbarDiagnosticMarkers = ViewPlugin.fromClass(
+  class {
+    overlay: HTMLDivElement;
+    markers: HTMLDivElement[] = [];
+    shell: HTMLElement | null = null;
+    scrollContainer: HTMLElement | null = null;
+
+    constructor(view: EditorView) {
+      this.overlay = document.createElement('div');
+      this.overlay.className = 'cm-scrollbar-diagnostic-markers';
+      this.overlay.setAttribute('aria-hidden', 'true');
+      this.scrollContainer = view.dom.closest('.cm-editor-scroll-container');
+      this.shell = this.scrollContainer?.parentElement ?? null;
+      if (this.shell) {
+        this.shell.appendChild(this.overlay);
+      }
+      this.render(view);
+    }
+
+    update(update: ViewUpdate) {
+      if (update.geometryChanged || update.viewportChanged) {
+        this.render(update.view);
+        return;
+      }
+      for (const tr of update.transactions) {
+        if (tr.effects.some((e) => e.is(setDiagnosticsEffect)) || tr.docChanged) {
+          this.render(update.view);
+          return;
+        }
+      }
+    }
+
+    render(view: EditorView) {
+      const container = this.scrollContainer;
+      if (!container) return;
+      const { scrollHeight, clientHeight } = container;
+      if (clientHeight <= 0 || scrollHeight <= clientHeight) {
+        this.clearMarkers();
+        return;
+      }
+
+      const markers: Array<{ ratio: number; color: string }> = [];
+      forEachDiagnostic(view.state, (d) => {
+        const line = view.state.doc.lineAt(d.from);
+        const ratio = line.from / (scrollHeight - clientHeight);
+        markers.push({
+          ratio: Math.min(1, Math.max(0, ratio)),
+          color: d.severity === 'error' ? '#ff4d4f' : '#faad14',
+        });
+      });
+
+      const minGapPx = 3;
+      markers.sort((a, b) => a.ratio - b.ratio);
+
+      this.clearMarkers();
+      this.overlay.style.height = clientHeight + 'px';
+
+      let lastPx = -Infinity;
+      for (const m of markers) {
+        const idealPx = m.ratio * clientHeight;
+        const top = idealPx - lastPx < minGapPx ? lastPx + minGapPx : idealPx;
+        if (top >= clientHeight) break;
+        lastPx = top;
+
+        const el = document.createElement('div');
+        el.className = 'cm-scrollbar-diagnostic-marker';
+        el.style.top = top + 'px';
+        el.style.backgroundColor = m.color;
+        this.overlay.appendChild(el);
+        this.markers.push(el);
+      }
+    }
+
+    clearMarkers() {
+      for (const el of this.markers) el.remove();
+      this.markers = [];
+    }
+
+    destroy() {
+      this.overlay.remove();
+    }
+  },
+);
 
 class InlineGlossaryHintWidget extends WidgetType {
   constructor(private readonly text: string) {
