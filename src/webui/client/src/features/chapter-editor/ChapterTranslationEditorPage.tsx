@@ -334,6 +334,24 @@ export function ChapterTranslationEditorPage({
     [content],
   );
 
+  const garbledDiagnostics = useMemo(
+    () => buildGarbledTextDiagnostics(content, format),
+    [content, format],
+  );
+
+  const mergedLintDiagnostics = useMemo(
+    () => [
+      ...diagnostics.map((d) => ({
+        from: d.from,
+        to: d.to,
+        severity: d.severity as 'error' | 'warning',
+        message: d.message,
+      })),
+      ...garbledDiagnostics,
+    ],
+    [diagnostics, garbledDiagnostics],
+  );
+
   const editorExtensions = useMemo(() => {
     const decorations = Decoration.set(
       [
@@ -391,16 +409,9 @@ export function ChapterTranslationEditorPage({
       ),
       EditorView.decorations.of(decorations),
       lintGutter(),
-      linter(() =>
-        diagnostics.map((diagnostic) => ({
-          from: diagnostic.from,
-          to: diagnostic.to,
-          severity: diagnostic.severity,
-          message: diagnostic.message,
-        })),
-      ),
+      linter(() => mergedLintDiagnostics),
     ];
-  }, [commentLineDecorations, diagnostics, glossaryRender, isDarkMode]);
+  }, [commentLineDecorations, mergedLintDiagnostics, glossaryRender, isDarkMode]);
 
   const chapterOptions = useMemo(
     () =>
@@ -1157,6 +1168,73 @@ function buildCommentLineDecorations(content: string) {
     offset += line.length + (content[offset + line.length] === '\r' ? 2 : 1);
   }
   return decorations;
+}
+
+/**
+ * 检测译文行中的夹生/乱码文本：
+ * 1. 假名残留（平假名、片假名、半角片假名）
+ * 2. 英语夹生
+ * 3. 其他非汉字字符（非 CJK Unicode 字符 + 韩语彦文）
+ * 检测到的序列在编辑器中以黄色波浪线（warning）标注。
+ */
+function buildGarbledTextDiagnostics(
+  content: string,
+  format: EditableTranslationFormat,
+): Array<{ from: number; to: number; severity: 'warning'; message: string }> {
+  const lines = classifyEditorLines(content, format);
+  const result: Array<{ from: number; to: number; severity: 'warning'; message: string }> = [];
+
+  const MESSAGE = '可能存在夹生/乱码，请进行检查';
+
+  // 1. 假名：平假名、片假名、半角片假名
+  const kanaRe = /[\u3040-\u309F\u30A0-\u30FF\uFF65-\uFF9F]+/g;
+  // 2. 英语单词
+  const englishRe = /\b[a-zA-Z]+\b/g;
+  // 3. 非汉字字符：匹配所有不在"允许范围"内的字符序列
+  // 允许范围（不告警）：ASCII、Latin-1 Supplement、General Punctuation、
+  // CJK Symbols/Punctuation、CJK Extension A、CJK Unified Ideographs、
+  // CJK Compatibility Ideographs、CJK Compatibility Forms、
+  // Halfwidth/Fullwidth Forms、Surrogates（用于扩展 CJK）、假名（由 kanaRe 单独处理）
+  const suspiciousRe = /[^\u0000-\u007F\u00A0-\u00FF\u2000-\u206F\u3000-\u303F\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF\uD800-\uDFFF\u3040-\u309F\u30A0-\u30FF\uFF65-\uFF9F]+/g;
+
+  for (const line of lines) {
+    if (line.kind !== 'target') continue;
+
+    const body = line.body;
+
+    // 假名残留
+    let match: RegExpExecArray | null;
+    while ((match = kanaRe.exec(body)) !== null) {
+      result.push({
+        from: line.bodyFrom + match.index,
+        to: line.bodyFrom + match.index + match[0].length,
+        severity: 'warning',
+        message: MESSAGE,
+      });
+    }
+
+    // 英语夹生
+    while ((match = englishRe.exec(body)) !== null) {
+      result.push({
+        from: line.bodyFrom + match.index,
+        to: line.bodyFrom + match.index + match[0].length,
+        severity: 'warning',
+        message: MESSAGE,
+      });
+    }
+
+    // 其他非汉字字符
+    while ((match = suspiciousRe.exec(body)) !== null) {
+      result.push({
+        from: line.bodyFrom + match.index,
+        to: line.bodyFrom + match.index + match[0].length,
+        severity: 'warning',
+        message: MESSAGE,
+      });
+    }
+  }
+
+  return result;
 }
 
 function findAllOccurrences(content: string, query: string): Array<{ from: number; to: number }> {
